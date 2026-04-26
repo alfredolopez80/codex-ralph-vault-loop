@@ -2,9 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2> /dev/null || true)"
+CALLER_PWD="${PWD:-.}"
+REPO_ROOT="$(git -C "$CALLER_PWD" rev-parse --show-toplevel 2> /dev/null || true)"
 if [[ -z "$REPO_ROOT" ]]; then
-  REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+  REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2> /dev/null || true)"
+fi
+if [[ -z "$REPO_ROOT" ]]; then
+  printf 'oracle_safe_consult: run this wrapper from inside the target git repository\n' >&2
+  exit 1
 fi
 
 usage() {
