@@ -195,9 +195,9 @@ def schema_args(tool: str, schema: dict[str, Any]) -> dict[str, Any]:
         elif lname == "temperature":
             args[name] = 0.1
         elif lname in {"image_url", "image", "input_image", "image_path", "image_source"}:
-            args[name] = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Placeholder_view_vector.svg/320px-Placeholder_view_vector.svg.png"
+            args[name] = "/tmp/mcp-audit-image.png"
         elif lname in {"expected_image_source", "actual_image_source"}:
-            args[name] = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Placeholder_view_vector.svg/320px-Placeholder_view_vector.svg.png"
+            args[name] = "/tmp/mcp-audit-image.png"
         elif lname in {"video_source", "video_url", "video"}:
             args[name] = "https://filesamples.com/samples/video/mp4/sample_640x360.mp4"
         elif lname in {"output_type"}:
@@ -309,6 +309,13 @@ async def single_call(server_name: str, tool_name: str, timeout: int) -> dict[st
     if tool is None:
         raise RuntimeError(f"tool not found on {server_name}: {tool_name}")
     args = schema_args(tool.name, tool.inputSchema or {})
+    override_image = os.environ.get("MCP_AUDIT_IMAGE_SOURCE")
+    if override_image:
+        for key in ("image_source", "expected_image_source", "actual_image_source"):
+            if key in args:
+                args[key] = override_image
+    if server_name == "minimax_coding_tools" and tool_name == "understand_image":
+        args["image_source"] = override_image or "https://placehold.co/320x180/png?text=MCP"
     result = await call_tool(server, tool.name, args, timeout=timeout)
     return scrub(result.__dict__)
 
@@ -369,6 +376,7 @@ async def main() -> None:
         help="Run JSONL smoke tests with one line per tool.",
     )
     parser.add_argument("--skip-tool", action="append", default=[])
+    parser.add_argument("--only-server", action="append", default=[])
     args = parser.parse_args()
     if args.schemas:
         print(json.dumps(scrub(await list_schemas()), indent=2, ensure_ascii=False))
@@ -399,6 +407,8 @@ async def main() -> None:
             selected = official
         elif args.suite == "router":
             selected = router
+        if args.only_server:
+            selected = set(args.only_server)
         await suite(selected, args.timeout, set(args.skip_tool))
         return
     raise SystemExit("Use --schemas or --smoke")
