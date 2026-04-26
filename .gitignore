@@ -8,6 +8,7 @@
 .DS_Store
 *.swp
 *.swo
+__pycache__/
 .idea/
 .vscode/
 
@@ -15,6 +16,7 @@
 .env
 .env.local
 *.local
+.venv-model-router/
 
 # Codex session artifacts (if accidentally created in repo)
 .codex/sessions/
