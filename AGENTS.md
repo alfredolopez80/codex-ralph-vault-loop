@@ -123,6 +123,57 @@ The orchestrator decides routing based on task type, **not** based on a "complex
 tier" mapped to a model. This is a deliberate departure from `multi-agent-ralph-loop`,
 which switched the entire orchestrator model based on complexity.
 
+## Oracle / ChatGPT Pro second opinion
+
+Use `$oracle-pro-debugger` only when:
+
+- the user explicitly asks to consult Oracle, ChatGPT Pro, GPT Pro, or another external model;
+- a failure remains unclear after local inspection;
+- debugging requires independent review;
+- architecture, security, or migration assumptions need cross-validation.
+
+Before invoking Oracle:
+
+- inspect locally first;
+- form a concrete hypothesis;
+- choose the smallest useful file set;
+- use `--print-command` or `ORACLE_NO_EXEC=1` when validating the wrapper without executing `npx` or Oracle;
+- run the wrapper in dry-run mode first;
+- require the local content scan to pass before any Oracle invocation;
+- review the files report;
+- never attach secrets, credentials, private keys, wallets, cookies, certificates, `.env` files, production configs, or unsanitized logs;
+- ask for explicit user approval before any real external run;
+- use browser/manual-login mode by default for ChatGPT Pro;
+- use API mode only with explicit approval because it may incur cost;
+- require explicit approval for any `ORACLE_NPM_PACKAGE_VERSION` override from the pinned default;
+- treat Oracle output as advisory and verify with tests, typecheck, lint, reproduction steps, or code review.
+
+Forbidden file patterns for Oracle context:
+
+- `**/.env`
+- `**/.env.*`
+- `**/*.pem`
+- `**/*.key`
+- `**/id_rsa`
+- `**/id_ed25519`
+- `**/*secret*`
+- `**/*token*`
+- `**/*credential*`
+- `**/*wallet*`
+- `**/*keystore*`
+- `**/cookies*`
+- `**/*.log` unless sanitized
+
+Expected flow:
+
+1. Local analysis.
+2. Minimal context selection.
+3. Local no-exec validation with `--print-command` when needed.
+4. Dry-run with files report.
+5. User approval.
+6. Real Oracle run only if approved.
+7. Local verification of Oracle's recommendation.
+
 ## Technical Diagram Generation
 
 This overlay expects the global Codex skill `fireworks-tech-graph` to be installed

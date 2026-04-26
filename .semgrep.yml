@@ -1,0 +1,28 @@
+rules:
+  - id: generic-secret-assignment
+    message: "Potential secret assignment. Do not commit credentials, tokens, API keys, passwords, or private keys."
+    severity: ERROR
+    languages: [generic]
+    patterns:
+      - pattern-regex: '(?i)\b(api[_-]?key|secret|token|password|private[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["'']?[^"''\s]{8,}'
+
+  - id: authorization-bearer-value
+    message: "Potential Authorization/Bearer credential. Remove or sanitize before committing."
+    severity: ERROR
+    languages: [generic]
+    patterns:
+      - pattern-regex: '(?i)\bauthorization\s*:\s*bearer\s+[A-Za-z0-9._~+/-]{12,}'
+
+  - id: private-key-block
+    message: "Private key material must never be committed."
+    severity: ERROR
+    languages: [generic]
+    patterns:
+      - pattern-regex: "-----BEGIN (OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----"
+
+  - id: jwt-looking-value
+    message: "JWT-looking value detected. Confirm this is sanitized test data before committing."
+    severity: ERROR
+    languages: [generic]
+    patterns:
+      - pattern-regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b'

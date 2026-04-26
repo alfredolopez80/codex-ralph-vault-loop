@@ -1,0 +1,14 @@
+interface:
+  display_name: "Oracle Pro Debugger"
+  short_description: "Safe Oracle CLI second opinions"
+  default_prompt: "Use $oracle-pro-debugger to prepare a safe dry-run second-opinion request for a difficult debugging problem."
+
+requirements:
+  local_shell: true
+  local_wrapper: "./scripts/oracle_safe_consult.sh"
+  external_cli: "Oracle CLI via pinned npx package"
+
+policy:
+  allow_implicit_invocation: true
+  requires_dry_run: true
+  requires_explicit_approval_for_external_send: true
