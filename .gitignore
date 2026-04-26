@@ -1,0 +1,22 @@
+# Session-scoped runtime artifacts (not part of the overlay spec)
+.claude/logs/
+.claude/quality-results/
+.claude/plan-state.json
+.claude/progress.md
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local overrides (user-specific)
+.env
+.env.local
+*.local
+
+# Codex session artifacts (if accidentally created in repo)
+.codex/sessions/
+.codex/cache/
+.codex/log/
