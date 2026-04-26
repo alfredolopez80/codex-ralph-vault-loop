@@ -132,6 +132,7 @@ codex agent spawn ralph-coder ralph-tester    # parallel spawn
 ├── AGENTS.md                            ← user-global instructions
 ├── config.toml                          ← features.multi_agent, agents.max_threads, profiles
 ├── agents/<name>.toml                   ← agent definitions (TOML)
+├── skills/<name>/                       ← global Codex skills
 └── hooks/                               ← lifecycle hooks (symlinked from this repo)
 
 codex-ralph-vault-loop/                  ← this repo (project overlay)
@@ -152,6 +153,45 @@ codex-ralph-vault-loop/                  ← this repo (project overlay)
 ├── ledgers/                             ← session ledgers
 └── handoffs/                            ← session handoffs
 ```
+
+Global skills installed for this overlay are tracked in
+[`docs/codex-global-skills.md`](./docs/codex-global-skills.md).
+
+## Technical Diagram Skill
+
+This overlay uses the global Codex skill
+[`fireworks-tech-graph`](https://github.com/yizhiyanhua-ai/fireworks-tech-graph)
+for technical diagrams. It is installed under
+`~/.codex/skills/fireworks-tech-graph` and should be used when a user asks Codex
+or Codex App to create architecture, RAG, data-flow, sequence, workflow,
+state-machine, agent/tool, or concept diagrams.
+
+The skill provides 7 visual styles and 10 SVG template families. For architecture
+work, start from the system semantics:
+
+| Need | Recommended template/style |
+|---|---|
+| OpenAI-style service architecture | `architecture` + style 7 |
+| RAG retrieval or ingestion flow | `data-flow` or `architecture` + style 7 |
+| Multi-agent architecture | `agent-architecture` + style 1 or 7 |
+| Ordered API interactions | `sequence` |
+| Decisions, retries, approvals, lifecycle states | `flowchart` or `state-machine` |
+
+Generated diagrams in this repo should keep the editable JSON source beside the
+rendered SVG and PNG:
+
+```text
+docs/diagrams/<name>.json
+docs/diagrams/<name>.svg
+docs/diagrams/<name>.png
+```
+
+Example generated with the skill:
+
+![RAG System Architecture](./docs/diagrams/rag-openai-architecture.png)
+
+Details, update commands, and verification steps are documented in
+[`docs/codex-global-skills.md`](./docs/codex-global-skills.md).
 
 ## The 6 Teammates
 

@@ -1,0 +1,414 @@
+{
+  "template_type": "architecture",
+  "style": 7,
+  "width": 1180,
+  "height": 900,
+  "title": "RAG System Architecture",
+  "subtitle": "OpenAI-style retrieval augmented generation flow with ingestion, retrieval, model orchestration, and observability",
+  "containers": [
+    {
+      "x": 40,
+      "y": 118,
+      "width": 1100,
+      "height": 116,
+      "label": "ENTRY",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 270,
+      "width": 1100,
+      "height": 150,
+      "label": "RETRIEVAL + CONTEXT",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 456,
+      "width": 1100,
+      "height": 150,
+      "label": "KNOWLEDGE INGESTION",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 636,
+      "width": 1100,
+      "height": 110,
+      "label": "OPERATIONS",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "user",
+      "kind": "user_avatar",
+      "x": 86,
+      "y": 144,
+      "width": 144,
+      "height": 64,
+      "label": "User",
+      "type_label": "QUERY",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "app",
+      "kind": "rect",
+      "x": 280,
+      "y": 144,
+      "width": 164,
+      "height": 64,
+      "label": "Application",
+      "type_label": "CLIENT",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "gateway",
+      "kind": "double_rect",
+      "x": 490,
+      "y": 140,
+      "width": 184,
+      "height": 72,
+      "label": "API Gateway",
+      "type_label": "POLICY",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "orchestrator",
+      "kind": "hexagon",
+      "x": 720,
+      "y": 136,
+      "width": 184,
+      "height": 80,
+      "label": "RAG Orchestrator",
+      "type_label": "CONTROL",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "query",
+      "kind": "rect",
+      "x": 92,
+      "y": 318,
+      "width": 190,
+      "height": 64,
+      "label": "Query Rewrite",
+      "type_label": "PROMPT",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "embed",
+      "kind": "double_rect",
+      "x": 348,
+      "y": 312,
+      "width": 202,
+      "height": 76,
+      "label": "Embedding Model",
+      "type_label": "VECTORIZE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "vector",
+      "kind": "cylinder",
+      "x": 620,
+      "y": 302,
+      "width": 174,
+      "height": 96,
+      "label": "Vector Store",
+      "type_label": "INDEX",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "context",
+      "kind": "document",
+      "x": 870,
+      "y": 312,
+      "width": 206,
+      "height": 76,
+      "label": "Context Builder",
+      "type_label": "RANK + PACK",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "sources",
+      "kind": "folder",
+      "x": 84,
+      "y": 500,
+      "width": 190,
+      "height": 68,
+      "label": "Source Docs",
+      "type_label": "FILES + WEB",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "chunker",
+      "kind": "rect",
+      "x": 340,
+      "y": 500,
+      "width": 196,
+      "height": 68,
+      "label": "Chunk + Clean",
+      "type_label": "PIPELINE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "embed_ingest",
+      "kind": "double_rect",
+      "x": 604,
+      "y": 496,
+      "width": 210,
+      "height": 76,
+      "label": "Batch Embeddings",
+      "type_label": "INGEST",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "metadata",
+      "kind": "cylinder",
+      "x": 890,
+      "y": 492,
+      "width": 166,
+      "height": 86,
+      "label": "Metadata DB",
+      "type_label": "CITATIONS",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "llm",
+      "kind": "double_rect",
+      "x": 944,
+      "y": 140,
+      "width": 170,
+      "height": 70,
+      "label": "LLM Runtime",
+      "type_label": "ANSWER",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "obs",
+      "kind": "rect",
+      "x": 96,
+      "y": 682,
+      "width": 214,
+      "height": 46,
+      "label": "Observability",
+      "type_label": "TRACES",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "evals",
+      "kind": "rect",
+      "x": 390,
+      "y": 682,
+      "width": 194,
+      "height": 46,
+      "label": "Evals",
+      "type_label": "QUALITY",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "guardrails",
+      "kind": "rect",
+      "x": 664,
+      "y": 682,
+      "width": 198,
+      "height": 46,
+      "label": "Guardrails",
+      "type_label": "SAFETY",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    }
+  ],
+  "arrows": [
+    {
+      "source": "user",
+      "target": "app",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control",
+      "label": "ask"
+    },
+    {
+      "source": "app",
+      "target": "gateway",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "gateway",
+      "target": "orchestrator",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "orchestrator",
+      "target": "query",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "plan retrieval",
+      "route_points": [[812,246], [187,246], [187,318]]
+    },
+    {
+      "source": "query",
+      "target": "embed",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "read",
+      "label": "query text"
+    },
+    {
+      "source": "embed",
+      "target": "vector",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "read",
+      "label": "similarity"
+    },
+    {
+      "source": "vector",
+      "target": "context",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "data",
+      "label": "top-k chunks"
+    },
+    {
+      "source": "context",
+      "target": "llm",
+      "source_port": "top",
+      "target_port": "bottom",
+      "flow": "control",
+      "label": "grounded prompt",
+      "route_points": [[1006,246], [1029,246]]
+    },
+    {
+      "source": "llm",
+      "target": "app",
+      "source_port": "top",
+      "target_port": "top",
+      "flow": "feedback",
+      "label": "answer",
+      "route_points": [[1029,106], [362,106]]
+    },
+    {
+      "source": "sources",
+      "target": "chunker",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "data",
+      "label": "documents"
+    },
+    {
+      "source": "chunker",
+      "target": "embed_ingest",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "chunks"
+    },
+    {
+      "source": "embed_ingest",
+      "target": "vector",
+      "source_port": "top",
+      "target_port": "bottom",
+      "flow": "write",
+      "label": "vectors"
+    },
+    {
+      "source": "chunker",
+      "target": "metadata",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "metadata",
+      "dashed": true,
+      "route_points": [[560,590], [870,590]]
+    },
+    {
+      "source": "metadata",
+      "target": "context",
+      "source_port": "top",
+      "target_port": "bottom",
+      "flow": "read",
+      "label": "citations"
+    },
+    {
+      "source": "orchestrator",
+      "target": "obs",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "feedback",
+      "dashed": true,
+      "route_points": [[840,246], [840,622], [203,622], [203,682]]
+    },
+    {
+      "source": "obs",
+      "target": "evals",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback"
+    },
+    {
+      "source": "evals",
+      "target": "guardrails",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    }
+  ],
+  "legend": [
+    {
+      "flow": "control",
+      "label": "Request and orchestration"
+    },
+    {
+      "flow": "read",
+      "label": "Retrieval reads"
+    },
+    {
+      "flow": "write",
+      "label": "Index writes"
+    },
+    {
+      "flow": "data",
+      "label": "Knowledge payload"
+    },
+    {
+      "flow": "feedback",
+      "label": "Response and telemetry"
+    }
+  ],
+  "legend_position": "bottom-right",
+  "legend_y": 776,
+  "footer": "RAG = Retrieval Augmented Generation"
+}

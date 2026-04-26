@@ -123,6 +123,43 @@ The orchestrator decides routing based on task type, **not** based on a "complex
 tier" mapped to a model. This is a deliberate departure from `multi-agent-ralph-loop`,
 which switched the entire orchestrator model based on complexity.
 
+## Technical Diagram Generation
+
+This overlay expects the global Codex skill `fireworks-tech-graph` to be installed
+under `~/.codex/skills/fireworks-tech-graph`. Use it whenever the user asks to
+draw, generate, visualize, or export a technical diagram, especially architecture,
+RAG, data-flow, sequence, agent/tool, workflow, state-machine, or concept diagrams.
+
+For diagram requests:
+
+1. Prefer `fireworks-tech-graph` over ad hoc Mermaid or hand-written SVG unless
+   the user explicitly requests a different format.
+2. Choose the diagram type from the system semantics first, then choose a visual
+   style. Style 7 is the OpenAI-style default; style 1 is the neutral fallback.
+3. Generate an editable JSON source next to the rendered assets when the output
+   belongs in this repo.
+4. Validate with `scripts/validate-svg.sh` and export PNG with `rsvg-convert`.
+5. Report the SVG, PNG, and editable JSON paths.
+
+Current inventory:
+
+| Category | Options |
+|---|---|
+| Visual styles | 1 flat-icon, 2 dark-terminal, 3 blueprint, 4 notion-clean, 5 glassmorphism, 6 claude-official, 7 openai |
+| Architecture-friendly templates | `architecture`, `agent-architecture`, `data-flow`, `flowchart`, `sequence`, `state-machine`, `timeline`, `comparison-matrix`, `er-diagram`, `use-case` |
+
+Selection guide:
+
+- OpenAI-style system architecture: `architecture` + style 7.
+- RAG, embedding, retrieval, context, or ingestion pipelines: `data-flow` or
+  `architecture` + style 7.
+- Multi-agent systems: `agent-architecture` + style 1 or 7.
+- API call order: `sequence`.
+- Approval/retry/state lifecycles: `flowchart` or `state-machine`.
+
+See `docs/codex-global-skills.md` for installation, update, verification, and the
+generated RAG example under `docs/diagrams/`.
+
 ## Parallel-First Execution (MANDATORY)
 
 All independent tasks **MUST** be executed in parallel using Codex's `[features] multi_agent = true`.

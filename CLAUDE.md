@@ -38,6 +38,10 @@ ls ~/.codex/agents/
 
 # Run a Codex agent
 codex agent run <agent-name>
+
+# Verify the global technical diagram skill
+test -f ~/.codex/skills/fireworks-tech-graph/SKILL.md
+bash ~/.codex/skills/fireworks-tech-graph/scripts/test-all-styles.sh
 ```
 
 ## Architecture
@@ -80,6 +84,42 @@ is the **single source of truth** — both Codex and Claude Code read the same f
 | Multi-model routing | per-task model swap (Opus / Sonnet / GLM) | **MCP Router only** — orchestrator is always OpenAI; non-OpenAI models invoked as MCP tools. `[model_providers.zai]` / `[model_providers.minimax]` are inert in Codex (verified). |
 
 See `AGENTS.md` § *Mapping: Claude Code → Codex CLI* for the full table.
+
+### Technical Diagram Generation
+
+Codex CLI and Codex App should use the globally installed
+`fireworks-tech-graph` skill for technical diagrams. The skill lives at
+`~/.codex/skills/fireworks-tech-graph` and is the default choice for architecture,
+RAG, data-flow, sequence, agent/tool, workflow, state-machine, and concept
+diagrams.
+
+When a user asks for a diagram:
+
+- Prefer `fireworks-tech-graph` over ad hoc Mermaid or raw SVG unless a different
+  format is explicitly requested.
+- Pick the diagram template from the semantics first, then pick the style.
+- Use style 7 for OpenAI-style diagrams and style 1 as the neutral fallback.
+- Keep editable JSON source next to generated SVG and PNG when writing into this
+  repo.
+- Validate SVGs with the skill's `scripts/validate-svg.sh` and export PNGs with
+  `rsvg-convert`.
+
+Architecture-oriented choices:
+
+| Need | Recommended template/style |
+|---|---|
+| General service architecture | `architecture` + style 7 |
+| RAG retrieval, embeddings, ingestion, context building | `data-flow` or `architecture` + style 7 |
+| Agentic architecture | `agent-architecture` + style 1 or 7 |
+| API call order | `sequence` |
+| Decisions, retries, approvals, state transitions | `flowchart` or `state-machine` |
+
+The installed skill currently has 7 visual styles and 10 template families:
+`architecture`, `agent-architecture`, `data-flow`, `flowchart`, `sequence`,
+`state-machine`, `timeline`, `comparison-matrix`, `er-diagram`, and `use-case`.
+
+Local documentation: `docs/codex-global-skills.md`.
+Example output: `docs/diagrams/rag-openai-architecture.{json,svg,png}`.
 
 ## Operational Rules (apply in any runtime)
 
