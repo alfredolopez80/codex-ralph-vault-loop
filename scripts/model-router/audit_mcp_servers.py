@@ -313,7 +313,7 @@ async def single_call(server_name: str, tool_name: str, timeout: int) -> dict[st
     return scrub(result.__dict__)
 
 
-async def suite(server_names: set[str] | None, timeout: int) -> None:
+async def suite(server_names: set[str] | None, timeout: int, skip_tools: set[str] | None = None) -> None:
     schema_report = await list_schemas()
     for server_name, report in schema_report.items():
         if server_names and server_name not in server_names:
@@ -336,6 +336,22 @@ async def suite(server_names: set[str] | None, timeout: int) -> None:
             )
             continue
         for tool in report.get("tools", []):
+            if skip_tools and tool["name"] in skip_tools:
+                print(
+                    json.dumps(
+                        {
+                            "server": server_name,
+                            "tool": tool["name"],
+                            "ok": None,
+                            "elapsed_ms": 0,
+                            "detail": "skipped by audit filter",
+                            "error": "",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+                continue
             result = await single_call(server_name, tool["name"], timeout)
             print(json.dumps(result, ensure_ascii=False), flush=True)
 
@@ -352,6 +368,7 @@ async def main() -> None:
         choices=["official", "router", "all"],
         help="Run JSONL smoke tests with one line per tool.",
     )
+    parser.add_argument("--skip-tool", action="append", default=[])
     args = parser.parse_args()
     if args.schemas:
         print(json.dumps(scrub(await list_schemas()), indent=2, ensure_ascii=False))
@@ -382,7 +399,7 @@ async def main() -> None:
             selected = official
         elif args.suite == "router":
             selected = router
-        await suite(selected, args.timeout)
+        await suite(selected, args.timeout, set(args.skip_tool))
         return
     raise SystemExit("Use --schemas or --smoke")
 
