@@ -11,9 +11,8 @@ GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
 
 
 def hook_config() -> dict:
-    wakeup = REPO / "scripts" / "memory" / "wakeup.py"
+    hooks = REPO / ".codex" / "hooks"
     slop = REPO / "scripts" / "gates" / "codex_stop_slop_guard.py"
-    handoff = REPO / "scripts" / "memory" / "handoff.py"
     return {
         "version": 1,
         "hooks": {
@@ -22,9 +21,47 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {wakeup}",
+                            "command": f"python3 {hooks / 'session_start_wakeup.py'}",
                             "timeout": 20,
                         }
+                    ]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"python3 {hooks / 'user_prompt_capture.py'}",
+                            "timeout": 10,
+                        }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"python3 {hooks / 'pre_tool_guard.py'}",
+                            "timeout": 10,
+                        }
+                    ]
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"python3 {hooks / 'post_tool_extract_memory.py'}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {hooks / 'post_tool_cost_ledger.py'}",
+                            "timeout": 10,
+                        },
                     ]
                 }
             ],
@@ -38,7 +75,7 @@ def hook_config() -> dict:
                         },
                         {
                             "type": "command",
-                            "command": f"python3 {handoff} --from-hook",
+                            "command": f"python3 {hooks / 'stop_persist_memory.py'}",
                             "timeout": 20,
                         },
                     ]

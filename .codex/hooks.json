@@ -1,6 +1,55 @@
 {
   "version": 1,
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/session_start_wakeup.py",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/user_prompt_capture.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/pre_tool_guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/post_tool_extract_memory.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/post_tool_cost_ledger.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -8,6 +57,11 @@
             "type": "command",
             "command": "python3 scripts/gates/codex_stop_slop_guard.py",
             "timeout": 45
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/stop_persist_memory.py",
+            "timeout": 20
           }
         ]
       }
