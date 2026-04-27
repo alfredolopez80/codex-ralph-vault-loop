@@ -58,6 +58,7 @@
 - Before starting a migration phase, read the previous checkpoint in `docs/migration/checkpoints/`.
 - If the previous checkpoint is missing or not `PASS`, stop.
 - Implement only the current phase scope.
+- From Phase 07 onward, every phase that changes runtime behavior must include a global activation path for Codex App/CLI sessions, or explicitly document why the phase is repo-only.
 - Do not copy vault data.
 - Do not copy or print secrets.
 - Create or update `docs/migration/checkpoints/PHASE_XX.md` with summary, validation, risks, and `PASS` or `FAIL`.

@@ -23,6 +23,8 @@ The manual flow was run with a temporary `RALPH_HOME`: wakeup succeeded on empty
 
 Python syntax checks passed for all memory scripts. Secret scans over `scripts/memory`, `tests/unit`, and this checkpoint returned no findings. Direct provider scans found no Z.ai or MiniMax `model_provider` configuration.
 
+Global activation was validated after the phase commit. `~/.codex/hooks.json` now runs `wakeup.py` on `SessionStart`, then runs `codex_stop_slop_guard.py` and `handoff.py --from-hook` on `Stop`. The global Codex config has `codex_hooks = true`. `scripts/setup/install-global-hooks.py` records the install path for future machines.
+
 ## Risks
 
 Classification is deterministic and intentionally conservative. Future phases can add richer rule graduation and vault-index hydration while preserving the RED no-save boundary.
