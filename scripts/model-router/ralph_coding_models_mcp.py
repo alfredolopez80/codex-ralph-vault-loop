@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import os
-import re
+import sys
 import time
+from pathlib import Path
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -18,17 +19,11 @@ except Exception:
 
 mcp = FastMCP("ralph_coding_models")
 
-SECRET_PATTERNS = [
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}\b"),
-    re.compile(r"\bAIza[0-9A-Za-z_\-]{20,}\b"),
-    re.compile(r"\bghp_[0-9A-Za-z]{20,}\b"),
-    re.compile(r"\bgithub_pat_[0-9A-Za-z_]{20,}\b"),
-    re.compile(r"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b"),
-    re.compile(
-        r"(?i)\b(api[_-]?key|secret|token|password|private[_-]?key)\s*[:=]\s*[^\s]+"
-    ),
-]
+SECURITY_DIR = Path(__file__).resolve().parents[1] / "security"
+if str(SECURITY_DIR) not in sys.path:
+    sys.path.insert(0, str(SECURITY_DIR))
+
+from sensitive_content import is_red  # noqa: E402
 
 
 class ModelResult(BaseModel):
@@ -43,7 +38,7 @@ class ModelResult(BaseModel):
 
 
 def contains_secret(text: str) -> bool:
-    return any(pattern.search(text) for pattern in SECRET_PATTERNS)
+    return is_red(text)
 
 
 def guard(prompt: str, sensitivity: str) -> None:

@@ -66,6 +66,19 @@
       "rework_required": false,
       "latency_ms": 0,
       "externalized": false
+    },
+    {
+      "id": "secret-content-block",
+      "task_type": "code_review",
+      "complexity": 4,
+      "sensitivity": "GREEN",
+      "input_text": "api_key=fixture-value",
+      "expected_route": "codex_main_local",
+      "expected_tool": null,
+      "accepted": false,
+      "rework_required": false,
+      "latency_ms": 0,
+      "externalized": false
     }
   ],
   "mock_response": {

@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import argparse
 
-from _vault_common import iter_markdown_files, parse_frontmatter, vault_dir
+from _vault_common import iter_markdown_files, parse_frontmatter, sensitive_findings, vault_dir
 
 
 REQUIRED_FRONTMATTER = {"title", "classification", "scope", "hash", "created_at"}
-RED_MARKERS = ("api_key", "private key", "secret=", "password=", "token=")
 
 
 def main() -> int:
@@ -21,10 +20,8 @@ def main() -> int:
         missing = sorted(REQUIRED_FRONTMATTER - set(metadata))
         if missing:
             issues.append(f"{path}: missing frontmatter keys: {', '.join(missing)}")
-        lowered = text.lower()
-        for marker in RED_MARKERS:
-            if marker in lowered:
-                issues.append(f"{path}: possible RED marker: {marker}")
+        for finding in sensitive_findings(text):
+            issues.append(f"{path}: possible RED marker: {finding['label']}")
 
     if issues:
         print("\n".join(issues))

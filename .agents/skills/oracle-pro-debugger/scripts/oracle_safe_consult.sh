@@ -90,7 +90,7 @@ jwt-label|jwt[[:space:]]*[:=]
 secret-assignment|secret[[:space:]]*[:=]
 token-assignment|token[[:space:]]*[:=]
 password-assignment|password[[:space:]]*[:=]
-private-key-block|-----BEGIN (OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----
+private-key-block|-{5}BEGIN[[:space:]]+(OPENSSH[[:space:]]+|RSA[[:space:]]+|EC[[:space:]]+|DSA[[:space:]]+)?PRIVATE[[:space:]]+KEY-{5}
 jwt-looking-value|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+
 PATTERNS
 }

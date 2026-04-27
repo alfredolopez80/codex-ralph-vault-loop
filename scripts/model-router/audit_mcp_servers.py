@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -20,12 +19,11 @@ from mcp.client.streamable_http import streamablehttp_client
 
 
 REPO = Path("/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop")
+SECURITY_DIR = REPO / "scripts" / "security"
+if str(SECURITY_DIR) not in sys.path:
+    sys.path.insert(0, str(SECURITY_DIR))
 
-SECRET_PATTERNS = [
-    re.compile(r"sk-[A-Za-z0-9_\-]{10,}"),
-    re.compile(r"AIza[0-9A-Za-z_\-]{10,}"),
-    re.compile(r"[A-Za-z0-9]{20,}\.[A-Za-z0-9_\-]{8,}"),
-]
+from sensitive_content import redact_text  # noqa: E402
 
 
 def scrub(value: Any) -> Any:
@@ -35,9 +33,7 @@ def scrub(value: Any) -> Any:
         return [scrub(v) for v in value]
     if not isinstance(value, str):
         return value
-    text = value
-    for pattern in SECRET_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
+    text, _changed = redact_text(value)
     return text
 
 

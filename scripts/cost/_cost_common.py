@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 import os
-import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+SECURITY_DIR = Path(__file__).resolve().parents[1] / "security"
+if str(SECURITY_DIR) not in sys.path:
+    sys.path.insert(0, str(SECURITY_DIR))
+
+from sensitive_content import classify_text, redact_text as redact_sensitive_text  # noqa: E402
 
 
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
@@ -13,12 +20,6 @@ SENSITIVITIES = {"GREEN", "YELLOW", "RED"}
 FAST_TASKS = {"log_summary", "diff_summary", "test_ideas", "logs", "diffs"}
 OPENCLAW_TASKS = {"openclaw", "openclaw_like", "command_following", "small_agentic"}
 DEEP_TASKS = {"architecture_counterpart", "architecture", "debugging", "design_review", "failure_analysis"}
-
-
-SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]\s*['\"]?[^'\"\s]+"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
-]
 
 
 def now_iso() -> str:
@@ -44,12 +45,15 @@ def normalize_complexity(value: int | str) -> int:
 
 
 def redact_text(text: str) -> tuple[str, bool]:
-    changed = False
-    redacted = text
-    for pattern in SECRET_PATTERNS:
-        redacted, count = pattern.subn("[REDACTED]", redacted)
-        changed = changed or count > 0
-    return redacted, changed
+    return redact_sensitive_text(text)
+
+
+def redaction_report(text: str) -> dict[str, Any]:
+    report = classify_text(text)
+    payload = report.public_dict()
+    payload["redacted"] = report.redacted_text
+    payload["allowed_external"] = report.classification != "RED"
+    return payload
 
 
 def estimate_context(text: str) -> dict[str, int]:
@@ -59,24 +63,36 @@ def estimate_context(text: str) -> dict[str, int]:
     return {"chars": chars, "words": words, "estimated_tokens": estimated_tokens}
 
 
-def route_task(task_type: str, complexity: int | str, sensitivity: str) -> dict[str, Any]:
+def blocked_route(task: str, level: int, sens: str, reason: str, findings: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    return {
+        "allowed": False,
+        "blocked": True,
+        "reason": reason,
+        "route": "codex_main_local",
+        "tool": None,
+        "model": None,
+        "requires_codex_synthesis": True,
+        "sensitivity": "RED" if sens == "RED" or findings else sens,
+        "complexity": level,
+        "task_type": task,
+        "sensitive_findings": findings or [],
+    }
+
+
+def route_task(task_type: str, complexity: int | str, sensitivity: str, text: str | None = None) -> dict[str, Any]:
     task = task_type.strip().lower().replace("-", "_")
     level = normalize_complexity(complexity)
     sens = normalize_sensitivity(sensitivity)
+    sensitivity_scan = classify_text(text or "", sens)
 
-    if sens == "RED":
-        return {
-            "allowed": False,
-            "blocked": True,
-            "reason": "RED content must stay local and cannot be externalized.",
-            "route": "codex_main_local",
-            "tool": None,
-            "model": None,
-            "requires_codex_synthesis": True,
-            "sensitivity": sens,
-            "complexity": level,
-            "task_type": task,
-        }
+    if sens == "RED" or sensitivity_scan.classification == "RED":
+        return blocked_route(
+            task,
+            level,
+            sens,
+            "RED content must stay local and cannot be externalized.",
+            [finding.public_dict() for finding in sensitivity_scan.findings],
+        )
 
     if level <= 2:
         if task in OPENCLAW_TASKS:
@@ -107,6 +123,7 @@ def route_task(task_type: str, complexity: int | str, sensitivity: str) -> dict[
         "sensitivity": sens,
         "complexity": level,
         "task_type": task,
+        "sensitive_findings": [],
         "mcps": [
             "ralph_coding_models",
             "zai_web_search",

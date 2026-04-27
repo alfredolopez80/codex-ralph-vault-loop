@@ -5,10 +5,10 @@ import argparse
 
 from _vault_common import (
     content_hash,
+    classify_note,
     default_agent,
     default_project,
     init_vault,
-    normalize_classification,
     note_path,
     render_note,
 )
@@ -24,14 +24,15 @@ def main() -> int:
     parser.add_argument("--title")
     args = parser.parse_args()
 
-    classification = normalize_classification(args.classification)
-    digest = content_hash(args.text)
+    classification, findings, safe_text = classify_note(args.text, args.classification)
 
     if classification == "RED":
-        print(f"VAULT_SAVE_SKIPPED_RED {digest}")
+        labels = ",".join(finding["label"] for finding in findings) if findings else "requested-red"
+        print(f"VAULT_SAVE_SKIPPED_RED findings={labels}")
         return 0
 
     init_vault(args.project, args.agent)
+    digest = content_hash(safe_text)
     path = note_path(classification, digest, args.project)
     if path.exists():
         print(f"VAULT_SAVE_DEDUP {path}")
@@ -39,7 +40,7 @@ def main() -> int:
 
     path.write_text(
         render_note(
-            text=args.text,
+            text=safe_text,
             classification=classification,
             project=args.project,
             agent=args.agent,

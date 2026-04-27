@@ -8,6 +8,8 @@ description: Route sanitized work to ralph_coding_models, official Z.ai MCPs, Mi
 
 Codex main owns decisions, file edits, synthesis, and verification. Z.ai and MiniMax are MCP-backed advisors or workers, never direct Codex `model_provider` backends.
 
+Before any MCP-backed route, scan the prompt/context for RED-sensitive material. API keys, JWTs, private keys, seed phrases, wallet material, OAuth tokens, database URLs, `.env` references, and customer-sensitive markers block externalization even if the caller requested GREEN or YELLOW.
+
 ## Tool Layers
 
 ### Ralph Coding Model MCP
@@ -32,7 +34,7 @@ Use `scripts/cost/route-task.py` for deterministic route selection before extern
 
 ## Forbidden
 
-Never use Z.ai or MiniMax for image generation, video generation, music generation, voice generation, voice cloning, TTS, secrets, private keys, wallet material, credentials, customer data, or RED-sensitive content.
+Never use Z.ai or MiniMax for image generation, video generation, music generation, voice generation, voice cloning, TTS, secrets, private keys, wallet material, credentials, customer data, database credentials, `.env` content, OAuth/JWT material, or RED-sensitive content.
 
 Image generation uses GPT Images 2 only.
 

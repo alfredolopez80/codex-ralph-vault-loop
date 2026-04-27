@@ -68,6 +68,24 @@ def test_coding_model_eval_mock_scores_routing_and_red_block(tmp_path: Path) -> 
     red_detail = [item for item in report["details"] if item["id"] == "red-block"][0]
     assert red_detail["blocked"] is True
     assert red_detail["externalized"] is False
+    secret_detail = [item for item in report["details"] if item["id"] == "secret-content-block"][0]
+    assert secret_detail["blocked"] is True
+    assert secret_detail["externalized"] is False
+
+
+def test_coding_model_eval_counts_sensitive_externalization_incident(tmp_path: Path) -> None:
+    live_response = tmp_path / "coding_live_response.json"
+    live_response.write_text(
+        json.dumps({"tasks": [{"id": "secret-content-block", "actual_route": "mcp_fast_coding", "externalized": True}]}),
+        encoding="utf-8",
+    )
+    output = tmp_path / "coding_incident.json"
+
+    result = run_script(str(CODING), "--mode", "live", "--live-response", str(live_response), "--output", str(output))
+
+    assert result.returncode == 0, result.stderr
+    report = load_output(output)
+    assert report["metrics"]["sensitive_externalization_incidents"] == 1
 
 
 def test_live_mode_without_bridge_records_skip(tmp_path: Path) -> None:

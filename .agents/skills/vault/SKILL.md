@@ -24,6 +24,8 @@ RED content is never externalized, never written to the vault, and never stored 
 
 Classify the content before saving anything. Keep RED local to the active Codex session. Write only sanitized GREEN or YELLOW summaries to `~/.ralph-codex` or the vault. Handoff notes should name the source paths, decisions, validations, and unresolved risks without embedding private content.
 
+Classification is content-aware. If a note requested as GREEN or YELLOW contains API keys, JWTs, private keys, seed phrases, wallet material, OAuth tokens, database URLs, `.env` references, or customer-sensitive markers, treat it as RED and skip persistence.
+
 ## Exit Criteria
 
 No secrets or raw vault data were written. Saved memory is classified and sanitized. The checkpoint explains the decision without needing private material.

@@ -18,7 +18,7 @@ rules:
     severity: ERROR
     languages: [generic]
     patterns:
-      - pattern-regex: "-----BEGIN (OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----"
+      - pattern-regex: "-{5}BEGIN[[:space:]]+(OPENSSH[[:space:]]+|RSA[[:space:]]+|EC[[:space:]]+|DSA[[:space:]]+)?PRIVATE[[:space:]]+KEY-{5}"
 
   - id: jwt-looking-value
     message: "JWT-looking value detected. Confirm this is sanitized test data before committing."

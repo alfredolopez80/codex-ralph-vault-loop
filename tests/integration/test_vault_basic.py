@@ -68,6 +68,12 @@ def test_vault_init_save_red_skip_and_search(tmp_path: Path) -> None:
     assert "VAULT_SAVE_SKIPPED_RED" in red.stdout
     assert red_text not in "\n".join(path.read_text() for path in tmp_path.rglob("*.md"))
 
+    disguised_red_text = "api_key" + "=fixture-value"
+    disguised_red = run_script("vault-save.py", tmp_path, "--classification", "GREEN", "--text", disguised_red_text)
+    assert disguised_red.returncode == 0, disguised_red.stderr
+    assert "VAULT_SAVE_SKIPPED_RED" in disguised_red.stdout
+    assert disguised_red_text not in "\n".join(path.read_text() for path in tmp_path.rglob("*.md"))
+
     search = run_script("vault-search.py", tmp_path, "Cost-router")
     assert search.returncode == 0, search.stderr
     assert "Cost-router decides before external delegation." in search.stdout

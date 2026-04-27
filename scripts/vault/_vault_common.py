@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -13,6 +14,11 @@ DEFAULT_VAULT_DIR = Path("~/Documents/Obsidian/MiVault").expanduser()
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_SOURCE_DIR = REPO_ROOT / "templates" / "vault"
 CLASSIFICATIONS = {"GREEN", "YELLOW", "RED"}
+SECURITY_DIR = REPO_ROOT / "scripts" / "security"
+if str(SECURITY_DIR) not in sys.path:
+    sys.path.insert(0, str(SECURITY_DIR))
+
+from sensitive_content import classify_text, redact_text as redact_sensitive_text  # noqa: E402
 
 
 def vault_dir() -> Path:
@@ -39,6 +45,16 @@ def normalize_classification(value: str) -> str:
     if classification not in CLASSIFICATIONS:
         raise ValueError(f"classification must be one of {sorted(CLASSIFICATIONS)}")
     return classification
+
+
+def classify_note(text: str, requested: str) -> tuple[str, list[dict[str, str]], str]:
+    report = classify_text(text, requested)
+    return report.classification, [finding.public_dict() for finding in report.findings], report.redacted_text
+
+
+def sensitive_findings(text: str) -> list[dict[str, str]]:
+    report = classify_text(text)
+    return [finding.public_dict() for finding in report.findings]
 
 
 def content_hash(text: str) -> str:

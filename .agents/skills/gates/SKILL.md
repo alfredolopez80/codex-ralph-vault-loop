@@ -28,6 +28,8 @@ If `slop-guard` is not installed or not configured, do a manual prose review and
 
 Project work must have no literal API keys, no direct Z.ai or MiniMax `model_provider` entries, and no private vault data. Every required skill must have a `SKILL.md` with `name` and `description` frontmatter. The previous checkpoint must be PASS before the next phase starts. The orchestrator must enforce `slop-guard` as the strong prose-quality gate.
 
+Security hardening gates must include content-sensitive fixtures for API keys, JWTs, private keys, seed phrases, wallet material, OAuth tokens, database URLs, `.env` references, and customer-sensitive markers. RED must not persist to vault/runtime reports and must not externalize to MCPs. Coding model evals must keep `sensitive_externalization_incidents` at zero.
+
 ## Decision
 
 A phase can be PASS only when all blocking gates pass or have a documented safe fallback.

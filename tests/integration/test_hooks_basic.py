@@ -46,6 +46,14 @@ def test_pre_tool_guard_blocks_destructive_command(tmp_path: Path) -> None:
     assert "git reset" not in payload["reason"]
 
 
+def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": "cat .env"}})
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert ".env" not in payload["reason"]
+
+
 def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
     memory = run_hook(
         "post_tool_extract_memory.py",
@@ -58,6 +66,14 @@ def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
     cost = run_hook("post_tool_cost_ledger.py", tmp_path, {"tool_name": "exec_command", "success": True})
     assert cost.returncode == 0, cost.stderr
     assert (tmp_path / "cost" / "tool-ledger.jsonl").is_file()
+
+
+def test_post_tool_memory_skips_red_output(tmp_path: Path) -> None:
+    red_text = "Validated decision with " + "api_key" + "=fixture-value"
+    memory = run_hook("post_tool_extract_memory.py", tmp_path, {"output": red_text})
+
+    assert memory.returncode == 0, memory.stderr
+    assert not list((tmp_path / "ledgers").glob("learning-*.md"))
 
 
 def test_stop_hook_creates_handoff_without_red(tmp_path: Path) -> None:

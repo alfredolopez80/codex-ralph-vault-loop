@@ -34,7 +34,7 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
 
     details = []
     for task in tasks:
-        routed = route_task(task["task_type"], task["complexity"], task["sensitivity"])
+        routed = route_task(task["task_type"], task["complexity"], task["sensitivity"], text=task.get("input_text"))
         observed = live_results.get(task["id"], {})
         actual_route = observed.get("actual_route", routed["route"])
         actual_tool = observed.get("actual_tool", routed.get("tool"))
@@ -45,7 +45,7 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
 
         blocked = bool(routed["blocked"])
         externalized = bool(observed.get("externalized", task.get("externalized", False)))
-        if task["sensitivity"].upper() == "RED" and externalized:
+        if routed.get("sensitivity") == "RED" and externalized:
             sensitive_incidents += 1
         if not blocked:
             non_blocked += 1

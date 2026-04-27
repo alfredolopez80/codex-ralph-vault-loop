@@ -60,12 +60,36 @@ def test_route_task_red_blocks_externalization() -> None:
     assert data["tool"] is None
 
 
-def test_redact_for_external_removes_secret_like_values() -> None:
+def test_route_task_blocks_green_content_with_secret_marker() -> None:
+    text = "api_key" + "=fixture-value"
+    result = run_script(
+        "route-task.py",
+        "--task-type",
+        "code_review",
+        "--complexity",
+        "4",
+        "--sensitivity",
+        "green",
+        "--text",
+        text,
+    )
+    assert result.returncode == 1
+    data = json.loads(result.stdout)
+    assert data["blocked"] is True
+    assert data["sensitivity"] == "RED"
+    assert data["tool"] is None
+    assert text not in result.stdout
+    assert data["sensitive_findings"]
+
+
+def test_redact_for_external_removes_and_blocks_secret_like_values() -> None:
     text = "secret" + "=abc123"
     result = run_script("redact-for-external.py", "--json", "--text", text)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
     data = json.loads(result.stdout)
     assert data["changed"] is True
+    assert data["allowed_external"] is False
+    assert data["classification"] == "RED"
     assert text not in data["redacted"]
 
 
