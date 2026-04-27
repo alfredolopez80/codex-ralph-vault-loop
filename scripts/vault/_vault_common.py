@@ -10,6 +10,8 @@ from typing import Iterable
 
 
 DEFAULT_VAULT_DIR = Path("~/Documents/Obsidian/MiVault").expanduser()
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_SOURCE_DIR = REPO_ROOT / "templates" / "vault"
 CLASSIFICATIONS = {"GREEN", "YELLOW", "RED"}
 
 
@@ -75,6 +77,19 @@ def init_vault(project: str | None = None, agent: str | None = None) -> list[Pat
         directory.mkdir(parents=True, exist_ok=True)
         created.append(directory)
     return created
+
+
+def copy_vault_templates() -> list[Path]:
+    target_dir = vault_dir() / "_templates"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied = []
+    if not TEMPLATE_SOURCE_DIR.exists():
+        return copied
+    for source in sorted(TEMPLATE_SOURCE_DIR.glob("*.md")):
+        target = target_dir / source.name
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        copied.append(target)
+    return copied
 
 
 def note_path(classification: str, digest: str, project: str | None = None) -> Path:

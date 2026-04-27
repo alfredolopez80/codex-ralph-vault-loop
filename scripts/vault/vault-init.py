@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 
-from _vault_common import default_agent, default_project, init_vault, vault_dir
+from _vault_common import copy_vault_templates, default_agent, default_project, init_vault, vault_dir
 
 
 def main() -> int:
@@ -13,9 +13,12 @@ def main() -> int:
     args = parser.parse_args()
 
     created = init_vault(args.project, args.agent)
+    templates = copy_vault_templates()
     print(f"VAULT_INIT_OK {vault_dir()}")
     for directory in created:
         print(directory)
+    for template in templates:
+        print(f"VAULT_TEMPLATE_OK {template}")
     return 0
 
 
