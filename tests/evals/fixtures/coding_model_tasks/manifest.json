@@ -1,0 +1,74 @@
+{
+  "suite": "coding_model_tasks",
+  "description": "Offline routing fixture for ralph_coding_models and Codex synthesis policy.",
+  "sensitivity": "GREEN",
+  "target_mcps": [
+    "ralph_coding_models"
+  ],
+  "latency_budget_ms": 1000,
+  "tasks": [
+    {
+      "id": "log-summary-fast",
+      "task_type": "log_summary",
+      "complexity": 1,
+      "sensitivity": "GREEN",
+      "expected_route": "mcp_fast_minimax",
+      "expected_tool": "ralph_coding_models.minimax_agentic_fast",
+      "accepted": true,
+      "rework_required": false,
+      "latency_ms": 210,
+      "externalized": true
+    },
+    {
+      "id": "openclaw-small",
+      "task_type": "openclaw_like",
+      "complexity": 2,
+      "sensitivity": "YELLOW",
+      "expected_route": "mcp_fast_zai",
+      "expected_tool": "ralph_coding_models.zai_coding_fast",
+      "accepted": true,
+      "rework_required": false,
+      "latency_ms": 420,
+      "externalized": true
+    },
+    {
+      "id": "bounded-review",
+      "task_type": "code_review",
+      "complexity": 4,
+      "sensitivity": "GREEN",
+      "expected_route": "mcp_fast_coding",
+      "expected_tool": "ralph_coding_models.zai_coding_fast",
+      "accepted": true,
+      "rework_required": false,
+      "latency_ms": 690,
+      "externalized": true
+    },
+    {
+      "id": "deep-counterpart",
+      "task_type": "architecture_counterpart",
+      "complexity": 5,
+      "sensitivity": "YELLOW",
+      "expected_route": "mcp_deep_counterpart",
+      "expected_tool": "ralph_coding_models.zai_coding_deep",
+      "accepted": true,
+      "rework_required": true,
+      "latency_ms": 950,
+      "externalized": true
+    },
+    {
+      "id": "red-block",
+      "task_type": "code_review",
+      "complexity": 4,
+      "sensitivity": "RED",
+      "expected_route": "codex_main_local",
+      "expected_tool": null,
+      "accepted": false,
+      "rework_required": false,
+      "latency_ms": 0,
+      "externalized": false
+    }
+  ],
+  "mock_response": {
+    "tasks": []
+  }
+}

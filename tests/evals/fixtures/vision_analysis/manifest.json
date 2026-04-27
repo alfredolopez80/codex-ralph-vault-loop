@@ -1,0 +1,65 @@
+{
+  "suite": "vision_analysis",
+  "description": "Offline vision fixture for Z.ai and MiniMax analysis-only MCP evaluation.",
+  "sensitivity": "GREEN",
+  "target_mcps": [
+    "zai_vision",
+    "minimax_coding_tools.understand_image"
+  ],
+  "expected": {
+    "ocr_text": "DEPLOY TEST RELEASE",
+    "diagram_nodes": [
+      "Deploy",
+      "Test",
+      "Release"
+    ],
+    "diagram_edges": [
+      [
+        "Deploy",
+        "Test"
+      ],
+      [
+        "Test",
+        "Release"
+      ]
+    ],
+    "ui_changes": [
+      "primary button label changed to Deploy",
+      "warning banner added above form"
+    ]
+  },
+  "red_probe": {
+    "sensitivity": "RED",
+    "expected_blocked": true,
+    "externalized": false
+  },
+  "mock_response": {
+    "ocr_text": "Deploy Test Release",
+    "diagram_nodes": [
+      "Deploy",
+      "Test",
+      "Release"
+    ],
+    "diagram_edges": [
+      [
+        "Deploy",
+        "Test"
+      ],
+      [
+        "Test",
+        "Release"
+      ]
+    ],
+    "ui_changes": [
+      "primary button label changed to Deploy",
+      "warning banner added above form"
+    ],
+    "used_generation": false,
+    "generated_media": [],
+    "safety_notes": [
+      "analysis only",
+      "no image generation requested"
+    ],
+    "sensitivity": "GREEN"
+  }
+}

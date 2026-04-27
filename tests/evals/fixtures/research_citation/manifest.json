@@ -1,0 +1,87 @@
+{
+  "suite": "research_citation",
+  "description": "Offline research citation fixture for Z.ai and MiniMax MCP search/reader evaluation.",
+  "sensitivity": "GREEN",
+  "target_mcps": [
+    "zai_web_search",
+    "zai_web_reader",
+    "zai_zread",
+    "minimax_coding_tools.web_search"
+  ],
+  "requires_recency": true,
+  "min_source_year": 2025,
+  "min_unique_domains": 2,
+  "min_actions": 2,
+  "max_cost_units": 4,
+  "expected_claims": [
+    {
+      "id": "scorecard_versioned",
+      "text": "Research evaluation should use a versioned scorecard or fixture manifest."
+    },
+    {
+      "id": "citations_required",
+      "text": "Research output needs source citations for claims that may change."
+    },
+    {
+      "id": "codex_decides",
+      "text": "External MCP outputs remain advisory and Codex decides what to keep."
+    }
+  ],
+  "red_probe": {
+    "sensitivity": "RED",
+    "expected_blocked": true,
+    "externalized": false
+  },
+  "mock_response": {
+    "answer": "Use the versioned fixture, cite current sources, and keep Codex as the final decision maker.",
+    "sources": [
+      {
+        "id": "codex_docs",
+        "url": "https://github.com/openai/codex",
+        "domain": "github.com",
+        "type": "official",
+        "published_year": 2026
+      },
+      {
+        "id": "openai_docs",
+        "url": "https://platform.openai.com/docs",
+        "domain": "openai.com",
+        "type": "primary",
+        "published_year": 2026
+      },
+      {
+        "id": "repo_policy",
+        "url": "repo://AGENTS.md",
+        "domain": "local-repo",
+        "type": "primary",
+        "published_year": 2026
+      }
+    ],
+    "claims": [
+      {
+        "id": "scorecard_versioned",
+        "supported_by": [
+          "repo_policy"
+        ]
+      },
+      {
+        "id": "citations_required",
+        "supported_by": [
+          "openai_docs"
+        ]
+      },
+      {
+        "id": "codex_decides",
+        "supported_by": [
+          "repo_policy"
+        ]
+      }
+    ],
+    "actions": [
+      "Record scorecard id and version in the report.",
+      "Keep citations attached to each mutable claim."
+    ],
+    "cost_units": 3,
+    "sensitivity": "GREEN"
+  }
+}
