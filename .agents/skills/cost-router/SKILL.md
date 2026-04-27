@@ -12,11 +12,11 @@ If content is RED, do not call external MCPs. Use Codex main and local tools onl
 
 ## Complexity Routing
 
-For complexity 1, use Codex direct unless the user explicitly asks for current external facts. For complexity 2, use Codex direct or MiniMax-M2.7-highspeed for cheap summaries, logs, diffs, or test ideas; GLM-5-Turbo fits small command-following work.
+For complexity 1-2, use Codex direct when trivial. Use `ralph_coding_models.zai_coding_fast` for OpenClaw-like command following. Use `ralph_coding_models.minimax_agentic_fast` for logs, diffs, summaries, and test ideas.
 
-For complexity 3-4, use `ralph_coding_models.route_coding_task` for bounded GREEN or YELLOW support, then let Codex main synthesize. For complexity 5-6, use GLM-5.1 as a counterpart for architecture, debugging, design review, or failure analysis while Codex keeps control of edits.
+For complexity 3-4, use GLM-5-Turbo or MiniMax-M2.7-highspeed through MCP, then let Codex main synthesize. For complexity 5-6, use GLM-5.1 as a counterpart for architecture, debugging, design review, or failure analysis while Codex keeps control of edits.
 
-For complexity 7-8, Codex main owns the work and may ask GLM-5.1 for sanitized adversarial review. Gates and checkpoint evidence are mandatory. For complexity 9-10, Codex main owns the work end to end. External MCPs are only for sanitized advisory review or public research.
+For complexity 7 and above, Codex main owns the work with gates. GLM-5.1 may provide advisory review only when content is not RED.
 
 ## Cost Order
 
@@ -25,3 +25,5 @@ Prefer local commands and existing repo context first, then Codex direct reasoni
 ## Recordkeeping
 
 When routing externally, record sensitivity, complexity, tool used, and whether Codex verified the result.
+
+Use `scripts/cost/route-task.py` before external delegation, `scripts/cost/redact-for-external.py` before sending sanitized context, `scripts/cost/estimate-context.py` for rough context sizing, and `scripts/cost/ledger.py` for JSONL route records.

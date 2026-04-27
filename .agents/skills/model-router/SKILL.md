@@ -24,7 +24,11 @@ Use `minimax_coding_tools.web_search` for fast external search and `minimax_codi
 
 ## Complexity Routing
 
-For complexity 1-2, Codex can work directly; MiniMax-M2.7-highspeed is useful for summaries, logs, diffs, or test ideas, while GLM-5-Turbo fits small command-following tasks. For complexity 3-4, use `route_coding_task` for bounded sanitized support, then let Codex main synthesize. For complexity 5-6, use GLM-5.1 as an engineering counterpart. For complexity 7 and above, Codex main owns the work while external review remains advisory and sanitized.
+For complexity 1-2, Codex can work directly when the task is trivial. Use `ralph_coding_models.zai_coding_fast` for OpenClaw-like command following. Use `ralph_coding_models.minimax_agentic_fast` for logs, diffs, summaries, and test ideas.
+
+For complexity 3-4, use GLM-5-Turbo or MiniMax-M2.7-highspeed through `ralph_coding_models`, then let Codex main synthesize and verify. For complexity 5-6, use GLM-5.1 through `ralph_coding_models.zai_coding_deep` as a counterpart. For complexity 7 and above, Codex main owns the work with gates; GLM-5.1 may provide advisory review only when the content is not RED.
+
+Use `scripts/cost/route-task.py` for deterministic route selection before external delegation.
 
 ## Forbidden
 
