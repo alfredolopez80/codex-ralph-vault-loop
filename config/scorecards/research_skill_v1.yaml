@@ -1,0 +1,33 @@
+id: research_skill_v1
+name: Research Skill v1
+version: 1
+description: Scores sourced research quality for Codex-native MCP research workflows.
+weights:
+  effectiveness: 0.35
+  efficiency: 0.20
+  reliability_safety: 0.20
+  memory_research_quality: 0.15
+  maintainability_simplicity: 0.10
+metrics:
+  effectiveness:
+    - question_answered
+    - primary_sources_used
+    - inference_separated
+  efficiency:
+    - minimal_queries
+    - concise_summary
+  reliability_safety:
+    - no_secret_leak
+    - no_unsourced_current_claims
+  memory_research_quality:
+    - citations_present
+    - reusable_learning_captured
+  maintainability_simplicity:
+    - readable_report
+    - narrow_scope
+hard_gates:
+  - tests_pass
+  - no_secret_leak
+  - eval_harness_unchanged
+  - no_scope_violation
+  - no_eval_gaming

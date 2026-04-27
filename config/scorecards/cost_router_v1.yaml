@@ -1,0 +1,34 @@
+id: cost_router_v1
+name: Cost Router v1
+version: 1
+description: Scores cost-aware model routing and MCP delegation decisions.
+weights:
+  effectiveness: 0.35
+  efficiency: 0.20
+  reliability_safety: 0.20
+  memory_research_quality: 0.15
+  maintainability_simplicity: 0.10
+metrics:
+  effectiveness:
+    - correct_route_selected
+    - codex_synthesis_required
+    - mcp_policy_respected
+  efficiency:
+    - cheapest_safe_route
+    - context_estimated
+  reliability_safety:
+    - red_blocks_external
+    - no_direct_external_provider
+    - no_secret_leak
+  memory_research_quality:
+    - ledger_written
+    - route_reason_recorded
+  maintainability_simplicity:
+    - deterministic_json
+    - simple_policy_table
+hard_gates:
+  - tests_pass
+  - no_secret_leak
+  - eval_harness_unchanged
+  - no_scope_violation
+  - no_eval_gaming
