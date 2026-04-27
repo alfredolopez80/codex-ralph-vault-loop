@@ -1,4 +1,16 @@
 {
   "version": 1,
-  "hooks": []
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/gates/codex_stop_slop_guard.py",
+            "timeout": 45
+          }
+        ]
+      }
+    ]
+  }
 }
