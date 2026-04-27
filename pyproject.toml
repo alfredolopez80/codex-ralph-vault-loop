@@ -1,0 +1,10 @@
+[project]
+name = "codex-ralph-vault-loop"
+version = "0.1.0"
+description = "Codex-native orchestration overlay for Ralph-style multi-agent workflows."
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

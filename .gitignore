@@ -15,8 +15,33 @@ __pycache__/
 # Local overrides (user-specific)
 .env
 .env.local
+.env.*
 *.local
 .venv-model-router/
+
+# Secrets / credentials
+*.pem
+*.key
+id_rsa
+id_ed25519
+*secret*
+*token*
+*credential*
+*wallet*
+*keystore*
+cookies*
+
+# Vault and memory data must stay external to this overlay
+/vault/
+/.vault/
+.ralph/layers/
+.ralph/ledgers/
+.ralph/handoffs/
+/MiVault/
+/Obsidian/
+/vault-data/
+/memory-data/
+*.vault
 
 # Codex session artifacts (if accidentally created in repo)
 .codex/sessions/
