@@ -1,247 +1,200 @@
 # Codex Ralph Vault Loop
 
-> **Codex CLI** port of the Claude-Code-native
-> [`multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop) —
-> parallel-first multi-agent orchestration with vault-backed memory, Aristotle First
-> Principles, and quality gates, adapted to the [Codex CLI](https://github.com/openai/codex)
-> (`codex-app`) runtime.
+Codex-native orchestration overlay for Codex CLI and Codex App.
 
-## What is this?
-
-A **configuration overlay** that turns the [Codex CLI](https://github.com/openai/codex)
-into a multi-agent development framework. Every task is analyzed from first principles,
-decomposed into parallel subtasks, assigned to specialized teammates, and validated
-through quality gates before completion.
-
-This is a **port, not a fork**. The same memory vault, learned-rule taxonomy, and
-operational rules from `multi-agent-ralph-loop` are reused — only the runtime
-primitives change (TOML configs, `codex agent` spawn mechanics, codex hooks).
-
-| Capability | Description |
-|---|---|
-| **Multi-agent native** | Uses Codex's `[features] multi_agent = true` + `[agents] max_threads = 6` |
-| **6 Ralph teammates** | `ralph-coder`, `ralph-reviewer`, `ralph-tester`, `ralph-researcher`, `ralph-frontend`, `ralph-security` |
-| **Codex hooks** | Lifecycle hooks via `codex_hooks = true` (PreToolUse / PostToolUse / SessionStart / SessionEnd) |
-| **Vault-as-truth** | Obsidian vault is the single source of truth — portable across Codex and Claude Code |
-| **Aristotle methodology** | 5-phase first principles deconstruction before any non-trivial task |
-| **Quality gates** | 4-stage blocking validation: correctness, quality, security, consistency |
-| **MCP Router for secondary models** | Orchestrator is **always** OpenAI (`gpt-5.5`). Z.ai / MiniMax / Gemini / Claude are accessed as **MCP tools**, not as completion backends. |
-
-## Why Codex (not Claude Code)?
-
-| Reason | Detail |
-|---|---|
-| **Native multi-agent** | Codex ships `multi_agent = true` as a first-class config flag. No experimental env var needed. |
-| **Native hooks** | `codex_hooks = true` is GA, not experimental. |
-| **MCP Router for secondary models** | Orchestrator is OpenAI only — but Codex's MCP support lets non-OpenAI models (GLM, Gemini, etc.) be invoked as **tools**, which is more composable than swapping the orchestrator model per task. |
-| **TOML-first config** | Single `~/.codex/config.toml` instead of layered JSON + env vars + frontmatter files. |
-| **Reasoning depth** | Default `gpt-5.5` with `model_reasoning_effort = "xhigh"` for the orchestrator. |
-
-The Claude Code version remains the canonical reference for the methodology and is
-maintained at [`alfredolopez80/multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop).
-
-## Quick Start
-
-### 1. Install Codex CLI
-
-```bash
-brew install codex          # or follow https://github.com/openai/codex
-codex --version             # verify (>= 0.125.0 recommended)
-```
-
-### 2. Clone this overlay
-
-```bash
-git clone https://github.com/alfredolopez80/codex-ralph-vault-loop.git
-cd codex-ralph-vault-loop
-```
-
-### 3. Enable required features in `~/.codex/config.toml`
-
-```toml
-model = "gpt-5.5"
-model_reasoning_effort = "xhigh"
-model_provider = "openai"   # only provider compatible with Codex orchestrator
-
-[features]
-multi_agent = true
-codex_hooks = true
-
-[agents]
-max_threads = 6
-max_depth = 1
-job_max_runtime_seconds = 900
-```
-
-> **Verified**: `[model_providers.zai]` and `[model_providers.minimax]` entries do
-> NOT work as Codex completion backends. Use MCP servers for those models (see step 4).
-
-### 4. Configure MCP Router (for non-OpenAI capabilities)
-
-Add MCP servers to `~/.codex/config.toml` to give Codex access to Z.ai, Gemini, web
-search, and other tools:
-
-```toml
-[mcp_servers.zai-mcp-server]   # GLM-4.7 vision, code analysis
-type = "stdio"
-command = "npx"
-args = ["-y", "zai-mcp-server@latest"]
-[mcp_servers.zai-mcp-server.env]
-Z_AI_API_KEY = "<your-key>"
-
-[mcp_servers.web-search]       # general web search
-type = "stdio"
-command = "npx"
-args = ["open-websearch@latest"]
-
-[mcp_servers.context7]         # library docs
-type = "stdio"
-command = "npx"
-args = ["-y", "@upstash/context7-mcp@latest"]
-
-[mcp_servers.nanobanana]       # image generation (Gemini 2.5)
-type = "stdio"
-command = "uvx"
-args = ["nanobanana-mcp-server@latest"]
-[mcp_servers.nanobanana.env]
-GEMINI_API_KEY = "<your-key>"
-```
-
-(Full router table in [`AGENTS.md`](./AGENTS.md) § *MCP Router Pattern*.)
-
-### 5. Activate hooks (optional but recommended)
-
-```bash
-mkdir -p ~/.codex/hooks
-ln -sfn "$(pwd)/.claude/hooks/git-safety-guard.py"    ~/.codex/hooks/pre-bash-git-safety.py
-ln -sfn "$(pwd)/.claude/hooks/repo-boundary-guard.sh" ~/.codex/hooks/pre-bash-repo-boundary.sh
-```
-
-### 6. Use it
-
-```bash
-codex                               # start a session in this repo
-codex agent run ralph-coder         # spawn a single teammate
-codex agent spawn ralph-coder ralph-tester    # parallel spawn
-```
-
-## Architecture at a Glance
-
-```
-~/.codex/                                ← Codex runtime (global)
-├── AGENTS.md                            ← user-global instructions
-├── config.toml                          ← features.multi_agent, agents.max_threads, profiles
-├── agents/<name>.toml                   ← agent definitions (TOML)
-├── skills/<name>/                       ← global Codex skills
-└── hooks/                               ← lifecycle hooks (symlinked from this repo)
-
-codex-ralph-vault-loop/                  ← this repo (project overlay)
-├── AGENTS.md                            ← project-scoped Codex instructions
-├── CLAUDE.md                            ← cross-runtime parity (Claude Code)
-├── README.md                            ← this file
-└── .claude/
-    ├── hooks/                           ← shell + python hooks (symlink targets)
-    └── rules/learned/{halls,rooms,wings}/   ← vault-graduated rule taxonomy
-
-~/Documents/Obsidian/MiVault/            ← memory backbone (vault-as-truth)
-├── global/wiki/                         ← knowledge graph
-└── agents/<name>/diary/                 ← per-agent diaries
-
-~/.ralph/                                ← runtime memory (cross-runtime)
-├── layers/L0_identity.md
-├── layers/L1_essential.md
-├── ledgers/                             ← session ledgers
-└── handoffs/                            ← session handoffs
-```
-
-Global skills installed for this overlay are tracked in
-[`docs/codex-global-skills.md`](./docs/codex-global-skills.md).
-
-## Technical Diagram Skill
-
-This overlay uses the global Codex skill
-[`fireworks-tech-graph`](https://github.com/yizhiyanhua-ai/fireworks-tech-graph)
-for technical diagrams. It is installed under
-`~/.codex/skills/fireworks-tech-graph` and should be used when a user asks Codex
-or Codex App to create architecture, RAG, data-flow, sequence, workflow,
-state-machine, agent/tool, or concept diagrams.
-
-The skill provides 7 visual styles and 10 SVG template families. For architecture
-work, start from the system semantics:
-
-| Need | Recommended template/style |
-|---|---|
-| OpenAI-style service architecture | `architecture` + style 7 |
-| RAG retrieval or ingestion flow | `data-flow` or `architecture` + style 7 |
-| Multi-agent architecture | `agent-architecture` + style 1 or 7 |
-| Ordered API interactions | `sequence` |
-| Decisions, retries, approvals, lifecycle states | `flowchart` or `state-machine` |
-
-Generated diagrams in this repo should keep the editable JSON source beside the
-rendered SVG and PNG:
+The operating rule is simple:
 
 ```text
-docs/diagrams/<name>.json
-docs/diagrams/<name>.svg
-docs/diagrams/<name>.png
+Codex main decides.
+External models advise.
+Gates verify.
+Vault remembers.
 ```
 
-Example generated with the skill:
+This repo ports the Ralph multi-agent workflow into Codex without copying private vault data and without configuring Z.ai or MiniMax as direct Codex `model_provider` backends. Codex stays on OpenAI as the orchestrator. Z.ai, MiniMax, web/repo readers, and vision tools are used only through MCP tools after sensitivity checks.
 
-![RAG System Architecture](./docs/diagrams/rag-openai-architecture.png)
+## Current Status
 
-Details, update commands, and verification steps are documented in
-[`docs/codex-global-skills.md`](./docs/codex-global-skills.md).
+Migration phases `00` through `20` are complete and checkpointed under [`docs/migration/checkpoints`](./docs/migration/checkpoints).
 
-## The 6 Teammates
+Latest acceptance evidence:
 
-Defined under `~/.codex/agents/ralph-*.toml`:
+- Repo doctor passed.
+- `.codex/config.toml` parses.
+- 16 project skills are present under `.agents/skills`.
+- 12 Codex subagents parse under `.codex/agents`.
+- Hooks run in dry-run mode.
+- Vault scripts work with temporary `VAULT_DIR` and real MiVault read-only.
+- Memory handoff works with temporary `RALPH_HOME`.
+- Gates generate reports.
+- Unit, integration, and eval suites pass.
+- `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
+- RED content does not externalize and does not persist.
 
-All teammates share the OpenAI orchestrator (`gpt-5.5`) — Codex does not support
-swapping the orchestrator model per teammate. Specialization is by **system prompt
-+ MCP tools allowlist**, not by underlying model.
+See [`PHASE_20.md`](./docs/migration/checkpoints/PHASE_20.md) for the full acceptance matrix.
 
-| Teammate | Role | MCP servers used | Spawn when |
-|---|---|---|---|
-| `ralph-coder` | Implementation | filesystem, context7 | Code changes |
-| `ralph-reviewer` | Code review (OWASP) | filesystem, zai-mcp-server | Post-implementation |
-| `ralph-tester` | Unit + integration tests | filesystem | Tests needed (always with coder) |
-| `ralph-researcher` | Research + web search | web-search-prime, web-reader, zread, context7 | Unknown patterns |
-| `ralph-frontend` | Frontend (WCAG 2.1 AA) | filesystem, playwright, chrome_devtools | UI / component changes |
-| `ralph-security` | Security audit (6 pillars) | filesystem, zai-mcp-server, web-search | Auth, crypto, user input |
+## Architecture
 
-> **Parallelism rule**: Tasks with complexity ≥ 3 **must** spawn at least 2 teammates
-> in parallel. Sequential execution requires explicit user approval.
+![Codex Ralph architecture](./docs/architecture/diagrams/codex-ralph-architecture.png)
 
-## Differences from `multi-agent-ralph-loop`
+The repo is split into these surfaces:
 
-| Area | Claude Code source | This Codex port |
-|---|---|---|
-| Config file | `~/.claude/settings.json` (JSON) | `~/.codex/config.toml` (TOML) |
-| Agent format | `.md` with frontmatter | `.toml` |
-| Spawn mechanism | `Task(subagent_type=...)` tool | `codex agent run/spawn` CLI |
-| Parallelism flag | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | `[features] multi_agent = true` |
-| Hook directory | `.claude/hooks/` | `~/.codex/hooks/` (symlinked) |
-| Skills | `.claude/skills/<name>/SKILL.md` | `~/.codex/skills/<name>/` |
-| Default model | `claude-opus-4-7` (orchestrator) | `gpt-5.5` (orchestrator, **only supported provider**) |
-| Secondary models | GLM-4.7 / Sonnet / Opus swapped per task | **Not swappable.** Other models (GLM, Gemini, etc.) accessed via MCP servers as tools. |
-| Per-complexity routing | model swap per task | task-type routing (orchestrator delegates to MCP tools) |
+| Surface | Purpose |
+|---|---|
+| [`AGENTS.md`](./AGENTS.md) | Project instruction surface loaded by Codex App/CLI. |
+| [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider. |
+| [`.agents/skills`](./.agents/skills) | Codex-native skills for orchestration, vault, gates, evals, routing, research, and hardening. |
+| [`.codex/agents`](./.codex/agents) | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts. |
+| [`.codex/hooks`](./.codex/hooks) | Session/tool/stop lifecycle hooks with RED guards and local ledgers. |
+| [`scripts`](./scripts) | Deterministic setup, vault, memory, gates, eval, cost, and security scripts. |
+| [`config/scorecards`](./config/scorecards) | RASS v1 scorecards and hard gates. |
+| `~/.ralph-codex` | Runtime memory, reports, ledgers, and handoffs. |
+| `~/Documents/Obsidian/MiVault` | Durable Obsidian memory outside the public repo. |
 
-What's preserved unchanged:
-- Aristotle First Principles methodology (5 phases)
-- Parallel-First execution mandate
-- 6 ralph teammates and their roles
-- Vault-as-truth memory model (Obsidian)
-- Learned-rule taxonomy (halls/rooms/wings)
-- Quality gates (correctness, quality, security, consistency)
+Editable diagram sources and rendered assets live in [`docs/architecture/diagrams`](./docs/architecture/diagrams).
+
+## Routing And Safety
+
+![Routing and security flow](./docs/architecture/diagrams/routing-security-flow.png)
+
+Routing is content-aware:
+
+1. Codex receives the task and loads project/global instructions.
+2. The orchestrator classifies sensitivity as GREEN, YELLOW, or RED.
+3. A shared detector scans for API keys, JWTs, private keys, seed phrases, wallet material, OAuth tokens, database URLs, `.env` references, and customer-sensitive markers.
+4. RED blocks external MCP routing and vault persistence.
+5. GREEN and sanitized YELLOW can use local Codex work, narrow Codex subagents, or MCP advisors.
+6. Codex main integrates, verifies, and makes the final decision.
+7. Gates, evals, vault save, and handoff run before completion.
+
+MCP routing policy:
+
+| Need | Route |
+|---|---|
+| Fast logs, diffs, summaries, test ideas | `ralph_coding_models.minimax_agentic_fast` using MiniMax-M2.7-highspeed |
+| Fast OpenClaw-like coding support | `ralph_coding_models.zai_coding_fast` using GLM-5-Turbo |
+| Medium/high complexity counterpart review | `ralph_coding_models.zai_coding_deep` using GLM-5.1 |
+| Current search, web reader, repo reader, vision | Official Z.ai MCPs or configured aliases |
+| Fast search and quick image checks | Official MiniMax MCP tools |
+
+Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual generation. GPT Imágenes 2 is the only approved visual generation route.
+
+## Memory, Gates, And Evals
+
+![Memory and eval lifecycle](./docs/architecture/diagrams/memory-eval-lifecycle.png)
+
+The memory stack is deliberately outside the repo:
+
+- `scripts/memory/wakeup.py` loads compact L0-L3 runtime context.
+- `scripts/memory/handoff.py` writes `latest.md` and archives handoffs.
+- `scripts/vault/vault-save.py` persists GREEN globally and YELLOW per project.
+- RED is skipped by vault save, memory extraction, and stop handoff hooks.
+
+Quality and evaluation spine:
+
+- `scripts/gates/run-gates.py --minimal` writes `.ralph-codex/reports/gates/latest.json` and `.md`.
+- `scripts/evals/run_scorecard.py` applies RASS v1 scorecards.
+- `scripts/evals/research_eval.py`, `vision_eval.py`, and `coding_model_eval.py` validate MCP-oriented behavior in mock/offline mode.
+- `scripts/evals/autoresearch_dry_run.py` runs the deterministic toy AutoResearch fixture and keep/discard decision.
+- `sensitive_externalization_incidents` is tracked by coding model evals.
+
+## Optional Global Install
+
+FASE 18 added safe global installation scripts:
+
+```bash
+bash scripts/setup/install-global.sh --dry-run
+bash scripts/setup/install-global.sh --install --with-agents
+bash scripts/setup/doctor-global.sh
+bash scripts/setup/uninstall-global.sh --uninstall --with-agents
+```
+
+The installer:
+
+- Creates `~/.agents/skills` and `~/.codex/agents` when needed.
+- Symlinks selected project skills.
+- Symlinks subagents only when `--with-agents` is provided.
+- Does not copy vault data.
+- Does not copy secrets.
+- Does not edit `~/.codex/config.toml`.
+- Backs up conflicting global entries before replacing them.
+
+## Quick Validation
+
+Run the same local checks used in acceptance:
+
+```bash
+bash scripts/setup/doctor.sh
+python3 scripts/gates/run-gates.py --minimal
+python3 -m pytest tests -q
+python3 scripts/evals/coding_model_eval.py --mode mock
+```
+
+Validate MCP coding models from a Codex session when the MCP is available:
+
+```text
+ralph_coding_models.validate_coding_models
+```
+
+Expected models:
+
+- `glm-5.1`
+- `glm-5-turbo`
+- `MiniMax-M2.7-highspeed`
+
+## Repository Layout
+
+```text
+codex-ralph-vault-loop/
+├── AGENTS.md
+├── .agents/skills/
+├── .codex/config.toml
+├── .codex/hooks.json
+├── .codex/agents/
+├── .codex/hooks/
+├── scripts/
+│   ├── cost/
+│   ├── evals/
+│   ├── gates/
+│   ├── memory/
+│   ├── security/
+│   ├── setup/
+│   └── vault/
+├── config/scorecards/
+├── docs/
+│   ├── architecture/
+│   ├── evals/
+│   └── migration/
+├── templates/
+└── tests/
+```
+
+## Key Docs
+
+- [Architecture overview](./docs/architecture/overview.md)
+- [MCP model router](./docs/architecture/mcp-model-router.md)
+- [Memory stack](./docs/architecture/memory-stack.md)
+- [Hooks](./docs/architecture/hooks.md)
+- [Subagents](./docs/architecture/subagents.md)
+- [Evaluation spine](./docs/architecture/evaluation-spine.md)
+- [Threat model](./docs/architecture/threat-model.md)
+- [Migration phase plan](./docs/migration/phase-plan.md)
+- [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_20.md)
+
+## Source Lineage
+
+This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop). The Claude runtime primitives were replaced with Codex App/CLI primitives:
+
+| Claude-side concept | Codex-side implementation |
+|---|---|
+| `CLAUDE.md` | `AGENTS.md` |
+| `.claude/skills` | `.agents/skills` and optional global symlinks |
+| Claude hooks | `.codex/hooks` and `.codex/hooks.json` |
+| Agent Teams | `.codex/agents/*.toml` |
+| Direct secondary providers | MCP tools only |
+| Vault L3 | MiVault / Obsidian |
+| AutoResearch | Scorecard-driven dry-run/eval spine |
 
 ## License
 
-MIT — see source repo for the full license text.
-
-## References
-
-- Source (Claude Code version): https://github.com/alfredolopez80/multi-agent-ralph-loop
-- Codex CLI: https://github.com/openai/codex
-- Memory Palace inspiration: https://github.com/tcsenpai/mempalace
-- Codex docs: https://platform.openai.com/docs/codex
+MIT.

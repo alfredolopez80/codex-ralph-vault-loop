@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .title { fill: #0d0d0d; font-size: 24px; font-weight: 650; }
+    .subtitle { fill: #6e6e80; font-size: 13px; }
+    .node-title { fill: #0d0d0d; font-size: 15px; font-weight: 650; }
+    .node-text { fill: #6e6e80; font-size: 12px; }
+    .label { fill: #6e6e80; font-size: 12px; }
+    .warn { fill: #9a3412; font-size: 12px; font-weight: 600; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#71717a"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10a37f"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f97316"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="600" y="36" text-anchor="middle" class="title">Sensitivity, Cost Routing, and Safety Flow</text>
+  <text x="600" y="58" text-anchor="middle" class="subtitle">RED stays local; GREEN/YELLOW may use local Codex, subagents, or sanitized MCP advisors</text>
+
+  <rect x="72" y="104" width="176" height="66" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="160" y="132" text-anchor="middle" class="node-title">Intake</text>
+  <text x="160" y="151" text-anchor="middle" class="node-text">task, scope, repo</text>
+
+  <polygon points="420,86 536,137 420,188 304,137" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="420" y="132" text-anchor="middle" class="node-title">Sensitivity?</text>
+  <text x="420" y="151" text-anchor="middle" class="node-text">GREEN / YELLOW / RED</text>
+
+  <polygon points="704,86 824,137 704,188 584,137" fill="#ffffff" stroke="#f97316" stroke-width="1.5"/>
+  <text x="704" y="132" text-anchor="middle" class="node-title">RED found?</text>
+  <text x="704" y="151" text-anchor="middle" class="node-text">secrets, wallets, PII</text>
+
+  <rect x="936" y="96" width="184" height="82" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="1028" y="126" text-anchor="middle" class="node-title">Block external</text>
+  <text x="1028" y="145" text-anchor="middle" class="node-text">Codex local only</text>
+  <text x="1028" y="163" text-anchor="middle" class="node-text">no vault persistence</text>
+
+  <rect x="296" y="256" width="176" height="66" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="384" y="284" text-anchor="middle" class="node-title">Complexity</text>
+  <text x="384" y="303" text-anchor="middle" class="node-text">score 1-10</text>
+
+  <rect x="552" y="256" width="176" height="66" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="552" y="256" width="4" height="66" rx="2" fill="#10a37f"/>
+  <text x="640" y="284" text-anchor="middle" class="node-title">Cost router</text>
+  <text x="640" y="303" text-anchor="middle" class="node-text">deterministic JSON</text>
+
+  <rect x="108" y="424" width="184" height="82" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="200" y="454" text-anchor="middle" class="node-title">Codex direct</text>
+  <text x="200" y="473" text-anchor="middle" class="node-text">trivial or RED-local</text>
+  <text x="200" y="491" text-anchor="middle" class="node-text">main owns edits</text>
+
+  <rect x="380" y="424" width="184" height="82" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="472" y="454" text-anchor="middle" class="node-title">Codex subagent</text>
+  <text x="472" y="473" text-anchor="middle" class="node-text">narrow TOML role</text>
+  <text x="472" y="491" text-anchor="middle" class="node-text">bounded scope</text>
+
+  <rect x="652" y="424" width="184" height="82" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="744" y="454" text-anchor="middle" class="node-title">MCP advisor</text>
+  <text x="744" y="473" text-anchor="middle" class="node-text">GLM / MiniMax</text>
+  <text x="744" y="491" text-anchor="middle" class="node-text">sanitized only</text>
+
+  <rect x="924" y="424" width="184" height="82" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="1016" y="454" text-anchor="middle" class="node-title">Official MCPs</text>
+  <text x="1016" y="473" text-anchor="middle" class="node-text">search, reader</text>
+  <text x="1016" y="491" text-anchor="middle" class="node-text">repo, vision analysis</text>
+
+  <rect x="280" y="604" width="176" height="66" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="368" y="632" text-anchor="middle" class="node-title">Codex synthesis</text>
+  <text x="368" y="651" text-anchor="middle" class="node-text">verify locally</text>
+
+  <rect x="512" y="604" width="176" height="66" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="600" y="632" text-anchor="middle" class="node-title">Gates / evals</text>
+  <text x="600" y="651" text-anchor="middle" class="node-text">reports required</text>
+
+  <rect x="744" y="604" width="176" height="66" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="832" y="632" text-anchor="middle" class="node-title">Vault + handoff</text>
+  <text x="832" y="651" text-anchor="middle" class="node-text">GREEN/YELLOW only</text>
+
+  <line x1="248" y1="137" x2="304" y2="137" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="536" y1="137" x2="584" y2="137" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="824" y1="137" x2="936" y2="137" stroke="#f97316" stroke-width="1.7" marker-end="url(#arrow-orange)"/>
+  <text x="874" y="126" text-anchor="middle" class="warn">yes</text>
+  <path d="M 704 188 L 704 220 L 384 220 L 384 256" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="560" y="212" text-anchor="middle" class="label">no: sanitized GREEN/YELLOW</text>
+  <line x1="472" y1="289" x2="552" y2="289" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 640 322 C 552 360 288 368 200 424" stroke="#71717a" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 640 322 C 596 368 516 376 472 424" stroke="#71717a" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <line x1="640" y1="322" x2="744" y2="424" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 640 322 C 760 352 940 372 1016 424" stroke="#71717a" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 200 506 C 240 568 300 584 368 604" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M 472 506 C 456 562 416 584 368 604" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M 744 506 C 680 560 492 580 368 604" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M 1016 506 C 880 570 512 592 368 604" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arrow-green)"/>
+  <line x1="456" y1="637" x2="512" y2="637" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="688" y1="637" x2="744" y2="637" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="96" y="704" width="1008" height="36" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1"/>
+  <text x="116" y="727" class="label">Blocked RED categories: API keys, JWT, private keys, seed phrases, wallet material, OAuth tokens, database URLs, .env, customer-sensitive markers</text>
+</svg>

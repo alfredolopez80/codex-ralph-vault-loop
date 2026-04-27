@@ -16,5 +16,12 @@ No `model_provider directo` is used for Z.ai or MiniMax. Those systems enter onl
 
 Visual generation rule: Z.ai and MiniMax are analysis-only. GPT Imágenes 2 is the approved route for image generation.
 
-Related phases: [PHASE_03](../migration/checkpoints/PHASE_03.md), [PHASE_08](../migration/checkpoints/PHASE_08.md), [PHASE_15](../migration/checkpoints/PHASE_15.md).
+## Diagrams
 
+Rendered diagrams and editable JSON sources live under [`docs/architecture/diagrams`](./diagrams).
+
+- [`codex-ralph-architecture.png`](./diagrams/codex-ralph-architecture.png): full Codex App/CLI overlay, project/global surfaces, MCP advisors, gates, evals, runtime memory, and MiVault.
+- [`routing-security-flow.png`](./diagrams/routing-security-flow.png): sensitivity classification, RED blocking, cost-router decisions, local/subagent/MCP routes, gates, and vault handoff.
+- [`memory-eval-lifecycle.png`](./diagrams/memory-eval-lifecycle.png): hook lifecycle, `~/.ralph-codex` runtime layers, reports, AutoResearch, and durable vault persistence.
+
+Related phases: [PHASE_03](../migration/checkpoints/PHASE_03.md), [PHASE_08](../migration/checkpoints/PHASE_08.md), [PHASE_15](../migration/checkpoints/PHASE_15.md).

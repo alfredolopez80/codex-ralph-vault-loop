@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .title { fill: #0d0d0d; font-size: 24px; font-weight: 650; }
+    .subtitle { fill: #6e6e80; font-size: 13px; }
+    .group-label { fill: #6e6e80; font-size: 12px; font-weight: 600; }
+    .node-title { fill: #0d0d0d; font-size: 15px; font-weight: 650; }
+    .node-text { fill: #6e6e80; font-size: 12px; }
+    .label { fill: #6e6e80; font-size: 12px; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#71717a"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10a37f"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f97316"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="600" y="36" text-anchor="middle" class="title">Memory, Evaluation, and Handoff Lifecycle</text>
+  <text x="600" y="58" text-anchor="middle" class="subtitle">Session hooks and deterministic scripts keep runtime memory useful without persisting RED material</text>
+
+  <rect x="64" y="96" width="296" height="580" rx="10" fill="none" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="5,4"/>
+  <text x="80" y="116" class="group-label">CODEX HOOK EVENTS</text>
+  <rect x="104" y="156" width="208" height="58" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="208" y="181" text-anchor="middle" class="node-title">SessionStart</text>
+  <text x="208" y="200" text-anchor="middle" class="node-text">load wakeup context</text>
+  <rect x="104" y="260" width="208" height="58" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="208" y="285" text-anchor="middle" class="node-title">UserPromptSubmit</text>
+  <text x="208" y="304" text-anchor="middle" class="node-text">capture safe prompt</text>
+  <rect x="104" y="364" width="208" height="58" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="208" y="389" text-anchor="middle" class="node-title">PostToolUse</text>
+  <text x="208" y="408" text-anchor="middle" class="node-text">learning + cost</text>
+  <rect x="104" y="468" width="208" height="58" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="208" y="493" text-anchor="middle" class="node-title">Gates / evals</text>
+  <text x="208" y="512" text-anchor="middle" class="node-text">verification reports</text>
+  <rect x="104" y="572" width="208" height="58" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="208" y="597" text-anchor="middle" class="node-title">Stop</text>
+  <text x="208" y="616" text-anchor="middle" class="node-text">handoff summary</text>
+
+  <rect x="452" y="96" width="296" height="580" rx="10" fill="none" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="5,4"/>
+  <text x="468" y="116" class="group-label">RUNTIME STATE: ~/.ralph-codex</text>
+  <rect x="492" y="152" width="216" height="70" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="600" y="180" text-anchor="middle" class="node-title">L0-L3 layers</text>
+  <text x="600" y="200" text-anchor="middle" class="node-text">identity, rules, project, vault index</text>
+  <rect x="492" y="256" width="216" height="70" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="600" y="284" text-anchor="middle" class="node-title">Prompt ledger</text>
+  <text x="600" y="304" text-anchor="middle" class="node-text">redacted JSONL</text>
+  <rect x="492" y="360" width="216" height="70" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="600" y="388" text-anchor="middle" class="node-title">Learning + cost</text>
+  <text x="600" y="408" text-anchor="middle" class="node-text">JSONL and markdown ledgers</text>
+  <rect x="492" y="464" width="216" height="70" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="600" y="492" text-anchor="middle" class="node-title">Reports</text>
+  <text x="600" y="512" text-anchor="middle" class="node-text">gates and eval outputs</text>
+  <rect x="492" y="568" width="216" height="70" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="600" y="596" text-anchor="middle" class="node-title">Handoffs</text>
+  <text x="600" y="616" text-anchor="middle" class="node-text">latest.md and archive</text>
+
+  <rect x="840" y="96" width="296" height="580" rx="10" fill="none" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="5,4"/>
+  <text x="856" y="116" class="group-label">DURABLE MEMORY AND ACCEPTANCE</text>
+  <ellipse cx="988" cy="174" rx="84" ry="16" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <path d="M 904 174 L 904 240 Q 988 266 1072 240 L 1072 174" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <ellipse cx="988" cy="240" rx="84" ry="16" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="988" y="202" text-anchor="middle" class="node-title">MiVault</text>
+  <text x="988" y="222" text-anchor="middle" class="node-text">GREEN global</text>
+  <text x="988" y="240" text-anchor="middle" class="node-text">YELLOW project</text>
+  <rect x="880" y="328" width="216" height="74" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="988" y="357" text-anchor="middle" class="node-title">Scorecards</text>
+  <text x="988" y="377" text-anchor="middle" class="node-text">RASS v1 hard gates</text>
+  <rect x="880" y="464" width="216" height="74" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <text x="988" y="493" text-anchor="middle" class="node-title">AutoResearch</text>
+  <text x="988" y="513" text-anchor="middle" class="node-text">keep/discard dry-run</text>
+  <rect x="880" y="596" width="216" height="50" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="988" y="626" text-anchor="middle" class="node-title">RED skip</text>
+
+  <line x1="312" y1="185" x2="492" y2="187" stroke="#10a37f" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+  <text x="402" y="174" text-anchor="middle" class="label">wakeup.py</text>
+  <line x1="312" y1="289" x2="492" y2="291" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="402" y="278" text-anchor="middle" class="label">safe preview</text>
+  <line x1="312" y1="393" x2="492" y2="395" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="402" y="382" text-anchor="middle" class="label">sanitized</text>
+  <line x1="312" y1="497" x2="492" y2="499" stroke="#10a37f" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+  <text x="402" y="486" text-anchor="middle" class="label">latest reports</text>
+  <line x1="312" y1="601" x2="492" y2="603" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="402" y="590" text-anchor="middle" class="label">handoff.py</text>
+
+  <path d="M 708 396 C 792 360 840 292 904 240" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="792" y="326" text-anchor="middle" class="label">vault-save GREEN/YELLOW</text>
+  <line x1="708" y1="499" x2="880" y2="365" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="784" y="426" text-anchor="middle" class="label">score_run</text>
+  <line x1="708" y1="499" x2="880" y2="501" stroke="#71717a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="794" y="488" text-anchor="middle" class="label">autoresearch</text>
+  <path d="M 708 396 C 800 448 820 570 880 621" stroke="#f97316" stroke-width="1.7" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="790" y="548" text-anchor="middle" class="label">detected RED</text>
+
+  <rect x="120" y="704" width="960" height="36" rx="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1"/>
+  <text x="142" y="727" class="label">Persistent memory contains only GREEN/YELLOW summaries. RED is neither externalized nor written to runtime reports, vault notes, or handoffs.</text>
+</svg>
