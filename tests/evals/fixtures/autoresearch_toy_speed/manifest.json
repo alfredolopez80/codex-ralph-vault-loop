@@ -1,0 +1,12 @@
+{
+  "suite": "autoresearch_toy_speed",
+  "description": "Toy fixture for checking AutoResearch keep/discard behavior on a speed-oriented research loop.",
+  "scorecard": "ralph_autoresearch_v1",
+  "baseline": "baseline_metrics.json",
+  "candidate": "candidate_metrics.json",
+  "decision_threshold": 0.05,
+  "splits": {
+    "train": "splits/train.json",
+    "holdout": "splits/holdout.json"
+  }
+}
