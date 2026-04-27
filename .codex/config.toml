@@ -1,0 +1,114 @@
+# Local Codex project defaults for this overlay.
+# Non-OpenAI systems such as Z.ai and MiniMax are external MCP dependencies,
+# not direct Codex model providers.
+
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+model_provider = "openai"
+
+[features]
+multi_agent = true
+codex_hooks = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 900
+
+# Official Z.ai remote MCPs. Both canonical and legacy names are declared so
+# Codex App/CLI, subagents, and migration docs can refer to either convention.
+[mcp_servers.zai_web_search]
+url = "https://api.z.ai/api/mcp/web_search_prime/mcp"
+bearer_token_env_var = "Z_AI_API_KEY"
+startup_timeout_sec = 20.0
+tool_timeout_sec = 120.0
+enabled_tools = ["web_search_prime"]
+
+[mcp_servers.web-search-prime]
+url = "https://api.z.ai/api/mcp/web_search_prime/mcp"
+bearer_token_env_var = "Z_AI_API_KEY"
+startup_timeout_sec = 20.0
+tool_timeout_sec = 120.0
+enabled_tools = ["web_search_prime"]
+
+[mcp_servers.zai_web_reader]
+url = "https://api.z.ai/api/mcp/web_reader/mcp"
+bearer_token_env_var = "Z_AI_API_KEY"
+startup_timeout_sec = 20.0
+tool_timeout_sec = 120.0
+enabled_tools = ["webReader"]
+
+[mcp_servers.web-reader]
+url = "https://api.z.ai/api/mcp/web_reader/mcp"
+bearer_token_env_var = "Z_AI_API_KEY"
+startup_timeout_sec = 20.0
+tool_timeout_sec = 120.0
+enabled_tools = ["webReader"]
+
+[mcp_servers.zai_zread]
+url = "https://api.z.ai/api/mcp/zread/mcp"
+bearer_token_env_var = "Z_AI_API_KEY"
+startup_timeout_sec = 20.0
+tool_timeout_sec = 180.0
+enabled_tools = ["search_doc", "get_repo_structure", "read_file"]
+
+[mcp_servers.zread]
+url = "https://api.z.ai/api/mcp/zread/mcp"
+bearer_token_env_var = "Z_AI_API_KEY"
+startup_timeout_sec = 20.0
+tool_timeout_sec = 180.0
+enabled_tools = ["search_doc", "get_repo_structure", "read_file"]
+
+[mcp_servers.zai_vision]
+command = "npx"
+args = ["-y", "@z_ai/mcp-server@latest"]
+env_vars = ["Z_AI_API_KEY", "Z_AI_MODE"]
+startup_timeout_sec = 30.0
+tool_timeout_sec = 300.0
+enabled_tools = [
+  "ui_to_artifact",
+  "extract_text_from_screenshot",
+  "diagnose_error_screenshot",
+  "understand_technical_diagram",
+  "analyze_data_visualization",
+  "ui_diff_check",
+  "analyze_image",
+  "analyze_video",
+]
+
+[mcp_servers.minimax_coding_tools]
+command = "/Users/alfredolopez/.local/bin/uvx"
+args = ["minimax-coding-plan-mcp", "-y"]
+env_vars = ["MINIMAX_API_KEY", "MINIMAX_API_HOST"]
+startup_timeout_sec = 30.0
+tool_timeout_sec = 180.0
+enabled_tools = ["web_search", "understand_image"]
+
+[mcp_servers.ralph_coding_models]
+command = "/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop/.venv-model-router/bin/python"
+args = ["/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop/scripts/model-router/ralph_coding_models_mcp.py"]
+cwd = "/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop"
+env_vars = [
+  "Z_AI_API_KEY",
+  "Z_AI_CODING_BASE_URL",
+  "Z_AI_GENERAL_BASE_URL",
+  "Z_AI_USE_CODING_ENDPOINT",
+  "Z_AI_MODEL_DEEP",
+  "Z_AI_MODEL_FAST",
+  "MINIMAX_API_KEY",
+  "MINIMAX_ANTHROPIC_BASE_URL",
+  "MINIMAX_OPENAI_BASE_URL",
+  "MINIMAX_MODEL_FAST",
+  "MINIMAX_MODEL_STANDARD",
+]
+startup_timeout_sec = 30.0
+tool_timeout_sec = 600.0
+enabled_tools = [
+  "validate_coding_models",
+  "zai_coding_deep",
+  "zai_coding_fast",
+  "minimax_agentic_fast",
+  "minimax_agentic",
+  "route_coding_task",
+  "ensemble_counterpart",
+]
