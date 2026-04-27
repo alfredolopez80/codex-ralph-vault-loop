@@ -37,6 +37,7 @@ cookies*
 .ralph/layers/
 .ralph/ledgers/
 .ralph/handoffs/
+.ralph-codex/
 /MiVault/
 /Obsidian/
 /vault-data/
