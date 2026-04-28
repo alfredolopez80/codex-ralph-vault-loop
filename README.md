@@ -1,8 +1,8 @@
 # Codex Ralph Vault Loop
 
-Codex-native orchestration overlay for Codex CLI and Codex App.
+Codex Ralph Vault Loop is a Codex App and Codex CLI orchestration overlay for multi-agent engineering work. It keeps Codex as the owner of final decisions, uses external models only through MCP tools, verifies changes through gates and evals, and stores durable memory outside the repository.
 
-The operating rule is simple:
+Its operating contract is deliberately small:
 
 ```text
 Codex main decides.
@@ -11,17 +11,34 @@ Gates verify.
 Vault remembers.
 ```
 
-This repo ports the Ralph multi-agent workflow into Codex without copying private vault data and without configuring Z.ai or MiniMax as direct Codex `model_provider` backends. Codex stays on OpenAI as the orchestrator. Z.ai, MiniMax, web/repo readers, and vision tools are used only through MCP tools after sensitivity checks.
+The project ports the Ralph multi-agent workflow into Codex without copying private vault data and without configuring Z.ai or MiniMax as direct Codex `model_provider` backends. OpenAI remains the orchestrator. Z.ai, MiniMax, web readers, repo readers, and vision tools are used only through MCP boundaries after sensitivity checks.
+
+## What This Repo Provides
+
+This repository is not an application template. It is a reusable operating layer for Codex sessions. It gives Codex durable instructions, project and global skills, subagent definitions, lifecycle hooks, security guards, memory tools, eval scripts, and global installation helpers.
+
+The overlay supports several working modes:
+
+| Capability | What it does |
+|---|---|
+| Orchestration | Coordinates Codex main, subagents, MCP advisors, vault memory, gates, evals, and final handoff. |
+| Model routing | Sends only eligible GREEN or sanitized YELLOW work to external MCP advisors; RED content stays local. |
+| Security boundaries | Detects secrets, credentials, wallet material, `.env` references, and sensitive markers before externalization or persistence. |
+| Vault memory | Loads compact wakeup context and saves durable GREEN/YELLOW learnings outside the repo. |
+| Quality gates | Runs deterministic checks, scorecards, mutation guards, and eval suites before claiming completion. |
+| Global skills | Installs reusable Codex workflows into `~/.agents/skills` so they can be used from any repo. |
+| Subagents | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work. |
+| Design workflow | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
 
 ## Current Status
 
-Migration phases `00` through `20` are complete and checkpointed under [`docs/migration/checkpoints`](./docs/migration/checkpoints).
+Migration phases `00` through `20` are complete and checkpointed under [`docs/migration/checkpoints`](./docs/migration/checkpoints). The latest acceptance matrix is in [`PHASE_20.md`](./docs/migration/checkpoints/PHASE_20.md).
 
-Latest acceptance evidence:
+Current acceptance evidence:
 
-- Repo doctor passed.
+- Repo doctor passes.
 - `.codex/config.toml` parses.
-- 16 project skills are present under `.agents/skills`.
+- 17 project skills are present under `.agents/skills`.
 - 12 Codex subagents parse under `.codex/agents`.
 - Hooks run in dry-run mode.
 - Vault scripts work with temporary `VAULT_DIR` and real MiVault read-only.
@@ -31,22 +48,20 @@ Latest acceptance evidence:
 - `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
 - RED content does not externalize and does not persist.
 
-See [`PHASE_20.md`](./docs/migration/checkpoints/PHASE_20.md) for the full acceptance matrix.
-
 ## Architecture
 
 ![Codex Ralph architecture](./docs/architecture/diagrams/codex-ralph-architecture.png)
 
-The repo is split into these surfaces:
+The repo is organized around a few explicit surfaces:
 
 | Surface | Purpose |
 |---|---|
-| [`AGENTS.md`](./AGENTS.md) | Project instruction surface loaded by Codex App/CLI. |
+| [`AGENTS.md`](./AGENTS.md) | Project instruction surface loaded by Codex App and Codex CLI. |
 | [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider. |
-| [`.agents/skills`](./.agents/skills) | Codex-native skills for orchestration, vault, gates, evals, routing, research, and hardening. |
+| [`.agents/skills`](./.agents/skills) | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, and hardening. |
 | [`.codex/agents`](./.codex/agents) | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts. |
-| [`.codex/hooks`](./.codex/hooks) | Session/tool/stop lifecycle hooks with RED guards and local ledgers. |
-| [`scripts`](./scripts) | Deterministic setup, vault, memory, gates, eval, cost, and security scripts. |
+| [`.codex/hooks`](./.codex/hooks) | Session, prompt, tool, and stop lifecycle hooks with RED guards and local ledgers. |
+| [`scripts`](./scripts) | Deterministic setup, memory, vault, gate, eval, cost, and security utilities. |
 | [`config/scorecards`](./config/scorecards) | RASS v1 scorecards and hard gates. |
 | `~/.ralph-codex` | Runtime memory, reports, ledgers, and handoffs. |
 | `~/Documents/Obsidian/MiVault` | Durable Obsidian memory outside the public repo. |
@@ -57,71 +72,107 @@ Editable diagram sources and rendered assets live in [`docs/architecture/diagram
 
 ![Routing and security flow](./docs/architecture/diagrams/routing-security-flow.png)
 
-Routing is content-aware:
+Routing is content-aware. Codex receives the task, loads global and project instructions, classifies sensitivity as GREEN, YELLOW, or RED, then chooses the smallest safe route. RED content stays local and is blocked from external MCP routing, vault persistence, and handoff storage. GREEN and sanitized YELLOW work can use local Codex execution, narrow Codex subagents, or MCP advisors. Codex main always integrates the result and makes the final decision.
 
-1. Codex receives the task and loads project/global instructions.
-2. The orchestrator classifies sensitivity as GREEN, YELLOW, or RED.
-3. A shared detector scans for API keys, JWTs, private keys, seed phrases, wallet material, OAuth tokens, database URLs, `.env` references, and customer-sensitive markers.
-4. RED blocks external MCP routing and vault persistence.
-5. GREEN and sanitized YELLOW can use local Codex work, narrow Codex subagents, or MCP advisors.
-6. Codex main integrates, verifies, and makes the final decision.
-7. Gates, evals, vault save, and handoff run before completion.
-
-MCP routing policy:
+The default MCP routing policy is:
 
 | Need | Route |
 |---|---|
-| Fast logs, diffs, summaries, test ideas | `ralph_coding_models.minimax_agentic_fast` using MiniMax-M2.7-highspeed |
+| Fast logs, diffs, summaries, or test ideas | `ralph_coding_models.minimax_agentic_fast` using MiniMax-M2.7-highspeed |
 | Fast OpenClaw-like coding support | `ralph_coding_models.zai_coding_fast` using GLM-5-Turbo |
 | Medium/high complexity counterpart review | `ralph_coding_models.zai_coding_deep` using GLM-5.1 |
-| Current search, web reader, repo reader, vision | Official Z.ai MCPs or configured aliases |
-| Fast search and quick image checks | Official MiniMax MCP tools |
+| Current search, web reading, repo reading, or vision | Official Z.ai MCPs or configured aliases |
+| Fast search or quick image understanding | Official MiniMax MCP tools |
 
-Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual generation. GPT Imágenes 2 is the only approved visual generation route.
+Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual generation. GPT Images 2 is the only approved visual generation route.
 
 ## Memory, Gates, And Evals
 
 ![Memory and eval lifecycle](./docs/architecture/diagrams/memory-eval-lifecycle.png)
 
-The memory stack is deliberately outside the repo:
+The memory stack is intentionally outside the repo. `scripts/memory/wakeup.py` loads compact L0-L3 runtime context. `scripts/memory/handoff.py` writes the latest handoff and archives prior handoffs. `scripts/vault/vault-save.py` persists GREEN globally and YELLOW per project. RED is skipped by vault save, memory extraction, and stop handoff hooks.
 
-- `scripts/memory/wakeup.py` loads compact L0-L3 runtime context.
-- `scripts/memory/handoff.py` writes `latest.md` and archives handoffs.
-- `scripts/vault/vault-save.py` persists GREEN globally and YELLOW per project.
-- RED is skipped by vault save, memory extraction, and stop handoff hooks.
+The quality spine is scriptable and repeatable:
 
-Quality and evaluation spine:
+| Tool | Role |
+|---|---|
+| `scripts/gates/run-gates.py --minimal` | Writes `.ralph-codex/reports/gates/latest.json` and `.md`. |
+| `scripts/evals/run_scorecard.py` | Applies RASS v1 scorecards. |
+| `scripts/evals/research_eval.py` | Validates research behavior in mock/offline mode. |
+| `scripts/evals/vision_eval.py` | Validates vision-analysis behavior in mock/offline mode. |
+| `scripts/evals/coding_model_eval.py` | Validates MCP-oriented coding model behavior. |
+| `scripts/evals/autoresearch_dry_run.py` | Runs the deterministic toy AutoResearch fixture and keep/discard decision. |
 
-- `scripts/gates/run-gates.py --minimal` writes `.ralph-codex/reports/gates/latest.json` and `.md`.
-- `scripts/evals/run_scorecard.py` applies RASS v1 scorecards.
-- `scripts/evals/research_eval.py`, `vision_eval.py`, and `coding_model_eval.py` validate MCP-oriented behavior in mock/offline mode.
-- `scripts/evals/autoresearch_dry_run.py` runs the deterministic toy AutoResearch fixture and keep/discard decision.
-- `sensitive_externalization_incidents` is tracked by coding model evals.
+## Codex Design Studio
 
-## Optional Global Install
+`codex-design-studio` is a global skill for frontend and full-stack product design work. It gives Codex a reusable workflow similar to Claude Design without creating a separate project or template app.
 
-FASE 18 added safe global installation scripts:
+Use it when you want Codex to design, redesign, prototype, implement, or visually improve a landing page, dashboard, app flow, pitch deck, presentation, microsite, one-pager, or UI based on an existing repo plus PDFs, PPTX decks, screenshots, images, Figma links, website references, or brand assets.
+
+The workflow is:
+
+```text
+intake
+repo reconnaissance
+asset and style analysis
+design-system extraction
+clarifying questions
+plan
+implementation
+visual validation
+iteration
+handoff
+```
+
+The skill lives at [`.agents/skills/codex-design-studio`](./.agents/skills/codex-design-studio). When installed globally, it is available from any Codex project through `~/.agents/skills/codex-design-studio`.
+
+Example prompt:
+
+```text
+Use $codex-design-studio.
+
+I want to redesign this project's main landing page using the attached deck.
+Inspect the repo first, extract the visual system, ask only the critical questions,
+then propose a plan before implementation.
+```
+
+## Global Installation
+
+The global installer creates symlinks from this repo into the user's Codex and agent directories. It does not copy vault data, does not copy secrets, and does not edit `~/.codex/config.toml`. Conflicting global entries are backed up under `~/.ralph-codex/backups/global-install`.
+
+Preview the changes:
 
 ```bash
 bash scripts/setup/install-global.sh --dry-run
+```
+
+Install project skills globally:
+
+```bash
+bash scripts/setup/install-global.sh --install
+```
+
+Install skills plus Codex subagents:
+
+```bash
 bash scripts/setup/install-global.sh --install --with-agents
+```
+
+Check the global install:
+
+```bash
 bash scripts/setup/doctor-global.sh
+```
+
+Remove symlinks created by this repo:
+
+```bash
 bash scripts/setup/uninstall-global.sh --uninstall --with-agents
 ```
 
-The installer:
-
-- Creates `~/.agents/skills` and `~/.codex/agents` when needed.
-- Symlinks selected project skills.
-- Symlinks subagents only when `--with-agents` is provided.
-- Does not copy vault data.
-- Does not copy secrets.
-- Does not edit `~/.codex/config.toml`.
-- Backs up conflicting global entries before replacing them.
-
 ## Quick Validation
 
-Run the same local checks used in acceptance:
+Run the same checks used during acceptance:
 
 ```bash
 bash scripts/setup/doctor.sh
@@ -169,21 +220,23 @@ codex-ralph-vault-loop/
 └── tests/
 ```
 
-## Key Docs
+## Key Documentation
 
-- [Architecture overview](./docs/architecture/overview.md)
-- [MCP model router](./docs/architecture/mcp-model-router.md)
-- [Memory stack](./docs/architecture/memory-stack.md)
-- [Hooks](./docs/architecture/hooks.md)
-- [Subagents](./docs/architecture/subagents.md)
-- [Evaluation spine](./docs/architecture/evaluation-spine.md)
-- [Threat model](./docs/architecture/threat-model.md)
-- [Migration phase plan](./docs/migration/phase-plan.md)
-- [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_20.md)
+| Document | Purpose |
+|---|---|
+| [Architecture overview](./docs/architecture/overview.md) | System-level architecture and responsibilities. |
+| [MCP model router](./docs/architecture/mcp-model-router.md) | External model routing policy and constraints. |
+| [Memory stack](./docs/architecture/memory-stack.md) | Wakeup, handoff, and vault memory model. |
+| [Hooks](./docs/architecture/hooks.md) | Codex lifecycle hooks and safety behavior. |
+| [Subagents](./docs/architecture/subagents.md) | Codex subagent definitions and roles. |
+| [Evaluation spine](./docs/architecture/evaluation-spine.md) | Gates, evals, scorecards, and acceptance checks. |
+| [Threat model](./docs/architecture/threat-model.md) | RED/YELLOW/GREEN sensitivity boundaries. |
+| [Migration phase plan](./docs/migration/phase-plan.md) | Phase-by-phase migration structure. |
+| [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_20.md) | Latest full acceptance matrix. |
 
 ## Source Lineage
 
-This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop). The Claude runtime primitives were replaced with Codex App/CLI primitives:
+This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop). The Claude runtime primitives were replaced with Codex App and Codex CLI primitives:
 
 | Claude-side concept | Codex-side implementation |
 |---|---|

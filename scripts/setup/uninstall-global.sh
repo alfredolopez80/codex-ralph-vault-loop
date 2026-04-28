@@ -26,6 +26,7 @@ DEFAULT_SKILLS=(
   scorecard
   obsidian-capture
   obsidian-spec
+  codex-design-studio
 )
 
 DEFAULT_AGENTS=(

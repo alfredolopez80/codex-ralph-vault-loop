@@ -1,0 +1,8 @@
+interface:
+  display_name: "Codex Design Studio"
+  short_description: "Claude Design-like workflow for frontend/full-stack design, style extraction, planning, implementation, and visual QA."
+  brand_color: "#7C3AED"
+  default_prompt: "Use $codex-design-studio to inspect this project, ask the necessary design/product questions, extract style from any provided assets, propose a plan, implement the requested UI/deck/prototype inside this repo, validate visually, and deliver a handoff."
+
+policy:
+  allow_implicit_invocation: true
