@@ -28,6 +28,7 @@ DEFAULT_SKILLS=(
   scorecard
   obsidian-capture
   obsidian-spec
+  oracle-pro-debugger
   codex-design-studio
 )
 
