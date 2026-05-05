@@ -1,24 +1,53 @@
 ---
 name: autoresearch
-description: Run Codex-native AutoResearch loops with versioned scorecards, immutable eval inputs, JSONL logging, and keep/discard decisions.
+description: Run Codex-native AutoResearch loops with versioned scorecards, durable session files, METRIC packets, ASI logging, and keep/discard/crash/checks_failed decisions.
 ---
+
 # AutoResearch
 
 ## Purpose
 
-Use this skill when a research or improvement loop needs to test a candidate change against stable scorecards and fixtures before deciding whether to keep it. Codex main owns the decision. External models may advise only when the content is GREEN or sanitized YELLOW.
+Use this skill when a research or improvement loop needs to test candidate changes against a measurable target before deciding whether to keep them. Codex main owns the decision. External models may advise only when the content is GREEN or sanitized YELLOW.
 
 ## Required Flow
 
-Start by selecting a scorecard from `config/scorecards`. Record the id and version before candidate work begins. Scorecards, eval scripts, and fixtures are read-only during the run.
+Use the unified loop:
 
-Use train and holdout splits when the suite provides them. Train can guide hypothesis generation, but holdout drives the keep/discard decision. If there is no holdout split, use the documented suite default.
+```text
+Target -> Onboard -> Setup -> Doctor -> Packet -> Log -> Continue or Finalize
+```
 
-Log each run as JSONL with the suite, scorecard version, baseline score, candidate score, and delta. Include gate state, final decision, and the report path as named fields. Generate a readable report under `.ralph-codex/reports/evals`.
+Start by selecting a scorecard from `config/scorecards`. Record the id and version before candidate work begins. Scorecards, eval scripts, and fixtures are read-only during eval runs.
 
-Keep a candidate only when hard gates pass, protected eval files are unchanged, fixtures are unchanged, and score delta meets the suite threshold. Otherwise discard it and preserve the report.
+For real repo loops, create durable state in the target repo:
 
-Persist PASS results to MiVault as GREEN knowledge. RED content must never be saved or externalized.
+- `autoresearch.md` for goal, metric, scope, constraints, and stop conditions.
+- `autoresearch.jsonl` for append-only config and packet decisions.
+- `autoresearch.ideas.md` for deferred hypotheses and next-action notes.
+- `autoresearch.last-run.json` for the latest packet evidence.
+- `autoresearch.research/<slug>/` only for optional quality-gap research rounds.
+
+Benchmarks must print the primary metric as `METRIC name=value`. Secondary `METRIC` lines may explain tradeoffs but do not drive keep/discard. Missing, null, crashed, clipped, or ineligible metrics are unknown; never report them as zero or as wins.
+
+Every packet decision must log ASI: `hypothesis`, `evidence`, `next_action_hint`, and `rollback_reason` for `discard`, `crash`, or `checks_failed`. Optional ASI fields such as `lane`, `family`, and `risk` are useful when a loop spans many attempts.
+
+Keep a candidate only when the primary metric is finite, hard gates pass, the latest packet is fresh, protected eval inputs are unchanged when applicable, scoped commit paths are clear, and the score or metric delta meets the suite threshold. Otherwise log `discard`, `crash`, or `checks_failed` and preserve evidence.
+
+Persist PASS results to MiVault as GREEN knowledge. RED content must never be saved, logged, or externalized.
+
+## Local CLI
+
+Use the local Ralph adapter first. From this repo:
+
+```bash
+python3 scripts/autoresearch/doctor.py --cwd <target-repo>
+python3 scripts/autoresearch/setup.py --cwd <target-repo> --goal "<goal>" --metric <name> --direction lower|higher --benchmark-command "<command>"
+python3 scripts/autoresearch/next.py --cwd <target-repo>
+python3 scripts/autoresearch/log.py --cwd <target-repo> --from-last --status keep|discard|crash|checks_failed
+python3 scripts/autoresearch/state.py --cwd <target-repo> --compact
+```
+
+If the upstream `codex-autoresearch` MCP or CLI is installed, use its read-only planning/state tools as an optional backend for setup guidance. Mutation still goes through Codex approval, Ralph CLI logging, scorecards, and gates.
 
 ## External Advisors
 

@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import yaml
-except ModuleNotFoundError:  # pragma: no cover - exercised when PyYAML is absent.
+    import yaml as _yaml
+except Exception:  # pragma: no cover - exercised when PyYAML is absent.
     yaml = None
+else:
+    yaml = _yaml if callable(getattr(_yaml, "safe_load", None)) else None
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

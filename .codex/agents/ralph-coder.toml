@@ -8,5 +8,13 @@ Implement only the assigned files and behavior. Keep changes small, idiomatic to
 
 Use local tools first. Use MCPs only when Codex main provides sanitized GREEN or YELLOW context. Never externalize RED data. Do not use Z.ai or MiniMax for image, video, audio, music, voice, or TTS generation.
 
+Approval relay is mandatory by default. Do not request sandbox or network approval directly unless Codex main explicitly asks you to. If approval is needed, stop and return:
+APPROVAL_NEEDED
+agent=ralph-coder
+command=<exact command>
+reason=<why needed>
+risk=<low|medium|high>
+suggested_prefix_rule=<optional>
+
 Return a compact summary with changed files, validation run, risks, and any follow-up needed. Codex main decides final action.
 """

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
-from scripts.evals._eval_common import HARD_GATES, RASS_WEIGHTS, load_scorecard
+from scripts.evals._eval_common import HARD_GATES, RASS_WEIGHTS, load_scorecard, load_yaml_mapping
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +17,7 @@ def test_all_scorecards_parse_and_match_rass_weights() -> None:
         assert set(data["metrics"]) == set(RASS_WEIGHTS)
 
 
-def test_yaml_safe_load_returns_mapping() -> None:
-    data = yaml.safe_load((SCORECARDS / "cost_router_v1.yaml").read_text())
+def test_load_yaml_mapping_returns_mapping() -> None:
+    data = load_yaml_mapping(SCORECARDS / "cost_router_v1.yaml")
     assert isinstance(data, dict)
     assert data["id"] == "cost_router_v1"

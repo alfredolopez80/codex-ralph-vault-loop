@@ -48,7 +48,3 @@ cookies*
 .codex/sessions/
 .codex/cache/
 .codex/log/
-
-# Local agent/skill overlays are managed outside repo commits for now
-.agents/
-.codex/agents/

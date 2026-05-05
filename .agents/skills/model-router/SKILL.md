@@ -32,6 +32,8 @@ For complexity 3-4, use GLM-5-Turbo or MiniMax-M2.7-highspeed through `ralph_cod
 
 Use `scripts/cost/route-task.py` for deterministic route selection before external delegation.
 
+For substantive non-trivial work, expose the selected route as a `ROUTE_DECISION` block or append it through `scripts/cost/ledger.py`. The protocol route must be one of `local`, `mcp:minimax-fast`, `mcp:zai-fast`, `mcp:zai-deep`, `codex-subagent`, or `fallback-local`. RED always maps to local work.
+
 ## Forbidden
 
 Never use Z.ai or MiniMax for image generation, video generation, music generation, voice generation, voice cloning, TTS, secrets, private keys, wallet material, credentials, customer data, database credentials, `.env` content, OAuth/JWT material, or RED-sensitive content.

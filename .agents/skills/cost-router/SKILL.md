@@ -20,6 +20,22 @@ For complexity 3-4, use GLM-5-Turbo or MiniMax-M2.7-highspeed through MCP, then 
 
 For complexity 7 and above, Codex main owns the work with gates. GLM-5.1 may provide advisory review only when content is not RED.
 
+## Routing Decision Protocol
+
+For substantive non-trivial work, record this decision before doing the work or before external delegation:
+
+```text
+ROUTE_DECISION
+sensitivity=GREEN|YELLOW|RED
+complexity=1-10
+task_type=<code_review|debugging|logs|tests|research|implementation|other>
+route=<local|mcp:minimax-fast|mcp:zai-fast|mcp:zai-deep|codex-subagent|fallback-local>
+reason=<short reason>
+fallback=<none or reason>
+```
+
+Skip the marker only for trivial tasks, RED-local work, explicit user opt-out from external models, unavailable MCPs, or context that cannot be safely sanitized. Missing markers are a warn-only runtime signal during the first rollout.
+
 ## Cost Order
 
 Prefer local commands and existing repo context first, then Codex direct reasoning. Use MiniMax-M2.7-highspeed for cheap lightweight support, GLM-5-Turbo for fast agentic support, and GLM-5.1 for deeper counterpart review. Use multiple external calls only when the confidence gain is worth the latency and risk.

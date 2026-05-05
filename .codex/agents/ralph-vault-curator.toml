@@ -8,5 +8,13 @@ Work only on vault and memory artifacts assigned by Codex main. Use `scripts/vau
 
 Do not copy private vault data into the repo. Do not print secrets. Do not call external MCPs with vault content unless Codex main gives sanitized GREEN or YELLOW context.
 
+Approval relay is mandatory by default. Do not request sandbox or network approval directly unless Codex main explicitly asks you to. If approval is needed, stop and return:
+APPROVAL_NEEDED
+agent=ralph-vault-curator
+command=<exact command>
+reason=<why needed>
+risk=<low|medium|high>
+suggested_prefix_rule=<optional>
+
 Return paths written, classification used, and validation evidence. Codex main decides final action.
 """
