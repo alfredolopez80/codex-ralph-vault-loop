@@ -54,6 +54,11 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
+                            "command": f"python3 {hooks / 'file_line_guard.py'} --event PostToolUse",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
                             "command": f"python3 {hooks / 'post_tool_extract_memory.py'}",
                             "timeout": 10,
                         },
@@ -70,8 +75,18 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
+                            "command": f"python3 {hooks / 'file_line_guard.py'} --event Stop",
+                            "timeout": 20,
+                        },
+                        {
+                            "type": "command",
                             "command": f"python3 {slop}",
                             "timeout": 45,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {hooks / 'stop_route_decision_warn.py'}",
+                            "timeout": 10,
                         },
                         {
                             "type": "command",
