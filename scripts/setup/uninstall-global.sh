@@ -5,8 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
+AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
+GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
+GLOBAL_HELPER_ROOT="${HOME}/.ralph-codex/bin"
 MODE=""
 WITH_AGENTS=0
 
@@ -109,11 +112,16 @@ remove_link() {
 remove_skill() {
   local name="$1"
   remove_link "${SKILL_SOURCE_ROOT}/${name}" "${GLOBAL_SKILL_ROOT}/${name}"
+  remove_link "${SKILL_SOURCE_ROOT}/${name}" "${GLOBAL_CODEX_SKILL_ROOT}/${name}"
 }
 
 remove_agent() {
   local name="$1"
   remove_link "${AGENT_SOURCE_ROOT}/${name}.toml" "${GLOBAL_AGENT_ROOT}/${name}.toml"
+}
+
+remove_helpers() {
+  remove_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
 }
 
 main() {
@@ -178,6 +186,8 @@ main() {
   else
     printf 'GLOBAL_UNINSTALL_INFO agents-optional use --with-agents to remove Codex subagent symlinks\n'
   fi
+
+  remove_helpers
 
   printf 'GLOBAL_UNINSTALL_CONFIG_UNCHANGED %s\n' "${HOME}/.codex/config.toml"
   printf 'GLOBAL_UNINSTALL_DONE mode=%s repo=%s\n' "$MODE" "$REPO_ROOT"

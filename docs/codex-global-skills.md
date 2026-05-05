@@ -4,6 +4,63 @@ This repo documents Codex skills that are installed globally in
 `~/.codex/skills` and are expected to be available across projects after
 restarting Codex.
 
+## ralph-autoresearch-global-v2
+
+| Field | Value |
+|---|---|
+| Skill name | `autoresearch` |
+| Repo source | `.agents/skills/autoresearch` |
+| Global agent path | `~/.agents/skills/autoresearch` |
+| Global Codex path | `~/.codex/skills/autoresearch` |
+| Helper path | `~/.ralph-codex/bin/autoresearch` |
+| Primary output | Target-repo `autoresearch.md`, `autoresearch.jsonl`, `autoresearch.ideas.md`, and `autoresearch.last-run.json` |
+
+Use `$autoresearch` when a project needs a measurable improvement loop. Codex
+should follow this lifecycle:
+
+```text
+Target -> Onboard -> Setup -> Doctor -> Packet -> Log -> Continue or Finalize
+```
+
+The global installer links both skill roots so Codex App, Codex CLI, and agent
+skill discovery can all find the workflow after restart. It also links the
+helper directory under `~/.ralph-codex/bin/autoresearch`.
+
+### Operator Commands
+
+From this repo:
+
+```bash
+bash scripts/setup/install-global.sh --install --with-agents
+bash scripts/setup/doctor-global.sh
+```
+
+From any target repo, use the helper scripts through the global symlink or this
+repo path:
+
+```bash
+python3 ~/.ralph-codex/bin/autoresearch/setup.py --cwd . --goal "<goal>" --metric seconds --direction lower --benchmark-command "<command>"
+python3 ~/.ralph-codex/bin/autoresearch/doctor.py --cwd .
+python3 ~/.ralph-codex/bin/autoresearch/next.py --cwd .
+python3 ~/.ralph-codex/bin/autoresearch/log.py --cwd . --from-last --status keep --description "<evidence>"
+python3 ~/.ralph-codex/bin/autoresearch/state.py --cwd . --compact
+```
+
+Benchmarks must print `METRIC name=value`. The configured primary metric drives
+keep/discard. Each logged packet records scorecard id/version, metric,
+direction, status, delta, hard gates, commit paths, ASI, and timestamp.
+
+### Safety Rules
+
+- Codex main decides; optional upstream `codex-autoresearch` tooling is read-only
+  guidance unless the user approves mutation.
+- RED content is blocked from session files, logs, vault persistence, and
+  external MCPs.
+- `log.py --from-last` refuses stale packets when the target changed after
+  `next.py`.
+- Missing primary metrics are unknown, not zero.
+- `discard`, `crash`, and `checks_failed` require ASI rollback evidence.
+
 ## fireworks-tech-graph
 
 | Field | Value |

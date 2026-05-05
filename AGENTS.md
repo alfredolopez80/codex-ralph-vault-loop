@@ -41,8 +41,21 @@
 - `.agents/skills/` - repo-local skills and router guidance.
 - `.codex/agents/` - Codex agent definitions for this overlay.
 - `.codex/hooks/` - project hook scripts and hook placeholders.
+- `scripts/autoresearch/` - Ralph AutoResearch Global V2 CLI helpers.
 - `~/.ralph-codex/` - Codex-native Ralph runtime memory and ledgers.
+- `~/.ralph-codex/bin/autoresearch` - global symlink to AutoResearch helpers after install.
+- `~/.agents/skills/` and `~/.codex/skills/` - global skill symlink targets after install.
 - `~/Documents/Obsidian/MiVault` - user Obsidian vault for durable knowledge.
+
+## AutoResearch Global V2
+
+Use `$autoresearch` for measurable improvement loops. The global contract is:
+
+```text
+Target -> Onboard -> Setup -> Doctor -> Packet -> Log -> Continue or Finalize
+```
+
+Codex should create target-repo session files through `scripts/autoresearch/setup.py`, verify with `doctor.py`, run benchmark packets with `next.py`, log packet decisions with `log.py`, and summarize with `state.py`. Benchmarks must emit `METRIC name=value`; the primary metric drives keep/discard. Every logged packet must include ASI fields: hypothesis, evidence, next action hint, and rollback reason for discard/crash/checks_failed. Optional upstream `codex-autoresearch` tools are read-only guidance unless Codex main explicitly approves mutation. Ralph scorecards, gates, scoped commit paths, stale-packet checks, and RED-sensitive content blocking remain authoritative.
 
 ## Complexity Routing
 
@@ -52,6 +65,37 @@
 | 3-4 | Fast external worker through MCP, then Codex synthesis and verification. |
 | 5-6 | GLM-5.1 counterpart review before final Codex action. |
 | 7+ | Codex main owns the work with gates, strong review, and explicit risk control. |
+
+## Routing Decision Protocol
+
+Before substantive non-trivial work, record a route decision in the thread or routing ledger. Use this shape:
+
+```text
+ROUTE_DECISION
+sensitivity=GREEN|YELLOW|RED
+complexity=1-10
+task_type=<code_review|debugging|logs|tests|research|implementation|other>
+route=<local|mcp:minimax-fast|mcp:zai-fast|mcp:zai-deep|codex-subagent|fallback-local>
+reason=<short reason>
+fallback=<none or reason>
+```
+
+Valid exceptions are trivial work, RED content, a user request to avoid external models, unavailable MCPs, or context that cannot be safely sanitized. The first rollout is warn-only: hooks may report missing route decisions, but they must not block completion.
+
+## Approval Relay Protocol
+
+Subagents must not request sandbox or network approval directly unless Codex main explicitly asks them to. When a subagent needs installation, network access, escalated sandbox permissions, or another sensitive action, it returns this block and stops:
+
+```text
+APPROVAL_NEEDED
+agent=<name>
+command=<exact command>
+reason=<why needed>
+risk=<low|medium|high>
+suggested_prefix_rule=<optional>
+```
+
+Codex main decides whether to request user approval, choose a local fallback, or revise the assignment.
 
 ## Phase Discipline
 

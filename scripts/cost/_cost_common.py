@@ -20,6 +20,15 @@ SENSITIVITIES = {"GREEN", "YELLOW", "RED"}
 FAST_TASKS = {"log_summary", "diff_summary", "test_ideas", "logs", "diffs"}
 OPENCLAW_TASKS = {"openclaw", "openclaw_like", "command_following", "small_agentic"}
 DEEP_TASKS = {"architecture_counterpart", "architecture", "debugging", "design_review", "failure_analysis"}
+PROTOCOL_ROUTES = {
+    "codex_direct": "local",
+    "codex_main_local": "local",
+    "mcp_fast_minimax": "mcp:minimax-fast",
+    "mcp_fast_zai": "mcp:zai-fast",
+    "mcp_fast_coding": "mcp:zai-fast",
+    "mcp_deep_counterpart": "mcp:zai-deep",
+    "codex_main_with_gates": "local",
+}
 
 
 def now_iso() -> str:
@@ -69,6 +78,7 @@ def blocked_route(task: str, level: int, sens: str, reason: str, findings: list[
         "blocked": True,
         "reason": reason,
         "route": "codex_main_local",
+        "protocol_route": "local",
         "tool": None,
         "model": None,
         "requires_codex_synthesis": True,
@@ -117,6 +127,7 @@ def route_task(task_type: str, complexity: int | str, sensitivity: str, text: st
         "allowed": True,
         "blocked": False,
         "route": route,
+        "protocol_route": PROTOCOL_ROUTES.get(route, "fallback-local"),
         "tool": tool,
         "model": model,
         "requires_codex_synthesis": route != "codex_direct",

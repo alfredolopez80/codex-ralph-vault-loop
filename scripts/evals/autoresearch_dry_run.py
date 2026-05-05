@@ -128,6 +128,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     scorecard = load_scorecard(scorecard_path)
     suite_report, decision_scores, decision_source = load_suite_scores(fixture, scorecard)
+    if args.simulate_fixture_mutation:
+        (fixture / ".autoresearch_mutation_probe").write_text(now_iso(), encoding="utf-8")
     threshold = args.min_delta if args.min_delta is not None else float(suite_report.get("decision_threshold", 0.01))
 
     after_harness = digest_paths(PROTECTED_HARNESS_PATHS)
@@ -140,7 +142,13 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     delta = round(candidate_score - baseline_score, 4)
     gates_passed = bool(decision_scores["candidate"]["hard_gates"]["passed"])
     protected = not harness_changes and not fixture_changes
-    keep = delta >= threshold and gates_passed and protected
+    primary_metric_present = not args.simulate_missing_metric
+    status = "keep" if delta >= threshold and gates_passed and protected and primary_metric_present else "discard"
+    if args.simulate_crash:
+        status = "crash"
+    elif args.simulate_checks_failed:
+        status = "checks_failed"
+    keep = status == "keep"
 
     report = {
         "created_at": now_iso(),
@@ -149,9 +157,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "scorecard_version": scorecard["version"],
         "dry_run": not args.persist_vault,
         "decision": "keep" if keep else "discard",
+        "status": status,
         "decision_source": decision_source,
         "decision_threshold": threshold,
         "delta": delta,
+        "primary_metric_present": primary_metric_present,
         "hard_gates_passed": gates_passed,
         "eval_harness_unchanged": not harness_changes,
         "fixture_unchanged": not fixture_changes,
@@ -180,6 +190,10 @@ def main() -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument("--jsonl", default=str(DEFAULT_JSONL))
     parser.add_argument("--min-delta", type=float, default=None)
+    parser.add_argument("--simulate-missing-metric", action="store_true")
+    parser.add_argument("--simulate-crash", action="store_true")
+    parser.add_argument("--simulate-checks-failed", action="store_true")
+    parser.add_argument("--simulate-fixture-mutation", action="store_true")
     parser.add_argument("--persist-vault", action="store_true", help="Persist PASS results to the local Obsidian vault.")
     args = parser.parse_args()
 

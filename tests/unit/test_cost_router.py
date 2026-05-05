@@ -31,6 +31,7 @@ def test_route_task_outputs_json_for_green_fast_logs() -> None:
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["allowed"] is True
+    assert data["protocol_route"] == "mcp:minimax-fast"
     assert data["tool"] == "ralph_coding_models.minimax_agentic_fast"
     assert data["model"] == "MiniMax-M2.7-highspeed"
 
@@ -47,6 +48,7 @@ def test_route_task_yellow_architecture_uses_glm_deep() -> None:
     )
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
+    assert data["protocol_route"] == "mcp:zai-deep"
     assert data["tool"] == "ralph_coding_models.zai_coding_deep"
     assert data["model"] == "GLM-5.1"
 
@@ -56,6 +58,7 @@ def test_route_task_red_blocks_externalization() -> None:
     assert result.returncode == 1
     data = json.loads(result.stdout)
     assert data["blocked"] is True
+    assert data["protocol_route"] == "local"
     assert data["route"] == "codex_main_local"
     assert data["tool"] is None
 
@@ -117,3 +120,4 @@ def test_ledger_writes_jsonl(tmp_path: Path) -> None:
     assert path.is_file()
     line = json.loads(path.read_text().splitlines()[0])
     assert line["decision"]["tool"] == "ralph_coding_models.minimax_agentic_fast"
+    assert line["decision"]["protocol_route"] == "mcp:minimax-fast"

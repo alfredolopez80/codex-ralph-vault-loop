@@ -5,8 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
+AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
+GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
+GLOBAL_HELPER_ROOT="${HOME}/.ralph-codex/bin"
 BACKUP_ROOT="${HOME}/.ralph-codex/backups/global-install"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 MODE=""
@@ -68,6 +71,7 @@ Safety:
   - Uses symlinks; does not copy secrets or vault data.
   - Does not edit ~/.codex/config.toml.
   - Backs up conflicting global entries before replacing them.
+  - Links skills into both ~/.agents/skills and ~/.codex/skills.
 USAGE
 }
 
@@ -140,11 +144,16 @@ install_link() {
 install_skill() {
   local name="$1"
   install_link "${SKILL_SOURCE_ROOT}/${name}" "${GLOBAL_SKILL_ROOT}/${name}"
+  install_link "${SKILL_SOURCE_ROOT}/${name}" "${GLOBAL_CODEX_SKILL_ROOT}/${name}"
 }
 
 install_agent() {
   local name="$1"
   install_link "${AGENT_SOURCE_ROOT}/${name}.toml" "${GLOBAL_AGENT_ROOT}/${name}.toml"
+}
+
+install_helpers() {
+  install_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
 }
 
 main() {
@@ -197,7 +206,9 @@ main() {
   fi
 
   ensure_dir "$GLOBAL_SKILL_ROOT"
+  ensure_dir "$GLOBAL_CODEX_SKILL_ROOT"
   ensure_dir "$GLOBAL_AGENT_ROOT"
+  ensure_dir "$GLOBAL_HELPER_ROOT"
 
   local skill
   for skill in "${SKILLS[@]}"; do
@@ -212,6 +223,8 @@ main() {
   else
     printf 'GLOBAL_INSTALL_INFO agents-optional use --with-agents to link Codex subagents\n'
   fi
+
+  install_helpers
 
   printf 'GLOBAL_INSTALL_CONFIG_UNCHANGED %s\n' "${HOME}/.codex/config.toml"
   printf 'GLOBAL_INSTALL_DONE mode=%s repo=%s\n' "$MODE" "$REPO_ROOT"

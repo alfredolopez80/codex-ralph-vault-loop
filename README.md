@@ -119,10 +119,14 @@ design-system extraction
 clarifying questions
 plan
 implementation
-visual validation
+visual validation and comparison
 iteration
 handoff
 ```
+
+For Codex Desktop visual work, the skill now makes the rendered UI the review target: build, run, capture desktop/mobile screenshots, inspect with vision, click through the user flow, revise, and compare. Image generation is treated as an asset source, while vision is used to judge the integrated UI.
+
+When web access is available, the skill can also use public design-reference libraries such as `designdotmd.directory`, `getdesign.md`, `styles.refero.design`, and `app.superdesign.dev` to shortlist external references from the copy, product category, and target audience. Those references are adapted into repo-local tokens, components, `DESIGN.md`, or `ART_BIBLE.md` guidance rather than copied directly.
 
 The skill lives at [`.agents/skills/codex-design-studio`](./.agents/skills/codex-design-studio). When installed globally, it is available from any Codex project through `~/.agents/skills/codex-design-studio`.
 

@@ -25,10 +25,8 @@ find_python() {
       continue
     fi
     if "$candidate" - <<'PY' >/dev/null 2>&1
-import tomllib
-import yaml
-
-if not hasattr(yaml, "safe_load"):
+import sys
+if sys.version_info < (3, 9):
     raise SystemExit(1)
 PY
     then
@@ -65,9 +63,21 @@ check_toml() {
   if "$PYTHON_BIN" - "$REPO_ROOT/$path" <<'PY'
 from pathlib import Path
 import sys
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
-tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+if tomllib is not None:
+    tomllib.loads(text)
+else:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("[") or stripped == "]":
+            continue
+        if "=" not in stripped and not stripped.endswith(","):
+            raise SystemExit(f"unsupported TOML line without assignment: {line}")
 PY
   then
     ok "${label}"
@@ -97,14 +107,16 @@ check_scorecards() {
   if "$PYTHON_BIN" - "$REPO_ROOT/config/scorecards" <<'PY'
 from pathlib import Path
 import sys
-import yaml
 
 root = Path(sys.argv[1])
+sys.path.insert(0, str(root.parents[1] / "scripts" / "evals"))
+from _eval_common import load_yaml_mapping
+
 scorecards = sorted(root.glob("*.yaml"))
 if not scorecards:
     raise SystemExit("no scorecards found")
 for path in scorecards:
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = load_yaml_mapping(path)
     if not isinstance(data, dict):
         raise SystemExit(f"{path} did not parse as mapping")
     for key in ("id", "name", "version", "metrics", "weights", "hard_gates"):
@@ -163,6 +175,12 @@ main() {
     "scripts/gates/run-tests.py" \
     "scripts/gates/run-security.py" \
     "scripts/gates/summarize-gates.py"
+  check_required_scripts "autoresearch scripts exist" \
+    "scripts/autoresearch/doctor.py" \
+    "scripts/autoresearch/setup.py" \
+    "scripts/autoresearch/next.py" \
+    "scripts/autoresearch/log.py" \
+    "scripts/autoresearch/state.py"
 
   if [[ "$FAILURES" -eq 0 ]]; then
     printf 'DOCTOR_PASS repo=%s\n' "$REPO_ROOT"

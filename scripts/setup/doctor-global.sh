@@ -5,8 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
+AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
+GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
+GLOBAL_HELPER_ROOT="${HOME}/.ralph-codex/bin"
 FAILURES=0
 WARNINGS=0
 
@@ -84,6 +87,21 @@ check_skill_link() {
   fi
 }
 
+check_codex_skill_link() {
+  local name="$1"
+  local source="${SKILL_SOURCE_ROOT}/${name}"
+  local target="${GLOBAL_CODEX_SKILL_ROOT}/${name}"
+  if [[ ! -e "$source" ]]; then
+    fail "source skill missing $source"
+  elif [[ -L "$target" && "$(readlink "$target")" == "$source" ]]; then
+    ok "codex skill linked $name"
+  elif [[ -e "$target" || -L "$target" ]]; then
+    fail "codex skill target exists but is not this repo symlink: $target"
+  else
+    fail "codex skill missing $name"
+  fi
+}
+
 check_agent_link() {
   local name="$1"
   local source="${AGENT_SOURCE_ROOT}/${name}.toml"
@@ -99,6 +117,20 @@ check_agent_link() {
   fi
 }
 
+check_helper_link() {
+  local source="${AUTORESEARCH_SOURCE_ROOT}"
+  local target="${GLOBAL_HELPER_ROOT}/autoresearch"
+  if [[ ! -d "$source" ]]; then
+    fail "source autoresearch helpers missing $source"
+  elif [[ -L "$target" && "$(readlink "$target")" == "$source" ]]; then
+    ok "autoresearch helpers linked"
+  elif [[ -e "$target" || -L "$target" ]]; then
+    fail "autoresearch helper target exists but is not this repo symlink: $target"
+  else
+    fail "autoresearch helpers missing"
+  fi
+}
+
 check_config_not_managed() {
   local config="${HOME}/.codex/config.toml"
   if [[ -f "$config" ]]; then
@@ -110,18 +142,22 @@ check_config_not_managed() {
 
 main() {
   check_dir "$GLOBAL_SKILL_ROOT" "global skill directory"
+  check_dir "$GLOBAL_CODEX_SKILL_ROOT" "global Codex skill directory"
   check_dir "$GLOBAL_AGENT_ROOT" "global agent directory"
+  check_dir "$GLOBAL_HELPER_ROOT" "global helper directory"
   check_config_not_managed
 
   local skill
   for skill in "${DEFAULT_SKILLS[@]}"; do
     check_skill_link "$skill"
+    check_codex_skill_link "$skill"
   done
 
   local agent
   for agent in "${DEFAULT_AGENTS[@]}"; do
     check_agent_link "$agent"
   done
+  check_helper_link
 
   if [[ "$FAILURES" -eq 0 ]]; then
     printf 'GLOBAL_DOCTOR_PASS warnings=%s repo=%s\n' "$WARNINGS" "$REPO_ROOT"
