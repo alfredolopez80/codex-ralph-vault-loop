@@ -155,6 +155,8 @@ then propose a plan before implementation.
 
 Use it when a user asks Codex to prepare, clarify, validate, de-risk, or autonomously pursue a broad Goal-like objective. Simple `/goal` operations should stay on the native Codex Goal path unless the request is ambiguous or unsafe. The skill first classifies the request:
 
+Compatibility rule: native `/goal` owns simple Goal lifecycle operations such as set, status, pause, resume, complete, clear, and token budget. `ralph-objective-prep` exists only for pre-execution intake on complex objectives, then hands the clarified objective back to native Goal handling. The former `global-goal` skill name was retired to avoid colliding with Codex's built-in Goal feature.
+
 | Mode | When it applies | Result |
 |---|---|---|
 | Direct Goal Pass-through Mode | The outcome is concrete, bounded, low-risk, and has clear completion proof. | Codex defers to native `/goal`, native Goal tools, or the standard App Server `thread/goal/*` surface when available. |
