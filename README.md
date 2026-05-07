@@ -35,7 +35,7 @@ The overlay supports several working modes:
 | Vault memory | Loads compact wakeup context and saves durable GREEN/YELLOW learnings outside the repo. |
 | Quality gates | Runs deterministic checks, scorecards, mutation guards, and eval suites before claiming completion. |
 | Global skills | Installs reusable Codex workflows into `~/.agents/skills` and `~/.codex/skills` so they can be used from any repo or Codex App thread. |
-| Goal management | Adds `global-goal`, a Codex App standard skill for simple persistent Goals and pre-execution Goal Prep on broad work. |
+| Goal preparation | Adds `ralph-objective-prep`, a Codex App standard skill for pre-execution intake before broad or risky native `/goal` work. |
 | Subagents | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work. |
 | Design workflow | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
 
@@ -67,7 +67,7 @@ The repo is organized around a few explicit surfaces:
 |---|---|
 | [`AGENTS.md`](./AGENTS.md) | Project instruction surface loaded by Codex App and Codex CLI. |
 | [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider. |
-| [`.agents/skills`](./.agents/skills) | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, Goal management, and hardening. |
+| [`.agents/skills`](./.agents/skills) | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, objective preparation, and hardening. |
 | [`.codex/agents`](./.codex/agents) | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts. |
 | [`.codex/hooks`](./.codex/hooks) | Session, prompt, tool, and stop lifecycle hooks with RED guards and local ledgers. |
 | [`scripts`](./scripts) | Deterministic setup, memory, vault, gate, eval, cost, and security utilities. |
@@ -149,15 +149,15 @@ Inspect the repo first, extract the visual system, ask only the critical questio
 then propose a plan before implementation.
 ```
 
-## <img src="./docs/assets/branding/heading-goal.svg" width="22" alt=""> Global Goal
+## <img src="./docs/assets/branding/heading-goal.svg" width="22" alt=""> Ralph Objective Prep
 
-`global-goal` is a global skill for Codex App standard Goal workflows. It does not modify the Codex App UI, does not depend on Codex++, and does not install badges, panels, DOM interceptors, keyboard automation, or custom visual commands.
+`ralph-objective-prep` is a global prep skill for Codex App standard Goal workflows. It complements native `/goal`; it does not replace the slash command, modify the Codex App UI, depend on Codex++, or install badges, panels, DOM interceptors, keyboard automation, or custom visual commands.
 
-Use it when a user asks Codex to set, inspect, pause, resume, complete, budget, clear, or keep working toward a Goal. The skill first classifies the request:
+Use it when a user asks Codex to prepare, clarify, validate, de-risk, or autonomously pursue a broad Goal-like objective. Simple `/goal` operations should stay on the native Codex Goal path unless the request is ambiguous or unsafe. The skill first classifies the request:
 
 | Mode | When it applies | Result |
 |---|---|---|
-| Direct Goal Mode | The outcome is concrete, bounded, low-risk, and has clear completion proof. | Codex uses native Goal tooling or the standard App Server `thread/goal/*` surface when available. |
+| Direct Goal Pass-through Mode | The outcome is concrete, bounded, low-risk, and has clear completion proof. | Codex defers to native `/goal`, native Goal tools, or the standard App Server `thread/goal/*` surface when available. |
 | Goal Prep Mode | The work is vague, strategic, multi-phase, high-risk, plan-based, recovery-oriented, or audit-oriented. | Codex asks guided intake questions or prepares a local control board before execution starts. |
 
 Prepared boards default to a home-local path so they work from any repo without touching `.gitignore`:
@@ -169,7 +169,7 @@ Prepared boards default to a home-local path so they work from any repo without 
 └── notes/
 ```
 
-The skill source lives at [`.agents/skills/global-goal`](./.agents/skills/global-goal), and the user-facing install and validation notes live in [`docs/codex-global-skills.md`](./docs/codex-global-skills.md). The implementation borrows the useful operating ideas from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy), especially pre-execution intake, one active task, durable `goal.md` / `state.yaml` control files, and completion receipts. This repo does not vendor GoalBuddy or depend on its npm package.
+The skill source lives at [`.agents/skills/ralph-objective-prep`](./.agents/skills/ralph-objective-prep), and the user-facing install and validation notes live in [`docs/codex-global-skills.md`](./docs/codex-global-skills.md). The implementation borrows the useful operating ideas from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy), especially pre-execution intake, one active task, durable `goal.md` / `state.yaml` control files, and completion receipts. This repo does not vendor GoalBuddy or depend on its npm package.
 
 ## <img src="./docs/assets/branding/heading-install.svg" width="22" alt=""> Global Installation
 
@@ -187,10 +187,10 @@ Install project skills globally:
 bash scripts/setup/install-global.sh --install
 ```
 
-Install or refresh only `global-goal`:
+Install or refresh only `ralph-objective-prep`:
 
 ```bash
-bash scripts/setup/install-global.sh --install --skills global-goal
+bash scripts/setup/install-global.sh --install --skills ralph-objective-prep
 ```
 
 Install skills plus Codex subagents:
@@ -290,7 +290,7 @@ This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.c
 | Vault L3 | MiVault / Obsidian |
 | AutoResearch | Scorecard-driven dry-run/eval spine |
 
-The `global-goal` addition also takes inspiration from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy). GoalBuddy contributed the prep-before-execution pattern, role-shaped Scout/Judge/Worker task vocabulary, durable board concepts, and receipt-based completion discipline. The adaptation here keeps one public skill, uses Codex App standard Goal/App Server surfaces, stores prepared boards under `~/.ralph-codex/goals` by default, and avoids GoalBuddy runtime dependencies.
+The `ralph-objective-prep` addition also takes inspiration from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy). GoalBuddy contributed the prep-before-execution pattern, role-shaped Scout/Judge/Worker task vocabulary, durable board concepts, and receipt-based completion discipline. The adaptation here complements native `/goal`, uses Codex App standard Goal/App Server surfaces, stores prepared boards under `~/.ralph-codex/goals` by default, and avoids GoalBuddy runtime dependencies.
 
 ## License
 

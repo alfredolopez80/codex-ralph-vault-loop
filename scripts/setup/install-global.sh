@@ -33,7 +33,7 @@ DEFAULT_SKILLS=(
   obsidian-spec
   oracle-pro-debugger
   codex-design-studio
-  global-goal
+  ralph-objective-prep
 )
 
 DEFAULT_AGENTS=(

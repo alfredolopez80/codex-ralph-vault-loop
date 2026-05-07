@@ -2,7 +2,7 @@
 
 This reference documents the standard Codex App Server Goal surface verified from the local experimental protocol schema.
 
-The `global-goal` skill must treat this as a standard persistence surface, not as a custom Codex++ UI integration.
+The `ralph-objective-prep` skill must treat this as a standard persistence surface, not as a custom Codex++ UI integration.
 
 ## Feature Status
 

@@ -1,25 +1,25 @@
 ---
-name: global-goal
-description: Manage persistent Codex thread goals globally. Use this skill when the user asks to set, update, inspect, pause, resume, complete, budget, clear, prepare, clarify, or autonomously pursue a Goal for the current Codex conversation, project, task, implementation plan, refactor, bugfix, research task, audit, or long-running coding objective. Trigger on phrases such as "set goal", "goal", "/goal", "objective", "track this task", "continue until done", "keep working until done", "make this autonomous", "prepare the goal", "use defaults", "pause goal", "resume goal", "mark goal complete", "clear goal", "token budget", or requests to keep Codex focused on a concrete outcome across turns.
+name: ralph-objective-prep
+description: Prepare complex Codex objectives before native /goal execution. Use this skill when the user asks to clarify, validate, de-risk, board, or autonomously pursue a broad Goal, objective, plan, audit, recovery, or long-running coding outcome. Do not use it for simple native /goal set, status, pause, resume, complete, clear, or budget requests unless the request is ambiguous, risky, multi-phase, or needs pre-execution intake.
 ---
 
-# Global Goal
+# Ralph Objective Prep
 
-Use this skill to manage a persistent Goal for the current Codex thread.
+Use this skill to prepare complex objectives before Codex sets or continues a native Goal.
 
-A Goal is a concise, durable objective attached to a Codex conversation. It helps Codex keep a concrete outcome in focus across turns, resumes, and long-running work.
+A native Goal is owned by Codex App or Codex CLI. This skill adds the prep layer for broad or risky work: classify the objective, remove ambiguity, record proof of success, and prepare a safe first task before native `/goal` execution continues.
 
 This skill is a workflow and routing layer for Codex App standard. It does not register a custom UI slash command, modify Codex App UI, depend on Codex++, or add panels, badges, DOM interceptors, localStorage persistence, keyboard automation, CSS selectors, or visual controls. That UI restriction applies only to this Codex App integration; it does not restrict normal frontend, web app, dashboard, plugin, or UI work in other projects.
 
 ## Core Workflow
 
-When the user asks to set, inspect, pause, resume, complete, budget, clear, prepare, or autonomously pursue a Goal:
+When the user asks to prepare, clarify, validate, de-risk, or autonomously pursue a Goal-like objective:
 
 1. Identify the requested operation.
 2. Classify the request with the Goal Complexity Classifier.
-3. Use Direct Goal Mode for simple goals.
+3. Use Direct Goal Pass-through Mode for simple native Goal operations.
 4. Use Goal Prep Mode for complex goals before execution.
-5. Prefer native Codex App Goal tools when they are available in the session.
+5. Never replace or shadow native `/goal`; prefer native Codex App Goal tools when they are available in the session.
 6. For standard App Server clients, prefer the documented JSON-RPC methods in `references/app-server-goal-api.md`.
 7. If native Goal persistence is unavailable, say so clearly and keep only a conversational fallback.
 8. Never claim that a native persistent Goal was set unless the native tool or App Server request actually succeeded.
@@ -34,7 +34,7 @@ Native Goal persistence is unavailable in this Codex App runtime. I will keep th
 
 Classify before setting a new Goal or starting autonomous work. The user should not need to choose a mode.
 
-Use Direct Goal Mode only when all are true:
+Use Direct Goal Pass-through Mode only when all are true:
 
 - outcome is concrete;
 - scope is obvious;
@@ -59,9 +59,9 @@ Use Goal Prep Mode when any are true:
 - work requires approvals, credentials, external services, or destructive actions;
 - user asks for autonomy but the first safe action is unclear.
 
-## Direct Goal Mode
+## Direct Goal Pass-through Mode
 
-Use Direct Goal Mode for narrow requests such as:
+Use Direct Goal Pass-through Mode for narrow native requests such as:
 
 - `Set goal: finish this review and report findings.`
 - `Set goal: fix the failing auth unit test.`
@@ -71,10 +71,11 @@ Use Direct Goal Mode for narrow requests such as:
 
 Behavior:
 
-1. Set, inspect, pause, resume, complete, budget, or clear the native Goal when supported.
-2. Normalize new objectives into one short, actionable, verifiable sentence.
+1. Defer to native `/goal` or native Goal tools when supported.
+2. Normalize only when the native operation needs a short, actionable, verifiable objective sentence.
 3. Do not create prep files.
-4. Ask for clarification only when the request is unsafe or unclear.
+4. Do not present `ralph-objective-prep` as the `/goal` command.
+5. Ask for clarification only when the request is unsafe or unclear.
 
 ## Goal Prep Mode
 
@@ -135,7 +136,7 @@ blind_spots
 existing_plan_facts
 ```
 
-Use the compiler output to choose Direct Goal Mode, ask a Guided Intake question, or prepare control files.
+Use the compiler output to choose Direct Goal Pass-through Mode, ask a Guided Intake question, or prepare control files.
 
 ## Guided Intake
 
@@ -221,7 +222,7 @@ Set or update a token budget when the user asks for a budget or limit. Budgets m
 
 ## Response Shape
 
-When setting a simple Goal:
+When native tooling sets a simple Goal:
 
 ```text
 Goal set: <objective>
@@ -251,4 +252,4 @@ When clearing:
 Goal cleared.
 ```
 
-If the runtime does not expose a supported native operation, report the limitation and use the conversational fallback instead of inventing persistence.
+If the runtime does not expose a supported native operation, report the limitation and use the conversational fallback instead of inventing persistence. Do not emulate `/goal` with keyboard automation, UI scraping, localStorage, or custom slash-command behavior.

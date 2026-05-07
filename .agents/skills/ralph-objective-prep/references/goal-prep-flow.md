@@ -1,17 +1,17 @@
 # Goal Prep Flow
 
-Goal Prep Mode prepares complex or ambiguous Goals before execution. It keeps one public skill, `global-goal`, and uses an internal classifier to decide whether to set a native Goal directly or prepare a control board first.
+Goal Prep Mode prepares complex or ambiguous Goals before execution. It keeps one public skill, `ralph-objective-prep`, and uses an internal classifier to decide whether to defer to native Goal handling or prepare a control board first.
 
 ## Decision Flow
 
 ```text
 goal request
   -> classify
-      -> Direct Goal Mode
+      -> Direct Goal Pass-through Mode
       -> Goal Prep Mode
 ```
 
-Use Direct Goal Mode for narrow, low-risk objectives with clear proof.
+Use Direct Goal Pass-through Mode for narrow, low-risk objectives with clear proof; native `/goal` or native Goal tools own the operation.
 
 Use Goal Prep Mode for vague, strategic, multi-phase, high-risk, plan-based, audit, recovery, or autonomous work where the first safe action or completion proof is unclear.
 
@@ -22,7 +22,7 @@ Use Goal Prep Mode for vague, strategic, multi-phase, high-risk, plan-based, aud
 3. If the user says "use defaults", record assumptions and continue.
 4. Choose board location.
 5. Create `goal.md`, `state.yaml`, and `notes/`.
-6. Set or update native Goal only when the charter is clear enough.
+6. Set or update the native Goal only when the prepared charter is clear enough; never emulate `/goal` as a custom command.
 7. Start only the first safe task.
 
 ## Board Location

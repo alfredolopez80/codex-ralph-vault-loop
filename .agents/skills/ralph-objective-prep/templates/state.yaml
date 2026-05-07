@@ -2,7 +2,7 @@ version: 1
 goal:
   title: ""
   status: prepared
-  source: global-goal
+  source: ralph-objective-prep
   thread_id: ""
   created_at: ""
   updated_at: ""

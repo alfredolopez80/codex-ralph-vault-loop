@@ -1,8 +1,0 @@
-interface:
-  display_name: "Global Goal"
-  short_description: "Manage simple goals directly and prepare complex goals before autonomous execution."
-  brand_color: "#2563EB"
-  default_prompt: "Use $global-goal to classify the request, set simple persistent Goals directly, run Goal Prep for complex or ambiguous Goals, and manage inspect, pause, resume, complete, budget, or clear operations for this Codex thread."
-
-policy:
-  allow_implicit_invocation: true

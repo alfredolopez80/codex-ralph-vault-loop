@@ -1,0 +1,8 @@
+interface:
+  display_name: "Ralph Objective Prep"
+  short_description: "Prepare complex objectives before native /goal execution."
+  brand_color: "#2563EB"
+  default_prompt: "Use $ralph-objective-prep for complex or ambiguous objectives that need intake, risk checks, control files, or a safe first task before native /goal execution. Let simple /goal operations use native Codex Goal handling."
+
+policy:
+  allow_implicit_invocation: true
