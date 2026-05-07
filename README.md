@@ -1,4 +1,12 @@
-# Codex Ralph Vault Loop
+<p align="center">
+  <img src="./docs/assets/branding/codex-ralph-vault-loop-banner.png" alt="Codex Ralph Vault Loop banner" width="100%">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/branding/codex-ralph-vault-loop-logo.png" alt="Codex Ralph Vault Loop logo" width="180">
+</p>
+
+<h1 align="center">Codex Ralph Vault Loop</h1>
 
 Codex Ralph Vault Loop is a Codex App and Codex CLI orchestration overlay for multi-agent engineering work. It keeps Codex as the owner of final decisions, uses external models only through MCP tools, verifies changes through gates and evals, and stores durable memory outside the repository.
 
@@ -13,7 +21,7 @@ Vault remembers.
 
 The project ports the Ralph multi-agent workflow into Codex without copying private vault data and without configuring Z.ai or MiniMax as direct Codex `model_provider` backends. OpenAI remains the orchestrator. Z.ai, MiniMax, web readers, repo readers, and vision tools are used only through MCP boundaries after sensitivity checks.
 
-## What This Repo Provides
+## <img src="./docs/assets/branding/heading-capabilities.svg" width="22" alt=""> What This Repo Provides
 
 This repository is not an application template. It is a reusable operating layer for Codex sessions. It gives Codex durable instructions, project and global skills, subagent definitions, lifecycle hooks, security guards, memory tools, eval scripts, and global installation helpers.
 
@@ -26,11 +34,12 @@ The overlay supports several working modes:
 | Security boundaries | Detects secrets, credentials, wallet material, `.env` references, and sensitive markers before externalization or persistence. |
 | Vault memory | Loads compact wakeup context and saves durable GREEN/YELLOW learnings outside the repo. |
 | Quality gates | Runs deterministic checks, scorecards, mutation guards, and eval suites before claiming completion. |
-| Global skills | Installs reusable Codex workflows into `~/.agents/skills` so they can be used from any repo. |
+| Global skills | Installs reusable Codex workflows into `~/.agents/skills` and `~/.codex/skills` so they can be used from any repo or Codex App thread. |
+| Goal management | Adds `global-goal`, a Codex App standard skill for simple persistent Goals and pre-execution Goal Prep on broad work. |
 | Subagents | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work. |
 | Design workflow | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
 
-## Current Status
+## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Current Status
 
 Migration phases `00` through `20` are complete and checkpointed under [`docs/migration/checkpoints`](./docs/migration/checkpoints). The latest acceptance matrix is in [`PHASE_20.md`](./docs/migration/checkpoints/PHASE_20.md).
 
@@ -38,7 +47,7 @@ Current acceptance evidence:
 
 - Repo doctor passes.
 - `.codex/config.toml` parses.
-- 17 project skills are present under `.agents/skills`.
+- 18 project skills are present under `.agents/skills`.
 - 12 Codex subagents parse under `.codex/agents`.
 - Hooks run in dry-run mode.
 - Vault scripts work with temporary `VAULT_DIR` and real MiVault read-only.
@@ -48,7 +57,7 @@ Current acceptance evidence:
 - `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
 - RED content does not externalize and does not persist.
 
-## Architecture
+## <img src="./docs/assets/branding/heading-architecture.svg" width="22" alt=""> Architecture
 
 ![Codex Ralph architecture](./docs/architecture/diagrams/codex-ralph-architecture.png)
 
@@ -58,7 +67,7 @@ The repo is organized around a few explicit surfaces:
 |---|---|
 | [`AGENTS.md`](./AGENTS.md) | Project instruction surface loaded by Codex App and Codex CLI. |
 | [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider. |
-| [`.agents/skills`](./.agents/skills) | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, and hardening. |
+| [`.agents/skills`](./.agents/skills) | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, Goal management, and hardening. |
 | [`.codex/agents`](./.codex/agents) | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts. |
 | [`.codex/hooks`](./.codex/hooks) | Session, prompt, tool, and stop lifecycle hooks with RED guards and local ledgers. |
 | [`scripts`](./scripts) | Deterministic setup, memory, vault, gate, eval, cost, and security utilities. |
@@ -68,7 +77,7 @@ The repo is organized around a few explicit surfaces:
 
 Editable diagram sources and rendered assets live in [`docs/architecture/diagrams`](./docs/architecture/diagrams).
 
-## Routing And Safety
+## <img src="./docs/assets/branding/heading-routing.svg" width="22" alt=""> Routing And Safety
 
 ![Routing and security flow](./docs/architecture/diagrams/routing-security-flow.png)
 
@@ -86,7 +95,7 @@ The default MCP routing policy is:
 
 Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual generation. GPT Images 2 is the only approved visual generation route.
 
-## Memory, Gates, And Evals
+## <img src="./docs/assets/branding/heading-memory.svg" width="22" alt=""> Memory, Gates, And Evals
 
 ![Memory and eval lifecycle](./docs/architecture/diagrams/memory-eval-lifecycle.png)
 
@@ -103,7 +112,7 @@ The quality spine is scriptable and repeatable:
 | `scripts/evals/coding_model_eval.py` | Validates MCP-oriented coding model behavior. |
 | `scripts/evals/autoresearch_dry_run.py` | Runs the deterministic toy AutoResearch fixture and keep/discard decision. |
 
-## Codex Design Studio
+## <img src="./docs/assets/branding/heading-design.svg" width="22" alt=""> Codex Design Studio
 
 `codex-design-studio` is a global skill for frontend and full-stack product design work. It gives Codex a reusable workflow similar to Claude Design without creating a separate project or template app.
 
@@ -140,7 +149,29 @@ Inspect the repo first, extract the visual system, ask only the critical questio
 then propose a plan before implementation.
 ```
 
-## Global Installation
+## <img src="./docs/assets/branding/heading-goal.svg" width="22" alt=""> Global Goal
+
+`global-goal` is a global skill for Codex App standard Goal workflows. It does not modify the Codex App UI, does not depend on Codex++, and does not install badges, panels, DOM interceptors, keyboard automation, or custom visual commands.
+
+Use it when a user asks Codex to set, inspect, pause, resume, complete, budget, clear, or keep working toward a Goal. The skill first classifies the request:
+
+| Mode | When it applies | Result |
+|---|---|---|
+| Direct Goal Mode | The outcome is concrete, bounded, low-risk, and has clear completion proof. | Codex uses native Goal tooling or the standard App Server `thread/goal/*` surface when available. |
+| Goal Prep Mode | The work is vague, strategic, multi-phase, high-risk, plan-based, recovery-oriented, or audit-oriented. | Codex asks guided intake questions or prepares a local control board before execution starts. |
+
+Prepared boards default to a home-local path so they work from any repo without touching `.gitignore`:
+
+```text
+~/.ralph-codex/goals/<thread-id>/<slug>/
+├── goal.md
+├── state.yaml
+└── notes/
+```
+
+The skill source lives at [`.agents/skills/global-goal`](./.agents/skills/global-goal), and the user-facing install and validation notes live in [`docs/codex-global-skills.md`](./docs/codex-global-skills.md). The implementation borrows the useful operating ideas from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy), especially pre-execution intake, one active task, durable `goal.md` / `state.yaml` control files, and completion receipts. This repo does not vendor GoalBuddy or depend on its npm package.
+
+## <img src="./docs/assets/branding/heading-install.svg" width="22" alt=""> Global Installation
 
 The global installer creates symlinks from this repo into the user's Codex and agent directories. It does not copy vault data, does not copy secrets, and does not edit `~/.codex/config.toml`. Conflicting global entries are backed up under `~/.ralph-codex/backups/global-install`.
 
@@ -154,6 +185,12 @@ Install project skills globally:
 
 ```bash
 bash scripts/setup/install-global.sh --install
+```
+
+Install or refresh only `global-goal`:
+
+```bash
+bash scripts/setup/install-global.sh --install --skills global-goal
 ```
 
 Install skills plus Codex subagents:
@@ -174,7 +211,7 @@ Remove symlinks created by this repo:
 bash scripts/setup/uninstall-global.sh --uninstall --with-agents
 ```
 
-## Quick Validation
+## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Quick Validation
 
 Run the same checks used during acceptance:
 
@@ -197,7 +234,7 @@ Expected models:
 - `glm-5-turbo`
 - `MiniMax-M2.7-highspeed`
 
-## Repository Layout
+## <img src="./docs/assets/branding/heading-architecture.svg" width="22" alt=""> Repository Layout
 
 ```text
 codex-ralph-vault-loop/
@@ -218,13 +255,14 @@ codex-ralph-vault-loop/
 ├── config/scorecards/
 ├── docs/
 │   ├── architecture/
+│   ├── assets/
 │   ├── evals/
 │   └── migration/
 ├── templates/
 └── tests/
 ```
 
-## Key Documentation
+## <img src="./docs/assets/branding/heading-docs.svg" width="22" alt=""> Key Documentation
 
 | Document | Purpose |
 |---|---|
@@ -238,7 +276,7 @@ codex-ralph-vault-loop/
 | [Migration phase plan](./docs/migration/phase-plan.md) | Phase-by-phase migration structure. |
 | [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_20.md) | Latest full acceptance matrix. |
 
-## Source Lineage
+## <img src="./docs/assets/branding/heading-lineage.svg" width="22" alt=""> Source Lineage
 
 This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop). The Claude runtime primitives were replaced with Codex App and Codex CLI primitives:
 
@@ -251,6 +289,8 @@ This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.c
 | Direct secondary providers | MCP tools only |
 | Vault L3 | MiVault / Obsidian |
 | AutoResearch | Scorecard-driven dry-run/eval spine |
+
+The `global-goal` addition also takes inspiration from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy). GoalBuddy contributed the prep-before-execution pattern, role-shaped Scout/Judge/Worker task vocabulary, durable board concepts, and receipt-based completion discipline. The adaptation here keeps one public skill, uses Codex App standard Goal/App Server surfaces, stores prepared boards under `~/.ralph-codex/goals` by default, and avoids GoalBuddy runtime dependencies.
 
 ## License
 

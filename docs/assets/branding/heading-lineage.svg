@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Source lineage icon">
+  <rect width="24" height="24" rx="6" fill="#07111f"/>
+  <circle cx="7" cy="7" r="2.2" fill="#2f8cff"/>
+  <circle cx="17" cy="7" r="2.2" fill="#2bd487"/>
+  <circle cx="12" cy="17" r="2.2" fill="#f5c542"/>
+  <path d="M9 8l6 0M8.2 9l2.8 6M15.8 9L13 15" stroke="#ffffff" stroke-width="1.3" stroke-linecap="round"/>
+</svg>

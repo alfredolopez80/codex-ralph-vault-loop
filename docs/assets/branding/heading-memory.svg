@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Memory and gates icon">
+  <rect width="24" height="24" rx="6" fill="#07111f"/>
+  <ellipse cx="12" cy="7" rx="5.5" ry="2.5" fill="none" stroke="#2bd487" stroke-width="1.5"/>
+  <path d="M6.5 7v7c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5V7" fill="none" stroke="#2bd487" stroke-width="1.5"/>
+  <path d="M9 12l2 2 4-4" fill="none" stroke="#f5c542" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Design workflow icon">
+  <rect width="24" height="24" rx="6" fill="#07111f"/>
+  <path d="M6 17l4.5-10 3 6 1.5-3 3 7" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16.5" cy="6.5" r="2" fill="#2f8cff"/>
+  <path d="M6 19h12" stroke="#2bd487" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

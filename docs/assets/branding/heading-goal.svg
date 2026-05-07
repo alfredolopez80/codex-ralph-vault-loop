@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Goal icon">
+  <rect width="24" height="24" rx="6" fill="#07111f"/>
+  <circle cx="12" cy="12" r="6.5" fill="none" stroke="#2f8cff" stroke-width="1.5"/>
+  <circle cx="12" cy="12" r="3.2" fill="none" stroke="#2bd487" stroke-width="1.5"/>
+  <path d="M12 4v3M12 17v3M4 12h3M17 12h3" stroke="#ffffff" stroke-width="1.3" stroke-linecap="round"/>
+  <circle cx="12" cy="12" r="1.4" fill="#f5c542"/>
+</svg>

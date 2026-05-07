@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Architecture icon">
+  <rect width="24" height="24" rx="6" fill="#07111f"/>
+  <path d="M12 4l7 4v8l-7 4-7-4V8l7-4z" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+  <circle cx="12" cy="12" r="3" fill="#2f8cff"/>
+  <path d="M12 7v10M7.7 9.5l8.6 5" stroke="#2bd487" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
