@@ -1,0 +1,26 @@
+version: 1
+goal:
+  title: ""
+  status: prepared
+  source: global-goal
+  thread_id: ""
+  created_at: ""
+  updated_at: ""
+  control_mode: home-local
+  proof_type: ""
+  completion_proof: ""
+  likely_misfire: ""
+
+active_task: T001
+
+tasks:
+  - id: T001
+    type: scout
+    status: active
+    objective: ""
+    allowed_files: []
+    verify: []
+    stop_if: []
+    receipt: null
+
+receipts: []

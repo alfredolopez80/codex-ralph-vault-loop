@@ -4,6 +4,95 @@ This repo documents Codex skills that are installed globally in
 `~/.codex/skills` and are expected to be available across projects after
 restarting Codex.
 
+## global-goal
+
+| Field | Value |
+|---|---|
+| Skill name | `global-goal` |
+| Repo source | `.agents/skills/global-goal` |
+| Global agent path | `~/.agents/skills/global-goal` |
+| Global Codex path | `~/.codex/skills/global-goal` |
+| Runtime dependency | Codex App standard Goals feature or App Server `thread/goal/*` |
+
+Use `$global-goal` when the user asks Codex to set, inspect, update, pause,
+resume, complete, budget, clear, prepare, or autonomously pursue a persistent
+Goal for the current Codex thread. It covers phrases such as `/goal`,
+`set goal`, `pause goal`, `resume goal`, `mark goal complete`, `clear goal`,
+`token budget`, `make this autonomous`, `prepare the goal`, and requests to keep
+Codex focused on a concrete objective across turns.
+
+This skill is for Codex App standard. It does not depend on Codex++, does not
+modify the Codex App UI, and does not add tweaks, panels, badges, DOM
+interceptors, visual commands, keyboard automation, CSS selectors, or
+localStorage persistence. That restriction applies only to this Codex App
+integration; it does not restrict normal frontend, web app, dashboard, plugin,
+or UI work in other projects.
+
+Native persistence depends on the Codex Goals runtime. In current local
+validation the `goals` feature is visible as under development, so the skill must
+fall back clearly when native persistence is unavailable instead of promising a
+durable Goal.
+
+### Direct vs Prep Mode
+
+`global-goal` classifies each new Goal request before execution:
+
+- Direct Goal Mode is for narrow, low-risk objectives with obvious scope and
+  clear success proof. It sets or updates the native Goal directly when the
+  runtime supports it.
+- Goal Prep Mode is for vague, strategic, multi-phase, high-risk, audit,
+  recovery, autonomy, or plan-based work. It prepares the objective before
+  implementation, asks one guided intake question at a time when needed, and can
+  create a local control board.
+
+Default Goal Prep boards are local and global:
+
+```text
+~/.ralph-codex/goals/<thread-id>/<slug>/
+  goal.md
+  state.yaml
+  notes/
+```
+
+Repo-local boards under `.ralph/goals/<slug>/` are used only when the user asks
+or the repo documents that convention. The skill does not edit `.gitignore` by
+default.
+
+If the user says "use defaults", Codex may prepare the board without more
+questions, but it must record assumptions and the completion proof.
+
+### Operator Commands
+
+From this repo:
+
+```bash
+codex features list
+codex app-server generate-json-schema --experimental --out /private/tmp/codex-app-schema-goal-check
+rg -n "thread/goal/set|ThreadGoalSetParams|ThreadGoalUpdatedNotification" /private/tmp/codex-app-schema-goal-check
+bash scripts/setup/install-global.sh --dry-run --skills global-goal
+bash scripts/setup/install-global.sh --install --skills global-goal
+bash scripts/setup/doctor-global.sh
+```
+
+After installing or updating, restart Codex App so the skill index reloads.
+
+### Manual Validation
+
+In a persisted Codex App thread, try:
+
+```text
+Set goal: finish this review and report findings.
+Set goal: improve this repo.
+Set goal: improve this repo. Use defaults and prepare the board.
+Set goal: implement this plan: <plan text>
+Set goal: audit this branch for release risk.
+```
+
+Codex should use Direct Goal Mode for the narrow review goal and Goal Prep Mode
+for vague, plan-based, audit, or autonomous work. It should use the native Goal
+surface when available. If the runtime does not expose native Goal persistence,
+it should state that limitation and keep only a conversation-context fallback.
+
 ## ralph-autoresearch-global-v2
 
 | Field | Value |

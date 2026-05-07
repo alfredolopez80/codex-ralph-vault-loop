@@ -33,6 +33,7 @@ DEFAULT_SKILLS=(
   obsidian-spec
   oracle-pro-debugger
   codex-design-studio
+  global-goal
 )
 
 DEFAULT_AGENTS=(
@@ -54,7 +55,7 @@ SKILLS=("${DEFAULT_SKILLS[@]}")
 AGENTS=("${DEFAULT_AGENTS[@]}")
 
 usage() {
-  cat <<'USAGE'
+  cat << 'USAGE'
 Usage:
   bash scripts/setup/install-global.sh --dry-run [--with-agents]
   bash scripts/setup/install-global.sh --install [--with-agents]
@@ -156,6 +157,17 @@ install_helpers() {
   install_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
 }
 
+selected_skill() {
+  local expected="$1"
+  local skill
+  for skill in "${SKILLS[@]}"; do
+    if [[ "$skill" == "$expected" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -174,7 +186,7 @@ main() {
           printf 'GLOBAL_INSTALL_FAIL --skills requires a comma list\n' >&2
           return 2
         fi
-        IFS=',' read -r -a SKILLS <<<"$1"
+        IFS=',' read -r -a SKILLS <<< "$1"
         validate_selectors "${SKILLS[@]}"
         ;;
       --agents)
@@ -184,7 +196,7 @@ main() {
           return 2
         fi
         WITH_AGENTS=1
-        IFS=',' read -r -a AGENTS <<<"$1"
+        IFS=',' read -r -a AGENTS <<< "$1"
         validate_selectors "${AGENTS[@]}"
         ;;
       --help)
@@ -224,7 +236,11 @@ main() {
     printf 'GLOBAL_INSTALL_INFO agents-optional use --with-agents to link Codex subagents\n'
   fi
 
-  install_helpers
+  if selected_skill autoresearch; then
+    install_helpers
+  else
+    printf 'GLOBAL_INSTALL_INFO autoresearch-helpers-skipped skill-not-selected\n'
+  fi
 
   printf 'GLOBAL_INSTALL_CONFIG_UNCHANGED %s\n' "${HOME}/.codex/config.toml"
   printf 'GLOBAL_INSTALL_DONE mode=%s repo=%s\n' "$MODE" "$REPO_ROOT"
