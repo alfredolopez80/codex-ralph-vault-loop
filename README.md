@@ -27,17 +27,17 @@ This repository is not an application template. It is a reusable operating layer
 
 The overlay supports several working modes:
 
-| Capability | What it does |
-|---|---|
-| Orchestration | Coordinates Codex main, subagents, MCP advisors, vault memory, gates, evals, and final handoff. |
-| Model routing | Sends only eligible GREEN or sanitized YELLOW work to external MCP advisors; RED content stays local. |
-| Security boundaries | Detects secrets, credentials, wallet material, `.env` references, and sensitive markers before externalization or persistence. |
-| Vault memory | Loads compact wakeup context and saves durable GREEN/YELLOW learnings outside the repo. |
-| Quality gates | Runs deterministic checks, scorecards, mutation guards, and eval suites before claiming completion. |
-| Global skills | Installs reusable Codex workflows into `~/.agents/skills` and `~/.codex/skills` so they can be used from any repo or Codex App thread. |
-| Goal preparation | Adds `ralph-objective-prep`, a Codex App standard skill for pre-execution intake before broad or risky native `/goal` work. |
-| Subagents | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work. |
-| Design workflow | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
+| Capability          | What it does                                                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Orchestration       | Coordinates Codex main, subagents, MCP advisors, vault memory, gates, evals, and final handoff.                                                                              |
+| Model routing       | Sends only eligible GREEN or sanitized YELLOW work to external MCP advisors; RED content stays local.                                                                        |
+| Security boundaries | Detects secrets, credentials, wallet material, `.env` references, and sensitive markers before externalization or persistence.                                               |
+| Vault memory        | Loads compact wakeup context and saves durable GREEN/YELLOW learnings outside the repo.                                                                                      |
+| Quality gates       | Runs deterministic checks, scorecards, mutation guards, and eval suites before claiming completion.                                                                          |
+| Global skills       | Installs reusable Codex workflows into `~/.agents/skills` and `~/.codex/skills` so they can be used from any repo or Codex App thread.                                       |
+| Goal preparation    | Adds `ralph-objective-prep`, a Codex App standard skill for pre-execution intake before broad or risky native `/goal` work.                                                  |
+| Subagents           | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work.                                     |
+| Design workflow     | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
 
 ## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Current Status
 
@@ -63,17 +63,17 @@ Current acceptance evidence:
 
 The repo is organized around a few explicit surfaces:
 
-| Surface | Purpose |
-|---|---|
-| [`AGENTS.md`](./AGENTS.md) | Project instruction surface loaded by Codex App and Codex CLI. |
-| [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider. |
-| [`.agents/skills`](./.agents/skills) | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, objective preparation, and hardening. |
-| [`.codex/agents`](./.codex/agents) | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts. |
-| [`.codex/hooks`](./.codex/hooks) | Session, prompt, tool, and stop lifecycle hooks with RED guards and local ledgers. |
-| [`scripts`](./scripts) | Deterministic setup, memory, vault, gate, eval, cost, and security utilities. |
-| [`config/scorecards`](./config/scorecards) | RASS v1 scorecards and hard gates. |
-| `~/.ralph-codex` | Runtime memory, reports, ledgers, and handoffs. |
-| `~/Documents/Obsidian/MiVault` | Durable Obsidian memory outside the public repo. |
+| Surface                                      | Purpose                                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [`AGENTS.md`](./AGENTS.md)                   | Project instruction surface loaded by Codex App and Codex CLI.                                                                  |
+| [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider.                                                                 |
+| [`.agents/skills`](./.agents/skills)         | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, objective preparation, and hardening. |
+| [`.codex/agents`](./.codex/agents)           | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts.             |
+| [`.codex/hooks`](./.codex/hooks)             | Session, prompt, tool, and stop lifecycle hooks with RED guards and local ledgers.                                              |
+| [`scripts`](./scripts)                       | Deterministic setup, memory, vault, gate, eval, cost, and security utilities.                                                   |
+| [`config/scorecards`](./config/scorecards)   | RASS v1 scorecards and hard gates.                                                                                              |
+| `~/.ralph-codex`                             | Runtime memory, reports, ledgers, and handoffs.                                                                                 |
+| `~/Documents/Obsidian/MiVault`               | Durable Obsidian memory outside the public repo.                                                                                |
 
 Editable diagram sources and rendered assets live in [`docs/architecture/diagrams`](./docs/architecture/diagrams).
 
@@ -85,13 +85,13 @@ Routing is content-aware. Codex receives the task, loads global and project inst
 
 The default MCP routing policy is:
 
-| Need | Route |
-|---|---|
-| Fast logs, diffs, summaries, or test ideas | `ralph_coding_models.minimax_agentic_fast` using MiniMax-M2.7-highspeed |
-| Fast OpenClaw-like coding support | `ralph_coding_models.zai_coding_fast` using GLM-5-Turbo |
-| Medium/high complexity counterpart review | `ralph_coding_models.zai_coding_deep` using GLM-5.1 |
-| Current search, web reading, repo reading, or vision | Official Z.ai MCPs or configured aliases |
-| Fast search or quick image understanding | Official MiniMax MCP tools |
+| Need                                                 | Route                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| Fast logs, diffs, summaries, or test ideas           | `ralph_coding_models.minimax_agentic_fast` using MiniMax-M2.7-highspeed |
+| Fast OpenClaw-like coding support                    | `ralph_coding_models.zai_coding_fast` using GLM-5-Turbo                 |
+| Medium/high complexity counterpart review            | `ralph_coding_models.zai_coding_deep` using GLM-5.1                     |
+| Current search, web reading, repo reading, or vision | Official Z.ai MCPs or configured aliases                                |
+| Fast search or quick image understanding             | Official MiniMax MCP tools                                              |
 
 Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual generation. GPT Images 2 is the only approved visual generation route.
 
@@ -101,20 +101,22 @@ Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual
 
 The memory stack is intentionally outside the repo. `scripts/memory/wakeup.py` loads compact L0-L3 runtime context. `scripts/memory/handoff.py` writes the latest handoff and archives prior handoffs. `scripts/vault/vault-save.py` persists GREEN globally and YELLOW per project. RED is skipped by vault save, memory extraction, and stop handoff hooks.
 
+Memory dream consolidation closes the runtime learning loop. `scripts/memory/dream.py` consolidates safe handoffs and ledgers into reviewable candidates, `--auto-update-state` writes the non-canonical `L4_dream_state` layer, and `wakeup.py` loads L4 on future session starts. The global `SessionStart` hook runs `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` before wakeup, so missed daily runs catch up the next time Codex starts. MiVault receives only reviewable inbox digests through `--vault-inbox`; L1-L3 and canonical vault notes still require explicit approval.
+
 The quality spine is scriptable and repeatable:
 
-| Tool | Role |
-|---|---|
-| `scripts/memory/dream.py --dry-run` | Consolidates safe handoffs and ledgers into reviewable L1-L3 memory candidates. |
-| `scripts/memory/dream.py --auto-update-state` | Updates L4 dream state so future Codex wakeups can use high-confidence consolidated learnings. |
-| `scripts/memory/dream.py --vault-inbox` | Writes a reviewable dream digest into the MiVault project inbox without canonical promotion. |
-| `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` | Runs the non-blocking daily catch-up policy used by the SessionStart hook. |
-| `scripts/gates/run-gates.py --minimal` | Writes `.ralph-codex/reports/gates/latest.json` and `.md`. |
-| `scripts/evals/run_scorecard.py` | Applies RASS v1 scorecards. |
-| `scripts/evals/research_eval.py` | Validates research behavior in mock/offline mode. |
-| `scripts/evals/vision_eval.py` | Validates vision-analysis behavior in mock/offline mode. |
-| `scripts/evals/coding_model_eval.py` | Validates MCP-oriented coding model behavior. |
-| `scripts/evals/autoresearch_dry_run.py` | Runs the deterministic toy AutoResearch fixture and keep/discard decision. |
+| Tool                                                               | Role                                                                                           |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `scripts/memory/dream.py --dry-run`                                | Consolidates safe handoffs and ledgers into reviewable L1-L3 memory candidates.                |
+| `scripts/memory/dream.py --auto-update-state`                      | Updates L4 dream state so future Codex wakeups can use high-confidence consolidated learnings. |
+| `scripts/memory/dream.py --vault-inbox`                            | Writes a reviewable dream digest into the MiVault project inbox without canonical promotion.   |
+| `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` | Runs the non-blocking daily catch-up policy used by the SessionStart hook.                     |
+| `scripts/gates/run-gates.py --minimal`                             | Writes `.ralph-codex/reports/gates/latest.json` and `.md`.                                     |
+| `scripts/evals/run_scorecard.py`                                   | Applies RASS v1 scorecards.                                                                    |
+| `scripts/evals/research_eval.py`                                   | Validates research behavior in mock/offline mode.                                              |
+| `scripts/evals/vision_eval.py`                                     | Validates vision-analysis behavior in mock/offline mode.                                       |
+| `scripts/evals/coding_model_eval.py`                               | Validates MCP-oriented coding model behavior.                                                  |
+| `scripts/evals/autoresearch_dry_run.py`                            | Runs the deterministic toy AutoResearch fixture and keep/discard decision.                     |
 
 ## <img src="./docs/assets/branding/heading-design.svg" width="22" alt=""> Codex Design Studio
 
@@ -161,10 +163,10 @@ Use it when a user asks Codex to prepare, clarify, validate, de-risk, or autonom
 
 Compatibility rule: native `/goal` owns simple Goal lifecycle operations such as set, status, pause, resume, complete, clear, and token budget. `ralph-objective-prep` exists only for pre-execution intake on complex objectives, then hands the clarified objective back to native Goal handling. The former `global-goal` skill name was retired to avoid colliding with Codex's built-in Goal feature.
 
-| Mode | When it applies | Result |
-|---|---|---|
-| Direct Goal Pass-through Mode | The outcome is concrete, bounded, low-risk, and has clear completion proof. | Codex defers to native `/goal`, native Goal tools, or the standard App Server `thread/goal/*` surface when available. |
-| Goal Prep Mode | The work is vague, strategic, multi-phase, high-risk, plan-based, recovery-oriented, or audit-oriented. | Codex asks guided intake questions or prepares a local control board before execution starts. |
+| Mode                          | When it applies                                                                                         | Result                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Direct Goal Pass-through Mode | The outcome is concrete, bounded, low-risk, and has clear completion proof.                             | Codex defers to native `/goal`, native Goal tools, or the standard App Server `thread/goal/*` surface when available. |
+| Goal Prep Mode                | The work is vague, strategic, multi-phase, high-risk, plan-based, recovery-oriented, or audit-oriented. | Codex asks guided intake questions or prepares a local control board before execution starts.                         |
 
 Prepared boards default to a home-local path so they work from any repo without touching `.gitignore`:
 
@@ -270,31 +272,31 @@ codex-ralph-vault-loop/
 
 ## <img src="./docs/assets/branding/heading-docs.svg" width="22" alt=""> Key Documentation
 
-| Document | Purpose |
-|---|---|
-| [Architecture overview](./docs/architecture/overview.md) | System-level architecture and responsibilities. |
-| [MCP model router](./docs/architecture/mcp-model-router.md) | External model routing policy and constraints. |
-| [Memory stack](./docs/architecture/memory-stack.md) | Wakeup, handoff, and vault memory model. |
-| [Hooks](./docs/architecture/hooks.md) | Codex lifecycle hooks and safety behavior. |
-| [Subagents](./docs/architecture/subagents.md) | Codex subagent definitions and roles. |
-| [Evaluation spine](./docs/architecture/evaluation-spine.md) | Gates, evals, scorecards, and acceptance checks. |
-| [Threat model](./docs/architecture/threat-model.md) | RED/YELLOW/GREEN sensitivity boundaries. |
-| [Migration phase plan](./docs/migration/phase-plan.md) | Phase-by-phase migration structure. |
-| [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_20.md) | Latest full acceptance matrix. |
+| Document                                                                | Purpose                                          |
+| ----------------------------------------------------------------------- | ------------------------------------------------ |
+| [Architecture overview](./docs/architecture/overview.md)                | System-level architecture and responsibilities.  |
+| [MCP model router](./docs/architecture/mcp-model-router.md)             | External model routing policy and constraints.   |
+| [Memory stack](./docs/architecture/memory-stack.md)                     | Wakeup, handoff, and vault memory model.         |
+| [Hooks](./docs/architecture/hooks.md)                                   | Codex lifecycle hooks and safety behavior.       |
+| [Subagents](./docs/architecture/subagents.md)                           | Codex subagent definitions and roles.            |
+| [Evaluation spine](./docs/architecture/evaluation-spine.md)             | Gates, evals, scorecards, and acceptance checks. |
+| [Threat model](./docs/architecture/threat-model.md)                     | RED/YELLOW/GREEN sensitivity boundaries.         |
+| [Migration phase plan](./docs/migration/phase-plan.md)                  | Phase-by-phase migration structure.              |
+| [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_20.md) | Latest full acceptance matrix.                   |
 
 ## <img src="./docs/assets/branding/heading-lineage.svg" width="22" alt=""> Source Lineage
 
 This is a Codex-native adaptation of [`multi-agent-ralph-loop`](https://github.com/alfredolopez80/multi-agent-ralph-loop). The Claude runtime primitives were replaced with Codex App and Codex CLI primitives:
 
-| Claude-side concept | Codex-side implementation |
-|---|---|
-| `CLAUDE.md` | `AGENTS.md` |
-| `.claude/skills` | `.agents/skills` and optional global symlinks |
-| Claude hooks | `.codex/hooks` and `.codex/hooks.json` |
-| Agent Teams | `.codex/agents/*.toml` |
-| Direct secondary providers | MCP tools only |
-| Vault L3 | MiVault / Obsidian |
-| AutoResearch | Scorecard-driven dry-run/eval spine |
+| Claude-side concept        | Codex-side implementation                     |
+| -------------------------- | --------------------------------------------- |
+| `CLAUDE.md`                | `AGENTS.md`                                   |
+| `.claude/skills`           | `.agents/skills` and optional global symlinks |
+| Claude hooks               | `.codex/hooks` and `.codex/hooks.json`        |
+| Agent Teams                | `.codex/agents/*.toml`                        |
+| Direct secondary providers | MCP tools only                                |
+| Vault L3                   | MiVault / Obsidian                            |
+| AutoResearch               | Scorecard-driven dry-run/eval spine           |
 
 The `ralph-objective-prep` addition also takes inspiration from [`tolibear/goalbuddy`](https://github.com/tolibear/goalbuddy). GoalBuddy contributed the prep-before-execution pattern, role-shaped Scout/Judge/Worker task vocabulary, durable board concepts, and receipt-based completion discipline. The adaptation here complements native `/goal`, uses Codex App standard Goal/App Server surfaces, stores prepared boards under `~/.ralph-codex/goals` by default, and avoids GoalBuddy runtime dependencies.
 
