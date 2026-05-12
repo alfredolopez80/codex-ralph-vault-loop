@@ -186,6 +186,26 @@ def test_dream_scheduler_force_updates_state(tmp_path: Path, monkeypatch) -> Non
     assert (tmp_path / "layers" / "L4_dream_state.md").is_file()
 
 
+def test_dream_scheduler_keeps_l4_when_vault_inbox_fails(tmp_path: Path, monkeypatch) -> None:
+    blocked_vault = tmp_path / "not-a-directory"
+    blocked_vault.write_text("blocks vault inbox directory creation", encoding="utf-8")
+    monkeypatch.setenv("VAULT_DIR", str(blocked_vault))
+    (tmp_path / "ledgers").mkdir(parents=True)
+    (tmp_path / "ledgers" / "rule.md").write_text(
+        "Decision: for this repo, memory changes must update tests/unit/test_memory_basic.py.",
+        encoding="utf-8",
+    )
+
+    result = run_memory("dream-scheduler.py", tmp_path, "--force", "--max-seconds", "10")
+
+    assert result.returncode == 0, result.stderr
+    assert "DREAM_SCHEDULER_SUCCESS" in result.stdout
+    state = json.loads((tmp_path / "reports" / "memory" / "dream-scheduler.json").read_text())
+    assert state["status"] == "success"
+    assert "DREAM_VAULT_INBOX_SKIPPED" in state["last_output"]
+    assert (tmp_path / "layers" / "L4_dream_state.md").is_file()
+
+
 def test_dream_scheduler_noops_before_target_time(tmp_path: Path) -> None:
     result = run_memory("dream-scheduler.py", tmp_path, "--catch-up", "--target-time", "23:59")
     assert result.returncode == 0, result.stderr

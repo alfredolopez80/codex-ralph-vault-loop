@@ -80,6 +80,23 @@ def run_dream(max_seconds: int, vault_project: str, include_vault: bool) -> tupl
     except subprocess.TimeoutExpired:
         return 124, "timeout"
     output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+    if result.returncode != 0 and include_vault:
+        retry_command = [sys.executable, str(script), "--auto-update-state"]
+        try:
+            retry = subprocess.run(retry_command, text=True, capture_output=True, check=False, timeout=max_seconds)
+        except subprocess.TimeoutExpired:
+            return 124, "\n".join(part for part in (output, "retry_without_vault=timeout") if part)[-2_000:]
+        retry_output = "\n".join(part for part in (retry.stdout.strip(), retry.stderr.strip()) if part)
+        combined = "\n".join(
+            part
+            for part in (
+                output,
+                "DREAM_VAULT_INBOX_SKIPPED reason=write_failed",
+                retry_output,
+            )
+            if part
+        )
+        return retry.returncode, combined[-2_000:]
     return result.returncode, output[-2_000:]
 
 

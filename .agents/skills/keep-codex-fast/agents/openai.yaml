@@ -1,0 +1,8 @@
+interface:
+  display_name: "Keep Codex Fast"
+  short_description: "Report-first, backup-first maintenance for Codex local sessions, logs, worktrees, and config metadata."
+  brand_color: "#22A6A6"
+  default_prompt: "Use $keep-codex-fast to inspect my Codex local state and recommend a safe maintenance plan. Start report-only and do not apply changes unless I explicitly approve."
+
+policy:
+  allow_implicit_invocation: true

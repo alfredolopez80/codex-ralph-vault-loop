@@ -152,6 +152,61 @@ direction, status, delta, hard gates, commit paths, ASI, and timestamp.
 - Missing primary metrics are unknown, not zero.
 - `discard`, `crash`, and `checks_failed` require ASI rollback evidence.
 
+## keep-codex-fast
+
+| Field | Value |
+|---|---|
+| Skill name | `keep-codex-fast` |
+| Repo source | `.agents/skills/keep-codex-fast` |
+| Global agent path | `~/.agents/skills/keep-codex-fast` |
+| Global Codex path | `~/.codex/skills/keep-codex-fast` |
+| Helper path | `~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py` after global install; `scripts/maintenance/keep_codex_fast.py` in this repo |
+| Primary output | Report lines for local Codex state; optional private backup/archive manifests when manually applied |
+
+Use `$keep-codex-fast` when Codex App or CLI feels slow after long sessions, many terminals, large local logs, old worktrees, or repeated resumes from large chats.
+
+The default run is report-only:
+
+```bash
+python3 ~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py
+```
+
+The report summarizes old session candidates, stale worktrees, log size, config project prune candidates, and top Node/dev processes. It does not write files, create backups, move folders, update SQLite, rotate logs, or edit `config.toml`.
+
+Manual backup and apply commands:
+
+```bash
+python3 ~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py --backup-only
+python3 ~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py --apply --archive-older-than-days 10 --worktree-older-than-days 7 --wait-for-codex-exit
+python3 ~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py
+```
+
+Safety rules:
+
+- Backups can contain private local Codex metadata. Keep them local.
+- Avoid `--details` unless raw thread IDs, titles, paths, and process paths are needed.
+- Create handoff docs for important active repo chats before archiving them.
+- Recurring automation must be report-only. Never schedule `--apply`, archive, prune, rotate, normalize, delete, or mutate local state automatically.
+
+Recurring Codex App automation prompt:
+
+```text
+Use $keep-codex-fast to create a recurring Codex maintenance reminder.
+
+Schedule it weekly for heavy Codex use, or biweekly for lighter use.
+
+The reminder should:
+- run the keep-codex-fast report first
+- never pass --apply
+- never archive, move, prune, rotate, normalize, delete, or mutate local Codex state
+- remind me to create comprehensive handoff docs and reactivation prompts for active repo chats before any manual apply
+- summarize active session size, archived session size, extended path candidates, old session candidates, worktree candidates, log size, and top Node/dev processes
+- report heavy Node/dev processes without killing them
+- tell me that manual apply should happen only after I confirm handoffs exist or are not needed and Codex is closed
+```
+
+Suggested schedules are weekly for heavy Codex use or biweekly for lighter use. Prefer a low-disruption end-of-week time such as Friday afternoon in the user's local timezone.
+
 ## fireworks-tech-graph
 
 | Field | Value |

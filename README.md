@@ -38,6 +38,7 @@ The overlay supports several working modes:
 | Goal preparation    | Adds `ralph-objective-prep`, a Codex App standard skill for pre-execution intake before broad or risky native `/goal` work.                                                  |
 | Subagents           | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work.                                     |
 | Design workflow     | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
+| Codex maintenance   | Adds `keep-codex-fast`, a report-first skill for inspecting local Codex state, creating handoff reminders, backing up, and archive-only maintenance.                         |
 
 ## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Current Status
 
@@ -154,6 +155,28 @@ I want to redesign this project's main landing page using the attached deck.
 Inspect the repo first, extract the visual system, ask only the critical questions,
 then propose a plan before implementation.
 ```
+
+## Keep Codex Fast
+
+`keep-codex-fast` is a global skill for safe Codex App/CLI local-state maintenance. It inspects local sessions, logs, worktrees, and config project entries without writing anything by default.
+
+The repo-local helper lives at [`scripts/maintenance/keep_codex_fast.py`](./scripts/maintenance/keep_codex_fast.py), and the globally installed skill exposes the same helper at `~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py`.
+
+Report-only usage:
+
+```text
+Use $keep-codex-fast to inspect my Codex local state and recommend a safe maintenance plan.
+```
+
+Direct helper usage:
+
+```bash
+python3 scripts/maintenance/keep_codex_fast.py
+python3 scripts/maintenance/keep_codex_fast.py --backup-only
+python3 scripts/maintenance/keep_codex_fast.py --apply --archive-older-than-days 10 --worktree-older-than-days 7 --wait-for-codex-exit
+```
+
+Recurring maintenance must be a report/reminder only. Do not schedule `--apply`; manual apply should happen only after important chats have handoffs and Codex is closed.
 
 ## <img src="./docs/assets/branding/heading-goal.svg" width="22" alt=""> Ralph Objective Prep
 

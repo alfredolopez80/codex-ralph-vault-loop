@@ -33,6 +33,7 @@ DEFAULT_SKILLS=(
   codex-design-studio
   ralph-objective-prep
   ralph-memory-dream
+  keep-codex-fast
 )
 
 DEFAULT_AGENTS=(
