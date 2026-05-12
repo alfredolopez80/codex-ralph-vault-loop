@@ -31,6 +31,8 @@ DEFAULT_SKILLS=(
   obsidian-spec
   oracle-pro-debugger
   codex-design-studio
+  ralph-objective-prep
+  ralph-memory-dream
 )
 
 DEFAULT_AGENTS=(
@@ -52,7 +54,7 @@ SKILLS=("${DEFAULT_SKILLS[@]}")
 AGENTS=("${DEFAULT_AGENTS[@]}")
 
 usage() {
-  cat <<'USAGE'
+  cat << 'USAGE'
 Usage:
   bash scripts/setup/uninstall-global.sh --dry-run [--with-agents]
   bash scripts/setup/uninstall-global.sh --uninstall [--with-agents]
@@ -142,7 +144,7 @@ main() {
           printf 'GLOBAL_UNINSTALL_FAIL --skills requires a comma list\n' >&2
           return 2
         fi
-        IFS=',' read -r -a SKILLS <<<"$1"
+        IFS=',' read -r -a SKILLS <<< "$1"
         validate_selectors "${SKILLS[@]}"
         ;;
       --agents)
@@ -152,7 +154,7 @@ main() {
           return 2
         fi
         WITH_AGENTS=1
-        IFS=',' read -r -a AGENTS <<<"$1"
+        IFS=',' read -r -a AGENTS <<< "$1"
         validate_selectors "${AGENTS[@]}"
         ;;
       --help)

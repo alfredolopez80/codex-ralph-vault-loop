@@ -15,6 +15,7 @@ LAYER_FILES = {
     "L1": "L1_essential.md",
     "L2": "L2_project_rules.md",
     "L3": "L3_vault_index.md",
+    "L4": "L4_dream_state.md",
 }
 
 
@@ -54,6 +55,7 @@ def ensure_runtime() -> Path:
         "L1": "# L1 Essential\n\nRED content stays local and is never saved. Use GREEN/YELLOW only for durable memory.\n",
         "L2": "# L2 Project Rules\n\nNo project rules recorded yet.\n",
         "L3": "# L3 Vault Index\n\nNo vault index loaded yet.\n",
+        "L4": "# L4 Dream State\n\nNo dream state loaded yet.\n",
     }
     for layer, filename in LAYER_FILES.items():
         path = root / "layers" / filename

@@ -10,8 +10,8 @@ Phase groups:
 - PHASE_12 to PHASE_14 add AutoResearch, MCP evals, Obsidian capture, and spec-to-implementation planning.
 - PHASE_15 and PHASE_16 complete orchestration and run the smoke test.
 - PHASE_17 documents the final migration shape.
+- PHASE_18 to PHASE_21 harden acceptance, security/memory boundaries, full readiness, and deterministic memory dream consolidation.
 
 Operational rule: if a phase affects runtime behavior for future sessions, add a global activation path or record why it remains repo-local. Codex App users should restart after global skill, hook, or subagent changes.
 
-Related checkpoints: [PHASE_00](checkpoints/PHASE_00.md), [PHASE_05](checkpoints/PHASE_05.md), [PHASE_10](checkpoints/PHASE_10.md), [PHASE_15](checkpoints/PHASE_15.md), [PHASE_16](checkpoints/PHASE_16.md).
-
+Related checkpoints: [PHASE_00](checkpoints/PHASE_00.md), [PHASE_05](checkpoints/PHASE_05.md), [PHASE_10](checkpoints/PHASE_10.md), [PHASE_15](checkpoints/PHASE_15.md), [PHASE_16](checkpoints/PHASE_16.md), [PHASE_21](checkpoints/PHASE_21.md).

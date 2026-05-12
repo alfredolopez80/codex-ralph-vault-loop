@@ -10,6 +10,25 @@ import sys
 def main() -> int:
     read_hook_input()
     ensure_runtime()
+    scheduler = REPO_ROOT / "scripts" / "memory" / "dream-scheduler.py"
+    if scheduler.exists():
+        subprocess.run(
+            [
+                sys.executable,
+                str(scheduler),
+                "--catch-up",
+                "--target-time",
+                "11:30",
+                "--max-seconds",
+                "15",
+                "--vault-project",
+                REPO_ROOT.name,
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
     wakeup = REPO_ROOT / "scripts" / "memory" / "wakeup.py"
     if not wakeup.exists():
         return 0

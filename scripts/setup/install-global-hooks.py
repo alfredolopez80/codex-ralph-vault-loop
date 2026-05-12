@@ -22,7 +22,7 @@ def hook_config() -> dict:
                         {
                             "type": "command",
                             "command": f"python3 {hooks / 'session_start_wakeup.py'}",
-                            "timeout": 20,
+                            "timeout": 45,
                         }
                     ]
                 }

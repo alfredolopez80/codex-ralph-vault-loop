@@ -105,6 +105,10 @@ The quality spine is scriptable and repeatable:
 
 | Tool | Role |
 |---|---|
+| `scripts/memory/dream.py --dry-run` | Consolidates safe handoffs and ledgers into reviewable L1-L3 memory candidates. |
+| `scripts/memory/dream.py --auto-update-state` | Updates L4 dream state so future Codex wakeups can use high-confidence consolidated learnings. |
+| `scripts/memory/dream.py --vault-inbox` | Writes a reviewable dream digest into the MiVault project inbox without canonical promotion. |
+| `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` | Runs the non-blocking daily catch-up policy used by the SessionStart hook. |
 | `scripts/gates/run-gates.py --minimal` | Writes `.ralph-codex/reports/gates/latest.json` and `.md`. |
 | `scripts/evals/run_scorecard.py` | Applies RASS v1 scorecards. |
 | `scripts/evals/research_eval.py` | Validates research behavior in mock/offline mode. |

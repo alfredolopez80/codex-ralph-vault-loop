@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 .codex/hooks/session_start_wakeup.py",
-            "timeout": 20
+            "timeout": 45
           }
         ]
       }

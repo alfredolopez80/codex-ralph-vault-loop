@@ -32,6 +32,7 @@ DEFAULT_SKILLS=(
   oracle-pro-debugger
   codex-design-studio
   ralph-objective-prep
+  ralph-memory-dream
 )
 
 DEFAULT_AGENTS=(
