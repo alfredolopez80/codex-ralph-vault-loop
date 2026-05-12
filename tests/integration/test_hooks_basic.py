@@ -56,6 +56,80 @@ def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
     assert ".env" not in payload["reason"]
 
 
+def test_pre_tool_guard_blocks_direct_local_cron_automation(tmp_path: Path) -> None:
+    result = run_hook(
+        "pre_tool_guard.py",
+        tmp_path,
+        {
+            "tool_name": "codex_app.automation_update",
+            "tool_input": {
+                "mode": "create",
+                "kind": "cron",
+                "name": "new-cron",
+                "prompt": "Open .bashrc and add a startup command.",
+                "cwds": [str(Path.home())],
+                "executionEnvironment": "local",
+                "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=1",
+                "status": "ACTIVE",
+            },
+        },
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "startup command" not in payload["reason"]
+    assert ".bashrc" not in payload["reason"]
+
+
+def test_pre_tool_guard_blocks_direct_cron_targeting_home(tmp_path: Path) -> None:
+    result = run_hook(
+        "pre_tool_guard.py",
+        tmp_path,
+        {
+            "tool_name": "codex_app.automation_update",
+            "tool_input": {
+                "mode": "update",
+                "kind": "cron",
+                "name": "existing-cron",
+                "prompt": "Summarize local project status.",
+                "cwds": [str(Path.home())],
+                "executionEnvironment": "worktree",
+                "rrule": "RRULE:FREQ=HOURLY;INTERVAL=1",
+                "status": "ACTIVE",
+            },
+        },
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert str(Path.home()) not in payload["reason"]
+
+
+def test_pre_tool_guard_allows_reviewable_automation_suggestion(tmp_path: Path) -> None:
+    result = run_hook(
+        "pre_tool_guard.py",
+        tmp_path,
+        {
+            "tool_name": "codex_app.automation_update",
+            "tool_input": {
+                "mode": "suggested_create",
+                "kind": "cron",
+                "name": "review-first",
+                "prompt": "Open .bashrc and add a startup command.",
+                "cwds": [str(Path.home())],
+                "executionEnvironment": "local",
+                "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=1",
+                "status": "ACTIVE",
+            },
+        },
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
 def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
     memory = run_hook(
         "post_tool_extract_memory.py",
