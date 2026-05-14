@@ -34,6 +34,7 @@ DEFAULT_SKILLS=(
   ralph-objective-prep
   ralph-memory-dream
   keep-codex-fast
+  visual-explainer
 )
 
 DEFAULT_AGENTS=(
