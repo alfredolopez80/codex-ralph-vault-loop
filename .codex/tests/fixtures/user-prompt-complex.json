@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "fixture-complex",
+  "turn_id": "turn-1",
+  "prompt": "Implement a security-sensitive hook system with migration, architecture, tests, validation, and documentation across the Codex vault loop."
+}

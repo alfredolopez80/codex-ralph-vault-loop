@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -u
+umask 077
+
+ROOT="$(git rev-parse --show-toplevel 2> /dev/null || true)"
+if [[ -z "$ROOT" ]]; then
+  ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+fi
+FIXTURES="$ROOT/.codex/tests/fixtures"
+HOOKS="$ROOT/.codex/hooks"
+STATE="${CODEX_HOOK_TEST_STATE_ROOT:-${TMPDIR:-/tmp}/codex-hook-tests-$$}"
+export CODEX_HOOK_STATE_ROOT="$STATE"
+
+fail() {
+  printf 'FAIL %s\n' "$1" >&2
+  exit 1
+}
+
+pass() {
+  printf 'PASS %s\n' "$1"
+}
+
+run_hook() {
+  local hook="$1"
+  local fixture="$2"
+  bash "$HOOKS/$hook" < "$FIXTURES/$fixture"
+}
+
+assert_json() {
+  local output="$1"
+  printf '%s' "$output" | jq -e . > /dev/null || fail "invalid JSON: $output"
+}
+
+mkdir -p "$STATE/fixture-stop-excuse" "$STATE/fixture-stop-verified" "$STATE/fixture-active-loop"
+printf '{"blocks":0}\n' > "$STATE/fixture-stop-excuse/anti-rat-blocks.json"
+printf '{"blocks":0}\n' > "$STATE/fixture-active-loop/quality-blocks.json"
+printf '{"blocks":0}\n' > "$STATE/fixture-stop-verified/quality-blocks.json"
+
+for script in \
+  universal-prompt-classifier.sh \
+  aristotle-analysis-display.sh \
+  anti-rationalization-stop.sh \
+  ralph-stop-quality-gate.sh; do
+  bash -n "$HOOKS/$script" || fail "bash -n $script"
+done
+pass "bash syntax"
+
+simple_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-simple.json)"
+assert_json "$simple_classifier"
+printf '%s' "$simple_classifier" | jq -e '.continue == true' > /dev/null || fail "simple classifier did not continue"
+simple_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-simple.json)"
+assert_json "$simple_aristotle"
+printf '%s' "$simple_aristotle" | jq -e 'has("hookSpecificOutput") | not' > /dev/null || fail "simple prompt injected Aristotle noise"
+pass "prompt simple"
+
+complex_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-complex.json)"
+assert_json "$complex_classifier"
+complex_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-complex.json)"
+assert_json "$complex_aristotle"
+printf '%s' "$complex_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "complex prompt missing Aristotle context"
+pass "prompt complex Aristotle"
+
+excuse="$(run_hook anti-rationalization-stop.sh stop-excuse.json)"
+assert_json "$excuse"
+printf '%s' "$excuse" | jq -e '.decision == "block"' > /dev/null || fail "stop excuse did not block"
+pass "stop excuse blocks"
+
+active="$(printf '{"hook_event_name":"Stop","session_id":"fixture-active","stop_hook_active":true,"last_assistant_message":"should work"}' | bash "$HOOKS/anti-rationalization-stop.sh")"
+assert_json "$active"
+printf '%s' "$active" | jq -e '.continue == true' > /dev/null || fail "stop_hook_active did not allow"
+pass "stop_hook_active allows"
+
+printf '{"verified_done":true,"tests_executed":true,"quality_passed":true}\n' > "$STATE/fixture-stop-verified/verified-done.json"
+verified="$(run_hook ralph-stop-quality-gate.sh stop-verified.json)"
+assert_json "$verified"
+printf '%s' "$verified" | jq -e '.continue == true' > /dev/null || fail "verified_done did not allow"
+pass "verified_done allows"
+
+printf '{"verified_done":false,"iteration":1,"max_iterations":3,"tests_executed":false}\n' > "$STATE/fixture-active-loop/loop.json"
+loop="$(run_hook ralph-stop-quality-gate.sh stop-active-loop.json)"
+assert_json "$loop"
+printf '%s' "$loop" | jq -e '.decision == "block"' > /dev/null || fail "active loop did not block"
+pass "active loop blocks"
+
+printf 'ALL_HOOK_TESTS_PASS\n'

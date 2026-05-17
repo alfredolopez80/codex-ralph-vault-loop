@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
+
+
+def q(path: Path) -> str:
+    return shlex.quote(str(path))
 
 
 def hook_config() -> dict:
@@ -21,7 +26,7 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'session_start_wakeup.py'}",
+                            "command": f"python3 {q(hooks / 'session_start_wakeup.py')}",
                             "timeout": 45,
                         }
                     ]
@@ -32,7 +37,17 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'user_prompt_capture.py'}",
+                            "command": f"bash {q(hooks / 'universal-prompt-classifier.sh')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"bash {q(hooks / 'aristotle-analysis-display.sh')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'user_prompt_capture.py')}",
                             "timeout": 10,
                         }
                     ]
@@ -43,7 +58,7 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'pre_tool_guard.py'}",
+                            "command": f"python3 {q(hooks / 'pre_tool_guard.py')}",
                             "timeout": 10,
                         }
                     ]
@@ -54,17 +69,17 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'file_line_guard.py'} --event PostToolUse",
+                            "command": f"python3 {q(hooks / 'file_line_guard.py')} --event PostToolUse",
                             "timeout": 10,
                         },
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'post_tool_extract_memory.py'}",
+                            "command": f"python3 {q(hooks / 'post_tool_extract_memory.py')}",
                             "timeout": 10,
                         },
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'post_tool_cost_ledger.py'}",
+                            "command": f"python3 {q(hooks / 'post_tool_cost_ledger.py')}",
                             "timeout": 10,
                         },
                     ]
@@ -75,22 +90,32 @@ def hook_config() -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'file_line_guard.py'} --event Stop",
-                            "timeout": 20,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {slop}",
-                            "timeout": 45,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {hooks / 'stop_route_decision_warn.py'}",
+                            "command": f"bash {q(hooks / 'anti-rationalization-stop.sh')}",
                             "timeout": 10,
                         },
                         {
                             "type": "command",
-                            "command": f"python3 {hooks / 'stop_persist_memory.py'}",
+                            "command": f"bash {q(hooks / 'ralph-stop-quality-gate.sh')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'file_line_guard.py')} --event Stop",
+                            "timeout": 20,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(slop)}",
+                            "timeout": 45,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'stop_route_decision_warn.py')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'stop_persist_memory.py')}",
                             "timeout": 20,
                         },
                     ]

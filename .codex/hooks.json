@@ -17,6 +17,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/universal-prompt-classifier.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/aristotle-analysis-display.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "python3 .codex/hooks/user_prompt_capture.py",
             "timeout": 10
           }
@@ -58,6 +68,16 @@
     "Stop": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/anti-rationalization-stop.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/ralph-stop-quality-gate.sh\"",
+            "timeout": 10
+          },
           {
             "type": "command",
             "command": "python3 .codex/hooks/file_line_guard.py --event Stop",

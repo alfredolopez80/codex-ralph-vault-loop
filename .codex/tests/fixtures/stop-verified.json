@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-stop-verified",
+  "last_assistant_message": "VERIFIED_DONE: tests passed, lint passed, and diff reviewed."
+}
