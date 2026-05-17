@@ -17,6 +17,7 @@ def save_learning(text: str, source: str, classification: str = "YELLOW") -> Pat
     root = ensure_runtime()
     clean = redact_text(text.strip())
     path = root / "ledgers" / f"learning-{digest(clean)[:12]}.md"
+    created = not path.exists()
     if not path.exists():
         path.write_text(
             "\n".join(
@@ -34,7 +35,8 @@ def save_learning(text: str, source: str, classification: str = "YELLOW") -> Pat
             ),
             encoding="utf-8",
         )
-    append_jsonl(root / "ledgers" / "learning-events.jsonl", {"source": source, "path": str(path), "created_at": now_iso()})
+    if created:
+        append_jsonl(root / "ledgers" / "learning-events.jsonl", {"source": source, "path": str(path), "created_at": now_iso()})
     return path
 
 

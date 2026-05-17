@@ -18,12 +18,13 @@ SKIP_PATH_PARTS = (
     ".env",
     "id_rsa",
     "id_ed25519",
+)
+SKIP_PATH_SUBSTRINGS = (
     "secrets",
     "token",
     "credential",
     "wallet",
     "keystore",
-    "private",
 )
 PREVIEW_CHARS = 260
 
@@ -68,7 +69,9 @@ def safe_project(value: str) -> str:
 def path_is_sensitive(path: Path) -> bool:
     lowered_parts = [part.lower() for part in path.parts]
     lowered_text = str(path).lower()
-    return any(part in lowered_parts or part in lowered_text for part in SKIP_PATH_PARTS)
+    return any(part in lowered_parts for part in SKIP_PATH_PARTS) or any(
+        part in lowered_text for part in SKIP_PATH_SUBSTRINGS
+    )
 
 
 def iter_existing_files(paths: Iterable[Source]) -> Iterable[Source]:

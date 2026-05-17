@@ -141,6 +141,7 @@ def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
     )
     assert memory.returncode == 0, memory.stderr
     assert list((tmp_path / "ledgers").glob("learning-*.md"))
+    assert (tmp_path / "ledgers" / "learning-events.jsonl").is_file()
 
     cost = run_hook("post_tool_cost_ledger.py", tmp_path, {"tool_name": "exec_command", "success": True})
     assert cost.returncode == 0, cost.stderr
@@ -149,6 +150,39 @@ def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
     line = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
     assert line["route_family"] == "local"
     assert line["route_decision_observed"] is False
+
+
+def test_post_tool_memory_extracts_spanish_learning(tmp_path: Path) -> None:
+    memory = run_hook(
+        "post_tool_extract_memory.py",
+        tmp_path,
+        {"output": "Conclusión: la causa raíz fue validada y el resultado pasó."},
+    )
+
+    assert memory.returncode == 0, memory.stderr
+    persisted = "\n".join(path.read_text() for path in (tmp_path / "ledgers").glob("learning-*.md"))
+    assert "causa raíz" in persisted
+
+
+def test_post_tool_memory_ignores_non_learning_output(tmp_path: Path) -> None:
+    memory = run_hook("post_tool_extract_memory.py", tmp_path, {"output": "Listed files in the current directory."})
+
+    assert memory.returncode == 0, memory.stderr
+    assert not list((tmp_path / "ledgers").glob("learning-*.md"))
+    assert not (tmp_path / "ledgers" / "learning-events.jsonl").exists()
+
+
+def test_post_tool_memory_deduplicates_learning_events(tmp_path: Path) -> None:
+    payload = {"output": "Decision: use one shared learning detector for memory hooks."}
+
+    first = run_hook("post_tool_extract_memory.py", tmp_path, payload)
+    second = run_hook("post_tool_extract_memory.py", tmp_path, payload)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert len(list((tmp_path / "ledgers").glob("learning-*.md"))) == 1
+    events = (tmp_path / "ledgers" / "learning-events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(events) == 1
 
 
 def test_post_tool_cost_ledger_records_route_metadata_only(tmp_path: Path) -> None:
@@ -369,3 +403,16 @@ def test_stop_hook_creates_handoff_without_red(tmp_path: Path) -> None:
     red_text = "secret" + "=abc123"
     run_hook("stop_persist_memory.py", tmp_path, {"last_assistant_message": red_text})
     assert red_text not in latest.read_text()
+
+
+def test_stop_hook_persists_learning_when_message_has_conclusion(tmp_path: Path) -> None:
+    result = run_hook(
+        "stop_persist_memory.py",
+        tmp_path,
+        {"last_assistant_message": "Conclusion: the memory hook now saves useful validated learning."},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "handoffs" / "latest.md").is_file()
+    assert list((tmp_path / "ledgers").glob("learning-*.md"))
+    assert (tmp_path / "ledgers" / "learning-events.jsonl").is_file()

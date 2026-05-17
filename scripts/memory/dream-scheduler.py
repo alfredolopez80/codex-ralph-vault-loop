@@ -12,6 +12,7 @@ from _memory_common import ensure_runtime, now_iso, read_text
 
 
 STATE_FILE = Path("reports/memory/dream-scheduler.json")
+LEARNING_EVENTS_FILE = Path("ledgers/learning-events.jsonl")
 DEFAULT_TARGET_TIME = "11:30"
 STALE_HOURS = 24
 VAULT_INBOX_AFTER_HOURS = 72
@@ -48,6 +49,37 @@ def write_state(root: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def read_learning_events(root: Path) -> dict[str, object]:
+    path = root / LEARNING_EVENTS_FILE
+    text = read_text(path)
+    count = 0
+    latest: datetime | None = None
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        count += 1
+        created = parse_iso(str(payload.get("created_at") or ""))
+        if created is not None and (latest is None or created > latest):
+            latest = created
+    return {
+        "learning_event_count": count,
+        "last_learning_event_at": latest.isoformat() if latest is not None else None,
+    }
+
+
+def int_state(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def hours_since(value: datetime | None, now: datetime) -> float | None:
     if value is None:
         return None
@@ -56,9 +88,11 @@ def hours_since(value: datetime | None, now: datetime) -> float | None:
     return (now.astimezone(timezone.utc) - value.astimezone(timezone.utc)).total_seconds() / 3600
 
 
-def should_run(state: dict[str, object], target: time, now: datetime, force: bool) -> tuple[bool, str]:
+def should_run(state: dict[str, object], target: time, now: datetime, force: bool, learning_event_count: int) -> tuple[bool, str]:
     if force:
         return True, "force"
+    if learning_event_count > int_state(state.get("last_processed_learning_event_count")):
+        return True, "new_learning_events"
     last_success = parse_iso(str(state.get("last_success_at") or ""))
     age_hours = hours_since(last_success, now)
     if age_hours is None:
@@ -111,17 +145,30 @@ def main() -> int:
 
     root = ensure_runtime()
     state = read_state(root)
+    learning = read_learning_events(root)
     now = datetime.now().astimezone()
     target = parse_local_time(args.target_time)
-    due, reason = should_run(state, target, now, args.force or not args.catch_up)
+    learning_event_count = int_state(learning.get("learning_event_count"))
+    due, reason = should_run(state, target, now, args.force or not args.catch_up, learning_event_count)
     if not due:
-        state.update({"last_check_at": now_iso(), "status": "noop", "reason": reason, "target_time": args.target_time})
+        state.update(
+            {
+                "last_check_at": now_iso(),
+                "status": "noop",
+                "reason": reason,
+                "target_time": args.target_time,
+                **learning,
+            }
+        )
         write_state(root, state)
         print(f"DREAM_SCHEDULER_NOOP reason={reason}")
         return 0
 
     last_success = parse_iso(str(state.get("last_success_at") or ""))
-    include_vault = (hours_since(last_success, now) or VAULT_INBOX_AFTER_HOURS) >= VAULT_INBOX_AFTER_HOURS
+    success_age_hours = hours_since(last_success, now)
+    include_vault = (
+        VAULT_INBOX_AFTER_HOURS if success_age_hours is None else success_age_hours
+    ) >= VAULT_INBOX_AFTER_HOURS
     code, output = run_dream(args.max_seconds, args.vault_project, include_vault)
     status = "success" if code == 0 else "failed"
     state.update(
@@ -132,10 +179,12 @@ def main() -> int:
             "reason": reason,
             "target_time": args.target_time,
             "last_output": output,
+            **learning,
         }
     )
     if code == 0:
         state["last_success_at"] = now_iso()
+        state["last_processed_learning_event_count"] = learning_event_count
     write_state(root, state)
     print(f"DREAM_SCHEDULER_{status.upper()} reason={reason}")
     return 0 if code == 0 else 1

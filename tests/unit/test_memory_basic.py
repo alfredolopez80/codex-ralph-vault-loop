@@ -4,10 +4,15 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def run_memory(name: str, ralph_home: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -21,6 +26,15 @@ def run_memory(name: str, ralph_home: Path, *args: str) -> subprocess.CompletedP
         capture_output=True,
         check=False,
     )
+
+
+def write_learning_event(ralph_home: Path, text: str) -> None:
+    ledgers = ralph_home / "ledgers"
+    ledgers.mkdir(parents=True, exist_ok=True)
+    learning = ledgers / "learning-test.md"
+    learning.write_text(text, encoding="utf-8")
+    event = {"created_at": now_iso(), "path": str(learning), "source": "test"}
+    (ledgers / "learning-events.jsonl").write_text(json.dumps(event, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def test_wakeup_empty_state_and_runtime_dirs(tmp_path: Path) -> None:
@@ -212,3 +226,62 @@ def test_dream_scheduler_noops_before_target_time(tmp_path: Path) -> None:
     assert "DREAM_SCHEDULER_NOOP" in result.stdout
     state = json.loads((tmp_path / "reports" / "memory" / "dream-scheduler.json").read_text())
     assert state["status"] == "noop"
+
+
+def test_dream_scheduler_noops_when_fresh_without_new_learning(tmp_path: Path) -> None:
+    write_learning_event(tmp_path, "Decision: scheduler should ignore already processed learning.")
+    state_path = tmp_path / "reports" / "memory" / "dream-scheduler.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "last_success_at": now_iso(),
+                "last_processed_learning_event_count": 1,
+                "status": "success",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_memory("dream-scheduler.py", tmp_path, "--catch-up", "--target-time", "00:00")
+
+    assert result.returncode == 0, result.stderr
+    assert "DREAM_SCHEDULER_NOOP reason=fresh" in result.stdout
+    state = json.loads(state_path.read_text())
+    assert state["learning_event_count"] == 1
+    assert state["last_processed_learning_event_count"] == 1
+
+
+def test_dream_scheduler_runs_for_new_learning_events(tmp_path: Path) -> None:
+    write_learning_event(tmp_path, "Decision: scheduler must process new learning event marker.")
+    state_path = tmp_path / "reports" / "memory" / "dream-scheduler.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "last_success_at": now_iso(),
+                "last_processed_learning_event_count": 0,
+                "status": "success",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_memory("dream-scheduler.py", tmp_path, "--catch-up", "--target-time", "23:59", "--max-seconds", "10")
+
+    assert result.returncode == 0, result.stderr
+    assert "DREAM_SCHEDULER_SUCCESS reason=new_learning_events" in result.stdout
+    state = json.loads(state_path.read_text())
+    assert state["learning_event_count"] == 1
+    assert state["last_processed_learning_event_count"] == 1
+    assert state["status"] == "success"
+
+
+def test_ralph_recall_finds_learning_ledger(tmp_path: Path) -> None:
+    write_learning_event(tmp_path, "Decision: recall should find zyxralph-memory-marker in learning ledgers.")
+
+    result = run_memory("ralph-recall.py", tmp_path, "zyxralph-memory-marker", "--project", ROOT.name, "--limit", "3")
+
+    assert result.returncode == 0, result.stderr
+    assert "learning-test.md" in result.stdout
+    assert "zyxralph-memory-marker" in result.stdout
