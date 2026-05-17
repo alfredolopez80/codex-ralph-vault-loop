@@ -77,6 +77,11 @@ def hook_config() -> dict:
                         },
                         {
                             "type": "command",
+                            "command": f"python3 {q(hooks / 'shaping_ripple.py')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
                             "command": f"python3 {q(hooks / 'post_tool_extract_memory.py')}",
                             "timeout": 10,
                         },

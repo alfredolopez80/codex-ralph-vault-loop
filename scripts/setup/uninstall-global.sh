@@ -20,6 +20,8 @@ DEFAULT_SKILLS=(
   gates
   vault
   memory-session
+  # Local AgentMemory-free memory bridge.
+  ralph-central-memory
   research
   parallel
   exit-review
@@ -35,6 +37,10 @@ DEFAULT_SKILLS=(
   ralph-memory-dream
   keep-codex-fast
   visual-explainer
+  ultrathink
+  make-requirements-great
+  framing-doc
+  kickoff-doc
 )
 
 DEFAULT_AGENTS=(
