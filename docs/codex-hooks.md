@@ -35,6 +35,9 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Allows immediately when `stop_hook_active == true`.
   - Checks Ralph/Codex state files for `verified_done`, active loops, failed
     quality gates, pending tasks, and missing validation.
+  - Repo-global `plan-state.json` files only gate the current session when they
+    include a matching `session_id`/`sessionId`, or explicitly opt in with
+    `global: true` / `applies_to_all_sessions: true`.
   - Tracks up to five blocks in `.codex/state/<session>/quality-blocks.json`
     and logs to `.codex/state/<session>/stop-hook.log`.
 

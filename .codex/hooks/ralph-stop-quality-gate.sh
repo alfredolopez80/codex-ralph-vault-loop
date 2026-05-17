@@ -67,6 +67,29 @@ json_value() {
   jq -r "$expr // empty" "$file" 2> /dev/null || true
 }
 
+plan_state_applies_to_session() {
+  local file="$1"
+  local scoped_session=""
+  [[ -f "$file" ]] || return 1
+
+  if json_bool_true "$file" '.global' || json_bool_true "$file" '.applies_to_all_sessions' || json_bool_true "$file" '.appliesToAllSessions'; then
+    return 0
+  fi
+
+  scoped_session="$(json_value "$file" '(.session_id // .sessionId // .codex_session_id // .codexSessionId // .active_session_id // .activeSessionId // .session.id)')"
+  if [[ -z "$scoped_session" ]]; then
+    append_log "IGNORE unscoped plan state: $file"
+    return 1
+  fi
+
+  if [[ "$(safe_id "$scoped_session")" == "$SESSION_ID" ]]; then
+    return 0
+  fi
+
+  append_log "IGNORE plan state for different session: $file"
+  return 1
+}
+
 append_log() {
   local message="$1"
   mkdir -p "$STATE_DIR" 2> /dev/null || true
@@ -202,9 +225,11 @@ if [[ -d "$RALPH_SESSION_DIR" ]]; then
   done
 fi
 
-check_state_file "$ROOT/.ralph/plan-state.json" "plan"
-check_state_file "$ROOT/.codex/plan-state.json" "plan"
-check_state_file "$ROOT/plan-state.json" "plan"
+for plan_state_file in "$ROOT/.ralph/plan-state.json" "$ROOT/.codex/plan-state.json" "$ROOT/plan-state.json"; do
+  if plan_state_applies_to_session "$plan_state_file"; then
+    check_state_file "$plan_state_file" "plan"
+  fi
+done
 
 if [[ "$ACTIVE_FOUND" != "true" ]]; then
   append_log "ALLOW no active Ralph/Codex state"

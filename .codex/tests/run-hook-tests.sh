@@ -82,4 +82,23 @@ assert_json "$loop"
 printf '%s' "$loop" | jq -e '.decision == "block"' > /dev/null || fail "active loop did not block"
 pass "active loop blocks"
 
+PLAN_REPO="$STATE/plan-state-repo"
+mkdir -p "$PLAN_REPO/.codex"
+git init "$PLAN_REPO" > /dev/null 2>&1 || fail "git init plan-state repo"
+printf '{"session_id":"other-session","pending_tasks":1}\n' > "$PLAN_REPO/.codex/plan-state.json"
+stale_plan="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", session_id:"fixture-plan-current", cwd:$cwd}' | bash "$HOOKS/ralph-stop-quality-gate.sh")"
+assert_json "$stale_plan"
+printf '%s' "$stale_plan" | jq -e '.continue == true and (.decision != "block")' > /dev/null || fail "stale global plan-state blocked current session"
+
+printf '{"pending_tasks":1}\n' > "$PLAN_REPO/.codex/plan-state.json"
+unscoped_plan="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", session_id:"fixture-plan-current", cwd:$cwd}' | bash "$HOOKS/ralph-stop-quality-gate.sh")"
+assert_json "$unscoped_plan"
+printf '%s' "$unscoped_plan" | jq -e '.continue == true and (.decision != "block")' > /dev/null || fail "unscoped global plan-state blocked current session"
+
+printf '{"session_id":"fixture-plan-current","pending_tasks":1}\n' > "$PLAN_REPO/.codex/plan-state.json"
+current_plan="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", session_id:"fixture-plan-current", cwd:$cwd}' | bash "$HOOKS/ralph-stop-quality-gate.sh")"
+assert_json "$current_plan"
+printf '%s' "$current_plan" | jq -e '.decision == "block"' > /dev/null || fail "current-session plan-state did not block"
+pass "plan-state session scope"
+
 printf 'ALL_HOOK_TESTS_PASS\n'
