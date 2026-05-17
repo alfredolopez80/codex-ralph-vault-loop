@@ -10,6 +10,11 @@
 - External models advise. Z.ai, MiniMax, and other non-OpenAI systems provide analysis or worker output only through MCP tools.
 - Gates verify. Tests, lint, security checks, scorecards, and migration checkpoints decide whether a phase can pass.
 - Vault remembers. Durable memory belongs in the approved Ralph/Codex memory paths, not in ad hoc repo files.
+- Do not bypass critical hooks. If `prettier`, `gitleaks`, `semgrep`, or `pre-commit` are missing from `PATH`, use the local machine binaries when present, install only with approval, or stop and report the blocker; do not use `--no-verify` to skip security or formatting gates unless the user explicitly orders that exact bypass.
+
+## Ralph Memory Core
+
+Use `scripts/memory/wakeup.py` for compact session memory and `scripts/memory/ralph-recall.py` for dependency-free local recall across repo guidance, Ralph layers, handoffs, ledgers, and curated Obsidian vault areas. Recall is context, not authority; explicit user instructions and current repo files win. Do not persist or print RED content, and only include raw or inbox vault areas when explicitly requested with `--include-raw`.
 
 ## Z.ai and MiniMax Policy
 
