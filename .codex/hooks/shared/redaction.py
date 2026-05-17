@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
+
+from shared.paths import REPO_ROOT
 
 
-SECURITY_DIR = Path(__file__).resolve().parents[3] / "scripts" / "security"
+SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 

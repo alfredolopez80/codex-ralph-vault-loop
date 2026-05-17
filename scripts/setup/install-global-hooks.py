@@ -141,6 +141,7 @@ def main() -> int:
     data = hook_config()
     if args.dry_run:
         print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / '.codex' / 'hooks'} -> {GLOBAL_HOOK_DIR}")
+        print(f"GLOBAL_HOOKS_DRY_RUN write {GLOBAL_HOOK_DIR / '.ralph-repo-root'}")
         print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / 'scripts' / 'gates' / 'codex_stop_slop_guard.py'} -> {GLOBAL_SLOP_GUARD}")
         print(f"GLOBAL_HOOKS_DRY_RUN write {GLOBAL_HOOKS}")
         print(json.dumps(data, indent=2))
@@ -156,6 +157,7 @@ def main() -> int:
     if GLOBAL_HOOK_DIR.exists():
         shutil.rmtree(GLOBAL_HOOK_DIR)
     shutil.copytree(REPO / ".codex" / "hooks", GLOBAL_HOOK_DIR, symlinks=True)
+    (GLOBAL_HOOK_DIR / ".ralph-repo-root").write_text(str(REPO) + "\n", encoding="utf-8")
     shutil.copy2(REPO / "scripts" / "gates" / "codex_stop_slop_guard.py", GLOBAL_SLOP_GUARD)
 
     if GLOBAL_HOOKS.exists():
