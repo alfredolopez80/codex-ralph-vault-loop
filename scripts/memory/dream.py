@@ -10,6 +10,9 @@ from _memory_common import ensure_runtime, now_iso
 from _promotion import summarize_promotions
 
 
+DEFAULT_MAX_ITEMS = 10_000
+
+
 def apply_candidates() -> int:
     print("DREAM_APPLY_UNIMPLEMENTED use --dry-run or --emit-patch for reviewable candidates")
     return 2
@@ -19,7 +22,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Consolidate Ralph memory handoffs and ledgers into reviewable candidates.")
     parser.add_argument("--dry-run", action="store_true", help="Generate reports without mutating canonical layers. This is the default.")
     parser.add_argument("--since-days", type=int)
-    parser.add_argument("--max-items", type=int, default=50)
+    parser.add_argument("--max-items", type=int, default=DEFAULT_MAX_ITEMS)
     parser.add_argument("--emit-patch", action="store_true", help="Emit a reviewable Markdown layer patch proposal.")
     parser.add_argument("--auto-update-state", action="store_true", help="Update L4 dream state for future wakeup context.")
     parser.add_argument("--vault-inbox", action="store_true", help="Write a reviewable dream digest into the MiVault project inbox.")

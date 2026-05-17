@@ -15,9 +15,13 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def run_memory(name: str, ralph_home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_memory(name: str, ralph_home: Path, *args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["RALPH_HOME"] = str(ralph_home)
+    env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
+    env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "memory" / name), *args],
         cwd=ROOT,
@@ -118,6 +122,63 @@ def test_dream_deduplicates_candidates(tmp_path: Path) -> None:
     assert len(report["candidates"]) == 1
     assert report["candidates"][0]["duplicate_count"] == 2
     assert len(report["candidates"][0]["source_paths"]) == 2
+
+
+def test_dream_reads_recursive_ledgers_and_handoffs(tmp_path: Path) -> None:
+    text = "Decision: for this repo, recursive memory sources must include nested learning notes."
+    (tmp_path / "ledgers" / "claude-import" / "nested").mkdir(parents=True)
+    (tmp_path / "handoffs" / "archive").mkdir(parents=True)
+    (tmp_path / "ledgers" / "claude-import" / "nested" / "rule.md").write_text(text, encoding="utf-8")
+    (tmp_path / "handoffs" / "archive" / "rule.md").write_text(text, encoding="utf-8")
+
+    result = run_memory("dream.py", tmp_path, "--assist-promote")
+
+    assert result.returncode == 0, result.stderr
+    assert "DREAM_PROMOTION_OK auto=1 review=0" in result.stdout
+    promotion = json.loads((tmp_path / "reports" / "memory" / "promotion-latest.json").read_text())
+    assert promotion["auto_promoted"][0]["source_groups"] == ["handoffs", "ledgers"]
+    assert "ledgers/claude-import/nested/rule.md" in promotion["auto_promoted"][0]["source_paths"]
+    assert "handoffs/archive/rule.md" in promotion["auto_promoted"][0]["source_paths"]
+
+
+def test_dream_reads_codex_memories_as_reviewable_sources(tmp_path: Path) -> None:
+    codex_memory = tmp_path / "codex-memories"
+    codex_memory.mkdir()
+    text = "Decision: codex memory project convention should be reviewed before promotion."
+    (codex_memory / "MEMORY.md").write_text(text, encoding="utf-8")
+
+    result = run_memory(
+        "dream.py",
+        tmp_path,
+        "--assist-promote",
+        extra_env={"CODEX_MEMORY_HOME": str(codex_memory)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    promotion = json.loads((tmp_path / "reports" / "memory" / "promotion-latest.json").read_text())
+    assert len(promotion["auto_promoted"]) == 0
+    assert promotion["review_requested"][0]["source_groups"] == ["codex-memories"]
+    assert promotion["review_requested"][0]["source_paths"] == ["codex-memories/MEMORY.md"]
+
+
+def test_dream_reads_configured_local_notes_as_reviewable_sources(tmp_path: Path) -> None:
+    local_notes = tmp_path / "repo" / ".local-notes" / "reviews"
+    local_notes.mkdir(parents=True)
+    text = "Decision: project local-notes review findings should be considered for memory promotion."
+    (local_notes / "future-review.md").write_text(text, encoding="utf-8")
+
+    result = run_memory(
+        "dream.py",
+        tmp_path,
+        "--assist-promote",
+        extra_env={"RALPH_LOCAL_NOTES_ROOTS": str(tmp_path / "repo" / ".local-notes")},
+    )
+
+    assert result.returncode == 0, result.stderr
+    promotion = json.loads((tmp_path / "reports" / "memory" / "promotion-latest.json").read_text())
+    assert len(promotion["auto_promoted"]) == 0
+    assert promotion["review_requested"][0]["source_groups"] == ["local-notes"]
+    assert promotion["review_requested"][0]["source_paths"] == ["local-notes/repo/reviews/future-review.md"]
 
 
 def test_dream_targets_l2_for_project_rule(tmp_path: Path) -> None:

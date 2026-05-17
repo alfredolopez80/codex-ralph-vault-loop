@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,15 @@ L2_MARKERS = ("repo", "project", "migration", "checkpoint", "local convention", 
 L3_MARKERS = ("vault", "mivault", "index", "external note")
 STRIP_PREFIX = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+|#{1,6}\s+|>\s+)?")
 PUNCTUATION = re.compile(r"[^a-z0-9]+")
+DEFAULT_CODEX_MEMORY_HOME = Path("~/.codex/memories").expanduser()
+SKIP_PATH_PARTS = (".env", "id_rsa", "id_ed25519")
+SKIP_PATH_SUBSTRINGS = ("secrets", "token", "credential", "wallet", "keystore")
+
+
+@dataclass(frozen=True)
+class SourcePath:
+    path: Path
+    label: str
 
 
 @dataclass
@@ -49,6 +59,7 @@ class Candidate:
     classification: str
     text: str
     source_paths: list[str] = field(default_factory=list)
+    source_groups: list[str] = field(default_factory=list)
     confidence: float = 0.5
     hash: str = ""
     duplicate_existing: bool = False
@@ -60,6 +71,7 @@ class Candidate:
             "classification": self.classification,
             "text": self.text,
             "source_paths": self.source_paths,
+            "source_groups": self.source_groups,
             "confidence": self.confidence,
             "hash": self.hash,
             "duplicate_existing": self.duplicate_existing,
@@ -69,6 +81,36 @@ class Candidate:
 
 def normalize_candidate(text: str) -> str:
     return PUNCTUATION.sub(" ", text.lower()).strip()
+
+
+def path_is_sensitive(path: Path) -> bool:
+    lowered_parts = [part.lower() for part in path.parts]
+    lowered_text = str(path).lower()
+    return any(part in lowered_parts for part in SKIP_PATH_PARTS) or any(
+        part in lowered_text for part in SKIP_PATH_SUBSTRINGS
+    )
+
+
+def path_key(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def safe_relative(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        home = Path.home()
+        try:
+            return "~/" + str(path.relative_to(home))
+        except ValueError:
+            return path.name
+
+
+def source_group(label: str) -> str:
+    return label.split("/", 1)[0]
 
 
 def parse_created_at(text: str) -> datetime | None:
@@ -96,22 +138,104 @@ def strip_frontmatter(text: str) -> str:
     return text
 
 
-def source_paths(root: Path) -> list[Path]:
-    paths: list[Path] = []
+def iter_markdown_tree(base: Path, label_root: Path, label_prefix: str) -> list[SourcePath]:
+    if not base.exists() or path_is_sensitive(base):
+        return []
+    sources: list[SourcePath] = []
+    for path in base.rglob("*.md"):
+        if path.is_file() and not path_is_sensitive(path):
+            sources.append(SourcePath(path=path, label=f"{label_prefix}/{safe_relative(path, label_root)}"))
+    return sources
+
+
+def codex_memory_sources() -> list[SourcePath]:
+    configured = os.environ.get("CODEX_MEMORY_HOME")
+    if configured is not None and not configured.strip():
+        return []
+    root = Path(configured).expanduser() if configured else DEFAULT_CODEX_MEMORY_HOME
+    if not root.exists() or path_is_sensitive(root):
+        return []
+    sources: list[SourcePath] = []
+    for path in (root / "MEMORY.md", root / "memory_summary.md"):
+        if path.is_file() and not path_is_sensitive(path):
+            sources.append(SourcePath(path=path, label=f"codex-memories/{safe_relative(path, root)}"))
+    rollout_root = root / "rollout_summaries"
+    sources.extend(iter_markdown_tree(rollout_root, root, "codex-memories"))
+    return sources
+
+
+def configured_local_notes_roots() -> list[Path] | None:
+    configured = os.environ.get("RALPH_LOCAL_NOTES_ROOTS")
+    if configured is None:
+        return None
+    return [Path(value).expanduser() for value in configured.split(os.pathsep) if value.strip()]
+
+
+def discover_repo_root(start: Path) -> Path:
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return start
+
+
+def default_local_notes_roots() -> list[Path]:
+    roots: list[Path] = []
+    cwd = Path.cwd()
+    for candidate in (cwd, *cwd.parents):
+        notes = candidate / ".local-notes"
+        if notes.exists():
+            roots.append(notes)
+        if (candidate / ".git").exists():
+            break
+
+    repo_root = discover_repo_root(cwd)
+    repo_name = repo_root.name
+    github_root = Path("~/Documents/GitHub").expanduser()
+    if github_root.exists():
+        roots.append(github_root / repo_name / ".local-notes")
+        roots.extend(github_root.glob(f"*/{repo_name}/.local-notes"))
+    return roots
+
+
+def local_notes_sources() -> list[SourcePath]:
+    roots = configured_local_notes_roots()
+    if roots is None:
+        roots = default_local_notes_roots()
+    sources: list[SourcePath] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.exists() or path_is_sensitive(root):
+            continue
+        key = path_key(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        repo_label = root.parent.name if root.name == ".local-notes" else root.name
+        sources.extend(iter_markdown_tree(root, root, f"local-notes/{repo_label}"))
+    return sources
+
+
+def source_paths(root: Path) -> list[SourcePath]:
+    paths: list[SourcePath] = []
     for relative in ("handoffs", "ledgers"):
         base = root / relative
-        if base.exists():
-            paths.extend(path for path in base.glob("*.md") if path.is_file())
-    return sorted(paths, key=lambda path: path.stat().st_mtime, reverse=True)
+        paths.extend(iter_markdown_tree(base, base, relative))
+    paths.extend(codex_memory_sources())
+    paths.extend(local_notes_sources())
+    unique: dict[str, SourcePath] = {}
+    for source in paths:
+        unique.setdefault(path_key(source.path), source)
+    return sorted(unique.values(), key=lambda source: source.path.stat().st_mtime, reverse=True)
 
 
 def collect_sources(root: Path, since_days: int | None, max_items: int) -> tuple[list[SourceItem], list[dict[str, object]]]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=since_days) if since_days else None
     sources: list[SourceItem] = []
     skipped: list[dict[str, object]] = []
-    for path in source_paths(root):
+    for source_path in source_paths(root):
         if len(sources) + len(skipped) >= max_items:
             break
+        path = source_path.path
         text = read_text(path)
         created_at = parse_created_at(text)
         if cutoff and created_at and created_at < cutoff:
@@ -122,7 +246,7 @@ def collect_sources(root: Path, since_days: int | None, max_items: int) -> tuple
             findings = public_findings(text) or [{"kind": "classification", "label": "classified_red", "severity": "RED"}]
             skipped.append({"hash": digest, "reason": "RED", "findings": findings})
             continue
-        sources.append(SourceItem(relative_path=str(path.relative_to(root)), text=text, classification=classification))
+        sources.append(SourceItem(relative_path=source_path.label, text=text, classification=classification))
     return sources, skipped
 
 
@@ -157,6 +281,8 @@ def score_candidate(text: str, source_count: int, source_kinds: set[str]) -> flo
         score += 0.1
     if {"handoffs", "ledgers"}.issubset(source_kinds):
         score += 0.1
+    if {"codex-memories", "local-notes"}.intersection(source_kinds) and {"handoffs", "ledgers"}.intersection(source_kinds):
+        score += 0.05
     if len(text) > 220:
         score -= 0.2
     if len(text.split()) < 5 or any(marker in lowered for marker in ("thing", "stuff", "todo")):
@@ -181,6 +307,9 @@ def extract_candidates(root: Path, sources: list[SourceItem]) -> tuple[list[Cand
                 grouped[digest] = candidate
             if source.relative_path not in candidate.source_paths:
                 candidate.source_paths.append(source.relative_path)
+            group = source_group(source.relative_path)
+            if group not in candidate.source_groups:
+                candidate.source_groups.append(group)
             if source.classification == "YELLOW":
                 candidate.classification = "YELLOW"
     duplicate_count = finalize_candidates(grouped.values())
@@ -192,7 +321,8 @@ def finalize_candidates(candidates: object) -> int:
     duplicate_count = 0
     for candidate in candidates:
         candidate.duplicate_count = len(candidate.source_paths)
-        source_kinds = {path.split("/", 1)[0] for path in candidate.source_paths}
+        candidate.source_groups = sorted(candidate.source_groups)
+        source_kinds = set(candidate.source_groups)
         candidate.confidence = score_candidate(candidate.text, candidate.duplicate_count, source_kinds)
         if candidate.duplicate_count > 1 or candidate.duplicate_existing:
             duplicate_count += 1

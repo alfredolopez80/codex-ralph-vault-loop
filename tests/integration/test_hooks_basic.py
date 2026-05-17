@@ -14,6 +14,8 @@ HOOKS = ROOT / ".codex" / "hooks"
 def run_hook(name: str, ralph_home: Path, payload: dict, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["RALPH_HOME"] = str(ralph_home)
+    env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
+    env["RALPH_LOCAL_NOTES_ROOTS"] = ""
     if extra_env:
         env.update(extra_env)
     return subprocess.run(

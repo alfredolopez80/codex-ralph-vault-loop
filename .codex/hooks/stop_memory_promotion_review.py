@@ -13,12 +13,13 @@ def run_assisted_promotion() -> None:
     script = REPO_ROOT / "scripts" / "memory" / "dream.py"
     if not script.exists():
         return
+    timeout = int(os.environ.get("RALPH_PROMOTION_TIMEOUT_SECONDS", "20"))
     subprocess.run(
         [sys.executable, str(script), "--auto-update-state", "--assist-promote"],
         text=True,
         capture_output=True,
         check=False,
-        timeout=12,
+        timeout=timeout,
         env=os.environ.copy(),
     )
 

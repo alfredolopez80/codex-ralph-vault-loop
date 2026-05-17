@@ -14,7 +14,7 @@ Vault capture uses `scripts/vault/vault-save.py`. GREEN can be global. YELLOW is
 
 ## Dream / Consolidation
 
-`scripts/memory/dream.py` reviews recent handoffs and ledgers, classifies every input, skips RED without printing or storing its raw content, deduplicates repeated learnings, and emits reviewable candidates for L1, L2, and L3.
+`scripts/memory/dream.py` reviews handoffs and ledgers recursively, including nested folders such as `ledgers/claude-import/`, classifies every input, skips RED without printing or storing its raw content, deduplicates repeated learnings, and emits reviewable candidates for L1, L2, and L3. It also reads curated Codex memory from `~/.codex/memories/{MEMORY.md,memory_summary.md,rollout_summaries/}` and configured or repo-local `.local-notes/` folders as read-only candidate sources.
 
 The command is dry-run by default:
 
@@ -26,7 +26,7 @@ It writes `~/.ralph-codex/reports/memory/dream-latest.md`, `~/.ralph-codex/repor
 
 Use `--auto-update-state` to write `~/.ralph-codex/layers/L4_dream_state.md` and `.json`. `wakeup.py` loads L4 on future session starts, so Codex can use recent consolidated learnings automatically while keeping them separate from canonical memory. L4 only includes non-duplicate L1/L2/L3 candidates above the confidence threshold.
 
-Use `--assist-promote` to let Ralph Memory promote only high-confidence L2/L3 candidates into runtime canonical layers and queue ambiguous or L1 candidates for review. The promotion path writes `reports/memory/promotion-latest.{json,md}` and `promotion-events.jsonl`. It does not write to `~/.codex/memories`, and RED inputs remain skipped. The Stop hook runs this assisted promotion path and emits a warning when review candidates should be shown to the user instead of silently becoming canonical.
+Use `--assist-promote` to let Ralph Memory promote only high-confidence, runtime-corroborated L2/L3 candidates into runtime canonical layers and queue ambiguous, L1, Codex memory, Claude import, and `.local-notes/` candidates for review when they are not sufficiently corroborated. The promotion path writes `reports/memory/promotion-latest.{json,md}` and `promotion-events.jsonl`. It does not write to `~/.codex/memories` or source `.local-notes/`, and RED inputs remain skipped. The Stop hook runs this assisted promotion path and emits a warning when review candidates should be shown to the user instead of silently becoming canonical.
 
 Use `--vault-inbox` to write a reviewable digest under `~/Documents/Obsidian/MiVault/projects/<project>/inbox/`. This is not canonical MiVault memory; it is an inbox for human/Codex review before promotion.
 

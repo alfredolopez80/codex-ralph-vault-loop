@@ -73,6 +73,7 @@ def decide_candidate(candidate: dict[str, object]) -> tuple[str, str]:
     target = str(candidate["target_layer"])
     confidence = float(candidate["confidence"])
     classification = str(candidate["classification"])
+    source_groups = {str(group) for group in candidate.get("source_groups", [])}
     if classification == "RED":
         return "skip", "red_classification"
     if target not in TARGET_LAYERS:
@@ -80,7 +81,9 @@ def decide_candidate(candidate: dict[str, object]) -> tuple[str, str]:
     if bool(candidate["duplicate_existing"]):
         return "skip", "duplicate_existing"
     if target in AUTO_PROMOTE_TARGETS and confidence >= AUTO_PROMOTE_MIN_CONFIDENCE:
-        return "auto_promote", "high_confidence_project_or_vault_candidate"
+        if {"handoffs", "ledgers"}.issubset(source_groups):
+            return "auto_promote", "high_confidence_runtime_correlated_candidate"
+        return "review", "high_confidence_needs_runtime_corroboration"
     if confidence >= REVIEW_MIN_CONFIDENCE:
         return "review", "needs_human_or_model_review"
     return "skip", "low_confidence"
@@ -112,6 +115,7 @@ def summarize_promotions(root: Path, report: dict[str, object]) -> dict[str, obj
                 "target_layer": candidate["target_layer"],
                 "confidence": candidate["confidence"],
                 "source_paths": candidate["source_paths"],
+                "source_groups": candidate.get("source_groups", []),
                 "text_hash": content_hash(str(candidate["text"])),
             }
             if _event_key(event) not in seen_events:
@@ -128,6 +132,7 @@ def summarize_promotions(root: Path, report: dict[str, object]) -> dict[str, obj
                 "target_layer": candidate["target_layer"],
                 "confidence": candidate["confidence"],
                 "source_paths": candidate["source_paths"],
+                "source_groups": candidate.get("source_groups", []),
                 "text_hash": content_hash(str(candidate["text"])),
             }
             if _event_key(event) not in seen_events:
