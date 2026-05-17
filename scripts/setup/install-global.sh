@@ -22,6 +22,8 @@ DEFAULT_SKILLS=(
   gates
   vault
   memory-session
+  # Local AgentMemory-free memory bridge.
+  ralph-central-memory
   research
   parallel
   exit-review

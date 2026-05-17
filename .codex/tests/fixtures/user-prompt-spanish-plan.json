@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "fixture-spanish-plan",
+  "turn_id": "turn-1",
+  "prompt": "Analiza a profundidad la arquitectura y crea un plan antes de modificar archivos; valida seguridad, pruebas e integracion."
+}
