@@ -38,6 +38,7 @@ def test_hooks_accept_empty_json(tmp_path: Path) -> None:
         "post_tool_cost_ledger.py",
         "stop_route_decision_warn.py",
         "stop_persist_memory.py",
+        "stop_memory_promotion_review.py",
     ]:
         result = run_hook(hook, tmp_path, {})
         assert result.returncode == 0, f"{hook}: {result.stderr}"
@@ -379,6 +380,7 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
     assert any("file_line_guard.py --event PostToolUse" in command for command in post_commands)
     assert any("shaping_ripple.py" in command for command in post_commands)
     assert any("file_line_guard.py --event Stop" in command for command in stop_commands)
+    assert any("stop_memory_promotion_review.py" in command for command in stop_commands)
 
 
 def test_post_tool_memory_skips_red_output(tmp_path: Path) -> None:
@@ -416,3 +418,24 @@ def test_stop_hook_persists_learning_when_message_has_conclusion(tmp_path: Path)
     assert (tmp_path / "handoffs" / "latest.md").is_file()
     assert list((tmp_path / "ledgers").glob("learning-*.md"))
     assert (tmp_path / "ledgers" / "learning-events.jsonl").is_file()
+
+
+def test_stop_memory_promotion_review_warns_for_review_candidates(tmp_path: Path) -> None:
+    (tmp_path / "ledgers").mkdir(parents=True)
+    (tmp_path / "ledgers" / "learning-review.md").write_text(
+        "Decision: always run security review before canonical memory promotion.",
+        encoding="utf-8",
+    )
+
+    result = run_hook(
+        "stop_memory_promotion_review.py",
+        tmp_path,
+        {"last_assistant_message": "VERIFIED_DONE: true."},
+        extra_env={"VAULT_DIR": str(tmp_path / "vault")},
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "warn"
+    assert "promotion candidates" in payload["reason"]
+    assert "security review" in payload["reason"]

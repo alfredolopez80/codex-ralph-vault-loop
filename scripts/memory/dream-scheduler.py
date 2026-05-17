@@ -106,7 +106,7 @@ def should_run(state: dict[str, object], target: time, now: datetime, force: boo
 
 def run_dream(max_seconds: int, vault_project: str, include_vault: bool) -> tuple[int, str]:
     script = Path(__file__).resolve().with_name("dream.py")
-    command = [sys.executable, str(script), "--auto-update-state"]
+    command = [sys.executable, str(script), "--auto-update-state", "--assist-promote"]
     if include_vault:
         command.extend(["--vault-inbox", "--vault-project", vault_project])
     try:
@@ -115,7 +115,7 @@ def run_dream(max_seconds: int, vault_project: str, include_vault: bool) -> tupl
         return 124, "timeout"
     output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
     if result.returncode != 0 and include_vault:
-        retry_command = [sys.executable, str(script), "--auto-update-state"]
+        retry_command = [sys.executable, str(script), "--auto-update-state", "--assist-promote"]
         try:
             retry = subprocess.run(retry_command, text=True, capture_output=True, check=False, timeout=max_seconds)
         except subprocess.TimeoutExpired:

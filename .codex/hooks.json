@@ -102,6 +102,11 @@
             "type": "command",
             "command": "python3 .codex/hooks/stop_persist_memory.py",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/stop_memory_promotion_review.py",
+            "timeout": 20
           }
         ]
       }

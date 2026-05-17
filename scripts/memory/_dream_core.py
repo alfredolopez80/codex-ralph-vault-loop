@@ -165,7 +165,8 @@ def score_candidate(text: str, source_count: int, source_kinds: set[str]) -> flo
 
 
 def extract_candidates(root: Path, sources: list[SourceItem]) -> tuple[list[Candidate], int]:
-    layer_text = "\n".join(read_text(root / "layers" / filename) for filename in LAYER_FILES.values())
+    canonical_layers = ("L1", "L2", "L3")
+    layer_text = "\n".join(read_text(root / "layers" / LAYER_FILES[layer]) for layer in canonical_layers)
     normalized_layers = normalize_candidate(layer_text)
     grouped: dict[str, Candidate] = {}
     for source in sources:

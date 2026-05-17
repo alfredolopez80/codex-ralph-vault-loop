@@ -7,6 +7,7 @@ from pathlib import Path
 from _dream_core import build_report
 from _dream_outputs import write_dream_state, write_reports, write_vault_inbox
 from _memory_common import ensure_runtime, now_iso
+from _promotion import summarize_promotions
 
 
 def apply_candidates() -> int:
@@ -23,6 +24,7 @@ def main() -> int:
     parser.add_argument("--auto-update-state", action="store_true", help="Update L4 dream state for future wakeup context.")
     parser.add_argument("--vault-inbox", action="store_true", help="Write a reviewable dream digest into the MiVault project inbox.")
     parser.add_argument("--vault-project", default=Path.cwd().name, help="Project slug for --vault-inbox.")
+    parser.add_argument("--assist-promote", action="store_true", help="Auto-promote very safe candidates and queue ambiguous candidates for review.")
     parser.add_argument("--apply-candidates", action="store_true", help="Reserved for an approved future apply flow.")
     args = parser.parse_args()
 
@@ -32,6 +34,13 @@ def main() -> int:
     root = ensure_runtime()
     report = build_report(root, args.since_days, args.max_items, now_iso())
     md_path, _json_path = write_reports(root, report, args.emit_patch)
+    if args.assist_promote:
+        promotion = summarize_promotions(root, report)
+        print(
+            "DREAM_PROMOTION_OK "
+            f"auto={len(promotion['auto_promoted'])} "
+            f"review={len(promotion['review_requested'])}"
+        )
     if args.auto_update_state:
         state_md, _state_json = write_dream_state(root, report)
         print(f"DREAM_STATE_OK {state_md}")

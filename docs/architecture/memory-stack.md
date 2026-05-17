@@ -26,6 +26,8 @@ It writes `~/.ralph-codex/reports/memory/dream-latest.md`, `~/.ralph-codex/repor
 
 Use `--auto-update-state` to write `~/.ralph-codex/layers/L4_dream_state.md` and `.json`. `wakeup.py` loads L4 on future session starts, so Codex can use recent consolidated learnings automatically while keeping them separate from canonical memory. L4 only includes non-duplicate L1/L2/L3 candidates above the confidence threshold.
 
+Use `--assist-promote` to let Ralph Memory promote only high-confidence L2/L3 candidates into runtime canonical layers and queue ambiguous or L1 candidates for review. The promotion path writes `reports/memory/promotion-latest.{json,md}` and `promotion-events.jsonl`. It does not write to `~/.codex/memories`, and RED inputs remain skipped. The Stop hook runs this assisted promotion path and emits a warning when review candidates should be shown to the user instead of silently becoming canonical.
+
 Use `--vault-inbox` to write a reviewable digest under `~/Documents/Obsidian/MiVault/projects/<project>/inbox/`. This is not canonical MiVault memory; it is an inbox for human/Codex review before promotion.
 
 `scripts/memory/dream-scheduler.py --catch-up` is the non-blocking automation wrapper. The `SessionStart` hook runs it before `wakeup.py` with a default target time of 11:30 local. If the machine was asleep or off, the next Codex session after the target time performs the catch-up; if L4 is fresh, the scheduler is a no-op. Failures are recorded under `~/.ralph-codex/reports/memory/dream-scheduler.json` and do not block session startup.

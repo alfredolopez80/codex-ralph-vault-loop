@@ -167,6 +167,59 @@ def test_dream_auto_update_state_is_loaded_by_wakeup(tmp_path: Path) -> None:
     assert text in wakeup.stdout
 
 
+def test_dream_assist_promote_auto_promotes_high_confidence_l2(tmp_path: Path) -> None:
+    run_memory("wakeup.py", tmp_path)
+    text = "Decision: for this repo, memory changes must update tests/unit/test_memory_basic.py."
+    (tmp_path / "ledgers").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "handoffs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ledgers" / "rule.md").write_text(text, encoding="utf-8")
+    (tmp_path / "handoffs" / "latest.md").write_text(text, encoding="utf-8")
+
+    result = run_memory("dream.py", tmp_path, "--assist-promote")
+
+    assert result.returncode == 0, result.stderr
+    assert "DREAM_PROMOTION_OK auto=1 review=0" in result.stdout
+    l2 = (tmp_path / "layers" / "L2_project_rules.md").read_text()
+    assert text in l2
+    assert "ralph-promotion:" in l2
+    promotion = json.loads((tmp_path / "reports" / "memory" / "promotion-latest.json").read_text())
+    assert len(promotion["auto_promoted"]) == 1
+    assert len(promotion["review_requested"]) == 0
+
+
+def test_dream_assist_promote_requests_review_for_l1(tmp_path: Path) -> None:
+    run_memory("wakeup.py", tmp_path)
+    text = "Decision: always run security review before canonical memory promotion."
+    (tmp_path / "ledgers").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ledgers" / "rule.md").write_text(text, encoding="utf-8")
+
+    result = run_memory("dream.py", tmp_path, "--assist-promote")
+
+    assert result.returncode == 0, result.stderr
+    assert "DREAM_PROMOTION_OK auto=0 review=1" in result.stdout
+    l1 = (tmp_path / "layers" / "L1_essential.md").read_text()
+    assert text not in l1
+    promotion = json.loads((tmp_path / "reports" / "memory" / "promotion-latest.json").read_text())
+    assert len(promotion["auto_promoted"]) == 0
+    assert promotion["review_requested"][0]["target_layer"] == "L1"
+
+
+def test_dream_l4_state_does_not_make_review_candidate_duplicate(tmp_path: Path) -> None:
+    run_memory("wakeup.py", tmp_path)
+    text = "Decision: always run security review before canonical memory promotion."
+    (tmp_path / "ledgers").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ledgers" / "rule.md").write_text(text, encoding="utf-8")
+
+    first = run_memory("dream.py", tmp_path, "--assist-promote", "--auto-update-state")
+    second = run_memory("dream.py", tmp_path, "--assist-promote", "--auto-update-state")
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    promotion = json.loads((tmp_path / "reports" / "memory" / "promotion-latest.json").read_text())
+    assert promotion["review_requested"][0]["text"] == text
+    assert promotion["review_requested"][0]["duplicate_existing"] is False
+
+
 def test_dream_vault_inbox_writes_reviewable_digest(tmp_path: Path, monkeypatch) -> None:
     vault_dir = tmp_path / "vault"
     monkeypatch.setenv("VAULT_DIR", str(vault_dir))

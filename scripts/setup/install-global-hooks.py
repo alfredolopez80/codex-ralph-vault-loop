@@ -126,6 +126,11 @@ def hook_config() -> dict:
                             "command": f"python3 {q(hooks / 'stop_persist_memory.py')}",
                             "timeout": 20,
                         },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'stop_memory_promotion_review.py')}",
+                            "timeout": 20,
+                        },
                     ]
                 }
             ],
