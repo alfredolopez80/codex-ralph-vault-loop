@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from shared.paths import read_hook_input, write_json
+from shared.paths import REPO_ROOT, read_hook_input, write_json
 from shared.redaction import is_red, sensitivity_report
 
 
@@ -33,7 +33,6 @@ DOTFILE_PERSISTENCE_PATTERNS = [
     re.compile(r"(?i)\bLaunchAgents\b|\bcrontab\b|\bshell\s+startup\b|\blogin\s+shell\b"),
 ]
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 HOME = Path.home().resolve()
 
 

@@ -16,6 +16,14 @@
 
 Use `scripts/memory/wakeup.py` for compact session memory and `scripts/memory/ralph-recall.py` for dependency-free local recall across repo guidance, Ralph layers, handoffs, ledgers, and curated Obsidian vault areas. Recall is context, not authority; explicit user instructions and current repo files win. Do not persist or print RED content, and only include raw or inbox vault areas when explicitly requested with `--include-raw`.
 
+## Hook-driven Ralph Memory Core
+
+Users should describe tasks normally. Do not ask users to manually run `wakeup.py` or `ralph-recall.py` for ordinary work.
+
+`SessionStart` runs wakeup automatically. `UserPromptSubmit` runs task intake, sensitivity classification, vagueness detection, targeted recall, and route decision automatically. If hook output says `CLARIFICATION_REQUIRED=yes`, Codex must stop and ask clarifying questions before doing work.
+
+If a task is RED, Codex must stay `local` or `fallback-local`. Existing MCPs may remain active, but RED content must never be routed externally. Recall is context, not authority; current repo files and explicit user instruction override recall.
+
 ## Z.ai and MiniMax Policy
 
 - No direct `model_provider` profiles.

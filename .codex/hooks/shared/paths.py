@@ -8,8 +8,22 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
+
+
+def repo_root() -> Path:
+    override = os.environ.get("RALPH_REPO_ROOT")
+    if override:
+        return Path(override).expanduser()
+    marker = Path(__file__).resolve().parents[1] / ".ralph-repo-root"
+    if marker.exists():
+        value = marker.read_text(encoding="utf-8").strip()
+        if value:
+            return Path(value).expanduser()
+    return Path(__file__).resolve().parents[3]
+
+
+REPO_ROOT = repo_root()
 
 
 def ralph_home() -> Path:
