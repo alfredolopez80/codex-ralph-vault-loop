@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import shlex
 from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
+GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
+GLOBAL_SLOP_GUARD = GLOBAL_HOOK_DIR / "codex_stop_slop_guard.py"
 
 
 def q(path: Path) -> str:
@@ -16,8 +19,8 @@ def q(path: Path) -> str:
 
 
 def hook_config() -> dict:
-    hooks = REPO / ".codex" / "hooks"
-    slop = REPO / "scripts" / "gates" / "codex_stop_slop_guard.py"
+    hooks = GLOBAL_HOOK_DIR
+    slop = GLOBAL_SLOP_GUARD
     return {
         "version": 1,
         "hooks": {
@@ -132,10 +135,24 @@ def main() -> int:
 
     data = hook_config()
     if args.dry_run:
+        print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / '.codex' / 'hooks'} -> {GLOBAL_HOOK_DIR}")
+        print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / 'scripts' / 'gates' / 'codex_stop_slop_guard.py'} -> {GLOBAL_SLOP_GUARD}")
+        print(f"GLOBAL_HOOKS_DRY_RUN write {GLOBAL_HOOKS}")
         print(json.dumps(data, indent=2))
         return 0
 
     GLOBAL_HOOKS.parent.mkdir(parents=True, exist_ok=True)
+    if GLOBAL_HOOK_DIR.exists():
+        backup_dir = GLOBAL_HOOK_DIR.with_name("hooks.bak-global-hooks")
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        shutil.copytree(GLOBAL_HOOK_DIR, backup_dir, symlinks=True)
+
+    if GLOBAL_HOOK_DIR.exists():
+        shutil.rmtree(GLOBAL_HOOK_DIR)
+    shutil.copytree(REPO / ".codex" / "hooks", GLOBAL_HOOK_DIR, symlinks=True)
+    shutil.copy2(REPO / "scripts" / "gates" / "codex_stop_slop_guard.py", GLOBAL_SLOP_GUARD)
+
     if GLOBAL_HOOKS.exists():
         backup = GLOBAL_HOOKS.with_suffix(".json.bak-global-hooks")
         backup.write_text(GLOBAL_HOOKS.read_text(encoding="utf-8"), encoding="utf-8")

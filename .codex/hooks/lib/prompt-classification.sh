@@ -24,22 +24,25 @@ codex_classify_prompt() {
     complexity=$((complexity + 1))
   fi
 
-  if printf '%s' "$prompt" | grep -qiE '(and also|additionally|as well as|multiple|several|parallel|primero|ademas|tambien|y luego)'; then
+  if printf '%s' "$prompt" | grep -qiE '(and also|additionally|as well as|multiple|several|parallel|primero|ademas|además|tambien|también|y luego|despues|después)'; then
     complexity=$((complexity + 1))
   fi
-  if printf '%s' "$prompt" | grep -qiE '(refactor|redesign|migrate|migration|architecture|architectural)'; then
+  if printf '%s' "$prompt" | grep -qiE '(refactor|redesign|migrate|migration|architecture|architectural|arquitectura|migracion|migración|rediseñ|refactoriza)'; then
     complexity=$((complexity + 2))
   fi
-  if printf '%s' "$prompt" | grep -qiE '(system|framework|pipeline|security|tests?|implement|build|create|agent|vault|hook|loop)'; then
+  if printf '%s' "$prompt" | grep -qiE '(system|framework|pipeline|security|tests?|implement|build|create|agent|vault|hook|loop|sistema|seguridad|pruebas?|implementar|construir|crear|agente|boveda|bóveda|gancho|ciclo)'; then
     complexity=$((complexity + 1))
   fi
-  if printf '%s' "$prompt" | grep -qiE '(audit|validate|verification|verified_done|quality|gate|integration|e2e)'; then
+  if printf '%s' "$prompt" | grep -qiE '(audit|validate|validation|verification|verified_done|quality|gate|integration|e2e|audita|auditar|validar|validacion|validación|verifica|verificar|calidad|integracion|integración)'; then
     complexity=$((complexity + 1))
   fi
-  if printf '%s' "$prompt" | grep -qiE '(^|[[:space:]])(read|list|explain|show|describe|simple|minor|typo|solo lee|solo lista|explica)([[:space:]]|$)'; then
+  if printf '%s' "$prompt" | grep -qiE '(analiza a profundidad|analisis detallado|análisis detallado|plan antes|antes de modificar|no modifiques|solo planifica|solo plan|movimiento aristotelico|movimiento aristotélico|aristoteles|aristóteles)'; then
+    complexity=$((complexity + 1))
+  fi
+  if printf '%s' "$prompt" | grep -qiE '(^|[[:space:]])(read|list|explain|show|describe|simple|minor|typo|solo lee|solo lista|explica|simple|menor|typo)([[:space:]]|$)'; then
     complexity=$((complexity - 1))
   fi
-  if printf '%s' "$prompt" | grep -qiE '(quick|small change|one-line|trivial)'; then
+  if printf '%s' "$prompt" | grep -qiE '(quick|small change|one-line|trivial|rapido|rápido|cambio pequeño|una linea|una línea|trivial)'; then
     complexity=$((complexity - 1))
   fi
 
