@@ -39,6 +39,10 @@ DEFAULT_SKILLS=(
   ralph-memory-dream
   keep-codex-fast
   visual-explainer
+  ultrathink
+  make-requirements-great
+  framing-doc
+  kickoff-doc
 )
 
 DEFAULT_AGENTS=(

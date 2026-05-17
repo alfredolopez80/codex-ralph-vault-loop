@@ -11,9 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 
 
-def run_hook(name: str, ralph_home: Path, payload: dict) -> subprocess.CompletedProcess[str]:
+def run_hook(name: str, ralph_home: Path, payload: dict, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["RALPH_HOME"] = str(ralph_home)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, str(HOOKS / name)],
         cwd=ROOT,
@@ -31,6 +33,7 @@ def test_hooks_accept_empty_json(tmp_path: Path) -> None:
         "user_prompt_capture.py",
         "pre_tool_guard.py",
         "file_line_guard.py",
+        "shaping_ripple.py",
         "post_tool_extract_memory.py",
         "post_tool_cost_ledger.py",
         "stop_route_decision_warn.py",
@@ -218,6 +221,54 @@ def test_file_line_guard_allows_generated_large_file(tmp_path: Path) -> None:
     assert result.stdout == ""
 
 
+def test_shaping_ripple_ignores_normal_markdown(tmp_path: Path) -> None:
+    doc = tmp_path / "normal.md"
+    doc.write_text("# Normal\n\nNo shaping frontmatter.\n", encoding="utf-8")
+
+    result = run_hook("shaping_ripple.py", tmp_path, {"tool_input": {"path": str(doc)}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_shaping_ripple_warns_for_shaping_markdown_without_content(tmp_path: Path) -> None:
+    doc = tmp_path / "shaping.md"
+    doc.write_text("---\nshaping: true\n---\n# Sensitive title should not leak\n", encoding="utf-8")
+
+    result = run_hook("shaping_ripple.py", tmp_path, {"tool_input": {"path": str(doc), "cwd": str(tmp_path)}})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "warn"
+    assert payload["files"] == [{"path": "shaping.md"}]
+    assert "Sensitive title should not leak" not in result.stdout
+    assert "affordance tables" in payload["reason"]
+
+
+def test_shaping_ripple_ignores_missing_file(tmp_path: Path) -> None:
+    result = run_hook("shaping_ripple.py", tmp_path, {"tool_input": {"path": str(tmp_path / "missing.md")}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_shaping_ripple_strict_mode_blocks(tmp_path: Path) -> None:
+    doc = tmp_path / "strict.md"
+    doc.write_text("---\nshaping: true\n---\n# Strict\n", encoding="utf-8")
+
+    result = run_hook(
+        "shaping_ripple.py",
+        tmp_path,
+        {"tool_input": {"path": str(doc), "cwd": str(tmp_path)}},
+        extra_env={"RALPH_SHAPING_RIPPLE_STRICT": "1"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert payload["files"] == [{"path": "strict.md"}]
+
+
 def test_file_line_guard_detects_apply_patch_payload(tmp_path: Path) -> None:
     large = tmp_path / "large_patch_file.py"
     large.write_text("\n".join(f"value_{i} = {i}" for i in range(351)) + "\n", encoding="utf-8")
@@ -286,10 +337,13 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    config = json.loads(result.stdout)
+    json_start = result.stdout.find("{")
+    assert json_start >= 0, result.stdout
+    config = json.loads(result.stdout[json_start:])
     post_commands = [hook["command"] for hook in config["hooks"]["PostToolUse"][0]["hooks"]]
     stop_commands = [hook["command"] for hook in config["hooks"]["Stop"][0]["hooks"]]
     assert any("file_line_guard.py --event PostToolUse" in command for command in post_commands)
+    assert any("shaping_ripple.py" in command for command in post_commands)
     assert any("file_line_guard.py --event Stop" in command for command in stop_commands)
 
 
