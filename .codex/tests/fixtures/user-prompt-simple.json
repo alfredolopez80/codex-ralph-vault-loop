@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "fixture-simple",
+  "turn_id": "turn-1",
+  "prompt": "Explain what this repository does in one paragraph."
+}
