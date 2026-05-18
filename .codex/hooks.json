@@ -29,6 +29,11 @@
             "type": "command",
             "command": "python3 .codex/hooks/user_prompt_capture.py",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/continuity_prompt_context.py",
+            "timeout": 10
           }
         ]
       }
@@ -60,6 +65,11 @@
           {
             "type": "command",
             "command": "python3 .codex/hooks/post_tool_extract_memory.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/post_tool_checkpoint.py",
             "timeout": 10
           },
           {

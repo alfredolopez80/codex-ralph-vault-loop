@@ -26,6 +26,12 @@ run_hook() {
   bash "$HOOKS/$hook" < "$FIXTURES/$fixture"
 }
 
+run_python_hook() {
+  local hook="$1"
+  local fixture="$2"
+  python3 "$HOOKS/$hook" < "$FIXTURES/$fixture"
+}
+
 assert_json() {
   local output="$1"
   printf '%s' "$output" | jq -e . > /dev/null || fail "invalid JSON: $output"
@@ -67,6 +73,29 @@ spanish_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-spanish-
 assert_json "$spanish_aristotle"
 printf '%s' "$spanish_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "spanish planning prompt missing Aristotle context"
 pass "prompt spanish Aristotle"
+
+export RALPH_HOME="$STATE/ralph-home"
+export CODEX_MEMORY_HOME="$STATE/codex-memory-empty"
+export RALPH_LOCAL_NOTES_ROOTS=""
+continuity_new="$(run_python_hook continuity_prompt_context.py user-prompt-new-task.json)"
+[[ -z "$continuity_new" ]] || fail "continuity new task emitted unexpected output"
+[[ -f "$RALPH_HOME/checkpoints/latest.json" ]] || fail "continuity new task did not create checkpoint"
+continuity_continue="$(run_python_hook continuity_prompt_context.py user-prompt-continue.json)"
+assert_json "$continuity_continue"
+printf '%s' "$continuity_continue" | jq -e '.hookSpecificOutput.additionalContext | contains("Latest rolling checkpoint")' > /dev/null || fail "continuity prompt missing checkpoint context"
+continuity_duplicate="$(run_python_hook continuity_prompt_context.py user-prompt-continue.json)"
+[[ -z "$continuity_duplicate" ]] || fail "continuity prompt did not dedupe injection"
+pass "prompt continuity checkpoint"
+
+post_tool_checkpoint="$(run_python_hook post_tool_checkpoint.py post-tool-test-pass.json)"
+[[ -z "$post_tool_checkpoint" ]] || fail "post_tool_checkpoint emitted unexpected output"
+jq -e '.validation_status == "pass"' "$RALPH_HOME/checkpoints/latest.json" > /dev/null || fail "post_tool_checkpoint did not record passing validation"
+red_before="$(find "$RALPH_HOME/checkpoints" -maxdepth 3 -type f -print | sort | xargs shasum 2> /dev/null || true)"
+post_tool_red="$(run_python_hook post_tool_checkpoint.py post-tool-red-output.json)"
+[[ -z "$post_tool_red" ]] || fail "post_tool_checkpoint red fixture emitted output"
+red_after="$(find "$RALPH_HOME/checkpoints" -maxdepth 3 -type f -print | sort | xargs shasum 2> /dev/null || true)"
+[[ "$red_before" == "$red_after" ]] || fail "post_tool_checkpoint red fixture changed checkpoint artifacts"
+pass "post tool checkpoint"
 
 excuse="$(run_hook anti-rationalization-stop.sh stop-excuse.json)"
 assert_json "$excuse"

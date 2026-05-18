@@ -53,6 +53,9 @@ Current acceptance evidence:
 - Hooks run in dry-run mode.
 - Vault scripts work with temporary `VAULT_DIR` and real MiVault read-only.
 - Memory handoff works with temporary `RALPH_HOME`.
+- Rolling checkpoints create compact in-progress continuity state and rehydrate only under budget, TTL, RED, and dedupe gates.
+- MiVault inbox review and graduation are implemented with hash-only RED skips, Aristotelian decision objects, project-scoped auto-graduation, and user review for ambiguity/global rules.
+- `reports/pre-global-audit/latest.md` can produce `PRE_GLOBAL_AUDIT_PASS` before global hook installation.
 - Gates generate reports.
 - Unit, integration, and eval suites pass.
 - `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
@@ -102,7 +105,21 @@ Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual
 
 The memory stack is intentionally outside the repo. `scripts/memory/wakeup.py` loads compact L0-L3 runtime context. `scripts/memory/handoff.py` writes the latest handoff and archives prior handoffs. `scripts/vault/vault-save.py` persists GREEN globally and YELLOW per project. RED is skipped by vault save, memory extraction, and stop handoff hooks.
 
-Memory dream consolidation closes the runtime learning loop. `scripts/memory/dream.py` consolidates safe handoffs and ledgers into reviewable candidates, `--auto-update-state` writes the non-canonical `L4_dream_state` layer, and `wakeup.py` loads L4 on future session starts. The global `SessionStart` hook runs `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` before wakeup, so missed daily runs catch up the next time Codex starts. MiVault receives only reviewable inbox digests through `--vault-inbox`; L1-L3 and canonical vault notes still require explicit approval.
+Memory dream consolidation closes the runtime learning loop. `scripts/memory/dream.py` consolidates safe handoffs and ledgers into reviewable candidates, `--auto-update-state` writes the non-canonical `L4_dream_state` layer, and `wakeup.py` loads L4 on future session starts. The global `SessionStart` hook runs `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` before wakeup, so missed daily runs catch up the next time Codex starts. MiVault receives reviewable inbox digests through `--vault-inbox`; `scripts/vault/vault-inbox-review.py` audits those inbox candidates, and `scripts/vault/vault-graduate.py` can graduate only safe high-confidence project-scoped notes into curated `wiki` or `decisions`.
+
+![Ralph memory graduation flow](./docs/architecture/diagrams/ralph-memory-refinement.png)
+
+The refinement model has three different trust zones:
+
+| Zone | Current behavior | Recall behavior |
+| --- | --- | --- |
+| Runtime memory | Handoffs, ledgers, checkpoints, and L0-L4 layers are produced by hooks, `checkpoint.py`, and `dream.py`. | `wakeup.py` can load compact layers plus fresh rolling checkpoints; `ralph-recall.py` can find relevant safe runtime memory. |
+| MiVault inbox/raw | `dream.py --vault-inbox` writes reviewable digests into project inbox as quarantine. `vault-inbox-review.py` evaluates inbox candidates in report-only mode by default. | Not read by default; only included with `ralph-recall.py --include-raw`. |
+| Curated MiVault | `wiki`, `decisions`, `sessions`, and `handoffs` hold durable project knowledge. `vault-graduate.py` writes only safe, high-confidence, project-scoped candidates there. | Read by default when relevant to the project. |
+
+Rolling checkpoints are compact operational state, not transcript replay. They store objective, phase, verified state, next action, blockers, relevant paths, and validation status under `~/.ralph-codex/checkpoints/`. `UserPromptSubmit` injects them only for continuation prompts such as `continua` or `resume`; `SessionStart` injects them only when fresh, useful, and not already injected for the same session hash; `Stop` compiles them into the final handoff.
+
+The MiVault graduation engine is intentionally Aristotelian: reject weak assumptions, keep RED out, preserve only irreducible useful facts, choose the smallest safe target, and ask the user when confidence, scope, or destination is ambiguous. Every decision includes machine-readable `aristotle` fields. RED candidates are hash-only audit events, duplicates are skipped, L1/global candidates ask the user, project decisions route to `decisions`, and project knowledge routes to `wiki`. Inbox remains non-canonical quarantine until report review or explicit graduation.
 
 The quality spine is scriptable and repeatable:
 
@@ -112,6 +129,11 @@ The quality spine is scriptable and repeatable:
 | `scripts/memory/dream.py --auto-update-state`                      | Updates L4 dream state so future Codex wakeups can use high-confidence consolidated learnings. |
 | `scripts/memory/dream.py --vault-inbox`                            | Writes a reviewable dream digest into the MiVault project inbox without canonical promotion.   |
 | `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` | Runs the non-blocking daily catch-up policy used by the SessionStart hook.                     |
+| `scripts/memory/checkpoint.py --doctor`                            | Validates rolling checkpoint JSON, render budget, injection state, and archive health.         |
+| `scripts/vault/vault-inbox-review.py`                              | Produces report-only Aristotelian decisions for MiVault inbox candidates.                      |
+| `scripts/vault/vault-graduate.py`                                  | Applies safe high-confidence project-scoped graduation into curated MiVault targets.           |
+| `scripts/setup/pre-global-audit.py`                                | Generates the blocking `PRE_GLOBAL_AUDIT_PASS` report before global hook installation.         |
+| `scripts/setup/smoke-global-hooks.py`                              | Smoke-tests installed global hooks from `~/.codex/hooks` using a temporary runtime.            |
 | `scripts/gates/run-gates.py --minimal`                             | Writes `.ralph-codex/reports/gates/latest.json` and `.md`.                                     |
 | `scripts/evals/run_scorecard.py`                                   | Applies RASS v1 scorecards.                                                                    |
 | `scripts/evals/research_eval.py`                                   | Validates research behavior in mock/offline mode.                                              |

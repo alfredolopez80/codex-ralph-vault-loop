@@ -38,7 +38,9 @@ cookies*
 .ralph/layers/
 .ralph/ledgers/
 .ralph/handoffs/
+.ralph/plans/
 .ralph-codex/
+/reports/pre-global-audit/
 /MiVault/
 /Obsidian/
 /vault-data/

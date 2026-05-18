@@ -52,6 +52,11 @@ def hook_config() -> dict:
                             "type": "command",
                             "command": f"python3 {q(hooks / 'user_prompt_capture.py')}",
                             "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'continuity_prompt_context.py')}",
+                            "timeout": 10,
                         }
                     ]
                 }
@@ -83,6 +88,11 @@ def hook_config() -> dict:
                         {
                             "type": "command",
                             "command": f"python3 {q(hooks / 'post_tool_extract_memory.py')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
+                            "command": f"python3 {q(hooks / 'post_tool_checkpoint.py')}",
                             "timeout": 10,
                         },
                         {
