@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, time, timezone
@@ -134,6 +135,25 @@ def run_dream(max_seconds: int, vault_project: str, include_vault: bool) -> tupl
     return result.returncode, output[-2_000:]
 
 
+def run_vault_review(max_seconds: int, vault_project: str) -> str:
+    if os.environ.get("RALPH_VAULT_INBOX_REVIEW", "1").lower() in {"0", "false", "no"}:
+        return "VAULT_INBOX_REVIEW_SKIPPED disabled"
+    script = Path(__file__).resolve().parents[1] / "vault" / "vault-inbox-review.py"
+    if not script.exists():
+        return "VAULT_INBOX_REVIEW_SKIPPED missing_script"
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script), "--project", vault_project],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=max_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return "VAULT_INBOX_REVIEW_SKIPPED timeout"
+    return "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)[-1_000:]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Ralph Memory Dream when the daily catch-up policy is due.")
     parser.add_argument("--catch-up", action="store_true", help="Run only when the target-time/staleness policy says it is due.")
@@ -170,6 +190,9 @@ def main() -> int:
         VAULT_INBOX_AFTER_HOURS if success_age_hours is None else success_age_hours
     ) >= VAULT_INBOX_AFTER_HOURS
     code, output = run_dream(args.max_seconds, args.vault_project, include_vault)
+    if code == 0:
+        review_output = run_vault_review(min(args.max_seconds, 8), args.vault_project)
+        output = "\n".join(part for part in (output, review_output) if part)[-2_000:]
     status = "success" if code == 0 else "failed"
     state.update(
         {

@@ -79,6 +79,7 @@ def required_dirs(project: str | None = None, agent: str | None = None) -> list[
         "global/decisions",
         f"projects/{project}/raw",
         f"projects/{project}/wiki",
+        f"projects/{project}/decisions",
         f"projects/{project}/sessions",
         f"projects/{project}/handoffs",
         f"agents/{agent}/diary",

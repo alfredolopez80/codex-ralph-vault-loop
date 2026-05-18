@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "functions.exec_command",
+  "success": true,
+  "tool_input": {
+    "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_checkpoint_basic.py"
+  },
+  "output_preview": "7 passed"
+}

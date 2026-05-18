@@ -40,26 +40,18 @@ def save_learning(text: str, source: str, classification: str = "YELLOW") -> Pat
     return path
 
 
-def write_handoff(summary: str, status: str = "stop") -> Path | None:
-    if not summary.strip() or is_red(summary):
+def write_handoff(summary: str, status: str = "stop", next_step: str = "") -> Path | None:
+    if not summary.strip() or is_red(summary) or is_red(next_step):
         return None
     root = ensure_runtime()
     clean = redact_text(summary.strip())
+    clean_next = redact_text(next_step.strip())
+    body = ["---", f'created_at: "{now_iso()}"', f'status: "{status}"', 'classification: "YELLOW"', "---", "", "# Latest Handoff", "", clean]
+    if clean_next:
+        body.extend(["", "Next:", "", clean_next])
+    body.append("")
     path = root / "handoffs" / "latest.md"
-    content = "\n".join(
-        [
-            "---",
-            f'created_at: "{now_iso()}"',
-            f'status: "{status}"',
-            'classification: "YELLOW"',
-            "---",
-            "",
-            "# Latest Handoff",
-            "",
-            clean,
-            "",
-        ]
-    )
+    content = "\n".join(body)
     path.write_text(content, encoding="utf-8")
     archive = root / "handoffs" / f"{now_iso().replace(':', '').replace('+', 'Z')}.md"
     archive.write_text(content, encoding="utf-8")

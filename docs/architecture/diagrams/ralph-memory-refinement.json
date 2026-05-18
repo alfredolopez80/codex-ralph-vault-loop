@@ -1,0 +1,195 @@
+{
+  "id": "ralph-memory-refinement",
+  "title": "Ralph Memory Graduation Flow",
+  "subtitle": "Checkpoint continuity and MiVault graduation keep recall useful, scoped, and safe",
+  "template": "flowchart",
+  "style": 1,
+  "width": 1000,
+  "height": 1200,
+  "description": "Minimal UML-style flowchart for Ralph Memory capture, quarantine, Aristotelian graduation, user escalation, and recall.",
+  "nodes": [
+    {
+      "id": "capture",
+      "kind": "rect",
+      "label": "1. Capture",
+      "sublabel": "hooks, checkpoint, dream",
+      "x": 370,
+      "y": 120,
+      "width": 260,
+      "height": 78,
+      "fill": "#eff6ff",
+      "stroke": "#3b82f6"
+    },
+    {
+      "id": "red",
+      "kind": "hexagon",
+      "label": "RED?",
+      "sublabel": "secret or sensitive",
+      "x": 390,
+      "y": 255,
+      "width": 220,
+      "height": 90,
+      "fill": "#fef2f2",
+      "stroke": "#ef4444"
+    },
+    {
+      "id": "skip",
+      "kind": "rect",
+      "label": "Skip",
+      "sublabel": "no memory write",
+      "x": 700,
+      "y": 265,
+      "width": 210,
+      "height": 74,
+      "fill": "#f8fafc",
+      "stroke": "#64748b"
+    },
+    {
+      "id": "quarantine",
+      "kind": "rect",
+      "label": "2. Quarantine",
+      "sublabel": "ledgers, handoffs, MiVault inbox",
+      "x": 370,
+      "y": 405,
+      "width": 260,
+      "height": 78,
+      "fill": "#fff7ed",
+      "stroke": "#f97316"
+    },
+    {
+      "id": "inbox_note",
+      "kind": "rect",
+      "label": "Inbox Rule",
+      "sublabel": "not read by default",
+      "x": 85,
+      "y": 407,
+      "width": 210,
+      "height": 74,
+      "fill": "#f8fafc",
+      "stroke": "#64748b"
+    },
+    {
+      "id": "refine",
+      "kind": "rect",
+      "label": "3. Refine",
+      "sublabel": "vault-inbox-review.py",
+      "x": 370,
+      "y": 545,
+      "width": 260,
+      "height": 78,
+      "fill": "#eef2ff",
+      "stroke": "#6366f1"
+    },
+    {
+      "id": "decision",
+      "kind": "hexagon",
+      "label": "Graduate?",
+      "sublabel": "Aristotelian decision",
+      "x": 360,
+      "y": 700,
+      "width": 280,
+      "height": 96,
+      "fill": "#fefce8",
+      "stroke": "#eab308"
+    },
+    {
+      "id": "ask",
+      "kind": "rect",
+      "label": "Ask User",
+      "sublabel": "approve, reject, or retarget",
+      "x": 700,
+      "y": 712,
+      "width": 230,
+      "height": 74,
+      "fill": "#fff7ed",
+      "stroke": "#f97316"
+    },
+    {
+      "id": "curated",
+      "kind": "rect",
+      "label": "4. Curated Memory",
+      "sublabel": "wiki, decisions, L2/L3",
+      "x": 370,
+      "y": 870,
+      "width": 260,
+      "height": 78,
+      "fill": "#f0fdf4",
+      "stroke": "#22c55e"
+    },
+    {
+      "id": "recall",
+      "kind": "rect",
+      "label": "5. ralph-recall",
+      "sublabel": "default source for future tasks",
+      "x": 370,
+      "y": 1010,
+      "width": 260,
+      "height": 78,
+      "fill": "#eff6ff",
+      "stroke": "#2563eb"
+    }
+  ],
+  "arrows": [
+    {
+      "source": "capture",
+      "target": "red",
+      "label": "classify",
+      "flow": "control"
+    },
+    {
+      "source": "red",
+      "target": "skip",
+      "label": "yes",
+      "flow": "feedback"
+    },
+    {
+      "source": "red",
+      "target": "quarantine",
+      "label": "no",
+      "flow": "write"
+    },
+    {
+      "source": "quarantine",
+      "target": "inbox_note",
+      "label": "inbox/raw",
+      "flow": "read",
+      "dashed": true
+    },
+    {
+      "source": "quarantine",
+      "target": "refine",
+      "flow": "data"
+    },
+    {
+      "source": "refine",
+      "target": "decision",
+      "flow": "control"
+    },
+    {
+      "source": "decision",
+      "target": "ask",
+      "label": "uncertain",
+      "flow": "feedback"
+    },
+    {
+      "source": "decision",
+      "target": "curated",
+      "label": "yes",
+      "flow": "write"
+    },
+    {
+      "source": "ask",
+      "target": "curated",
+      "label": "approved",
+      "flow": "write",
+      "dashed": true
+    },
+    {
+      "source": "curated",
+      "target": "recall",
+      "label": "default read",
+      "flow": "read"
+    }
+  ],
+  "footer": "Aristotelian rule: reject weak assumptions, keep RED out, graduate only clear evidence, ask the user when uncertain."
+}

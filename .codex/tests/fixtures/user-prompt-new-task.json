@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "fixture-new-task",
+  "turn_id": "turn-1",
+  "prompt": "Implement the rolling checkpoint continuation hook."
+}
