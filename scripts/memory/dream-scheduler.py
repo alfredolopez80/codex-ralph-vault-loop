@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, time, timezone
 from pathlib import Path
 
-from _memory_common import ensure_runtime, now_iso, read_text
+from _memory_common import ensure_runtime, now_iso, project_runtime_root, read_text
 
 
 STATE_FILE = Path("reports/memory/dream-scheduler.json")
@@ -105,9 +105,13 @@ def should_run(state: dict[str, object], target: time, now: datetime, force: boo
     return False, "fresh"
 
 
-def run_dream(max_seconds: int, vault_project: str, include_vault: bool) -> tuple[int, str]:
+def run_dream(max_seconds: int, vault_project: str, include_vault: bool, project_id: str = "", workspace_root: str = "") -> tuple[int, str]:
     script = Path(__file__).resolve().with_name("dream.py")
     command = [sys.executable, str(script), "--auto-update-state", "--assist-promote"]
+    if project_id:
+        command.extend(["--project-id", project_id])
+    if workspace_root:
+        command.extend(["--workspace-root", workspace_root])
     if include_vault:
         command.extend(["--vault-inbox", "--vault-project", vault_project])
     try:
@@ -117,6 +121,10 @@ def run_dream(max_seconds: int, vault_project: str, include_vault: bool) -> tupl
     output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
     if result.returncode != 0 and include_vault:
         retry_command = [sys.executable, str(script), "--auto-update-state", "--assist-promote"]
+        if project_id:
+            retry_command.extend(["--project-id", project_id])
+        if workspace_root:
+            retry_command.extend(["--workspace-root", workspace_root])
         try:
             retry = subprocess.run(retry_command, text=True, capture_output=True, check=False, timeout=max_seconds)
         except subprocess.TimeoutExpired:
@@ -161,9 +169,11 @@ def main() -> int:
     parser.add_argument("--target-time", default=DEFAULT_TARGET_TIME, help="Local HH:MM time. Default: 11:30.")
     parser.add_argument("--max-seconds", type=int, default=15)
     parser.add_argument("--vault-project", default=Path.cwd().name)
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     args = parser.parse_args()
 
-    root = ensure_runtime()
+    root = ensure_runtime(project_runtime_root(args.project_id) if args.project_id else None)
     state = read_state(root)
     learning = read_learning_events(root)
     now = datetime.now().astimezone()
@@ -189,7 +199,7 @@ def main() -> int:
     include_vault = (
         VAULT_INBOX_AFTER_HOURS if success_age_hours is None else success_age_hours
     ) >= VAULT_INBOX_AFTER_HOURS
-    code, output = run_dream(args.max_seconds, args.vault_project, include_vault)
+    code, output = run_dream(args.max_seconds, args.vault_project, include_vault, args.project_id, args.workspace_root)
     if code == 0:
         review_output = run_vault_review(min(args.max_seconds, 8), args.vault_project)
         output = "\n".join(part for part in (output, review_output) if part)[-2_000:]

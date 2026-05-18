@@ -11,11 +11,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run_memory(name: str, ralph_home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_memory(name: str, ralph_home: Path, *args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["RALPH_HOME"] = str(ralph_home)
     env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "memory" / name), *args],
         cwd=ROOT,
@@ -32,6 +34,22 @@ def latest_json(root: Path) -> dict:
 
 def all_checkpoint_text(root: Path) -> str:
     return "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in root.rglob("*") if path.is_file())
+
+
+def init_committed_git_repo(path: Path) -> tuple[str, str]:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init"], cwd=path, check=True, stdout=subprocess.DEVNULL)
+    (path / "README.md").write_text("# fixture\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "initial"],
+        cwd=path,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=path, check=True, text=True, capture_output=True).stdout.strip()
+    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=path, check=True, text=True, capture_output=True).stdout.strip()
+    return branch, sha
 
 
 def test_checkpoint_update_writes_json_markdown_archive_and_event(tmp_path: Path) -> None:
@@ -68,6 +86,82 @@ def test_checkpoint_update_writes_json_markdown_archive_and_event(tmp_path: Path
     assert list((tmp_path / "checkpoints" / "archive").glob("*.json"))
     events = (tmp_path / "checkpoints" / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(events[-1])["event"] == "updated"
+
+
+def test_project_scoped_checkpoint_cli_uses_workspace_git_metadata(tmp_path: Path) -> None:
+    target = tmp_path / "target-repo"
+    branch, sha = init_committed_git_repo(target)
+
+    result = run_memory(
+        "checkpoint.py",
+        tmp_path,
+        "--update",
+        "--project",
+        "target-repo",
+        "--project-id",
+        "p-cli-target",
+        "--workspace-root",
+        str(target),
+        "--session-id",
+        "cli-session",
+        "--objective",
+        "CLI target metadata.",
+        "--next-action",
+        "Verify target metadata.",
+    )
+
+    assert result.returncode == 0, result.stderr
+    checkpoint_path = tmp_path / "projects" / "p-cli-target" / "checkpoints" / "latest.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert checkpoint["project_id"] == "p-cli-target"
+    assert checkpoint["project"] == "target-repo"
+    assert checkpoint["workspace_root"] == str(target.resolve())
+    assert checkpoint["git_root"] == str(target.resolve())
+    assert checkpoint["git_branch"] == branch
+    assert checkpoint["git_sha"] == sha
+    assert checkpoint["session_id"] == "cli-session"
+    assert checkpoint["workspace_instance_id"]
+
+
+def test_project_scoped_wakeup_skips_checkpoint_missing_workspace_identity(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    result = run_memory(
+        "checkpoint.py",
+        tmp_path,
+        "--update",
+        "--project",
+        "workspace",
+        "--project-id",
+        "p-active",
+        "--workspace-root",
+        str(workspace),
+        "--session-id",
+        "session-a",
+        "--objective",
+        "Missing workspace identity should not inject.",
+        "--next-action",
+        "Skip unsafe checkpoint.",
+    )
+    assert result.returncode == 0, result.stderr
+    checkpoint_path = tmp_path / "projects" / "p-active" / "checkpoints" / "latest.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint.pop("workspace_instance_id")
+    checkpoint_path.write_text(json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    wakeup = run_memory(
+        "wakeup.py",
+        tmp_path,
+        "--project-id",
+        "p-active",
+        "--workspace-root",
+        str(workspace),
+        extra_env={"CODEX_SESSION_ID": "session-a"},
+    )
+
+    assert wakeup.returncode == 0, wakeup.stderr
+    assert "## Latest Rolling Checkpoint" not in wakeup.stdout
+    assert "Missing workspace identity should not inject." not in wakeup.stdout
 
 
 def test_checkpoint_skips_red_without_leaking_secret_text(tmp_path: Path) -> None:

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from shared.active_context import active_context_from_payload, project_runtime_root
 from shared.checkpoint_io import update_checkpoint
-from shared.paths import append_jsonl, ensure_runtime, now_iso, read_hook_input
+from shared.paths import append_jsonl, now_iso, read_hook_input
 from shared.redaction import is_red, safe_preview
 
 
@@ -15,11 +16,12 @@ GIT_MARKERS = ("git ", "git-")
 
 def main() -> int:
     payload = read_hook_input()
+    context = active_context_from_payload(payload)
     update = checkpoint_update_from_payload(payload)
     if not update:
         return 0
-    result = update_checkpoint(update)
-    root = ensure_runtime()
+    result = update_checkpoint(update, context=context)
+    root = project_runtime_root(context)
     append_jsonl(
         root / "checkpoints" / "post-tool-events.jsonl",
         {
@@ -27,6 +29,9 @@ def main() -> int:
             "event": "post_tool_checkpoint",
             "status": result.get("status", "unknown"),
             "source": update.get("source", "PostToolUse"),
+            "project_id": context.project_id,
+            "project": context.project_slug,
+            "session_id": context.session_id,
         },
     )
     return 0

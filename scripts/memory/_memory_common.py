@@ -45,8 +45,14 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
-def ensure_runtime() -> Path:
-    root = ralph_home()
+def project_runtime_root(project_id: str | None = None) -> Path:
+    if project_id:
+        return ralph_home() / "projects" / project_id
+    return ralph_home()
+
+
+def ensure_runtime(root: Path | None = None) -> Path:
+    root = root or ralph_home()
     for relative in ("layers", "ledgers", "handoffs", "reports", "cost"):
         (root / relative).mkdir(parents=True, exist_ok=True)
 

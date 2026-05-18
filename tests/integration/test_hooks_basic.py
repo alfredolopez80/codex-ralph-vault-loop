@@ -29,6 +29,26 @@ def run_hook(name: str, ralph_home: Path, payload: dict, extra_env: dict[str, st
     )
 
 
+def project_roots(ralph_home: Path) -> list[Path]:
+    return sorted(path for path in (ralph_home / "projects").glob("*") if path.is_dir())
+
+
+def project_root(ralph_home: Path) -> Path:
+    roots = project_roots(ralph_home)
+    assert len(roots) == 1
+    return roots[0]
+
+
+def project_learning_paths(ralph_home: Path) -> list[Path]:
+    return sorted(ralph_home.glob("projects/*/ledgers/learning-*.md"))
+
+
+def project_handoff(ralph_home: Path) -> Path:
+    matches = sorted(ralph_home.glob("projects/*/handoffs/latest.md"))
+    assert len(matches) == 1
+    return matches[0]
+
+
 def test_hooks_accept_empty_json(tmp_path: Path) -> None:
     for hook in [
         "session_start_wakeup.py",
@@ -143,8 +163,8 @@ def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
         {"output": "Validated checkpoint PASS after fixing root cause."},
     )
     assert memory.returncode == 0, memory.stderr
-    assert list((tmp_path / "ledgers").glob("learning-*.md"))
-    assert (tmp_path / "ledgers" / "learning-events.jsonl").is_file()
+    assert project_learning_paths(tmp_path)
+    assert (project_root(tmp_path) / "ledgers" / "learning-events.jsonl").is_file()
 
     cost = run_hook("post_tool_cost_ledger.py", tmp_path, {"tool_name": "exec_command", "success": True})
     assert cost.returncode == 0, cost.stderr
@@ -163,7 +183,7 @@ def test_post_tool_memory_extracts_spanish_learning(tmp_path: Path) -> None:
     )
 
     assert memory.returncode == 0, memory.stderr
-    persisted = "\n".join(path.read_text() for path in (tmp_path / "ledgers").glob("learning-*.md"))
+    persisted = "\n".join(path.read_text() for path in project_learning_paths(tmp_path))
     assert "causa raíz" in persisted
 
 
@@ -171,8 +191,8 @@ def test_post_tool_memory_ignores_non_learning_output(tmp_path: Path) -> None:
     memory = run_hook("post_tool_extract_memory.py", tmp_path, {"output": "Listed files in the current directory."})
 
     assert memory.returncode == 0, memory.stderr
-    assert not list((tmp_path / "ledgers").glob("learning-*.md"))
-    assert not (tmp_path / "ledgers" / "learning-events.jsonl").exists()
+    assert not project_learning_paths(tmp_path)
+    assert not list(tmp_path.glob("projects/*/ledgers/learning-events.jsonl"))
 
 
 def test_post_tool_memory_deduplicates_learning_events(tmp_path: Path) -> None:
@@ -183,8 +203,8 @@ def test_post_tool_memory_deduplicates_learning_events(tmp_path: Path) -> None:
 
     assert first.returncode == 0, first.stderr
     assert second.returncode == 0, second.stderr
-    assert len(list((tmp_path / "ledgers").glob("learning-*.md"))) == 1
-    events = (tmp_path / "ledgers" / "learning-events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(project_learning_paths(tmp_path)) == 1
+    events = (project_root(tmp_path) / "ledgers" / "learning-events.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(events) == 1
 
 
@@ -373,6 +393,22 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
         check=False,
     )
 
+    assert result.returncode != 0
+    assert "GLOBAL_HOOKS_REFUSED_WORKTREE_SOURCE" in result.stderr
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "setup" / "install-global-hooks.py"),
+            "--dry-run",
+            "--allow-worktree-source",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
     assert result.returncode == 0, result.stderr
     json_start = result.stdout.find("{")
     assert json_start >= 0, result.stdout
@@ -390,7 +426,7 @@ def test_post_tool_memory_skips_red_output(tmp_path: Path) -> None:
     memory = run_hook("post_tool_extract_memory.py", tmp_path, {"output": red_text})
 
     assert memory.returncode == 0, memory.stderr
-    assert not list((tmp_path / "ledgers").glob("learning-*.md"))
+    assert not project_learning_paths(tmp_path)
 
 
 def test_stop_hook_creates_handoff_without_red(tmp_path: Path) -> None:
@@ -400,7 +436,7 @@ def test_stop_hook_creates_handoff_without_red(tmp_path: Path) -> None:
         {"last_assistant_message": "Implemented deterministic hook persistence."},
     )
     assert result.returncode == 0, result.stderr
-    latest = tmp_path / "handoffs" / "latest.md"
+    latest = project_handoff(tmp_path)
     assert latest.is_file()
     assert "deterministic hook persistence" in latest.read_text()
 
@@ -417,17 +453,18 @@ def test_stop_hook_persists_learning_when_message_has_conclusion(tmp_path: Path)
     )
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "handoffs" / "latest.md").is_file()
-    assert list((tmp_path / "ledgers").glob("learning-*.md"))
-    assert (tmp_path / "ledgers" / "learning-events.jsonl").is_file()
+    assert project_handoff(tmp_path).is_file()
+    assert project_learning_paths(tmp_path)
+    assert (project_root(tmp_path) / "ledgers" / "learning-events.jsonl").is_file()
 
 
 def test_stop_memory_promotion_review_warns_for_review_candidates(tmp_path: Path) -> None:
-    (tmp_path / "ledgers").mkdir(parents=True)
-    (tmp_path / "ledgers" / "learning-review.md").write_text(
-        "Decision: always run security review before canonical memory promotion.",
-        encoding="utf-8",
+    seed = run_hook(
+        "post_tool_extract_memory.py",
+        tmp_path,
+        {"output": "Decision: always run security review before canonical memory promotion."},
     )
+    assert seed.returncode == 0, seed.stderr
 
     result = run_hook(
         "stop_memory_promotion_review.py",

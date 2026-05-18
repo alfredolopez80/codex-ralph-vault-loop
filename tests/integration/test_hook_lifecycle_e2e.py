@@ -60,6 +60,27 @@ def generated_text(root: Path) -> str:
     return "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in root.rglob("*") if path.is_file())
 
 
+def project_root(ralph_home: Path) -> Path:
+    roots = sorted(path for path in (ralph_home / "projects").glob("*") if path.is_dir())
+    assert len(roots) == 1
+    return roots[0]
+
+
+def latest_checkpoint(ralph_home: Path) -> dict:
+    return read_json(project_root(ralph_home) / "checkpoints" / "latest.json")
+
+
+def project_args(checkpoint: dict) -> list[str]:
+    return [
+        "--project",
+        str(checkpoint["project"]),
+        "--project-id",
+        str(checkpoint["project_id"]),
+        "--workspace-root",
+        str(checkpoint["workspace_root"]),
+    ]
+
+
 def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     ralph_home = tmp_path / "ralph"
     vault_dir = tmp_path / "vault"
@@ -74,12 +95,12 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     assert capture.returncode == 0, capture.stderr
     assert prompt.returncode == 0, prompt.stderr
     assert prompt.stdout == ""
-    checkpoint = read_json(ralph_home / "checkpoints" / "latest.json")
+    checkpoint = latest_checkpoint(ralph_home)
     assert checkpoint["objective"] == "Implement the lifecycle checkpoint validation path."
 
     learning = run_hook("post_tool_extract_memory.py", ralph_home, vault_dir, {"output": LEARNING_TEXT})
     assert learning.returncode == 0, learning.stderr
-    assert list((ralph_home / "ledgers").glob("learning-*.md"))
+    assert list((project_root(ralph_home) / "ledgers").glob("learning-*.md"))
 
     pass_payload = {
         "tool_name": "exec_command",
@@ -89,7 +110,7 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     }
     passed = run_hook("post_tool_checkpoint.py", ralph_home, vault_dir, pass_payload)
     assert passed.returncode == 0, passed.stderr
-    checkpoint = read_json(ralph_home / "checkpoints" / "latest.json")
+    checkpoint = latest_checkpoint(ralph_home)
     assert checkpoint["validation_status"] == "pass"
     assert "Command passed:" in checkpoint["last_verified_state"]
 
@@ -101,13 +122,14 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     }
     failed = run_hook("post_tool_checkpoint.py", ralph_home, vault_dir, fail_payload)
     assert failed.returncode == 0, failed.stderr
-    checkpoint = read_json(ralph_home / "checkpoints" / "latest.json")
+    checkpoint = latest_checkpoint(ralph_home)
     assert checkpoint["validation_status"] == "fail"
     assert checkpoint["blockers"][-1] == "Command failed: python3 -m pytest tests/integration/missing_fixture.py"
     assert RAW_SENTINEL not in generated_text(ralph_home)
 
-    first_wakeup = run_memory(ralph_home, vault_dir, "wakeup.py")
-    second_wakeup = run_memory(ralph_home, vault_dir, "wakeup.py")
+    active_project_args = project_args(checkpoint)
+    first_wakeup = run_memory(ralph_home, vault_dir, "wakeup.py", *active_project_args)
+    second_wakeup = run_memory(ralph_home, vault_dir, "wakeup.py", *active_project_args)
     assert first_wakeup.returncode == 0, first_wakeup.stderr
     assert second_wakeup.returncode == 0, second_wakeup.stderr
     assert "## Latest Rolling Checkpoint" in first_wakeup.stdout
@@ -115,16 +137,21 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
 
     stop = run_hook("stop_persist_memory.py", ralph_home, vault_dir, {"last_assistant_message": LEARNING_TEXT})
     assert stop.returncode == 0, stop.stderr
-    handoff = (ralph_home / "handoffs" / "latest.md").read_text(encoding="utf-8")
+    handoff = (project_root(ralph_home) / "handoffs" / "latest.md").read_text(encoding="utf-8")
     assert "## Rolling Checkpoint" in handoff
     assert LEARNING_TEXT in handoff
     assert RAW_SENTINEL not in handoff
+    handoff_wakeup = run_hook("session_start_wakeup.py", ralph_home, vault_dir, {"session_id": SESSION_ID})
+    assert handoff_wakeup.returncode == 0, handoff_wakeup.stderr
+    assert "## Latest Handoff" in handoff_wakeup.stdout
+    assert "Handoff reinjection: full within 15% budget" in handoff_wakeup.stdout
+    assert LEARNING_TEXT in handoff_wakeup.stdout
 
     promotion = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": LEARNING_TEXT})
     assert promotion.returncode == 0, promotion.stderr
-    assert (ralph_home / "reports" / "memory" / "dream-latest.json").is_file()
-    assert (ralph_home / "reports" / "memory" / "promotion-latest.json").is_file()
-    assert LEARNING_TEXT in (ralph_home / "layers" / "L2_project_rules.md").read_text(encoding="utf-8")
+    assert (project_root(ralph_home) / "reports" / "memory" / "dream-latest.json").is_file()
+    assert (project_root(ralph_home) / "reports" / "memory" / "promotion-latest.json").is_file()
+    assert LEARNING_TEXT in (project_root(ralph_home) / "layers" / "L2_project_rules.md").read_text(encoding="utf-8")
 
     curated = vault_dir / "projects" / PROJECT / "wiki" / "lifecycle.md"
     curated.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +167,8 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
         CURATED_MARKER,
         "--project",
         PROJECT,
+        "--project-id",
+        str(checkpoint["project_id"]),
         "--limit",
         "20",
         "--json",
@@ -151,6 +180,8 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
         INBOX_MARKER,
         "--project",
         PROJECT,
+        "--project-id",
+        str(checkpoint["project_id"]),
         "--limit",
         "20",
         "--json",
@@ -162,6 +193,8 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
         INBOX_MARKER,
         "--project",
         PROJECT,
+        "--project-id",
+        str(checkpoint["project_id"]),
         "--include-raw",
         "--limit",
         "20",
@@ -179,3 +212,15 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     assert RAW_SENTINEL not in generated_text(ralph_home)
     assert RAW_SENTINEL not in recall_curated.stdout
     assert RAW_SENTINEL not in recall_inbox_default.stdout
+
+    large_message = " ".join(f"w{i:03d}" for i in range(360))
+    large_stop = run_hook("stop_persist_memory.py", ralph_home, vault_dir, {"last_assistant_message": large_message})
+    assert large_stop.returncode == 0, large_stop.stderr
+    large_handoff = (project_root(ralph_home) / "handoffs" / "latest.md").read_text(encoding="utf-8")
+    assert "w000" in large_handoff
+    assert "w359" in large_handoff
+    large_wakeup = run_hook("session_start_wakeup.py", ralph_home, vault_dir, {"session_id": SESSION_ID})
+    assert large_wakeup.returncode == 0, large_wakeup.stderr
+    assert "Handoff reinjection: compacted over 15% budget" in large_wakeup.stdout
+    assert "w000" in large_wakeup.stdout
+    assert "w359" not in large_wakeup.stdout

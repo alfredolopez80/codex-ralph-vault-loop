@@ -22,6 +22,9 @@ Rendered diagrams and editable JSON sources live under [`docs/architecture/diagr
 
 - [`codex-ralph-architecture.png`](./diagrams/codex-ralph-architecture.png): full Codex App/CLI overlay, project/global surfaces, MCP advisors, gates, evals, runtime memory, and MiVault.
 - [`routing-security-flow.png`](./diagrams/routing-security-flow.png): sensitivity classification, RED blocking, cost-router decisions, local/subagent/MCP routes, gates, and vault handoff.
+- [`ralph-memory-worktree-architecture.png`](./diagrams/ralph-memory-worktree-architecture.png): stable Ralph code root, active workspace identity, project-scoped runtime, MiVault trust zones, and recall.
+- [`ralph-memory-graduation-recall-flow.png`](./diagrams/ralph-memory-graduation-recall-flow.png): MiVault inbox quarantine, source-project checks, Aristotelian graduation, and recall-default behavior.
+- [`ralph-memory-architecture-explainer.html`](./ralph-memory-architecture-explainer.html): browser-readable visual explainer for the Ralph memory architecture.
 - [`memory-eval-lifecycle.png`](./diagrams/memory-eval-lifecycle.png): hook lifecycle, `~/.ralph-codex` runtime layers, reports, AutoResearch, and durable vault persistence.
 
 Related phases: [PHASE_03](../migration/checkpoints/PHASE_03.md), [PHASE_08](../migration/checkpoints/PHASE_08.md), [PHASE_15](../migration/checkpoints/PHASE_15.md).

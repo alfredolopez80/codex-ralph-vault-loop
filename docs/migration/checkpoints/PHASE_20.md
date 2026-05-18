@@ -4,34 +4,34 @@
 
 ## Acceptance Summary
 
-| Subsystem | Result | Evidence |
-|---|---:|---|
-| Codex App repo readiness | PASS | Current Codex App session loaded this repo and project `AGENTS.md`; `scripts/setup/doctor.sh` passed. |
-| `AGENTS.md` load surface | PASS | `AGENTS.md` exists and is validated by repo doctor. |
-| Skills detectable | PASS | 16 skills under `.agents/skills/*/SKILL.md` have `name` and `description` frontmatter. |
-| Codex config TOML | PASS | `.codex/config.toml` parses with Python `tomllib`. |
-| Subagents TOML | PASS | 12 `.codex/agents/*.toml` files parse and include `name`, `description`, and `developer_instructions`. |
-| Hooks dry-run | PASS | Every `.codex/hooks/*.py` executed with `{}` and temporary `RALPH_HOME`. |
-| Vault temporary integration | PASS | `vault-init`, GREEN/YELLOW save, RED skip, and search passed with temporary `VAULT_DIR`. |
-| Vault real read-only check | PASS | `~/Documents/Obsidian/MiVault` exists and `vault-search.py` ran read-only with a no-match probe. |
-| Memory integration | PASS | `wakeup.py`, `handoff.py`, and RED classification passed with temporary `RALPH_HOME`. |
-| Gates | PASS | `scripts/gates/run-gates.py --minimal` produced reports and 0 failures. |
-| Unit tests | PASS | 17 passed. |
-| Integration tests | PASS | 18 passed. |
-| Eval tests | PASS | 17 passed. |
-| Full test suite | PASS | 52 passed. |
-| Scorecards | PASS | `cost_router_v1` scored 1.0 with all hard gates passing. |
-| Research eval | PASS | Mock eval scored 1.0. |
-| Vision eval | PASS | Mock eval scored 1.0 and `generation_allowed=false`. |
-| Coding model eval | PASS | Mock eval scored 0.95 with `sensitive_externalization_incidents=0`. |
-| AutoResearch | PASS | Toy dry-run decision `keep`, holdout delta `0.2143`, hard gates passed, no harness/fixture mutation. |
-| E2E orchestrator dry-run | PASS | Temporary Obsidian spec generated an implementation plan and cost-route decision without repo code edits. |
-| RED policy | PASS | RED content blocks external routing, redaction reports `allowed_external=false`, and vault save skips persistence. |
-| Visual generation policy | PASS | `GPT Imágenes 2` remains the only approved visual generation route; Z.ai/MiniMax generation is prohibited. |
-| Codex final ownership | PASS | `Codex main decides` / `Codex main owns` is present in root and routing docs. |
-| No direct Z.ai/MiniMax provider | PASS | Grep found only historical checkpoint text documenting absence of direct providers. |
-| MCP availability | PASS | `mcp__ralph_coding_models__.validate_coding_models` returned `all_ok=true`; Z.ai and MiniMax tool namespaces are exposed in the current Codex tool registry. |
-| Coding models | PASS | `glm-5.1`, `glm-5-turbo`, and `MiniMax-M2.7-highspeed` validated successfully through `ralph_coding_models`. |
+| Subsystem                       | Result | Evidence                                                                                                                                                     |
+| ------------------------------- | -----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Codex App repo readiness        |   PASS | Current Codex App session loaded this repo and project `AGENTS.md`; `scripts/setup/doctor.sh` passed.                                                        |
+| `AGENTS.md` load surface        |   PASS | `AGENTS.md` exists and is validated by repo doctor.                                                                                                          |
+| Skills detectable               |   PASS | 16 skills under `.agents/skills/*/SKILL.md` have `name` and `description` frontmatter.                                                                       |
+| Codex config TOML               |   PASS | `.codex/config.toml` parses with Python `tomllib`.                                                                                                           |
+| Subagents TOML                  |   PASS | 12 `.codex/agents/*.toml` files parse and include `name`, `description`, and `developer_instructions`.                                                       |
+| Hooks dry-run                   |   PASS | Every `.codex/hooks/*.py` executed with `{}` and temporary `RALPH_HOME`.                                                                                     |
+| Vault temporary integration     |   PASS | `vault-init`, GREEN/YELLOW save, RED skip, and search passed with temporary `VAULT_DIR`.                                                                     |
+| Vault real read-only check      |   PASS | `~/Documents/Obsidian/MiVault` exists and `vault-search.py` ran read-only with a no-match probe.                                                             |
+| Memory integration              |   PASS | `wakeup.py`, `handoff.py`, and RED classification passed with temporary `RALPH_HOME`.                                                                        |
+| Gates                           |   PASS | `scripts/gates/run-gates.py --minimal` produced reports and 0 failures.                                                                                      |
+| Unit tests                      |   PASS | 17 passed.                                                                                                                                                   |
+| Integration tests               |   PASS | 18 passed.                                                                                                                                                   |
+| Eval tests                      |   PASS | 17 passed.                                                                                                                                                   |
+| Full test suite                 |   PASS | 52 passed.                                                                                                                                                   |
+| Scorecards                      |   PASS | `cost_router_v1` scored 1.0 with all hard gates passing.                                                                                                     |
+| Research eval                   |   PASS | Mock eval scored 1.0.                                                                                                                                        |
+| Vision eval                     |   PASS | Mock eval scored 1.0 and `generation_allowed=false`.                                                                                                         |
+| Coding model eval               |   PASS | Mock eval scored 0.95 with `sensitive_externalization_incidents=0`.                                                                                          |
+| AutoResearch                    |   PASS | Toy dry-run decision `keep`, holdout delta `0.2143`, hard gates passed, no harness/fixture mutation.                                                         |
+| E2E orchestrator dry-run        |   PASS | Temporary Obsidian spec generated an implementation plan and cost-route decision without repo code edits.                                                    |
+| RED policy                      |   PASS | RED content blocks external routing, redaction reports `allowed_external=false`, and vault save skips persistence.                                           |
+| Visual generation policy        |   PASS | `GPT Imágenes 2` remains the only approved visual generation route; Z.ai/MiniMax generation is prohibited.                                                   |
+| Codex final ownership           |   PASS | `Codex main decides` / `Codex main owns` is present in root and routing docs.                                                                                |
+| No direct Z.ai/MiniMax provider |   PASS | Grep found only historical checkpoint text documenting absence of direct providers.                                                                          |
+| MCP availability                |   PASS | `mcp__ralph_coding_models__.validate_coding_models` returned `all_ok=true`; Z.ai and MiniMax tool namespaces are exposed in the current Codex tool registry. |
+| Coding models                   |   PASS | `glm-5.1`, `glm-5-turbo`, and `MiniMax-M2.7-highspeed` validated successfully through `ralph_coding_models`.                                                 |
 
 ## Commands Executed
 
@@ -67,13 +67,14 @@ tmp_vault="$(mktemp -d)"
 VAULT_DIR="$tmp_vault" python3 scripts/vault/vault-init.py
 VAULT_DIR="$tmp_vault" python3 scripts/vault/vault-save.py --classification GREEN --text 'Phase 20 acceptance validates vault temporary storage.'
 VAULT_DIR="$tmp_vault" python3 scripts/vault/vault-save.py --classification YELLOW --text 'Phase 20 project-scoped vault acceptance note.'
-VAULT_DIR="$tmp_vault" python3 scripts/vault/vault-save.py --classification GREEN --text 'api_key=fixture-value'
+VAULT_DIR="$tmp_vault" python3 scripts/vault/vault-save.py --classification GREEN --text 'redaction fixture value'
 VAULT_DIR="$tmp_vault" python3 scripts/vault/vault-search.py 'Phase 20 acceptance validates vault'
 VAULT_DIR="$HOME/Documents/Obsidian/MiVault" python3 scripts/vault/vault-search.py '__codex_phase20_readonly_probe_no_match__' || true
 tmp_home="$(mktemp -d)"
-RALPH_HOME="$tmp_home" python3 scripts/memory/wakeup.py
+RALPH_ROOT="$(cat ~/.codex/hooks/.ralph-repo-root)"
+RALPH_HOME="$tmp_home" python3 "$RALPH_ROOT/scripts/memory/wakeup.py"
 RALPH_HOME="$tmp_home" python3 scripts/memory/handoff.py --summary 'Phase 20 memory handoff acceptance.' --status ok
-RALPH_HOME="$tmp_home" python3 scripts/memory/classify-learning.py --text 'api_key=fixture-value'
+RALPH_HOME="$tmp_home" python3 scripts/memory/classify-learning.py --text 'redaction fixture value'
 python3 scripts/gates/run-gates.py --minimal
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/unit -q
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/integration -q
@@ -85,8 +86,8 @@ python3 scripts/evals/vision_eval.py --mode mock --output .ralph-codex/reports/e
 python3 scripts/evals/coding_model_eval.py --mode mock --output .ralph-codex/reports/evals/phase20_coding_model_eval.json
 python3 scripts/evals/autoresearch_dry_run.py --output .ralph-codex/reports/evals/phase20_autoresearch.json --jsonl .ralph-codex/reports/evals/phase20_autoresearch_runs.jsonl
 mcp__ralph_coding_models__.validate_coding_models
-python3 scripts/cost/route-task.py --task-type code_review --complexity 4 --sensitivity green --text 'api_key=fixture-value'
-python3 scripts/cost/redact-for-external.py --json --text 'api_key=fixture-value'
+python3 scripts/cost/route-task.py --task-type code_review --complexity 4 --sensitivity green --text 'redaction fixture value'
+python3 scripts/cost/redact-for-external.py --json --text 'redaction fixture value'
 grep -R "GPT Imágenes 2" AGENTS.md docs/architecture .agents/skills/model-router/SKILL.md
 grep -R "Codex main decides\|Codex main owns" AGENTS.md .agents/skills/orchestrator/SKILL.md .agents/skills/model-router/SKILL.md
 grep -R "model_provider.*zai\|model_provider.*minimax\|\[model_providers\.zai\]\|\[model_providers\.minimax\]" .codex .agents scripts docs --exclude-dir=__pycache__ || true

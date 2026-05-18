@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .active_context import ActiveContext, ensure_project_runtime, project_metadata
 from .paths import append_jsonl, now_iso, ralph_home
 from .redaction import redact_text, sensitivity_report
 
@@ -28,12 +29,14 @@ class CheckpointError(ValueError):
     pass
 
 
-def checkpoint_root(root: Path | None = None) -> Path:
+def checkpoint_root(root: Path | None = None, context: ActiveContext | None = None) -> Path:
+    if context is not None:
+        return ensure_project_runtime(context, root) / CHECKPOINT_DIR
     return (root or ralph_home()) / CHECKPOINT_DIR
 
 
-def checkpoint_paths(root: Path | None = None) -> dict[str, Path]:
-    base = checkpoint_root(root)
+def checkpoint_paths(root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Path]:
+    base = checkpoint_root(root, context)
     return {
         "base": base,
         "latest_json": base / "latest.json",
@@ -44,15 +47,15 @@ def checkpoint_paths(root: Path | None = None) -> dict[str, Path]:
     }
 
 
-def ensure_checkpoint_runtime(root: Path | None = None) -> dict[str, Path]:
-    paths = checkpoint_paths(root)
+def ensure_checkpoint_runtime(root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Path]:
+    paths = checkpoint_paths(root, context)
     paths["base"].mkdir(parents=True, exist_ok=True)
     paths["archive"].mkdir(parents=True, exist_ok=True)
     return paths
 
 
-def load_latest(root: Path | None = None) -> dict[str, Any] | None:
-    path = checkpoint_paths(root)["latest_json"]
+def load_latest(root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any] | None:
+    path = checkpoint_paths(root, context)["latest_json"]
     if not path.exists():
         return None
     try:
@@ -64,8 +67,8 @@ def load_latest(root: Path | None = None) -> dict[str, Any] | None:
     return payload
 
 
-def clear_checkpoint(root: Path | None = None) -> None:
-    paths = ensure_checkpoint_runtime(root)
+def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = None) -> None:
+    paths = ensure_checkpoint_runtime(root, context)
     for key in ("latest_json", "latest_md"):
         try:
             paths[key].unlink()
@@ -74,10 +77,10 @@ def clear_checkpoint(root: Path | None = None) -> None:
     append_jsonl(paths["events"], {"created_at": now_iso(), "event": "cleared"})
 
 
-def update_checkpoint(update: dict[str, Any], root: Path | None = None) -> dict[str, Any]:
-    paths = ensure_checkpoint_runtime(root)
-    current = load_latest(root) or default_checkpoint()
-    merged = merge_checkpoint(current, update)
+def update_checkpoint(update: dict[str, Any], root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any]:
+    paths = ensure_checkpoint_runtime(root, context)
+    current = load_latest(root, context) or default_checkpoint(context)
+    merged = merge_checkpoint(current, update, context)
     safety = classify_payload(merged)
     if safety["classification"] == "RED":
         append_jsonl(
@@ -113,22 +116,33 @@ def write_checkpoint(paths: dict[str, Path], checkpoint: dict[str, Any], rendere
             "classification": checkpoint["classification"],
             "source": checkpoint.get("source", "manual"),
             "status": checkpoint.get("status", "active"),
+            "project_id": checkpoint.get("project_id", ""),
+            "project": checkpoint.get("project", ""),
+            "session_id": checkpoint.get("session_id", ""),
         },
     )
 
 
-def default_checkpoint() -> dict[str, Any]:
+def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:
     cwd = Path.cwd()
+    metadata = project_metadata(context) if context is not None else {}
     return {
         "version": CHECKPOINT_VERSION,
         "updated_at": now_iso(),
         "status": "active",
         "classification": "YELLOW",
-        "session_id": os.environ.get("CODEX_SESSION_ID", ""),
-        "cwd": str(cwd),
-        "project": os.environ.get("VAULT_PROJECT") or cwd.name,
-        "git_branch": git_value("rev-parse", "--abbrev-ref", "HEAD"),
-        "git_sha": git_value("rev-parse", "--short", "HEAD"),
+        "session_id": metadata.get("session_id") or os.environ.get("CODEX_SESSION_ID", ""),
+        "cwd": metadata.get("workspace_root") or str(cwd),
+        "workspace_root": metadata.get("workspace_root") or str(cwd),
+        "git_root": metadata.get("git_root", ""),
+        "project": metadata.get("project_slug") or os.environ.get("VAULT_PROJECT") or cwd.name,
+        "project_slug": metadata.get("project_slug") or os.environ.get("VAULT_PROJECT") or cwd.name,
+        "project_id": metadata.get("project_id", ""),
+        "workspace_instance_id": metadata.get("workspace_instance_id", ""),
+        "remote_url_hash": metadata.get("remote_url_hash", ""),
+        "source_root": metadata.get("ralph_code_root", ""),
+        "git_branch": metadata.get("branch") or git_value("rev-parse", "--abbrev-ref", "HEAD"),
+        "git_sha": metadata.get("sha") or git_value("rev-parse", "--short", "HEAD"),
         "objective": "",
         "current_phase": "",
         "last_verified_state": "",
@@ -153,14 +167,36 @@ def git_value(*args: str) -> str:
     return result.stdout.strip()
 
 
-def merge_checkpoint(current: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
-    merged = {**default_checkpoint(), **current}
+def merge_checkpoint(current: dict[str, Any], update: dict[str, Any], context: ActiveContext | None = None) -> dict[str, Any]:
+    merged = {**default_checkpoint(context), **current}
     merged["version"] = CHECKPOINT_VERSION
     merged["updated_at"] = now_iso()
-    merged["git_branch"] = git_value("rev-parse", "--abbrev-ref", "HEAD")
-    merged["git_sha"] = git_value("rev-parse", "--short", "HEAD")
+    if context is not None:
+        merged.update(project_metadata(context))
+        merged["project"] = context.project_slug
+        merged["git_branch"] = context.branch
+        merged["git_sha"] = context.sha
+        merged["source_root"] = str(context.ralph_code_root)
+    else:
+        merged["git_branch"] = git_value("rev-parse", "--abbrev-ref", "HEAD")
+        merged["git_sha"] = git_value("rev-parse", "--short", "HEAD")
 
-    for field in ("status", "validation_status", "source", "classification", "session_id", "cwd", "project"):
+    for field in (
+        "status",
+        "validation_status",
+        "source",
+        "classification",
+        "session_id",
+        "cwd",
+        "workspace_root",
+        "git_root",
+        "project",
+        "project_slug",
+        "project_id",
+        "workspace_instance_id",
+        "remote_url_hash",
+        "source_root",
+    ):
         if update.get(field) is not None:
             merged[field] = str(update[field]).strip()
 
@@ -238,17 +274,30 @@ def render_checkpoint(checkpoint: dict[str, Any], max_words: int = 500) -> str:
     return compact_words(rendered, max_words)
 
 
-def render_latest_for_wakeup(root: Path | None = None, max_words: int = 500) -> str:
+def render_latest_for_wakeup(root: Path | None = None, max_words: int = 500, context: ActiveContext | None = None) -> str:
     try:
-        checkpoint = load_latest(root)
+        checkpoint = load_latest(root, context)
     except CheckpointError:
         return ""
-    if not checkpoint or not checkpoint_is_injectable(checkpoint):
+    if not checkpoint or not checkpoint_is_injectable(checkpoint, context):
         return ""
     return render_checkpoint(checkpoint, max_words=max_words).strip()
 
 
-def checkpoint_is_injectable(checkpoint: dict[str, Any]) -> bool:
+def checkpoint_is_injectable(checkpoint: dict[str, Any], context: ActiveContext | None = None) -> bool:
+    if context is not None:
+        checkpoint_project = str(checkpoint.get("project_id") or "").strip()
+        if checkpoint_project != context.project_id:
+            return False
+        checkpoint_session = str(checkpoint.get("session_id") or "").strip()
+        if checkpoint_session != context.session_id:
+            return False
+        checkpoint_workspace = str(checkpoint.get("workspace_instance_id") or "").strip()
+        if checkpoint_workspace != context.workspace_instance_id:
+            return False
+        checkpoint_branch = str(checkpoint.get("git_branch") or "").strip()
+        if checkpoint_branch and context.branch and checkpoint_branch != context.branch:
+            return False
     if str(checkpoint.get("classification", "")).upper() == "RED":
         return False
     if not str(checkpoint.get("objective", "")).strip() or not str(checkpoint.get("next_action", "")).strip():

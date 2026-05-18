@@ -6,32 +6,58 @@ import os
 import subprocess
 import sys
 
-from shared.paths import REPO_ROOT, ensure_runtime, read_hook_input, write_json
+from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
+from shared.paths import REPO_ROOT, read_hook_input, write_json
 
 
-def run_assisted_promotion() -> None:
+def run_assisted_promotion(context: ActiveContext) -> None:
     script = REPO_ROOT / "scripts" / "memory" / "dream.py"
     if not script.exists():
         return
     timeout = int(os.environ.get("RALPH_PROMOTION_TIMEOUT_SECONDS", "12"))
+    env = {
+        **os.environ.copy(),
+        "VAULT_PROJECT": context.project_slug,
+        "RALPH_PROJECT_ID": context.project_id,
+        "RALPH_WORKSPACE_ROOT": str(context.workspace_root),
+        "RALPH_SESSION_ID": context.session_id,
+    }
     subprocess.run(
-        [sys.executable, str(script), "--auto-update-state", "--assist-promote"],
+        [
+            sys.executable,
+            str(script),
+            "--auto-update-state",
+            "--assist-promote",
+            "--vault-project",
+            context.project_slug,
+            "--project-id",
+            context.project_id,
+            "--workspace-root",
+            str(context.workspace_root),
+        ],
         text=True,
         capture_output=True,
         check=False,
         timeout=timeout,
-        env=os.environ.copy(),
+        env=env,
     )
 
 
-def run_vault_inbox_review() -> None:
+def run_vault_inbox_review(context: ActiveContext) -> None:
     if os.environ.get("RALPH_VAULT_INBOX_REVIEW", "1").lower() in {"0", "false", "no"}:
         return
     script = REPO_ROOT / "scripts" / "vault" / "vault-inbox-review.py"
     if not script.exists():
         return
     timeout = int(os.environ.get("RALPH_VAULT_REVIEW_TIMEOUT_SECONDS", "5"))
-    project = os.environ.get("VAULT_PROJECT") or REPO_ROOT.name
+    project = context.project_slug
+    env = {
+        **os.environ.copy(),
+        "VAULT_PROJECT": context.project_slug,
+        "RALPH_PROJECT_ID": context.project_id,
+        "RALPH_WORKSPACE_ROOT": str(context.workspace_root),
+        "RALPH_SESSION_ID": context.session_id,
+    }
     try:
         subprocess.run(
             [sys.executable, str(script), "--project", project],
@@ -39,14 +65,14 @@ def run_vault_inbox_review() -> None:
             capture_output=True,
             check=False,
             timeout=timeout,
-            env=os.environ.copy(),
+            env=env,
         )
     except Exception:
         return
 
 
-def promotion_summary() -> dict[str, object]:
-    root = ensure_runtime()
+def promotion_summary(context: ActiveContext) -> dict[str, object]:
+    root = project_runtime_root(context)
     path = root / "reports" / "memory" / "promotion-latest.json"
     if not path.exists():
         return {}
@@ -57,8 +83,8 @@ def promotion_summary() -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
-def vault_review_summary() -> dict[str, object]:
-    root = ensure_runtime()
+def vault_review_summary(context: ActiveContext) -> dict[str, object]:
+    root = project_runtime_root(context)
     path = root / "reports" / "vault-inbox-review" / "latest.json"
     if not path.exists():
         return {}
@@ -71,12 +97,13 @@ def vault_review_summary() -> dict[str, object]:
 
 def main() -> int:
     payload = read_hook_input()
+    context = active_context_from_payload(payload)
     if payload.get("stop_hook_active"):
         return 0
-    run_assisted_promotion()
-    run_vault_inbox_review()
-    summary = promotion_summary()
-    vault_review = vault_review_summary()
+    run_assisted_promotion(context)
+    run_vault_inbox_review(context)
+    summary = promotion_summary(context)
+    vault_review = vault_review_summary(context)
     warnings = []
     review = summary.get("review_requested")
     if isinstance(review, list) and review:

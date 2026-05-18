@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from _memory_common import LAYER_FILES, content_hash, now_iso, read_text
@@ -74,8 +75,14 @@ def decide_candidate(candidate: dict[str, object]) -> tuple[str, str]:
     confidence = float(candidate["confidence"])
     classification = str(candidate["classification"])
     source_groups = {str(group) for group in candidate.get("source_groups", [])}
+    active_project_id = os.environ.get("RALPH_PROJECT_ID", "").strip()
+    source_project_id = str(candidate.get("source_project_id") or "")
     if classification == "RED":
         return "skip", "red_classification"
+    if active_project_id and source_project_id and source_project_id != active_project_id:
+        return "skip", "source_project_mismatch"
+    if active_project_id and not source_project_id:
+        return "review", "missing_source_project_id"
     if target not in TARGET_LAYERS:
         return "skip", "report_only"
     if bool(candidate["duplicate_existing"]):

@@ -12,6 +12,7 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+HOOKS_DIR = REPO_ROOT / ".codex" / "hooks"
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
 DEFAULT_VAULT_DIR = Path("~/Documents/Obsidian/MiVault").expanduser()
 SKIP_PATH_PARTS = (
@@ -66,6 +67,25 @@ def safe_project(value: str) -> str:
     return slug or REPO_ROOT.name
 
 
+def safe_project_id(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    return value if re.fullmatch(r"[A-Za-z0-9._-]+", value) else ""
+
+
+def derive_context(workspace_root: str) -> object | None:
+    if not workspace_root:
+        return None
+    if str(HOOKS_DIR) not in sys.path:
+        sys.path.insert(0, str(HOOKS_DIR))
+    try:
+        from shared.active_context import active_context_from_payload  # type: ignore
+    except Exception:
+        return None
+    return active_context_from_payload({"cwd": workspace_root, "session_id": os.environ.get("CODEX_SESSION_ID", "recall")})
+
+
 def path_is_sensitive(path: Path) -> bool:
     lowered_parts = [part.lower() for part in path.parts]
     lowered_text = str(path).lower()
@@ -97,10 +117,11 @@ def iter_skill_files() -> Iterable[Source]:
             yield Source(path, REPO_ROOT)
 
 
-def source_paths(project: str, include_raw: bool) -> Iterable[Source]:
+def source_paths(project: str, include_raw: bool, project_id: str = "") -> Iterable[Source]:
     ralph_home = env_path("RALPH_HOME", DEFAULT_RALPH_HOME)
     vault = env_path("VAULT_DIR", DEFAULT_VAULT_DIR)
     project = safe_project(project)
+    runtime_root = ralph_home / "projects" / project_id if project_id else ralph_home
 
     yield from iter_existing_files(
         [
@@ -109,9 +130,9 @@ def source_paths(project: str, include_raw: bool) -> Iterable[Source]:
         ]
     )
     yield from iter_skill_files()
-    yield from iter_markdown_tree(ralph_home / "layers")
-    yield from iter_markdown_tree(ralph_home / "handoffs")
-    yield from iter_markdown_tree(ralph_home / "ledgers")
+    yield from iter_markdown_tree(runtime_root / "layers")
+    yield from iter_markdown_tree(runtime_root / "handoffs")
+    yield from iter_markdown_tree(runtime_root / "ledgers")
 
     curated_vault_dirs = [
         vault / "global" / "wiki",
@@ -196,11 +217,11 @@ def safe_text_for_output(text: str, classifier) -> tuple[str | None, bool]:
     return getattr(report, "redacted_text", text), getattr(report, "changed", False)
 
 
-def collect_results(query: str, project: str, limit: int, include_raw: bool) -> list[Result]:
+def collect_results(query: str, project: str, limit: int, include_raw: bool, project_id: str = "") -> list[Result]:
     classifier = load_sensitive_classifier()
     results: list[Result] = []
     seen: set[Path] = set()
-    for source in source_paths(project, include_raw):
+    for source in source_paths(project, include_raw, project_id):
         if source.path in seen:
             continue
         seen.add(source.path)
@@ -249,20 +270,35 @@ def render_markdown(query: str, project: str, results: list[Result]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Recall safe local Ralph memory context.")
     parser.add_argument("query")
-    parser.add_argument("--project", default=project_default())
+    parser.add_argument("--project", default="")
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--include-raw", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    project = safe_project(args.project)
-    results = collect_results(args.query, project, args.limit, args.include_raw)
+    workspace_root = str(Path(args.workspace_root).expanduser().resolve()) if args.workspace_root else ""
+    context = derive_context(workspace_root)
+    project_id = safe_project_id(args.project_id)
+    if not project_id and context is not None:
+        project_id = safe_project_id(str(getattr(context, "project_id", "")))
+    if args.project:
+        project_value = args.project
+    elif context is not None:
+        project_value = str(getattr(context, "project_slug", ""))
+    else:
+        project_value = project_default()
+    project = safe_project(project_value)
+    results = collect_results(args.query, project, args.limit, args.include_raw, project_id)
     if args.json:
         print(
             json.dumps(
                 {
                     "query": args.query,
                     "project": project,
+                    "project_id": project_id,
+                    "workspace_root": workspace_root,
                     "note": "recall is context, not authority",
                     "results": [result.__dict__ for result in results],
                 },

@@ -148,10 +148,30 @@ def hook_config() -> dict:
     }
 
 
+def is_codex_worktree(path: Path) -> bool:
+    try:
+        resolved = path.resolve()
+        codex_worktrees = (Path.home() / ".codex" / "worktrees").resolve()
+        resolved.relative_to(codex_worktrees)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_source_repo(allow_worktree_source: bool) -> None:
+    if is_codex_worktree(REPO) and not allow_worktree_source:
+        raise SystemExit(
+            "GLOBAL_HOOKS_REFUSED_WORKTREE_SOURCE "
+            f"repo={REPO} stable_repo=/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install global Codex hooks for Ralph memory.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--allow-worktree-source", action="store_true", help="Development-only override for installing from a Codex worktree.")
     args = parser.parse_args()
+    validate_source_repo(args.allow_worktree_source)
 
     data = hook_config()
     if args.dry_run:

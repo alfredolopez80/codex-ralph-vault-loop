@@ -18,6 +18,7 @@ DEFAULT_CLAUDE_ROOT = Path("~/.claude/projects").expanduser()
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
 DEFAULT_PROJECT = "codex-ralph-vault-loop"
 DEFAULT_MAX_SESSION_CHARS = 12_000
+HOOKS_DIR = REPO_ROOT / ".codex" / "hooks"
 SKIP_PATH_PARTS = (
     ".env",
     "id_rsa",
@@ -49,6 +50,8 @@ class PreparedImport:
     filename: str
     bytes: int
     duplicate: bool
+    project_id: str = ""
+    workspace_root: str = ""
 
 
 @dataclass
@@ -93,9 +96,65 @@ def slugify(value: str) -> str:
     return slug or "claude-import"
 
 
+def safe_project_id(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+        raise ValueError("--project-id may contain only letters, numbers, dot, underscore, and dash")
+    return value
+
+
+def derive_context(workspace_root: str) -> object | None:
+    if not workspace_root:
+        return None
+    if str(HOOKS_DIR) not in sys.path:
+        sys.path.insert(0, str(HOOKS_DIR))
+    try:
+        from shared.active_context import active_context_from_payload  # type: ignore
+    except Exception:
+        return None
+    return active_context_from_payload({"cwd": workspace_root, "session_id": os.environ.get("CODEX_SESSION_ID", "claude-import")})
+
+
+def runtime_root(args: argparse.Namespace) -> Path:
+    base = Path(args.ralph_home).expanduser()
+    if args.project_id:
+        return base / "projects" / args.project_id
+    return base
+
+
+def import_dir(args: argparse.Namespace) -> Path:
+    return runtime_root(args) / "ledgers" / "claude-import"
+
+
+def report_dir(args: argparse.Namespace) -> Path:
+    return runtime_root(args) / "reports"
+
+
+def ensure_project_metadata(args: argparse.Namespace) -> None:
+    if not args.project_id:
+        return
+    root = runtime_root(args)
+    root.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "project_id": args.project_id,
+        "project_slug": args.project,
+        "workspace_root": args.workspace_root,
+        "source": IMPORTER_NAME,
+        "updated_at": now_iso(),
+    }
+    (root / "project.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def path_is_sensitive(path: Path) -> bool:
-    lowered = str(path).lower()
-    return any(part in lowered for part in SKIP_PATH_PARTS)
+    lowered_parts = [part.lower() for part in path.parts]
+    for part in lowered_parts:
+        if part == "private":
+            continue
+        if any(marker in part for marker in SKIP_PATH_PARTS):
+            return True
+    return False
 
 
 def within_since(path: Path, since_days: int | None) -> bool:
@@ -257,6 +316,8 @@ def render_import_note(
     classification: str,
     safe_text: str,
     project: str,
+    project_id: str,
+    workspace_root: str,
     digest: str,
 ) -> str:
     metadata = {
@@ -265,6 +326,9 @@ def render_import_note(
         "source": candidate.source,
         "origin_path": str(candidate.origin_path),
         "project": project,
+        "source_project_id": project_id,
+        "source_project_slug": project,
+        "source_workspace_root": workspace_root,
         "hash": digest,
         "imported_by": IMPORTER_NAME,
     }
@@ -296,8 +360,8 @@ def existing_hashes(index_path: Path) -> set[str]:
 def prepare_imports(args: argparse.Namespace, summary: Summary) -> list[tuple[PreparedImport, str]]:
     classifier = load_sensitive_classifier()
     root = Path(args.claude_root).expanduser()
-    import_dir = Path(args.ralph_home).expanduser() / "ledgers" / "claude-import"
-    index_path = import_dir / "index.jsonl"
+    target_import_dir = import_dir(args)
+    index_path = target_import_dir / "index.jsonl"
     seen_hashes = existing_hashes(index_path)
     prepared: list[tuple[PreparedImport, str]] = []
     in_run_hashes: set[str] = set()
@@ -327,6 +391,8 @@ def prepare_imports(args: argparse.Namespace, summary: Summary) -> list[tuple[Pr
             classification=classification,
             safe_text=safe_text,
             project=args.project,
+            project_id=args.project_id,
+            workspace_root=args.workspace_root,
             digest=digest,
         )
         item = PreparedImport(
@@ -337,6 +403,8 @@ def prepare_imports(args: argparse.Namespace, summary: Summary) -> list[tuple[Pr
             filename=filename,
             bytes=len(rendered.encode("utf-8")),
             duplicate=duplicate,
+            project_id=args.project_id,
+            workspace_root=args.workspace_root,
         )
         summary.prepared += 1
         prepared.append((item, rendered))
@@ -344,17 +412,18 @@ def prepare_imports(args: argparse.Namespace, summary: Summary) -> list[tuple[Pr
 
 
 def apply_imports(args: argparse.Namespace, prepared: list[tuple[PreparedImport, str]], summary: Summary) -> None:
-    import_dir = Path(args.ralph_home).expanduser() / "ledgers" / "claude-import"
-    report_dir = Path(args.ralph_home).expanduser() / "reports"
-    import_dir.mkdir(parents=True, exist_ok=True)
-    report_dir.mkdir(parents=True, exist_ok=True)
-    index_path = import_dir / "index.jsonl"
+    target_import_dir = import_dir(args)
+    target_report_dir = report_dir(args)
+    ensure_project_metadata(args)
+    target_import_dir.mkdir(parents=True, exist_ok=True)
+    target_report_dir.mkdir(parents=True, exist_ok=True)
+    index_path = target_import_dir / "index.jsonl"
 
     with index_path.open("a", encoding="utf-8") as index:
         for item, rendered in prepared:
             if item.duplicate:
                 continue
-            output_path = import_dir / item.filename
+            output_path = target_import_dir / item.filename
             if output_path.exists():
                 summary.skipped_duplicate += 1
                 continue
@@ -362,7 +431,7 @@ def apply_imports(args: argparse.Namespace, prepared: list[tuple[PreparedImport,
             index.write(json.dumps(asdict(item), sort_keys=True) + "\n")
             summary.written += 1
 
-    report_path = report_dir / "claude-import-latest.json"
+    report_path = target_report_dir / "claude-import-latest.json"
     report_path.write_text(json.dumps(asdict(summary), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -373,6 +442,8 @@ def render_markdown(args: argparse.Namespace, summary: Summary, prepared: list[t
         "",
         f"- mode: `{mode}`",
         f"- project: `{args.project}`",
+        f"- project_id: `{args.project_id or 'legacy'}`",
+        f"- runtime_root: `{runtime_root(args)}`",
         f"- scanned_memory_md: `{summary.scanned_memory_md}`",
         f"- scanned_jsonl: `{summary.scanned_jsonl}`",
         f"- prepared: `{summary.prepared}`",
@@ -402,8 +473,10 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument("--dry-run", action="store_true", help="Preview imports without writing. This is the default.")
     mode.add_argument("--apply", action="store_true", help="Write sanitized imports under ~/.ralph-codex.")
     parser.add_argument("--claude-root", default=str(DEFAULT_CLAUDE_ROOT))
-    parser.add_argument("--ralph-home", default=str(DEFAULT_RALPH_HOME))
-    parser.add_argument("--project", default=DEFAULT_PROJECT)
+    parser.add_argument("--ralph-home", default=os.environ.get("RALPH_HOME", str(DEFAULT_RALPH_HOME)))
+    parser.add_argument("--project", default="")
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     parser.add_argument("--since-days", type=int)
     parser.add_argument("--max-session-chars", type=int, default=DEFAULT_MAX_SESSION_CHARS)
     parser.add_argument("--include-tool-results", action="store_true")
@@ -416,7 +489,20 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-session-chars must be >= 1")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be >= 1")
+    args.workspace_root = str(Path(args.workspace_root).expanduser().resolve()) if args.workspace_root else ""
+    context = derive_context(args.workspace_root)
+    if context is not None:
+        if not args.project:
+            args.project = getattr(context, "project_slug", "") or ""
+        if not args.project_id:
+            args.project_id = getattr(context, "project_id", "") or ""
+    if not args.project:
+        args.project = DEFAULT_PROJECT
     args.project = slugify(args.project)
+    try:
+        args.project_id = safe_project_id(args.project_id)
+    except ValueError as exc:
+        parser.error(str(exc))
     args.claude_root = str(Path(args.claude_root).expanduser())
     args.ralph_home = str(Path(args.ralph_home).expanduser())
     return args
@@ -432,6 +518,8 @@ def main() -> int:
     payload = {
         "mode": "apply" if args.apply else "dry-run",
         "project": args.project,
+        "project_id": args.project_id,
+        "runtime_root": str(runtime_root(args)),
         "summary": asdict(summary),
         "prepared": [asdict(item) for item, _rendered in prepared],
     }

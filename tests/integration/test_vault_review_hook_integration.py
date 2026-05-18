@@ -60,6 +60,12 @@ def write_ambiguous_inbox(vault_dir: Path) -> None:
     (inbox / "global.md").write_text("Always use this global default behavior for every repo.", encoding="utf-8")
 
 
+def latest_project_vault_review(ralph_home: Path) -> dict:
+    matches = sorted(ralph_home.glob("projects/*/reports/vault-inbox-review/latest.json"))
+    assert len(matches) == 1
+    return json.loads(matches[0].read_text(encoding="utf-8"))
+
+
 def test_stop_promotion_hook_runs_vault_review_in_report_only_mode(tmp_path: Path) -> None:
     ralph_home = tmp_path / "ralph"
     vault_dir = tmp_path / "vault"
@@ -71,7 +77,7 @@ def test_stop_promotion_hook_runs_vault_review_in_report_only_mode(tmp_path: Pat
     payload = json.loads(result.stdout)
     assert payload["decision"] == "warn"
     assert "GRADUATION_REVIEW_REQUIRED count=1" in payload["reason"]
-    report = json.loads((ralph_home / "reports" / "vault-inbox-review" / "latest.json").read_text(encoding="utf-8"))
+    report = latest_project_vault_review(ralph_home)
     assert report["mode"] == "report-only"
     assert report["ask_user"] == 1
     assert not list((vault_dir / "projects" / PROJECT / "decisions").glob("*.md"))

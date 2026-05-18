@@ -10,6 +10,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 STOP_HOOK = ROOT / ".codex" / "hooks" / "stop_persist_memory.py"
 CHECKPOINT = ROOT / "scripts" / "memory" / "checkpoint.py"
+HOOKS = ROOT / ".codex" / "hooks"
+if str(HOOKS) not in sys.path:
+    sys.path.insert(0, str(HOOKS))
+
+from shared.active_context import active_context_from_payload  # noqa: E402
 
 
 def env_for(ralph_home: Path) -> dict[str, str]:
@@ -21,6 +26,7 @@ def env_for(ralph_home: Path) -> dict[str, str]:
 
 
 def run_stop_hook(ralph_home: Path, payload: dict) -> subprocess.CompletedProcess[str]:
+    payload = {"cwd": str(ROOT), **payload}
     return subprocess.run(
         [sys.executable, str(STOP_HOOK)],
         cwd=ROOT,
@@ -44,7 +50,23 @@ def run_checkpoint(ralph_home: Path, *args: str) -> subprocess.CompletedProcess[
 
 
 def latest_handoff(ralph_home: Path) -> str:
-    return (ralph_home / "handoffs" / "latest.md").read_text(encoding="utf-8")
+    matches = sorted(ralph_home.glob("projects/*/handoffs/latest.md"))
+    assert len(matches) == 1
+    return matches[0].read_text(encoding="utf-8")
+
+
+def project_checkpoint_args() -> list[str]:
+    context = active_context_from_payload({"cwd": str(ROOT), "session_id": "stop-handoff-test"})
+    return [
+        "--project",
+        context.project_slug,
+        "--project-id",
+        context.project_id,
+        "--workspace-root",
+        str(context.workspace_root),
+        "--session-id",
+        context.session_id,
+    ]
 
 
 def test_stop_handoff_includes_checkpoint_for_short_final_message(tmp_path: Path) -> None:
@@ -61,6 +83,7 @@ def test_stop_handoff_includes_checkpoint_for_short_final_message(tmp_path: Path
         "Run hook chain validation.",
         "--validation-status",
         "partial",
+        *project_checkpoint_args(),
     )
     assert update.returncode == 0, update.stderr
 
@@ -91,7 +114,7 @@ def test_stop_handoff_skips_red_final_message(tmp_path: Path) -> None:
     result = run_stop_hook(tmp_path, {"last_assistant_message": red_text})
 
     assert result.returncode == 0, result.stderr
-    assert not (tmp_path / "handoffs" / "latest.md").exists()
+    assert not list(tmp_path.glob("projects/*/handoffs/latest.md"))
 
 
 def test_stop_handoff_omits_red_checkpoint_without_leaking(tmp_path: Path) -> None:

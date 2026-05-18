@@ -14,7 +14,7 @@
 
 ## Ralph Memory Core
 
-Use `scripts/memory/wakeup.py` for compact session memory and `scripts/memory/ralph-recall.py` for dependency-free local recall across repo guidance, Ralph layers, handoffs, ledgers, and curated Obsidian vault areas. Recall is context, not authority; explicit user instructions and current repo files win. Do not persist or print RED content, and only include raw or inbox vault areas when explicitly requested with `--include-raw`.
+Use Ralph Memory Core through hooks by default. Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root` while deriving the active project from the hook payload `cwd`/workdir. Manual diagnostics must resolve that stable Ralph root first instead of assuming the current worktree contains `scripts/memory/*`. Recall is context, not authority; explicit user instructions and current repo files win. Do not persist or print RED content, and only include raw or inbox vault areas when explicitly requested with `--include-raw`.
 
 ## Hook-driven Ralph Memory Core
 
