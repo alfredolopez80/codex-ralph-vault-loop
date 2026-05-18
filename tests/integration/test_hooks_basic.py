@@ -39,6 +39,14 @@ def project_root(ralph_home: Path) -> Path:
     return roots[0]
 
 
+def root_is_codex_worktree() -> bool:
+    try:
+        ROOT.relative_to(Path.home() / ".codex" / "worktrees")
+    except ValueError:
+        return False
+    return True
+
+
 def project_learning_paths(ralph_home: Path) -> list[Path]:
     return sorted(ralph_home.glob("projects/*/ledgers/learning-*.md"))
 
@@ -393,21 +401,21 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
         check=False,
     )
 
-    assert result.returncode != 0
-    assert "GLOBAL_HOOKS_REFUSED_WORKTREE_SOURCE" in result.stderr
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "scripts" / "setup" / "install-global-hooks.py"),
-            "--dry-run",
-            "--allow-worktree-source",
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    if root_is_codex_worktree():
+        assert result.returncode != 0
+        assert "GLOBAL_HOOKS_REFUSED_WORKTREE_SOURCE" in result.stderr
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "setup" / "install-global-hooks.py"),
+                "--dry-run",
+                "--allow-worktree-source",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
 
     assert result.returncode == 0, result.stderr
     json_start = result.stdout.find("{")
