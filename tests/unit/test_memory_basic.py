@@ -4,7 +4,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+import hashlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -62,6 +63,300 @@ def test_handoff_creates_latest(tmp_path: Path) -> None:
     text = latest.read_text()
     assert "Test handoff" in text
     assert 'status: "ok"' in text
+
+
+def test_wakeup_reinjects_small_handoff_without_compaction(tmp_path: Path) -> None:
+    (tmp_path / "handoffs").mkdir(parents=True)
+    handoff = "Small handoff marker alpha beta gamma."
+    (tmp_path / "handoffs" / "latest.md").write_text(handoff, encoding="utf-8")
+
+    result = run_memory("wakeup.py", tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" in result.stdout
+    assert "Handoff reinjection: full within 15% budget" in result.stdout
+    assert handoff in result.stdout
+    assert "...[truncated]" not in result.stdout
+
+
+def test_wakeup_compacts_large_handoff_over_ratio_budget(tmp_path: Path) -> None:
+    (tmp_path / "handoffs").mkdir(parents=True)
+    words = [f"w{i:03d}" for i in range(320)]
+    (tmp_path / "handoffs" / "latest.md").write_text(" ".join(words), encoding="utf-8")
+
+    result = run_memory("wakeup.py", tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "Handoff reinjection: compacted over 15% budget" in result.stdout
+    assert "w000" in result.stdout
+    assert "w319" not in result.stdout
+    assert "...[truncated]" in result.stdout
+
+
+def test_wakeup_reinject_budget_uses_safe_defaults_for_invalid_env(tmp_path: Path) -> None:
+    (tmp_path / "handoffs").mkdir(parents=True)
+    handoff = "Invalid env should still use default reinjection policy."
+    (tmp_path / "handoffs" / "latest.md").write_text(handoff, encoding="utf-8")
+
+    result = run_memory(
+        "wakeup.py",
+        tmp_path,
+        extra_env={"RALPH_REINJECT_MAX_CONTEXT_RATIO": "not-a-number", "RALPH_REINJECT_HARD_WORD_LIMIT": "also-bad"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Handoff reinjection: full within 15% budget" in result.stdout
+    assert handoff in result.stdout
+
+
+def workspace_instance_id(path: Path) -> str:
+    return hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
+
+
+def write_project_handoff(
+    ralph_home: Path,
+    project_id: str,
+    workspace: Path,
+    body: str,
+    *,
+    metadata_project_id: str | None = None,
+    session_id: str = "session-a",
+    created_at: str | None = None,
+    classification: str | None = "YELLOW",
+    omit_created_at: bool = False,
+) -> Path:
+    path = ralph_home / "projects" / project_id / "handoffs" / "latest.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["---"]
+    if not omit_created_at:
+        lines.append(f"created_at: {json.dumps(created_at or now_iso())}")
+    lines.append('status: "stop-hook"')
+    if classification is not None:
+        lines.append(f"classification: {json.dumps(classification)}")
+    lines.extend(
+        [
+            f"project_id: {json.dumps(metadata_project_id or project_id)}",
+            'project: "fixture"',
+            f"session_id: {json.dumps(session_id)}",
+            f"workspace_instance_id: {json.dumps(workspace_instance_id(workspace))}",
+            "---",
+            "",
+            "# Latest Handoff",
+            "",
+            body,
+            "",
+        ]
+    )
+    content = "\n".join(lines)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def run_project_wakeup(ralph_home: Path, project_id: str, workspace: Path, session_id: str = "session-a", **env: str) -> subprocess.CompletedProcess[str]:
+    return run_memory(
+        "wakeup.py",
+        ralph_home,
+        "--project-id",
+        project_id,
+        "--workspace-root",
+        str(workspace),
+        extra_env={"CODEX_SESSION_ID": session_id, **env},
+    )
+
+
+def test_wakeup_skips_handoff_with_mismatched_project_id(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe project mismatch marker", metadata_project_id="p-other")
+
+    result = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert "safe project mismatch marker" not in result.stdout
+
+
+def test_wakeup_skips_handoff_with_mismatched_session_id(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe session mismatch marker", session_id="session-a")
+
+    result = run_project_wakeup(tmp_path, project_id, workspace, session_id="session-b")
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert "safe session mismatch marker" not in result.stdout
+
+
+def test_wakeup_skips_stale_handoff(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    old = (datetime.now(timezone.utc) - timedelta(days=3)).replace(microsecond=0).isoformat()
+    write_project_handoff(tmp_path, project_id, workspace, "safe stale marker", created_at=old)
+
+    result = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert "safe stale marker" not in result.stdout
+
+
+def test_wakeup_skips_project_handoff_missing_created_at(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe missing created marker", omit_created_at=True)
+
+    result = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert "safe missing created marker" not in result.stdout
+
+
+def test_wakeup_skips_project_handoff_missing_or_invalid_classification(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe missing classification marker", classification=None)
+    missing = run_project_wakeup(tmp_path, project_id, workspace)
+    write_project_handoff(tmp_path, project_id, workspace, "safe invalid classification marker", classification="PUBLIC")
+    invalid = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert missing.returncode == 0, missing.stderr
+    assert invalid.returncode == 0, invalid.stderr
+    assert "safe missing classification marker" not in missing.stdout
+    assert "safe invalid classification marker" not in invalid.stdout
+    assert "## Latest Handoff" not in missing.stdout
+    assert "## Latest Handoff" not in invalid.stdout
+
+
+def test_wakeup_skips_project_handoff_without_workspace_root(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe missing workspace marker")
+
+    result = run_memory("wakeup.py", tmp_path, "--project-id", project_id, extra_env={"CODEX_SESSION_ID": "session-a"})
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert "safe missing workspace marker" not in result.stdout
+
+
+def test_wakeup_skips_future_dated_handoff(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat()
+    write_project_handoff(tmp_path, project_id, workspace, "safe future marker", created_at=future)
+
+    result = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert "safe future marker" not in result.stdout
+
+
+def test_wakeup_dedupes_same_handoff_hash_per_session(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe dedupe marker one")
+
+    first = run_project_wakeup(tmp_path, project_id, workspace)
+    second = run_project_wakeup(tmp_path, project_id, workspace)
+    write_project_handoff(tmp_path, project_id, workspace, "safe dedupe marker two")
+    third = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert third.returncode == 0, third.stderr
+    assert "safe dedupe marker one" in first.stdout
+    assert "## Latest Handoff" not in second.stdout
+    assert "safe dedupe marker two" in third.stdout
+
+
+def test_wakeup_handoff_rejects_red_raw_content(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    red_text = "token" + "=abc123"
+    write_project_handoff(tmp_path, project_id, workspace, red_text)
+
+    result = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert result.returncode == 0, result.stderr
+    assert "## Latest Handoff" not in result.stdout
+    assert red_text not in result.stdout
+    assert "abc123" not in result.stdout
+
+
+def test_wakeup_small_handoff_uses_sanitized_body_not_frontmatter(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, "safe body only marker")
+
+    result = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert result.returncode == 0, result.stderr
+    assert "safe body only marker" in result.stdout
+    assert "project_id:" not in result.stdout
+    assert "session_id:" not in result.stdout
+    assert "created_at:" not in result.stdout
+
+
+def test_wakeup_reinject_budget_respects_env_ratio_and_hard_limit(tmp_path: Path) -> None:
+    project_id = "p-active"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_project_handoff(tmp_path, project_id, workspace, " ".join(f"w{i:03d}" for i in range(80)))
+
+    result = run_project_wakeup(
+        tmp_path,
+        project_id,
+        workspace,
+        RALPH_REINJECT_MAX_CONTEXT_RATIO="0.10",
+        RALPH_REINJECT_HARD_WORD_LIMIT="25",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Handoff reinjection: compacted over 10% budget" in result.stdout
+    assert "w000" in result.stdout
+    assert "w079" not in result.stdout
+
+
+def test_project_scoped_handoff_cli_writes_injectable_metadata(tmp_path: Path) -> None:
+    project_id = "p-cli-handoff"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    handoff = run_memory(
+        "handoff.py",
+        tmp_path,
+        "--summary",
+        "CLI handoff injectable marker.",
+        "--status",
+        "manual",
+        "--project",
+        "fixture",
+        "--project-id",
+        project_id,
+        "--session-id",
+        "session-a",
+        "--workspace-root",
+        str(workspace),
+    )
+    wakeup = run_project_wakeup(tmp_path, project_id, workspace)
+
+    assert handoff.returncode == 0, handoff.stderr
+    assert wakeup.returncode == 0, wakeup.stderr
+    assert "## Latest Handoff" in wakeup.stdout
+    assert "CLI handoff injectable marker." in wakeup.stdout
 
 
 def test_classify_learning_green_yellow_red(tmp_path: Path) -> None:
@@ -399,3 +694,18 @@ def test_ralph_recall_finds_learning_ledger(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "learning-test.md" in result.stdout
     assert "zyxralph-memory-marker" in result.stdout
+
+
+def test_legacy_runtime_audit_is_report_only_and_hash_based(tmp_path: Path) -> None:
+    legacy = tmp_path / "checkpoints"
+    legacy.mkdir(parents=True)
+    (legacy / "latest.json").write_text('{"objective":"legacy checkpoint"}\n', encoding="utf-8")
+
+    result = run_memory("audit-legacy-runtime.py", tmp_path, "--json")
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["mode"] == "report-only"
+    assert report["legacy_candidate_count"] == 1
+    assert report["candidates"][0]["path"] == "checkpoints/latest.json"
+    assert report["candidates"][0]["migration_status"] == "manual_review"

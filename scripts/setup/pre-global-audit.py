@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 REPORT_DIR = ROOT / "reports" / "pre-global-audit"
 RED_SENTINEL = "token" + "=PRE_GLOBAL_AUDIT_RED_SENTINEL_39217"
 PROJECT = "codex-ralph-vault-loop"
+WORKTREE_AWARE_PASS = "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS"
+WORKTREE_AWARE_FAIL = "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL"
 
 
 def now_iso() -> str:
@@ -54,7 +56,12 @@ def basename_pairs(config: dict[str, Any], event: str) -> list[dict[str, Any]]:
 
 
 def generated_global_config() -> tuple[dict[str, Any], dict[str, Any]]:
-    command = [sys.executable, str(ROOT / "scripts" / "setup" / "install-global-hooks.py"), "--dry-run"]
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "setup" / "install-global-hooks.py"),
+        "--dry-run",
+        "--allow-worktree-source",
+    ]
     result = run_command(command)
     json_start = result["stdout"].find("{")
     if json_start < 0:
@@ -64,6 +71,22 @@ def generated_global_config() -> tuple[dict[str, Any], dict[str, Any]]:
     except json.JSONDecodeError as exc:
         return {}, {**result, "parse_error": str(exc)}
     return config, result
+
+
+def is_codex_worktree(path: Path) -> bool:
+    try:
+        path.resolve().relative_to((Path.home() / ".codex" / "worktrees").resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def installer_source_guard() -> dict[str, Any]:
+    result = run_command([sys.executable, str(ROOT / "scripts" / "setup" / "install-global-hooks.py"), "--dry-run"])
+    if is_codex_worktree(ROOT):
+        expected = result["returncode"] != 0 and "GLOBAL_HOOKS_REFUSED_WORKTREE_SOURCE" in (result["stdout"] + result["stderr"])
+        return {**result, "pass": expected, "expected": "reject-worktree-source"}
+    return {**result, "pass": result["returncode"] == 0, "expected": "allow-stable-source"}
 
 
 def global_hook_diff() -> dict[str, Any]:
@@ -127,6 +150,7 @@ def hook_chain_fixture() -> dict[str, Any]:
         "pytest",
         "tests/integration/test_hook_lifecycle_e2e.py",
         "tests/integration/test_hook_config_lockstep.py",
+        "tests/integration/test_worktree_project_isolation.py",
     ]
     return run_command(command, {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
 
@@ -210,14 +234,15 @@ def recall_fixture() -> dict[str, Any]:
 
 
 def render_latest(summary: dict[str, Any]) -> str:
-    status = "PRE_GLOBAL_AUDIT_PASS" if summary["pass"] else "PRE_GLOBAL_AUDIT_FAIL"
+    status = WORKTREE_AWARE_PASS if summary["pass"] else WORKTREE_AWARE_FAIL
     lines = ["# Pre-Global Audit", "", status, "", "## Reports", ""]
     for name, path in summary["reports"].items():
         lines.append(f"- {name}: `{path}`")
     lines.extend(["", "## Commands", ""])
     for command in summary["commands"]:
         outcome = "PASS" if command["pass"] else "FAIL"
-        lines.append(f"- {outcome}: `{' '.join(command['command'])}`")
+        expected = f" ({command['expected']})" if command.get("expected") else ""
+        lines.append(f"- {outcome}{expected}: `{' '.join(command['command'])}`")
     if summary["blockers"]:
         lines.extend(["", "## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary["blockers"])
@@ -231,12 +256,16 @@ def main() -> int:
     recall = recall_fixture()
     hook_diff = global_hook_diff()
     timeouts = timeout_budget(hook_diff)
+    source_guard = installer_source_guard()
+    doctor_global = run_command(["bash", str(ROOT / "scripts" / "setup" / "doctor-global.sh")])
     reports = {
         "hook-chain": REPORT_DIR / "hook-chain.json",
         "security-fixtures": REPORT_DIR / "security-fixtures.json",
         "recall-fixtures": REPORT_DIR / "recall-fixtures.json",
         "global-hook-diff": REPORT_DIR / "global-hook-diff.json",
         "timeout-budget": REPORT_DIR / "timeout-budget.json",
+        "installer-source-guard": REPORT_DIR / "installer-source-guard.json",
+        "doctor-global": REPORT_DIR / "doctor-global.json",
     }
     payloads = {
         "hook-chain": hook_chain,
@@ -244,6 +273,8 @@ def main() -> int:
         "recall-fixtures": recall,
         "global-hook-diff": hook_diff,
         "timeout-budget": timeouts,
+        "installer-source-guard": source_guard,
+        "doctor-global": doctor_global,
     }
     for name, path in reports.items():
         write_json(path, payloads[name])
@@ -255,12 +286,12 @@ def main() -> int:
         "created_at": now_iso(),
         "pass": not blockers,
         "blockers": blockers,
-        "commands": [hook_chain, hook_diff["dry_run"]],
+        "commands": [hook_chain, hook_diff["dry_run"], source_guard, doctor_global],
         "reports": {name: str(path) for name, path in reports.items()},
     }
     write_json(REPORT_DIR / "latest.json", summary)
     (REPORT_DIR / "latest.md").write_text(render_latest(summary), encoding="utf-8")
-    print("PRE_GLOBAL_AUDIT_PASS" if summary["pass"] else "PRE_GLOBAL_AUDIT_FAIL")
+    print(WORKTREE_AWARE_PASS if summary["pass"] else WORKTREE_AWARE_FAIL)
     return 0 if summary["pass"] else 1
 
 

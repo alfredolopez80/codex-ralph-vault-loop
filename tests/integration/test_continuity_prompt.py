@@ -27,6 +27,12 @@ def run_hook(ralph_home: Path, payload: dict) -> subprocess.CompletedProcess[str
     )
 
 
+def latest_checkpoint(root: Path) -> dict:
+    matches = sorted(root.glob("projects/*/checkpoints/latest.json"))
+    assert len(matches) == 1
+    return json.loads(matches[0].read_text(encoding="utf-8"))
+
+
 def test_continuity_prompt_accepts_empty_json(tmp_path: Path) -> None:
     result = run_hook(tmp_path, {})
 
@@ -45,7 +51,7 @@ def test_continuity_prompt_updates_objective_and_injects_once(tmp_path: Path) ->
     )
     assert new_task.returncode == 0, new_task.stderr
     assert new_task.stdout == ""
-    checkpoint = json.loads((tmp_path / "checkpoints" / "latest.json").read_text(encoding="utf-8"))
+    checkpoint = latest_checkpoint(tmp_path)
     assert checkpoint["objective"] == "Implement the rolling checkpoint continuation hook."
     assert checkpoint["next_action"] == "Continue the user's latest requested task."
 

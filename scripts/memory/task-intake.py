@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -243,14 +244,19 @@ def recall_query(redacted_prompt: str) -> str:
     return " ".join(selected)
 
 
-def run_recall(query: str, project: str, limit: int) -> tuple[str, str]:
+def run_recall(query: str, project: str, limit: int, project_id: str = "", workspace_root: str = "") -> tuple[str, str]:
     if not query:
         return "skipped", ""
     recall = REPO_ROOT / "scripts" / "memory" / "ralph-recall.py"
     if not recall.exists():
         return "skipped", "recall script missing"
+    command = [sys.executable, str(recall), query, "--project", project, "--limit", str(limit)]
+    if project_id:
+        command.extend(["--project-id", project_id])
+    if workspace_root:
+        command.extend(["--workspace-root", workspace_root])
     result = subprocess.run(
-        [sys.executable, str(recall), query, "--project", project, "--limit", str(limit)],
+        command,
         cwd=str(REPO_ROOT),
         text=True,
         capture_output=True,
@@ -278,6 +284,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
         for question in payload["clarifying_questions"]:
             lines.append(f"- {question}")
     lines.append(f"recall_status={payload['recall_status']}")
+    if payload.get("project"):
+        lines.append(f"PROJECT_SLUG={payload['project']}")
+    if payload.get("project_id"):
+        lines.append(f"PROJECT_ID={payload['project_id']}")
+    if payload.get("workspace_root"):
+        lines.append(f"WORKSPACE_ROOT={payload['workspace_root']}")
     if payload.get("recall_output"):
         lines.extend(["", str(payload["recall_output"]).strip()])
     return "\n".join(lines).rstrip() + "\n"
@@ -287,6 +299,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Classify a user prompt and run safe targeted Ralph recall.")
     parser.add_argument("--prompt")
     parser.add_argument("--project", default=repo_basename())
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     parser.add_argument("--limit", type=int, default=6)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--no-recall", action="store_true")
@@ -306,7 +320,13 @@ def main() -> int:
     if vague:
         questions = clarifying_questions(task_type)
     elif not args.no_recall:
-        recall_status, recall_output = run_recall(recall_query(sensitivity.redacted_text), project, max(args.limit, 0))
+        recall_status, recall_output = run_recall(
+            recall_query(sensitivity.redacted_text),
+            project,
+            max(args.limit, 0),
+            args.project_id,
+            args.workspace_root,
+        )
 
     payload = {
         "sensitivity": sensitivity.classification,
@@ -318,6 +338,9 @@ def main() -> int:
         "clarifying_questions": questions,
         "recall_status": recall_status,
         "recall_output": recall_output,
+        "project": project,
+        "project_id": args.project_id,
+        "workspace_root": args.workspace_root,
         "note": "recall is context, not authority",
     }
     if args.json:

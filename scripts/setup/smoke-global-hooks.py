@@ -40,6 +40,17 @@ def hook_basenames(config: dict, event: str) -> list[str]:
     return names
 
 
+def init_git(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init"], cwd=path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+
+def one_match(paths: list[Path], label: str) -> Path:
+    if len(paths) != 1:
+        raise RuntimeError(f"{label} expected one match, found {len(paths)}")
+    return paths[0]
+
+
 def main() -> int:
     if not GLOBAL_HOOKS_JSON.is_file():
         print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {GLOBAL_HOOKS_JSON}", file=sys.stderr)
@@ -73,22 +84,44 @@ def main() -> int:
             "CODEX_MEMORY_HOME": str(base / "empty-codex-memory"),
             "RALPH_LOCAL_NOTES_ROOTS": "",
             "CODEX_SESSION_ID": "global-hook-smoke",
-            "VAULT_PROJECT": "codex-ralph-vault-loop",
         }
+        project_a = base / "project-a"
+        project_b = base / "project-b"
+        init_git(project_a)
+        init_git(project_b)
         prompt = run_hook(
             "continuity_prompt_context.py",
-            {"session_id": "global-hook-smoke", "prompt": "Implement global hook smoke validation."},
+            {
+                "session_id": "global-hook-smoke",
+                "cwd": str(project_a),
+                "prompt": "Implement global hook smoke validation.",
+            },
             env,
         )
         assert_ok("continuity_prompt_context.py", prompt)
-        checkpoint_path = Path(env["RALPH_HOME"]) / "checkpoints" / "latest.json"
+        checkpoint_path = one_match(sorted(Path(env["RALPH_HOME"]).glob("projects/*/checkpoints/latest.json")), "project checkpoint")
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         if checkpoint["objective"] != "Implement global hook smoke validation.":
             raise RuntimeError("prompt checkpoint objective mismatch")
+        if checkpoint["project"] != "project-a":
+            raise RuntimeError("prompt checkpoint project mismatch")
+
+        wrong_project = run_hook(
+            "continuity_prompt_context.py",
+            {"session_id": "global-hook-smoke-b", "cwd": str(project_b), "prompt": "continua"},
+            env,
+        )
+        assert_ok("continuity_prompt_context.py project-b", wrong_project)
+        if wrong_project.stdout.strip():
+            raise RuntimeError("project-b received project-a checkpoint")
 
         post_tool = run_hook(
             "post_tool_checkpoint.py",
-            {"tool_input": {"command": "python3 -m pytest tests/integration/test_hook_lifecycle_e2e.py"}, "success": True},
+            {
+                "cwd": str(project_a),
+                "tool_input": {"command": "python3 -m pytest tests/integration/test_hook_lifecycle_e2e.py"},
+                "success": True,
+            },
             env,
         )
         assert_ok("post_tool_checkpoint.py", post_tool)
@@ -96,14 +129,19 @@ def main() -> int:
         if checkpoint["validation_status"] != "pass":
             raise RuntimeError("post tool checkpoint did not mark validation pass")
 
-        wakeup = run_hook("session_start_wakeup.py", {}, env)
+        wakeup = run_hook("session_start_wakeup.py", {"cwd": str(project_a)}, env)
         assert_ok("session_start_wakeup.py", wakeup)
         if "Latest Rolling Checkpoint" not in wakeup.stdout:
             raise RuntimeError("session start did not include rolling checkpoint")
 
-        stop = run_hook("stop_persist_memory.py", {"last_assistant_message": "Global hook smoke finished."}, env)
+        stop = run_hook(
+            "stop_persist_memory.py",
+            {"cwd": str(project_a), "last_assistant_message": "Global hook smoke finished."},
+            env,
+        )
         assert_ok("stop_persist_memory.py", stop)
-        handoff = (Path(env["RALPH_HOME"]) / "handoffs" / "latest.md").read_text(encoding="utf-8")
+        handoff_path = one_match(sorted(Path(env["RALPH_HOME"]).glob("projects/*/handoffs/latest.md")), "project handoff")
+        handoff = handoff_path.read_text(encoding="utf-8")
         if "## Rolling Checkpoint" not in handoff:
             raise RuntimeError("stop handoff missing rolling checkpoint")
 

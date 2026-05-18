@@ -21,6 +21,13 @@ def ralph_home() -> Path:
     return Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser()
 
 
+def runtime_home() -> Path:
+    project_id = os.environ.get("RALPH_PROJECT_ID", "").strip()
+    if project_id:
+        return ralph_home() / "projects" / project_id
+    return ralph_home()
+
+
 def strip_frontmatter(text: str) -> str:
     if not text.startswith("---\n"):
         return text
@@ -53,7 +60,7 @@ def curated_paths(project: str) -> list[Path]:
         paths.extend(sorted((project_root / name).glob("*.md")) if (project_root / name).exists() else [])
     for name in ("wiki", "decisions"):
         paths.extend(sorted((vault_dir() / "global" / name).glob("*.md")) if (vault_dir() / "global" / name).exists() else [])
-    layer_root = ralph_home() / "layers"
+    layer_root = runtime_home() / "layers"
     paths.extend(sorted(layer_root.glob("*.md")) if layer_root.exists() else [])
     return [path for path in paths if path.is_file()]
 
@@ -118,6 +125,8 @@ def decision_object(
     classification: str,
     safe_text: str = "",
     findings: list[dict[str, str]] | None = None,
+    source_project_id: str = "",
+    source_project_slug: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "candidate_hash": candidate_hash,
@@ -128,6 +137,8 @@ def decision_object(
         "source_path": str(source),
         "reason": reason,
         "aristotle": aristotle(reason, target),
+        "source_project_id": source_project_id,
+        "source_project_slug": source_project_slug,
     }
     if decision != "skip" or classification != "RED":
         payload["candidate_preview"] = compact_text(safe_text, 240)
@@ -139,6 +150,9 @@ def decision_object(
 def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any]:
     raw = path.read_text(encoding="utf-8", errors="replace")
     metadata = parse_frontmatter(raw)
+    source_project_id = str(metadata.get("source_project_id") or "")
+    source_project_slug = str(metadata.get("source_project_slug") or metadata.get("project") or "")
+    active_project_id = os.environ.get("RALPH_PROJECT_ID", "").strip()
     requested = metadata.get("classification") or "YELLOW"
     classification, findings, safe_text = classify_note(raw, requested)
     candidate_hash = content_hash(raw)
@@ -152,11 +166,26 @@ def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any
             reason="red_classification",
             classification="RED",
             findings=findings,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
         )
     text = compact_text(safe_text)
     normalized = normalize(text)
     target = target_for(text)
     confidence = confidence_for(text, target)
+    if active_project_id and source_project_id and source_project_id != active_project_id:
+        return decision_object(
+            source=path,
+            candidate_hash=candidate_hash,
+            decision="skip",
+            target=target,
+            confidence=confidence,
+            reason="source_project_mismatch",
+            classification=classification,
+            safe_text=text,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
+        )
     if normalized and normalized in existing:
         return decision_object(
             source=path,
@@ -167,6 +196,8 @@ def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any
             reason="duplicate_existing",
             classification=classification,
             safe_text=text,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
         )
     if target == "L1":
         return decision_object(
@@ -178,6 +209,21 @@ def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any
             reason="l1_or_global_requires_user",
             classification=classification,
             safe_text=text,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
+        )
+    if active_project_id and not source_project_id and target in {"vault/decisions", "vault/wiki"}:
+        return decision_object(
+            source=path,
+            candidate_hash=candidate_hash,
+            decision="ask_user",
+            target=target,
+            confidence=confidence,
+            reason="missing_source_project_id",
+            classification=classification,
+            safe_text=text,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
         )
     if target in {"vault/decisions", "vault/wiki"} and confidence >= 0.75:
         return decision_object(
@@ -189,6 +235,8 @@ def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any
             reason="high_confidence_project_scoped_target",
             classification=classification,
             safe_text=text,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
         )
     if confidence >= 0.6:
         return decision_object(
@@ -200,6 +248,8 @@ def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any
             reason="ambiguous_or_low_confidence_target",
             classification=classification,
             safe_text=text,
+            source_project_id=source_project_id,
+            source_project_slug=source_project_slug,
         )
     return decision_object(
         source=path,
@@ -210,6 +260,8 @@ def evaluate_candidate(path: Path, project: str, existing: str) -> dict[str, Any
         reason="low_signal",
         classification=classification,
         safe_text=text,
+        source_project_id=source_project_id,
+        source_project_slug=source_project_slug,
     )
 
 
@@ -256,7 +308,7 @@ def graduate(decision: dict[str, Any], project: str) -> Path | None:
 
 
 def append_event(decision: dict[str, Any]) -> None:
-    report_dir = ralph_home() / REPORT_REL
+    report_dir = runtime_home() / REPORT_REL
     report_dir.mkdir(parents=True, exist_ok=True)
     event = {
         "created_at": now_iso(),
@@ -266,6 +318,7 @@ def append_event(decision: dict[str, Any]) -> None:
         "confidence": decision["confidence"],
         "reason": decision["reason"],
         "target_path": decision.get("target_path", ""),
+        "source_project_id": decision.get("source_project_id", ""),
     }
     with (report_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
@@ -283,6 +336,7 @@ def review(project: str, apply: bool = False) -> dict[str, Any]:
     report = {
         "created_at": now_iso(),
         "project": sanitize_slug(project),
+        "project_id": os.environ.get("RALPH_PROJECT_ID", "").strip(),
         "mode": "apply" if apply else "report-only",
         "decisions": decisions,
         "auto_graduate": sum(1 for item in decisions if item["decision"] == "auto_graduate"),
@@ -294,7 +348,7 @@ def review(project: str, apply: bool = False) -> dict[str, Any]:
 
 
 def write_report(report: dict[str, Any]) -> None:
-    report_dir = ralph_home() / REPORT_REL
+    report_dir = runtime_home() / REPORT_REL
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "latest.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     lines = ["# Vault Inbox Review", "", f"Mode: {report['mode']}", f"Project: {report['project']}", ""]

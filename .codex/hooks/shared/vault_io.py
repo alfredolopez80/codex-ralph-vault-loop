@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from .active_context import ActiveContext, ensure_project_runtime
 from .paths import append_jsonl, ensure_runtime, now_iso
 from .redaction import is_red, redact_text
 
@@ -11,10 +12,14 @@ def digest(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
-def save_learning(text: str, source: str, classification: str = "YELLOW") -> Path | None:
+def runtime_root(context: ActiveContext | None = None) -> Path:
+    return ensure_project_runtime(context) if context is not None else ensure_runtime()
+
+
+def save_learning(text: str, source: str, classification: str = "YELLOW", context: ActiveContext | None = None) -> Path | None:
     if not text.strip() or classification == "RED" or is_red(text):
         return None
-    root = ensure_runtime()
+    root = runtime_root(context)
     clean = redact_text(text.strip())
     path = root / "ledgers" / f"learning-{digest(clean)[:12]}.md"
     created = not path.exists()
@@ -26,6 +31,8 @@ def save_learning(text: str, source: str, classification: str = "YELLOW") -> Pat
                     f'created_at: "{now_iso()}"',
                     f'classification: "{classification}"',
                     f'source: "{source}"',
+                    f'project_id: "{context.project_id if context else ""}"',
+                    f'project: "{context.project_slug if context else ""}"',
                     f'hash: "{digest(clean)}"',
                     "---",
                     "",
@@ -36,17 +43,43 @@ def save_learning(text: str, source: str, classification: str = "YELLOW") -> Pat
             encoding="utf-8",
         )
     if created:
-        append_jsonl(root / "ledgers" / "learning-events.jsonl", {"source": source, "path": str(path), "created_at": now_iso()})
+        append_jsonl(
+            root / "ledgers" / "learning-events.jsonl",
+            {
+                "source": source,
+                "path": str(path),
+                "created_at": now_iso(),
+                "project_id": context.project_id if context else "",
+                "project": context.project_slug if context else "",
+                "session_id": context.session_id if context else "",
+            },
+        )
     return path
 
 
-def write_handoff(summary: str, status: str = "stop", next_step: str = "") -> Path | None:
+def write_handoff(summary: str, status: str = "stop", next_step: str = "", context: ActiveContext | None = None) -> Path | None:
     if not summary.strip() or is_red(summary) or is_red(next_step):
         return None
-    root = ensure_runtime()
+    root = runtime_root(context)
     clean = redact_text(summary.strip())
     clean_next = redact_text(next_step.strip())
-    body = ["---", f'created_at: "{now_iso()}"', f'status: "{status}"', 'classification: "YELLOW"', "---", "", "# Latest Handoff", "", clean]
+    body = [
+        "---",
+        f'created_at: "{now_iso()}"',
+        f'status: "{status}"',
+                'classification: "YELLOW"',
+                f'project_id: "{context.project_id if context else ""}"',
+                f'project: "{context.project_slug if context else ""}"',
+                f'session_id: "{context.session_id if context else ""}"',
+                f'workspace_instance_id: "{context.workspace_instance_id if context else ""}"',
+                f'git_branch: "{context.branch if context else ""}"',
+                f'git_sha: "{context.sha if context else ""}"',
+                "---",
+        "",
+        "# Latest Handoff",
+        "",
+        clean,
+    ]
     if clean_next:
         body.extend(["", "Next:", "", clean_next])
     body.append("")

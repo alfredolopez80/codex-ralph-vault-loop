@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,8 @@ from shared.checkpoint_io import (  # noqa: E402
     render_checkpoint,
     update_checkpoint,
 )
+from shared.active_context import active_context_from_payload  # noqa: E402
+from shared.paths import ralph_home  # noqa: E402
 
 
 def main() -> int:
@@ -46,18 +50,22 @@ def main() -> int:
     parser.add_argument("--risk-flag", action="append", default=[])
     parser.add_argument("--validation-status")
     parser.add_argument("--source", default="manual")
+    parser.add_argument("--project", default=os.environ.get("VAULT_PROJECT", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
 
     args = parser.parse_args()
+    root = runtime_root(args)
 
     try:
         if args.clear:
-            clear_checkpoint()
+            clear_checkpoint(root)
             print("CHECKPOINT_CLEARED")
             return 0
         if args.update:
             return update(args)
         if args.doctor:
-            ok, messages = run_doctor()
+            ok, messages = run_doctor(root)
             if ok:
                 print("CHECKPOINT_DOCTOR_PASS")
                 return 0
@@ -73,7 +81,15 @@ def main() -> int:
     return 0
 
 
+def runtime_root(args: argparse.Namespace) -> Path | None:
+    if not args.project_id:
+        return None
+    return Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser() / "projects" / args.project_id
+
+
 def update(args: argparse.Namespace) -> int:
+    root = runtime_root(args)
+    context = update_context(args)
     payload: dict[str, Any] = {
         "classification": args.classification,
         "source": args.source,
@@ -94,18 +110,43 @@ def update(args: argparse.Namespace) -> int:
         payload["blockers"] = args.blocker
     if args.risk_flag:
         payload["risk_flags"] = args.risk_flag
+    if args.project:
+        payload["project"] = args.project
+        payload["project_slug"] = args.project
+    if args.project_id:
+        payload["project_id"] = args.project_id
+    if args.workspace_root:
+        payload["cwd"] = args.workspace_root
+        payload["workspace_root"] = args.workspace_root
 
-    result = update_checkpoint(payload)
+    if context is not None:
+        result = update_checkpoint(payload, root=ralph_home(), context=context)
+        paths = checkpoint_paths(root=ralph_home(), context=context)
+    else:
+        result = update_checkpoint(payload, root=root)
+        paths = checkpoint_paths(root)
     if result["status"] == "skipped_red":
         print("CHECKPOINT_SKIPPED_RED findings=" + findings_label(result.get("findings", [])))
         return 0
     checkpoint = result["checkpoint"]
-    print(f"CHECKPOINT_OK {checkpoint_paths()['latest_json']} hash={checkpoint['content_hash']}")
+    print(f"CHECKPOINT_OK {paths['latest_json']} hash={checkpoint['content_hash']}")
     return 0
 
 
+def update_context(args: argparse.Namespace):
+    if not args.project_id or not args.workspace_root:
+        return None
+    context = active_context_from_payload({"cwd": args.workspace_root, "session_id": args.session_id or os.environ.get("RALPH_SESSION_ID", "")})
+    return replace(
+        context,
+        project_id=args.project_id,
+        project_slug=args.project or context.project_slug,
+        session_id=args.session_id or context.session_id,
+    )
+
+
 def show(args: argparse.Namespace) -> int:
-    checkpoint = load_latest()
+    checkpoint = load_latest(runtime_root(args))
     if checkpoint is None:
         print("CHECKPOINT_MISSING")
         return 1
@@ -116,10 +157,10 @@ def show(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_doctor() -> tuple[bool, list[str]]:
-    ok, messages = shared_doctor()
+def run_doctor(root: Path | None = None) -> tuple[bool, list[str]]:
+    ok, messages = shared_doctor(root)
     messages = [] if ok else list(messages)
-    paths = checkpoint_paths()
+    paths = checkpoint_paths(root)
     if not paths["base"].is_dir():
         messages.append("runtime directory missing")
     injection_state = paths["injection_state"]

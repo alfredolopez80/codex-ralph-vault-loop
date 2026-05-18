@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ralph Memory Worktree-Aware Architecture</title>
+  <style>
+    :root {
+      --bg: #f8f6f3;
+      --surface: #ffffff;
+      --surface-soft: #f1ece6;
+      --ink: #241f1a;
+      --muted: #73675d;
+      --line: rgba(36, 31, 26, 0.14);
+      --blue: #0f5c7a;
+      --blue-soft: rgba(15, 92, 122, 0.1);
+      --green: #31724a;
+      --green-soft: rgba(49, 114, 74, 0.1);
+      --amber: #a15c10;
+      --amber-soft: rgba(161, 92, 16, 0.12);
+      --red: #a13a31;
+      --red-soft: rgba(161, 58, 49, 0.1);
+      --mono: "Azeret Mono", "SF Mono", Consolas, monospace;
+      --sans: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(36, 31, 26, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(36, 31, 26, 0.035) 1px, transparent 1px),
+        radial-gradient(circle at 18% 6%, var(--amber-soft), transparent 32rem),
+        radial-gradient(circle at 86% 70%, var(--blue-soft), transparent 30rem),
+        var(--bg);
+      background-size: 24px 24px, 24px 24px, auto, auto, auto;
+      font-family: var(--sans);
+      line-height: 1.45;
+    }
+
+    a { color: var(--blue); }
+
+    .page {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 28px;
+      max-width: 1340px;
+      margin: 0 auto;
+      padding: 36px 28px 56px;
+    }
+
+    nav {
+      position: sticky;
+      top: 24px;
+      height: fit-content;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(8px);
+    }
+
+    nav strong {
+      display: block;
+      margin-bottom: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 0;
+      color: var(--muted);
+      font-size: 14px;
+      text-decoration: none;
+    }
+
+    main { min-width: 0; }
+
+    .hero {
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 18px 60px rgba(36, 31, 26, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      max-width: 920px;
+      font-size: clamp(34px, 5vw, 62px);
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 850px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
+      margin-top: 22px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      padding: 20px;
+    }
+
+    .card h2, .card h3 {
+      margin: 0 0 10px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .card p { margin: 0 0 12px; color: var(--muted); }
+    .card p:last-child { margin-bottom: 0; }
+
+    .span-12 { grid-column: span 12; }
+    .span-8 { grid-column: span 8; }
+    .span-6 { grid-column: span 6; }
+    .span-4 { grid-column: span 4; }
+
+    .label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .blue { color: var(--blue); background: linear-gradient(180deg, #fff, var(--blue-soft)); }
+    .green { color: var(--green); background: linear-gradient(180deg, #fff, var(--green-soft)); }
+    .amber { color: var(--amber); background: linear-gradient(180deg, #fff, var(--amber-soft)); }
+    .red { color: var(--red); background: linear-gradient(180deg, #fff, var(--red-soft)); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(120px, 1fr));
+      align-items: stretch;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .step {
+      min-height: 122px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      padding: 14px;
+      position: relative;
+    }
+
+    .step::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -10px;
+      width: 10px;
+      border-top: 2px solid var(--line);
+    }
+
+    .step:last-child::after { display: none; }
+
+    .step strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-size: 14px;
+    }
+
+    .step span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+
+    .matrix th, .matrix td {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .matrix th {
+      background: var(--surface-soft);
+      font-family: var(--mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    code {
+      padding: 0.15rem 0.35rem;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.74);
+      font-family: var(--mono);
+      font-size: 0.92em;
+    }
+
+    .diagram-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .diagram-links a {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #fff;
+      font-family: var(--mono);
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    @media (max-width: 960px) {
+      .page { grid-template-columns: 1fr; padding: 20px; }
+      nav { position: static; }
+      .span-8, .span-6, .span-4 { grid-column: span 12; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav>
+      <strong>Ralph Memory</strong>
+      <a href="#roots">Two roots</a>
+      <a href="#runtime">Project runtime</a>
+      <a href="#gates">Injection gates</a>
+      <a href="#graduation">Graduation</a>
+      <a href="#recall">Recall defaults</a>
+      <a href="#diagrams">Artifacts</a>
+    </nav>
+
+    <main>
+      <section class="hero">
+        <h1>Memory is useful only after identity, safety, and scope agree.</h1>
+        <p class="subtitle">Ralph Memory separates the stable code checkout from the active Codex worktree, writes runtime memory under a project id, treats MiVault inbox as quarantine, and lets <code>ralph-recall</code> read only scoped safe memory by default.</p>
+      </section>
+
+      <section id="roots" class="grid">
+        <article class="card blue span-6">
+          <div class="label"><span class="dot"></span>Executable root</div>
+          <h2><code>RALPH_CODE_ROOT</code></h2>
+          <p>Global hooks resolve Ralph scripts from the stable checkout recorded in <code>~/.codex/hooks/.ralph-repo-root</code>. This root tells Codex where the code lives, not which project is being worked on.</p>
+        </article>
+        <article class="card green span-6">
+          <div class="label"><span class="dot"></span>Active workspace</div>
+          <h2><code>ACTIVE_WORKSPACE_ROOT</code></h2>
+          <p>The active project comes from hook payload <code>cwd</code>, tool <code>workdir</code>, <code>PWD</code>, and git metadata. <code>ActiveContext</code> turns that into <code>project_slug</code>, <code>project_id</code>, branch, sha, session id, and workspace instance id.</p>
+        </article>
+      </section>
+
+      <section id="runtime" class="grid">
+        <article class="card span-12">
+          <div class="label"><span class="dot"></span>Write path</div>
+          <div class="flow" aria-label="Ralph Memory write path">
+            <div class="step"><strong>Hook event</strong><span>SessionStart, UserPromptSubmit, PostToolUse, Stop.</span></div>
+            <div class="step"><strong>ActiveContext</strong><span>Resolve workspace identity before writing anything.</span></div>
+            <div class="step"><strong>RED gate</strong><span>Secrets and sensitive raw logs become hash-only audit or skip.</span></div>
+            <div class="step"><strong>Runtime write</strong><span>Checkpoint, handoff, ledgers, reports, L2-L4 under <code>projects/&lt;project_id&gt;</code>.</span></div>
+            <div class="step"><strong>Dream</strong><span>Consolidates safe project evidence into reviewable candidates.</span></div>
+            <div class="step"><strong>Inbox</strong><span>MiVault inbox receives quarantine digests, not canonical memory.</span></div>
+            <div class="step"><strong>Review</strong><span>Graduation decides auto, ask user, or skip.</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="gates" class="grid">
+        <article class="card red span-4">
+          <div class="label"><span class="dot"></span>Safety</div>
+          <h3>RED never persists or injects</h3>
+          <p>Checkpoint, handoff, dream, inbox review, and recall all classify or sanitize before storing or printing useful context.</p>
+        </article>
+        <article class="card amber span-4">
+          <div class="label"><span class="dot"></span>Identity</div>
+          <h3>Project, session, workspace</h3>
+          <p>Rehydration requires matching <code>project_id</code>, session or continuation rules, workspace instance, TTL, and compatible branch metadata.</p>
+        </article>
+        <article class="card green span-4">
+          <div class="label"><span class="dot"></span>Budget</div>
+          <h3>15% handoff reinjection</h3>
+          <p>If the sanitized handoff body fits the configured context ratio, wakeup injects it compactly. Oversized content is deterministically compacted or skipped by the hard cap.</p>
+        </article>
+      </section>
+
+      <section id="graduation" class="grid">
+        <article class="card span-8">
+          <div class="label"><span class="dot"></span>Graduation model</div>
+          <h2>Aristotelian review is a schema, not decoration.</h2>
+          <p>Each review decision records the candidate hash, source project metadata, classification, confidence, decision, target, and an <code>aristotle</code> rationale block. The decision chooses the smallest safe action.</p>
+          <table class="matrix">
+            <thead><tr><th>Candidate condition</th><th>Decision</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td>RED</td><td><code>skip</code></td><td>Only hash and safe metadata may be audited.</td></tr>
+              <tr><td>Missing project scope</td><td><code>ask_user</code></td><td>Auto-graduation requires source project identity.</td></tr>
+              <tr><td>Project mismatch</td><td><code>skip</code></td><td>A project cannot silently inherit another project memory.</td></tr>
+              <tr><td>Duplicate</td><td><code>skip</code></td><td>Recall should stay concise and deduplicated.</td></tr>
+              <tr><td>High-confidence project decision or fact</td><td><code>auto_graduate</code></td><td>Safe project-scoped knowledge goes to curated MiVault.</td></tr>
+              <tr><td>Global or L1 rule</td><td><code>ask_user</code></td><td>Global behavior needs explicit approval.</td></tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="card amber span-4">
+          <div class="label"><span class="dot"></span>Inbox rule</div>
+          <h3>Inbox is quarantine</h3>
+          <p>Inbox/raw files are not read by default. They appear only when a diagnostic recall explicitly asks for <code>--include-raw</code>.</p>
+        </article>
+      </section>
+
+      <section id="recall" class="grid">
+        <article class="card blue span-12">
+          <div class="label"><span class="dot"></span>Read path</div>
+          <h2>What <code>ralph-recall</code> can use by default</h2>
+          <table class="matrix">
+            <thead><tr><th>Source</th><th>Default recall</th><th>Rule</th></tr></thead>
+            <tbody>
+              <tr><td>Repo guidance and skills</td><td>Yes</td><td>Context only; explicit user request and current files win.</td></tr>
+              <tr><td>Project runtime layers, handoffs, ledgers</td><td>Yes</td><td>Only under the active <code>project_id</code>.</td></tr>
+              <tr><td>Curated MiVault project <code>wiki</code>, <code>decisions</code>, <code>sessions</code>, <code>handoffs</code></td><td>Yes</td><td>Relevant to the current project slug.</td></tr>
+              <tr><td>MiVault global <code>wiki</code> and <code>decisions</code></td><td>Yes</td><td>Only safe curated global memory.</td></tr>
+              <tr><td>MiVault inbox/raw</td><td>No</td><td>Requires <code>--include-raw</code>.</td></tr>
+              <tr><td>Legacy global runtime</td><td>No by default</td><td>Audit first; do not migrate ambiguous memory automatically.</td></tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <section id="diagrams" class="grid">
+        <article class="card span-12">
+          <div class="label"><span class="dot"></span>Versioned artifacts</div>
+          <h2>Use the diagrams for the quick mental model, then this page for the operating rules.</h2>
+          <div class="diagram-links">
+            <a href="./diagrams/ralph-memory-worktree-architecture.svg">worktree architecture SVG</a>
+            <a href="./diagrams/ralph-memory-worktree-architecture.png">worktree architecture PNG</a>
+            <a href="./diagrams/ralph-memory-graduation-recall-flow.svg">graduation and recall SVG</a>
+            <a href="./diagrams/ralph-memory-graduation-recall-flow.png">graduation and recall PNG</a>
+            <a href="./memory-stack.md">memory-stack.md</a>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

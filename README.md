@@ -55,7 +55,7 @@ Current acceptance evidence:
 - Memory handoff works with temporary `RALPH_HOME`.
 - Rolling checkpoints create compact in-progress continuity state and rehydrate only under budget, TTL, RED, and dedupe gates.
 - MiVault inbox review and graduation are implemented with hash-only RED skips, Aristotelian decision objects, project-scoped auto-graduation, and user review for ambiguity/global rules.
-- `reports/pre-global-audit/latest.md` can produce `PRE_GLOBAL_AUDIT_PASS` before global hook installation.
+- `reports/pre-global-audit/latest.md` can produce `PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS` before global hook installation.
 - Gates generate reports.
 - Unit, integration, and eval suites pass.
 - `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
@@ -103,21 +103,29 @@ Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual
 
 ![Memory and eval lifecycle](./docs/architecture/diagrams/memory-eval-lifecycle.png)
 
-The memory stack is intentionally outside the repo. `scripts/memory/wakeup.py` loads compact L0-L3 runtime context. `scripts/memory/handoff.py` writes the latest handoff and archives prior handoffs. `scripts/vault/vault-save.py` persists GREEN globally and YELLOW per project. RED is skipped by vault save, memory extraction, and stop handoff hooks.
+The memory stack is intentionally outside the repo. Global hooks execute Ralph code from the stable checkout recorded in `~/.codex/hooks/.ralph-repo-root`, then derive the active project from the hook payload `cwd`/workdir. Runtime checkpoints, handoffs, ledgers, reports, and L2-L4 layers are scoped under `~/.ralph-codex/projects/<project_id>/`; L0/L1 remain global only when explicitly marked as global policy. RED is skipped by vault save, memory extraction, and stop handoff hooks.
+
+![Ralph memory worktree-aware architecture](./docs/architecture/diagrams/ralph-memory-worktree-architecture.png)
 
 Memory dream consolidation closes the runtime learning loop. `scripts/memory/dream.py` consolidates safe handoffs and ledgers into reviewable candidates, `--auto-update-state` writes the non-canonical `L4_dream_state` layer, and `wakeup.py` loads L4 on future session starts. The global `SessionStart` hook runs `scripts/memory/dream-scheduler.py --catch-up --target-time 11:30` before wakeup, so missed daily runs catch up the next time Codex starts. MiVault receives reviewable inbox digests through `--vault-inbox`; `scripts/vault/vault-inbox-review.py` audits those inbox candidates, and `scripts/vault/vault-graduate.py` can graduate only safe high-confidence project-scoped notes into curated `wiki` or `decisions`.
 
 ![Ralph memory graduation flow](./docs/architecture/diagrams/ralph-memory-refinement.png)
 
+![Ralph memory graduation and recall flow](./docs/architecture/diagrams/ralph-memory-graduation-recall-flow.png)
+
+The detailed visual explainer is available at [`docs/architecture/ralph-memory-architecture-explainer.html`](./docs/architecture/ralph-memory-architecture-explainer.html). It is a self-contained repo-local page that explains the two-root model, project runtime layout, injection gates, MiVault graduation, and `ralph-recall` defaults.
+
 The refinement model has three different trust zones:
 
 | Zone | Current behavior | Recall behavior |
 | --- | --- | --- |
-| Runtime memory | Handoffs, ledgers, checkpoints, and L0-L4 layers are produced by hooks, `checkpoint.py`, and `dream.py`. | `wakeup.py` can load compact layers plus fresh rolling checkpoints; `ralph-recall.py` can find relevant safe runtime memory. |
+| Runtime memory | Handoffs, ledgers, checkpoints, reports, and L2-L4 layers are produced per active project by hooks, `checkpoint.py`, and `dream.py`. | `wakeup.py` can load compact project layers plus fresh project rolling checkpoints; `ralph-recall.py` can find relevant safe runtime memory for the active project. |
 | MiVault inbox/raw | `dream.py --vault-inbox` writes reviewable digests into project inbox as quarantine. `vault-inbox-review.py` evaluates inbox candidates in report-only mode by default. | Not read by default; only included with `ralph-recall.py --include-raw`. |
 | Curated MiVault | `wiki`, `decisions`, `sessions`, and `handoffs` hold durable project knowledge. `vault-graduate.py` writes only safe, high-confidence, project-scoped candidates there. | Read by default when relevant to the project. |
 
-Rolling checkpoints are compact operational state, not transcript replay. They store objective, phase, verified state, next action, blockers, relevant paths, and validation status under `~/.ralph-codex/checkpoints/`. `UserPromptSubmit` injects them only for continuation prompts such as `continua` or `resume`; `SessionStart` injects them only when fresh, useful, and not already injected for the same session hash; `Stop` compiles them into the final handoff.
+Rolling checkpoints are compact operational state, not transcript replay. They store objective, phase, verified state, next action, blockers, relevant paths, validation status, and project metadata under `~/.ralph-codex/projects/<project_id>/checkpoints/`. `UserPromptSubmit` injects them only for continuation prompts such as `continua` or `resume` when the checkpoint belongs to the active project, session, workspace instance, and compatible branch; `SessionStart` applies the same gates before rehydrating; `Stop` compiles matching checkpoints into the project handoff.
+
+Handoff rehydration is size-aware and identity-gated. `wakeup.py` first parses handoff metadata, validates project, session, workspace instance, TTL, classification, RED/redaction status, and per-session injection hash, then estimates the sanitized handoff body size. If it fits within the default `15%` reinjection budget, it is included without additional compaction; if it exceeds that budget, it is compacted deterministically. `RALPH_REINJECT_MAX_CONTEXT_RATIO` and `RALPH_REINJECT_HARD_WORD_LIMIT` can tune the budget, but the handoff path remains bounded by the overall wakeup context cap and never treats raw transcript or frontmatter as eligible injected context.
 
 The MiVault graduation engine is intentionally Aristotelian: reject weak assumptions, keep RED out, preserve only irreducible useful facts, choose the smallest safe target, and ask the user when confidence, scope, or destination is ambiguous. Every decision includes machine-readable `aristotle` fields. RED candidates are hash-only audit events, duplicates are skipped, L1/global candidates ask the user, project decisions route to `decisions`, and project knowledge routes to `wiki`. Inbox remains non-canonical quarantine until report review or explicit graduation.
 
@@ -132,7 +140,7 @@ The quality spine is scriptable and repeatable:
 | `scripts/memory/checkpoint.py --doctor`                            | Validates rolling checkpoint JSON, render budget, injection state, and archive health.         |
 | `scripts/vault/vault-inbox-review.py`                              | Produces report-only Aristotelian decisions for MiVault inbox candidates.                      |
 | `scripts/vault/vault-graduate.py`                                  | Applies safe high-confidence project-scoped graduation into curated MiVault targets.           |
-| `scripts/setup/pre-global-audit.py`                                | Generates the blocking `PRE_GLOBAL_AUDIT_PASS` report before global hook installation.         |
+| `scripts/setup/pre-global-audit.py`                                | Generates the blocking `PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS` report before global hook installation. |
 | `scripts/setup/smoke-global-hooks.py`                              | Smoke-tests installed global hooks from `~/.codex/hooks` using a temporary runtime.            |
 | `scripts/gates/run-gates.py --minimal`                             | Writes `.ralph-codex/reports/gates/latest.json` and `.md`.                                     |
 | `scripts/evals/run_scorecard.py`                                   | Applies RASS v1 scorecards.                                                                    |
@@ -321,7 +329,8 @@ codex-ralph-vault-loop/
 | ----------------------------------------------------------------------- | ------------------------------------------------ |
 | [Architecture overview](./docs/architecture/overview.md)                | System-level architecture and responsibilities.  |
 | [MCP model router](./docs/architecture/mcp-model-router.md)             | External model routing policy and constraints.   |
-| [Memory stack](./docs/architecture/memory-stack.md)                     | Wakeup, handoff, and vault memory model.         |
+| [Memory stack](./docs/architecture/memory-stack.md)                     | Worktree-aware wakeup, handoff, vault, graduation, and recall model. |
+| [Memory visual explainer](./docs/architecture/ralph-memory-architecture-explainer.html) | Browser-readable visual guide for the Ralph memory architecture. |
 | [Hooks](./docs/architecture/hooks.md)                                   | Codex lifecycle hooks and safety behavior.       |
 | [Subagents](./docs/architecture/subagents.md)                           | Codex subagent definitions and roles.            |
 | [Evaluation spine](./docs/architecture/evaluation-spine.md)             | Gates, evals, scorecards, and acceptance checks. |

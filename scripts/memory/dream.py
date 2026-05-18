@@ -6,7 +6,7 @@ from pathlib import Path
 
 from _dream_core import build_report
 from _dream_outputs import write_dream_state, write_reports, write_vault_inbox
-from _memory_common import ensure_runtime, now_iso
+from _memory_common import ensure_runtime, now_iso, project_runtime_root
 from _promotion import summarize_promotions
 
 
@@ -27,6 +27,8 @@ def main() -> int:
     parser.add_argument("--auto-update-state", action="store_true", help="Update L4 dream state for future wakeup context.")
     parser.add_argument("--vault-inbox", action="store_true", help="Write a reviewable dream digest into the MiVault project inbox.")
     parser.add_argument("--vault-project", default=Path.cwd().name, help="Project slug for --vault-inbox.")
+    parser.add_argument("--project-id", default="", help="Project runtime id for project-scoped Ralph memory.")
+    parser.add_argument("--workspace-root", default="", help="Active workspace root for report metadata.")
     parser.add_argument("--assist-promote", action="store_true", help="Auto-promote very safe candidates and queue ambiguous candidates for review.")
     parser.add_argument("--apply-candidates", action="store_true", help="Reserved for an approved future apply flow.")
     args = parser.parse_args()
@@ -34,8 +36,17 @@ def main() -> int:
     if args.apply_candidates:
         return apply_candidates()
 
-    root = ensure_runtime()
+    root = ensure_runtime(project_runtime_root(args.project_id) if args.project_id else None)
     report = build_report(root, args.since_days, args.max_items, now_iso())
+    if args.project_id:
+        report["source_project_id"] = args.project_id
+        report["source_project_slug"] = args.vault_project
+        report["source_workspace_root"] = args.workspace_root
+        for candidate in report.get("candidates", []):
+            if isinstance(candidate, dict):
+                candidate["source_project_id"] = args.project_id
+                candidate["source_project_slug"] = args.vault_project
+                candidate["source_workspace_root"] = args.workspace_root
     md_path, _json_path = write_reports(root, report, args.emit_patch)
     if args.assist_promote:
         promotion = summarize_promotions(root, report)

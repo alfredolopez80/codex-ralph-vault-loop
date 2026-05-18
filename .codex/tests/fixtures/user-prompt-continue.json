@@ -1,6 +1,6 @@
 {
   "hook_event_name": "UserPromptSubmit",
-  "session_id": "fixture-continue",
+  "session_id": "fixture-new-task",
   "turn_id": "turn-2",
   "prompt": "continua"
 }

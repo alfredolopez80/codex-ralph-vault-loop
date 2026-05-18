@@ -28,7 +28,9 @@ def run_hook(ralph_home: Path, payload: dict) -> subprocess.CompletedProcess[str
 
 
 def latest_json(root: Path) -> dict:
-    return json.loads((root / "checkpoints" / "latest.json").read_text(encoding="utf-8"))
+    matches = sorted(root.glob("projects/*/checkpoints/latest.json"))
+    assert len(matches) == 1
+    return json.loads(matches[0].read_text(encoding="utf-8"))
 
 
 def all_text(root: Path) -> str:
@@ -106,6 +108,6 @@ def test_post_tool_checkpoint_skips_red_output_without_leak(tmp_path: Path) -> N
     )
 
     assert result.returncode == 0, result.stderr
-    assert not (tmp_path / "checkpoints" / "latest.json").exists()
+    assert not list(tmp_path.glob("projects/*/checkpoints/latest.json"))
     assert red_text not in all_text(tmp_path)
     assert "abc123" not in all_text(tmp_path)
