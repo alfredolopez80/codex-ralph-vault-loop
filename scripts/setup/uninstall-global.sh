@@ -10,6 +10,7 @@ GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
 GLOBAL_HELPER_ROOT="${HOME}/.ralph-codex/bin"
+GLOBAL_AGENTS_MD="${HOME}/.codex/AGENTS.md"
 MODE=""
 WITH_AGENTS=0
 
@@ -79,6 +80,7 @@ Safety:
   - Refuses to remove non-symlink global entries.
   - Refuses to remove symlinks that do not point at this repo.
   - Does not edit ~/.codex/config.toml.
+  - Removes only the marked Ralph implementation-notes policy block from ~/.codex/AGENTS.md.
 USAGE
 }
 
@@ -132,6 +134,48 @@ remove_agent() {
 
 remove_helpers() {
   remove_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
+}
+
+remove_agents_policy() {
+  local target="$GLOBAL_AGENTS_MD"
+  local start="<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->"
+  local end="<!-- END RALPH IMPLEMENTATION NOTES POLICY -->"
+
+  if [[ ! -f "$target" ]]; then
+    printf 'GLOBAL_UNINSTALL_OK absent %s implementation-notes-policy\n' "$target"
+    return 0
+  fi
+  if [[ -L "$target" ]]; then
+    printf 'GLOBAL_UNINSTALL_SKIP symlinked-agents-md %s\n' "$target"
+    return 0
+  fi
+  if ! grep -q "$start" "$target" && ! grep -q "$end" "$target"; then
+    printf 'GLOBAL_UNINSTALL_OK absent %s implementation-notes-policy\n' "$target"
+    return 0
+  fi
+  if ! grep -q "$start" "$target" || ! grep -q "$end" "$target"; then
+    printf 'GLOBAL_UNINSTALL_FAIL unbalanced implementation-notes policy markers in %s\n' "$target" >&2
+    return 1
+  fi
+  if [[ "$MODE" == "dry-run" ]]; then
+    printf 'GLOBAL_UNINSTALL_DRY_RUN remove %s implementation-notes-policy\n' "$target"
+    return 0
+  fi
+  python3 - "$target" "$start" "$end" << 'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+start = sys.argv[2]
+end = sys.argv[3]
+text = target.read_text(encoding="utf-8")
+before, rest = text.split(start, 1)
+_old, after = rest.split(end, 1)
+target.write_text((before.rstrip() + "\n\n" + after.lstrip()).strip() + "\n", encoding="utf-8")
+PY
+  printf 'GLOBAL_UNINSTALL_REMOVE %s implementation-notes-policy\n' "$target"
 }
 
 main() {
@@ -198,6 +242,7 @@ main() {
   fi
 
   remove_helpers
+  remove_agents_policy
 
   printf 'GLOBAL_UNINSTALL_CONFIG_UNCHANGED %s\n' "${HOME}/.codex/config.toml"
   printf 'GLOBAL_UNINSTALL_DONE mode=%s repo=%s\n' "$MODE" "$REPO_ROOT"

@@ -41,6 +41,15 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Tracks up to five blocks in `.codex/state/<session>/quality-blocks.json`
     and logs to `.codex/state/<session>/stop-hook.log`.
 
+- `.codex/hooks/implementation_notes_guard.py`
+  - Runs on `Stop`.
+  - Blocks when a referenced approved plan requires implementation notes but the
+    canonical repo-root notes file is missing, empty beyond the initial
+    template, not approved, or present only inside an ephemeral Codex worktree.
+  - Treats hooks as guardrails only. It never writes implementation decisions.
+  - Keeps RED-sensitive sessions local by skipping validation when the final
+    assistant message classifies as RED.
+
 ## Manual Tests
 
 Run the local hook smoke suite:
@@ -61,6 +70,7 @@ bash .codex/hooks/universal-prompt-classifier.sh < .codex/tests/fixtures/user-pr
 bash .codex/hooks/aristotle-analysis-display.sh < .codex/tests/fixtures/user-prompt-complex.json
 bash .codex/hooks/anti-rationalization-stop.sh < .codex/tests/fixtures/stop-excuse.json
 bash .codex/hooks/ralph-stop-quality-gate.sh < .codex/tests/fixtures/stop-verified.json
+python3 .codex/hooks/implementation_notes_guard.py < .codex/tests/fixtures/implementation-notes-no-plan.json
 ```
 
 Every hook should print valid JSON. `Stop` hooks block with:

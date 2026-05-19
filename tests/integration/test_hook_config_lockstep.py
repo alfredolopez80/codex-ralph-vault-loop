@@ -51,4 +51,5 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
     assert post_tool.index("post_tool_checkpoint.py") < post_tool.index("post_tool_cost_ledger.py")
 
     stop = [name for name, _timeout in hook_pairs(local, "Stop")]
+    assert "implementation_notes_guard.py" in stop
     assert stop.index("stop_persist_memory.py") < stop.index("stop_memory_promotion_review.py")

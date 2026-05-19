@@ -24,6 +24,7 @@ GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
 GLOBAL_HELPER_ROOT="${HOME}/.ralph-codex/bin"
+GLOBAL_AGENTS_MD="${HOME}/.codex/AGENTS.md"
 FAILURES=0
 WARNINGS=0
 
@@ -164,6 +165,20 @@ check_config_not_managed() {
   fi
 }
 
+check_agents_policy() {
+  if [[ ! -f "$GLOBAL_AGENTS_MD" ]]; then
+    fail "global AGENTS.md missing implementation notes policy: $GLOBAL_AGENTS_MD"
+    return
+  fi
+  if grep -q "BEGIN RALPH IMPLEMENTATION NOTES POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH IMPLEMENTATION NOTES POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Implementation Notes For Approved Plans" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md implementation notes policy present"
+  else
+    fail "global AGENTS.md missing implementation notes policy"
+  fi
+}
+
 check_hook_marker() {
   if [[ ! -f "$GLOBAL_HOOK_MARKER" ]]; then
     warn "global hook repo marker absent; run install-global-hooks.py when validating hooks"
@@ -212,6 +227,7 @@ main() {
   done
   check_helper_link
   check_hook_marker
+  check_agents_policy
 
   if [[ "$FAILURES" -eq 0 ]]; then
     printf 'GLOBAL_DOCTOR_PASS warnings=%s repo=%s\n' "$WARNINGS" "$REPO_ROOT"

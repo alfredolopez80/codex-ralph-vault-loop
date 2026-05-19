@@ -51,6 +51,13 @@ for script in \
 done
 pass "bash syntax"
 
+PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
+  "$HOOKS/implementation_notes_guard.py" \
+  "$ROOT/scripts/plans/implementation_notes_lib.py" \
+  "$ROOT/scripts/plans/create-implementation-notes.py" \
+  "$ROOT/scripts/plans/append-implementation-note.py" || fail "python implementation notes syntax"
+pass "implementation notes python syntax"
+
 simple_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-simple.json)"
 assert_json "$simple_classifier"
 printf '%s' "$simple_classifier" | jq -e '.continue == true' > /dev/null || fail "simple classifier did not continue"
@@ -120,6 +127,10 @@ loop="$(run_hook ralph-stop-quality-gate.sh stop-active-loop.json)"
 assert_json "$loop"
 printf '%s' "$loop" | jq -e '.decision == "block"' > /dev/null || fail "active loop did not block"
 pass "active loop blocks"
+
+implementation_notes_no_plan="$(run_python_hook implementation_notes_guard.py implementation-notes-no-plan.json)"
+[[ -z "$implementation_notes_no_plan" ]] || fail "implementation notes guard emitted output for no-plan session"
+pass "implementation notes no-plan skips"
 
 PLAN_REPO="$STATE/plan-state-repo"
 mkdir -p "$PLAN_REPO/.codex"

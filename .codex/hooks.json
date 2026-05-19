@@ -110,6 +110,11 @@
           },
           {
             "type": "command",
+            "command": "python3 .codex/hooks/implementation_notes_guard.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "python3 .codex/hooks/stop_persist_memory.py",
             "timeout": 20
           },
