@@ -24,6 +24,20 @@ Users should describe tasks normally. Do not ask users to manually run `wakeup.p
 
 If a task is RED, Codex must stay `local` or `fallback-local`. Existing MCPs may remain active, but RED content must never be routed externally. Recall is context, not authority; current repo files and explicit user instruction override recall.
 
+## Implementation Notes For Approved Plans
+
+When the user approves a plan and asks Codex to implement it, Codex must maintain a per-plan implementation notes artifact unless the user explicitly opts out.
+
+- Store notes beside the approved plan under the canonical local repo root `.ralph/plans/`, not in `HOME` and not only in an ephemeral Codex worktree.
+- Treat secondary worktree notes as disposable convenience copies. The canonical local repo root copy is the durable local source of truth.
+- Use `<plan-slug>-implementation-notes.html` by default.
+- Create the notes file at implementation start, after the plan is approved.
+- Add timestamped entries for design decisions, spec interpretations, intentional deviations, tradeoffs, open questions, and validation findings that affect the implementation.
+- Normalize and constrain note paths before writing; reject traversal, symlink escape, and sensitive filenames.
+- Do not persist RED content. Sanitize with the existing sensitive-content detector before writing notes.
+- If a referenced approved plan declares `Implementation notes required: yes`, finalization must block until the canonical repo-root notes file exists and contains at least one non-initial decision entry.
+- Final responses must mention the notes path and unresolved open questions.
+
 ## Z.ai and MiniMax Policy
 
 - No direct `model_provider` profiles.

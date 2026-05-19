@@ -133,6 +133,11 @@ def hook_config() -> dict:
                         },
                         {
                             "type": "command",
+                            "command": f"python3 {q(hooks / 'implementation_notes_guard.py')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
                             "command": f"python3 {q(hooks / 'stop_persist_memory.py')}",
                             "timeout": 20,
                         },
@@ -166,12 +171,19 @@ def validate_source_repo(allow_worktree_source: bool) -> None:
         )
 
 
+def reject_symlink_target(path: Path, label: str) -> None:
+    if path.is_symlink():
+        raise SystemExit(f"GLOBAL_HOOKS_REFUSED_SYMLINK_TARGET {label}={path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install global Codex hooks for Ralph memory.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--allow-worktree-source", action="store_true", help="Development-only override for installing from a Codex worktree.")
     args = parser.parse_args()
     validate_source_repo(args.allow_worktree_source)
+    reject_symlink_target(GLOBAL_HOOKS, "hooks_json")
+    reject_symlink_target(GLOBAL_HOOK_DIR, "hooks_dir")
 
     data = hook_config()
     if args.dry_run:
