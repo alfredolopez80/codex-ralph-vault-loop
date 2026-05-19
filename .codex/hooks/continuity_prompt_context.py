@@ -27,6 +27,7 @@ CONTINUATION_PHRASES = (
     "where were we",
     "pick it up",
 )
+EXACT_CONTINUATION_PROMPTS = {"resume"}
 MAX_CONTEXT_WORDS = 300
 UNKNOWN_SESSION_ID = "unknown"
 
@@ -58,6 +59,8 @@ def normalize(text: str) -> str:
 
 def is_continuation(prompt: str) -> bool:
     normalized = normalize(prompt)
+    if normalized in EXACT_CONTINUATION_PROMPTS:
+        return True
     tokens = set(normalized.split())
     return any(phrase in normalized if " " in phrase else phrase in tokens for phrase in CONTINUATION_PHRASES)
 

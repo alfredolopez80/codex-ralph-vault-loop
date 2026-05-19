@@ -80,6 +80,35 @@ def test_continuity_prompt_updates_objective_and_injects_once(tmp_path: Path) ->
     assert spanish_summary_request.stdout == ""
 
 
+def test_continuity_prompt_accepts_exact_resume_only(tmp_path: Path) -> None:
+    new_task = run_hook(
+        tmp_path,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "fixture-resume",
+            "prompt": "Implement exact resume continuation behavior.",
+        },
+    )
+    assert new_task.returncode == 0, new_task.stderr
+    assert new_task.stdout == ""
+
+    exact_resume = run_hook(
+        tmp_path,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "fixture-resume", "prompt": "resume"},
+    )
+    assert exact_resume.returncode == 0, exact_resume.stderr
+    context = json.loads(exact_resume.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "Latest rolling checkpoint:" in context
+    assert "Objective: Implement exact resume continuation behavior." in context
+
+    spanish_summary_request = run_hook(
+        tmp_path,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "fixture-resume-summary", "prompt": "resume este documento"},
+    )
+    assert spanish_summary_request.returncode == 0, spanish_summary_request.stderr
+    assert spanish_summary_request.stdout == ""
+
+
 def test_continuity_prompt_does_not_dedupe_missing_session_id_globally(tmp_path: Path) -> None:
     new_task = run_hook(
         tmp_path,
