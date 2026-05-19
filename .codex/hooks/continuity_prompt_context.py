@@ -17,7 +17,10 @@ CONTINUATION_PHRASES = (
     "continua",
     "sigue",
     "donde quedamos",
-    "resume",
+    "resume work",
+    "resume task",
+    "resume session",
+    "resume where we left off",
     "ok sigue",
     "continue",
     "carry on",
@@ -25,6 +28,7 @@ CONTINUATION_PHRASES = (
     "pick it up",
 )
 MAX_CONTEXT_WORDS = 300
+UNKNOWN_SESSION_ID = "unknown"
 
 
 def main() -> int:
@@ -95,12 +99,14 @@ def maybe_inject(session_id: str, context: ActiveContext) -> None:
     content_hash = str(checkpoint.get("content_hash") or "")
     if not content_hash:
         content_hash = hash_text(render_checkpoint(checkpoint))
-    if already_injected(session_id, content_hash, context):
+    has_stable_session = session_id != UNKNOWN_SESSION_ID
+    if has_stable_session and already_injected(session_id, content_hash, context):
         return
     rendered = render_checkpoint(checkpoint, max_words=MAX_CONTEXT_WORDS).strip()
     if not rendered or is_red(rendered):
         return
-    record_injection(session_id, content_hash, context)
+    if has_stable_session:
+        record_injection(session_id, content_hash, context)
     write_json(
         {
             "continue": True,

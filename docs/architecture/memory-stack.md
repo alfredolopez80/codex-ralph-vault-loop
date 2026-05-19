@@ -14,7 +14,7 @@ RALPH_CODE_ROOT != ACTIVE_WORKSPACE_ROOT
 
 `RALPH_CODE_ROOT` is the stable checkout recorded in `~/.codex/hooks/.ralph-repo-root`. It tells global hooks where Ralph scripts live. It never defines the active project.
 
-`ACTIVE_WORKSPACE_ROOT` comes from the hook payload `cwd`, tool `workdir`, `PWD`, or the current process. `.codex/hooks/shared/active_context.py` resolves that workspace into git root, project slug, project id, remote hash, branch, sha, session id, and workspace instance id.
+`ACTIVE_WORKSPACE_ROOT` comes from the hook payload `cwd`, tool `workdir`, `PWD`, or the current process. `.codex/hooks/shared/active_context.py` resolves that workspace into git root, project slug, workspace-scoped project id, remote hash, branch, sha, session id, and workspace instance id. Two local worktrees with the same remote get distinct project ids so `latest.json` files cannot overwrite each other.
 
 Runtime writes now belong under the active project:
 

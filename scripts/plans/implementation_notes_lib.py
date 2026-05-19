@@ -300,6 +300,8 @@ def resolve_for_write(path: str | Path, primary_root: Path, allow_docs: bool = F
     if _has_sensitive_name(candidate):
         raise ImplementationNotesError(f"sensitive filename is not allowed: {path}")
     resolved = candidate.resolve(strict=False)
+    if _has_sensitive_name(resolved):
+        raise ImplementationNotesError(f"sensitive filename is not allowed: {path}")
     allowed = _allowed_roots(primary_root, allow_docs)
     if not any(_is_relative_to(resolved, root) for root in allowed):
         raise ImplementationNotesError(f"write path escapes allowed repo-local roots: {path}")

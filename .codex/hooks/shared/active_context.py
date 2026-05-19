@@ -112,7 +112,10 @@ def run_git(root: Path, *args: str) -> str:
 
 def project_id_for(identity_root: Path, remote_url: str = "") -> str:
     root = identity_root.resolve()
-    material = f"remote:{remote_url}|name:{remote_repo_name(remote_url) or root.name}" if remote_url else f"path:{root}"
+    if remote_url:
+        material = f"remote:{remote_url}|name:{remote_repo_name(remote_url) or root.name}|workspace:{root}"
+    else:
+        material = f"path:{root}"
     return f"{PROJECT_ID_PREFIX}-{hash_text(material)[:16]}"
 
 

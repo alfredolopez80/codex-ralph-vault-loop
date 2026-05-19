@@ -594,6 +594,29 @@ def test_symlink_escape_and_worktree_only_notes_are_rejected(tmp_path: Path) -> 
     assert symlink.returncode != 0
     assert "escapes allowed" in symlink.stderr
 
+    sensitive_target = primary / ".ralph" / "plans" / "token-output.html"
+    sensitive_link = primary / ".ralph" / "plans" / "public-notes.html"
+    sensitive_link.symlink_to(sensitive_target)
+    sensitive_symlink = run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--plan",
+            str(plan),
+            "--notes",
+            str(sensitive_link),
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+            "--force",
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+    assert sensitive_symlink.returncode != 0
+    assert "sensitive filename" in sensitive_symlink.stderr
+
     worktree_only = run(
         [
             sys.executable,
