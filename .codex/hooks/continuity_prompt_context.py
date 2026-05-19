@@ -17,14 +17,19 @@ CONTINUATION_PHRASES = (
     "continua",
     "sigue",
     "donde quedamos",
-    "resume",
+    "resume work",
+    "resume task",
+    "resume session",
+    "resume where we left off",
     "ok sigue",
     "continue",
     "carry on",
     "where were we",
     "pick it up",
 )
+EXACT_CONTINUATION_PROMPTS = {"resume"}
 MAX_CONTEXT_WORDS = 300
+UNKNOWN_SESSION_ID = "unknown"
 
 
 def main() -> int:
@@ -54,6 +59,8 @@ def normalize(text: str) -> str:
 
 def is_continuation(prompt: str) -> bool:
     normalized = normalize(prompt)
+    if normalized in EXACT_CONTINUATION_PROMPTS:
+        return True
     tokens = set(normalized.split())
     return any(phrase in normalized if " " in phrase else phrase in tokens for phrase in CONTINUATION_PHRASES)
 
@@ -95,12 +102,14 @@ def maybe_inject(session_id: str, context: ActiveContext) -> None:
     content_hash = str(checkpoint.get("content_hash") or "")
     if not content_hash:
         content_hash = hash_text(render_checkpoint(checkpoint))
-    if already_injected(session_id, content_hash, context):
+    has_stable_session = session_id != UNKNOWN_SESSION_ID
+    if has_stable_session and already_injected(session_id, content_hash, context):
         return
     rendered = render_checkpoint(checkpoint, max_words=MAX_CONTEXT_WORDS).strip()
     if not rendered or is_red(rendered):
         return
-    record_injection(session_id, content_hash, context)
+    if has_stable_session:
+        record_injection(session_id, content_hash, context)
     write_json(
         {
             "continue": True,

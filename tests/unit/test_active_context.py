@@ -36,7 +36,7 @@ def test_active_context_uses_payload_cwd_git_root(tmp_path: Path) -> None:
     assert context.remote_url_hash
 
 
-def test_active_context_uses_tool_workdir_and_stable_remote_identity(tmp_path: Path) -> None:
+def test_active_context_uses_tool_workdir_and_workspace_scoped_remote_identity(tmp_path: Path) -> None:
     repo_a = tmp_path / "worktree-a"
     repo_b = tmp_path / "worktree-b"
     remote = "git@example.com:org/shared.git"
@@ -48,5 +48,5 @@ def test_active_context_uses_tool_workdir_and_stable_remote_identity(tmp_path: P
 
     assert context_a.workspace_root == repo_a.resolve()
     assert context_b.workspace_root == repo_b.resolve()
-    assert context_a.project_id == context_b.project_id
+    assert context_a.project_id != context_b.project_id
     assert context_a.workspace_instance_id != context_b.workspace_instance_id

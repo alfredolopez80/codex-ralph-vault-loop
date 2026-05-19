@@ -72,6 +72,64 @@ def test_continuity_prompt_updates_objective_and_injects_once(tmp_path: Path) ->
     assert duplicate.returncode == 0, duplicate.stderr
     assert duplicate.stdout == ""
 
+    spanish_summary_request = run_hook(
+        tmp_path,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "fixture-continuity", "prompt": "resume este documento"},
+    )
+    assert spanish_summary_request.returncode == 0, spanish_summary_request.stderr
+    assert spanish_summary_request.stdout == ""
+
+
+def test_continuity_prompt_accepts_exact_resume_only(tmp_path: Path) -> None:
+    new_task = run_hook(
+        tmp_path,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "fixture-resume",
+            "prompt": "Implement exact resume continuation behavior.",
+        },
+    )
+    assert new_task.returncode == 0, new_task.stderr
+    assert new_task.stdout == ""
+
+    exact_resume = run_hook(
+        tmp_path,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "fixture-resume", "prompt": "resume"},
+    )
+    assert exact_resume.returncode == 0, exact_resume.stderr
+    context = json.loads(exact_resume.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "Latest rolling checkpoint:" in context
+    assert "Objective: Implement exact resume continuation behavior." in context
+
+    spanish_summary_request = run_hook(
+        tmp_path,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "fixture-resume-summary", "prompt": "resume este documento"},
+    )
+    assert spanish_summary_request.returncode == 0, spanish_summary_request.stderr
+    assert spanish_summary_request.stdout == ""
+
+
+def test_continuity_prompt_does_not_dedupe_missing_session_id_globally(tmp_path: Path) -> None:
+    new_task = run_hook(
+        tmp_path,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "Implement missing session continuation behavior.",
+        },
+    )
+    assert new_task.returncode == 0, new_task.stderr
+    assert new_task.stdout == ""
+
+    first = run_hook(tmp_path, {"hook_event_name": "UserPromptSubmit", "prompt": "continua"})
+    assert first.returncode == 0, first.stderr
+    assert "Latest rolling checkpoint:" in json.loads(first.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    second = run_hook(tmp_path, {"hook_event_name": "UserPromptSubmit", "prompt": "continua"})
+    assert second.returncode == 0, second.stderr
+    assert "Latest rolling checkpoint:" in json.loads(second.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    state_files = sorted(tmp_path.glob("projects/*/checkpoints/injection-state.json"))
+    assert not state_files
 
 def test_continuity_prompt_does_not_inject_unrelated_or_red_prompt(tmp_path: Path) -> None:
     unrelated = run_hook(

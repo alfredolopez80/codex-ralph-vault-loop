@@ -41,7 +41,7 @@ def project_root(ralph_home: Path) -> Path:
 
 def root_is_codex_worktree() -> bool:
     try:
-        ROOT.relative_to(Path.home() / ".codex" / "worktrees")
+        ROOT.resolve().relative_to((Path.home() / ".codex" / "worktrees").resolve())
     except ValueError:
         return False
     return True

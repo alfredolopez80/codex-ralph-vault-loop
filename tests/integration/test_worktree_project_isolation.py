@@ -174,6 +174,61 @@ def test_continuation_checkpoint_is_workspace_scoped_for_same_remote_project(tmp
     assert "Implement workspace scoped checkpoint behavior." in wakeup_source_workspace.stdout
 
 
+def test_same_remote_workspaces_keep_independent_latest_checkpoints(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    remote = "git@example.com:org/shared.git"
+    worktree_a = tmp_path / "worktree-a"
+    worktree_b = tmp_path / "worktree-b"
+    init_git(worktree_a, remote)
+    init_git(worktree_b, remote)
+
+    first = run_hook(
+        CONTINUITY,
+        ralph_home,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "same-session",
+            "cwd": str(worktree_a),
+            "prompt": "Implement independent checkpoint behavior for workspace A.",
+        },
+    )
+    assert first.returncode == 0, first.stderr
+
+    second = run_hook(
+        CONTINUITY,
+        ralph_home,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "same-session",
+            "cwd": str(worktree_b),
+            "prompt": "Implement independent checkpoint behavior for workspace B.",
+        },
+    )
+    assert second.returncode == 0, second.stderr
+
+    checkpoints = latest_checkpoints(ralph_home)
+    assert len(checkpoints) == 2
+    checkpoint_text = "\n".join(path.read_text(encoding="utf-8") for path in checkpoints)
+    assert "workspace A" in checkpoint_text
+    assert "workspace B" in checkpoint_text
+
+    continue_a = run_hook(
+        CONTINUITY,
+        ralph_home,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "same-session", "cwd": str(worktree_a), "prompt": "continua"},
+    )
+    assert continue_a.returncode == 0, continue_a.stderr
+    assert "workspace A" in json.loads(continue_a.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    continue_b = run_hook(
+        CONTINUITY,
+        ralph_home,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "same-session", "cwd": str(worktree_b), "prompt": "continua"},
+    )
+    assert continue_b.returncode == 0, continue_b.stderr
+    assert "workspace B" in json.loads(continue_b.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
 def test_session_start_handoff_is_workspace_scoped_for_same_remote_project(tmp_path: Path) -> None:
     ralph_home = tmp_path / "ralph"
     remote = "git@example.com:org/shared.git"
