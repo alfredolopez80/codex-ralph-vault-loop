@@ -111,7 +111,18 @@ def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands
 
 
 def test_pre_tool_guard_guides_instead_of_rewriting_complex_sfw_commands(tmp_path: Path) -> None:
-    for command in ["npm ci && npm test", "FOO=bar npm ci"]:
+    for command in [
+        "npm ci && npm test",
+        "FOO=bar npm ci",
+        "env FOO=bar npm ci",
+        "env -i npm ci",
+        "env --ignore-environment npm ci",
+        "env -u NODE_ENV npm ci",
+        "env --unset NODE_ENV npm ci",
+        "env --unset=NODE_ENV npm ci",
+        "env -- npm ci",
+        "env -S 'npm ci'",
+    ]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
         assert result.returncode == 0
         payload = json.loads(result.stdout)

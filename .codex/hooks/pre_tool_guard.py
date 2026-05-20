@@ -56,10 +56,52 @@ SFW_PROTECTED_COMMANDS = {
 PYTHON_BINARIES = {"python", "python3", "python3.10", "python3.11", "python3.12", "python3.13", "python3.14"}
 SFW_BLOCK_REASON = "Package-manager network commands must run through sfw."
 SFW_GUIDANCE = "Re-run the package-manager segment with sfw as the prefix."
+ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "--argv0"}
+ENV_SPLIT_STRING_OPTIONS = {"-S", "--split-string"}
 
 
 def executable_name(token: str) -> str:
     return Path(token).name.lower()
+
+
+def is_assignment_prefix(token: str) -> bool:
+    return "=" in token and not token.startswith("-") and bool(token.split("=", 1)[0])
+
+
+def strip_env_invocation(tokens: list[str]) -> list[str]:
+    index = 1
+    while index < len(tokens):
+        shell_arg = tokens[index]
+        if shell_arg == "--":
+            return tokens[index + 1 :]
+        if shell_arg in ENV_SPLIT_STRING_OPTIONS:
+            if index + 1 >= len(tokens):
+                return []
+            try:
+                split_tokens = shlex.split(tokens[index + 1])
+            except ValueError:
+                return []
+            return strip_environment_prefix(split_tokens + tokens[index + 2 :])
+        if any(shell_arg.startswith(option + "=") for option in ENV_SPLIT_STRING_OPTIONS if option.startswith("--")):
+            try:
+                split_tokens = shlex.split(shell_arg.split("=", 1)[1])
+            except ValueError:
+                return []
+            return strip_environment_prefix(split_tokens + tokens[index + 1 :])
+        if shell_arg in ENV_OPTIONS_WITH_VALUE:
+            index += 2
+            continue
+        if any(shell_arg.startswith(option + "=") for option in ENV_OPTIONS_WITH_VALUE if option.startswith("--")):
+            index += 1
+            continue
+        if shell_arg.startswith("-"):
+            index += 1
+            continue
+        if is_assignment_prefix(shell_arg):
+            index += 1
+            continue
+        return tokens[index:]
+    return []
 
 
 def strip_environment_prefix(tokens: list[str]) -> list[str]:
@@ -67,9 +109,8 @@ def strip_environment_prefix(tokens: list[str]) -> list[str]:
     while index < len(tokens):
         shell_arg = tokens[index]
         if shell_arg == "env":
-            index += 1
-            continue
-        if "=" in shell_arg and not shell_arg.startswith("-") and shell_arg.split("=", 1)[0]:
+            return strip_env_invocation(tokens[index:])
+        if is_assignment_prefix(shell_arg):
             index += 1
             continue
         break
@@ -81,7 +122,7 @@ def has_environment_prefix(tokens: list[str]) -> bool:
         return False
     if tokens[0] == "env":
         return True
-    return "=" in tokens[0] and not tokens[0].startswith("-") and bool(tokens[0].split("=", 1)[0])
+    return is_assignment_prefix(tokens[0])
 
 
 def command_tokens(command: str) -> list[str]:
