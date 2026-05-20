@@ -84,6 +84,7 @@ Options:
 Safety:
   - Uses symlinks; does not copy secrets or vault data.
   - Does not edit ~/.codex/config.toml.
+  - Installs ~/.codex/hooks and ~/.codex/hooks.json through install-global-hooks.py.
   - Updates ~/.codex/AGENTS.md with the Ralph implementation-notes policy.
   - Backs up conflicting global entries before replacing them.
   - Links skills into both ~/.agents/skills and ~/.codex/skills.
@@ -184,6 +185,17 @@ install_agent() {
 
 install_helpers() {
   install_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
+}
+
+install_hooks() {
+  local args=()
+  if [[ "$MODE" == "dry-run" ]]; then
+    args+=(--dry-run)
+  fi
+  if [[ "$ALLOW_WORKTREE_SOURCE" -eq 1 ]]; then
+    args+=(--allow-worktree-source)
+  fi
+  python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
 }
 
 memory_core_policy_block() {
@@ -475,6 +487,7 @@ main() {
     printf 'GLOBAL_INSTALL_INFO autoresearch-helpers-skipped skill-not-selected\n'
   fi
   install_agents_policy
+  install_hooks
 
   printf 'GLOBAL_INSTALL_CONFIG_UNCHANGED %s\n' "${HOME}/.codex/config.toml"
   printf 'GLOBAL_INSTALL_DONE mode=%s repo=%s\n' "$MODE" "$REPO_ROOT"

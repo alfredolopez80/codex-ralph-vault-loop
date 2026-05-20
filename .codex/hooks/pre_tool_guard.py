@@ -56,6 +56,9 @@ SFW_PROTECTED_COMMANDS = {
 PYTHON_BINARIES = {"python", "python3", "python3.10", "python3.11", "python3.12", "python3.13", "python3.14"}
 SFW_BLOCK_REASON = "Package-manager network commands must run through sfw."
 SFW_GUIDANCE = "Re-run the package-manager segment with sfw as the prefix."
+STALE_WAKEUP_REASON = (
+    "Blocked stale repo-local Ralph wakeup command. Use the globally installed Ralph wakeup root instead."
+)
 ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "-P", "-a", "--argv0"}
 ENV_SPLIT_STRING_OPTIONS = {"-S", "--split-string"}
 ENV_SHORT_OPTIONS_WITH_VALUE = {"u", "C", "P", "a"}
@@ -373,6 +376,115 @@ def command_from_payload(payload: dict[str, Any]) -> str:
     return str(tool_input)
 
 
+def cwd_from_payload(payload: dict[str, Any]) -> Path:
+    candidates: list[str] = []
+    for key in ("cwd", "workdir", "working_directory", "workspace_root"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            candidates.append(value)
+    tool_input = tool_input_from_payload(payload)
+    if isinstance(tool_input, dict):
+        for key in ("cwd", "workdir", "working_directory", "workspace_root"):
+            value = tool_input.get(key)
+            if isinstance(value, str):
+                candidates.append(value)
+    for candidate in candidates:
+        path = Path(os.path.expanduser(os.path.expandvars(candidate)))
+        try:
+            return path.resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return Path.cwd().resolve()
+
+
+def is_python_executable_token(token: str) -> bool:
+    name = executable_name(token)
+    if name in PYTHON_BINARIES:
+        return True
+    return name == "python"
+
+
+def python_script_index(tokens: list[str]) -> int | None:
+    if not tokens or not is_python_executable_token(tokens[0]):
+        return None
+    index = 1
+    while index < len(tokens):
+        arg = tokens[index]
+        if arg == "--":
+            return index + 1 if index + 1 < len(tokens) else None
+        if arg in {"-c", "-m"}:
+            return None
+        if not arg.startswith("-") or arg == "-":
+            return index
+        option_name = arg.split("=", 1)[0]
+        if option_name in PYTHON_OPTIONS_WITH_VALUE:
+            index += 1 if "=" in arg or (len(arg) > 2 and arg[:2] in PYTHON_OPTIONS_WITH_VALUE) else 2
+            continue
+        if len(arg) > 2 and arg[:2] in PYTHON_OPTIONS_WITH_VALUE:
+            index += 1
+            continue
+        index += 1
+    return None
+
+
+def resolve_command_path(raw_path: str, cwd: Path) -> Path:
+    expanded = os.path.expanduser(os.path.expandvars(raw_path))
+    path = Path(expanded)
+    if not path.is_absolute():
+        path = cwd / path
+    return path.resolve(strict=False)
+
+
+def is_wakeup_script_path(raw_path: str) -> bool:
+    normalized = raw_path.replace("\\", "/")
+    return normalized == "scripts/memory/wakeup.py" or normalized.endswith("/scripts/memory/wakeup.py")
+
+
+def wakeup_suggested_command(cwd: Path) -> str:
+    workspace_root = str(cwd)
+    project = cwd.name or "default"
+    return shlex.join(
+        [
+            "python3",
+            str(REPO_ROOT / "scripts" / "memory" / "wakeup.py"),
+            "--project",
+            project,
+            "--workspace-root",
+            workspace_root,
+        ]
+    )
+
+
+def stale_repo_local_wakeup_payload(command: str, payload: dict[str, Any]) -> dict[str, str] | None:
+    try:
+        segments = shell_segments(command)
+    except ValueError:
+        return None
+    cwd = cwd_from_payload(payload)
+    global_wakeup = (REPO_ROOT / "scripts" / "memory" / "wakeup.py").resolve(strict=False)
+    for raw_segment in segments:
+        segment = strip_environment_prefix(raw_segment)
+        if not segment:
+            continue
+        script_index: int | None
+        if is_python_executable_token(segment[0]):
+            script_index = python_script_index(segment)
+        else:
+            script_index = 0 if is_wakeup_script_path(segment[0]) else None
+        if script_index is None or script_index >= len(segment):
+            continue
+        script = segment[script_index]
+        if not is_wakeup_script_path(script):
+            continue
+        target = resolve_command_path(script, cwd)
+        if target != global_wakeup:
+            return {
+                "reason": STALE_WAKEUP_REASON,
+                "suggested_command": wakeup_suggested_command(cwd),
+            }
+    return None
+
+
 def is_automation_payload(payload: dict[str, Any], tool_input: Any) -> bool:
     tool_name = tool_name_from_payload(payload)
     if "automation_update" in tool_name:
@@ -481,6 +593,10 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
             return 0
+    wakeup_payload = stale_repo_local_wakeup_payload(command, payload)
+    if wakeup_payload:
+        write_json({"decision": "block", **wakeup_payload})
+        return 0
     sfw_payload = sfw_protection_payload(command)
     if sfw_payload:
         write_json({"decision": "block", **sfw_payload})

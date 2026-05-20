@@ -25,6 +25,7 @@ GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
 GLOBAL_HELPER_ROOT="${HOME}/.ralph-codex/bin"
 GLOBAL_AGENTS_MD="${HOME}/.codex/AGENTS.md"
+GLOBAL_HOOKS_JSON="${HOME}/.codex/hooks.json"
 FAILURES=0
 WARNINGS=0
 
@@ -227,6 +228,56 @@ check_hook_marker() {
   fi
 }
 
+check_hook_file_matches_source() {
+  local name="$1"
+  local source="${REPO_ROOT}/.codex/hooks/${name}"
+  local target="${GLOBAL_HOOK_ROOT}/${name}"
+  if [[ ! -f "$source" ]]; then
+    fail "source hook missing $source"
+  elif [[ ! -f "$target" ]]; then
+    fail "global hook missing $target"
+  elif cmp -s "$source" "$target"; then
+    ok "global hook matches source $name"
+  else
+    fail "global hook does not match source $name"
+  fi
+}
+
+check_global_hooks() {
+  if [[ ! -f "$GLOBAL_HOOKS_JSON" ]]; then
+    fail "global hooks.json missing at $GLOBAL_HOOKS_JSON"
+    return
+  fi
+  if grep -q "session_start_wakeup.py" "$GLOBAL_HOOKS_JSON" &&
+    grep -q "user_prompt_capture.py" "$GLOBAL_HOOKS_JSON" &&
+    grep -q "pre_tool_guard.py" "$GLOBAL_HOOKS_JSON"; then
+    ok "global hooks.json includes Ralph lifecycle hooks"
+  else
+    fail "global hooks.json missing Ralph lifecycle hooks"
+  fi
+
+  check_hook_file_matches_source "session_start_wakeup.py"
+  check_hook_file_matches_source "user_prompt_capture.py"
+  check_hook_file_matches_source "pre_tool_guard.py"
+
+  if grep -q "STALE_WAKEUP_REASON" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null &&
+    grep -q "stale_repo_local_wakeup_payload" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null; then
+    ok "global pre_tool_guard includes stale wakeup protection"
+  else
+    fail "global pre_tool_guard missing stale wakeup protection"
+  fi
+
+  local payload
+  local output
+  payload='{"tool_input":{"command":"python3 scripts/memory/wakeup.py","workdir":"/tmp/ralph-doctor-clerum"}}'
+  output="$(printf '%s' "$payload" | python3 "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null || true)"
+  if [[ "$output" == *'"decision": "block"'* && "$output" == *"repo-local Ralph wakeup"* ]]; then
+    ok "global pre_tool_guard blocks repo-local wakeup command"
+  else
+    fail "global pre_tool_guard did not block repo-local wakeup command"
+  fi
+}
+
 main() {
   check_dir "$GLOBAL_SKILL_ROOT" "global skill directory"
   check_dir "$GLOBAL_CODEX_SKILL_ROOT" "global Codex skill directory"
@@ -249,6 +300,7 @@ main() {
   done
   check_helper_link
   check_hook_marker
+  check_global_hooks
   check_agents_policy
 
   if [[ "$FAILURES" -eq 0 ]]; then

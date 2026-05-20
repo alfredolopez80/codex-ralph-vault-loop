@@ -54,10 +54,14 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     codex_skill = tmp_path / ".codex" / "skills" / "orchestrator"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
+    hooks_json = tmp_path / ".codex" / "hooks.json"
+    pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
     assert skill.is_symlink()
     assert codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
+    assert hooks_json.is_file()
+    assert pre_tool_guard.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
@@ -71,6 +75,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Run `python3 scripts/memory/wakeup.py`" not in agents_text
     assert "Implementation Notes For Approved Plans" in agents_text
     assert "SFW Package-Manager Protection" in agents_text
+    assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
+    assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
     assert not (tmp_path / ".codex" / "config.toml").exists()
 
     doctor = run_script(tmp_path, "doctor-global.sh")

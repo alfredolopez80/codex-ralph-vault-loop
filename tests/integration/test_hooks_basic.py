@@ -192,6 +192,37 @@ def test_pre_tool_guard_does_not_scan_python_script_arguments_for_pip(tmp_path: 
         assert result.stdout == ""
 
 
+def test_pre_tool_guard_blocks_stale_repo_local_wakeup_commands(tmp_path: Path) -> None:
+    workspace = tmp_path / "clerum"
+    workspace.mkdir()
+    stale_absolute = workspace / "scripts" / "memory" / "wakeup.py"
+    cases = [
+        "python3 scripts/memory/wakeup.py",
+        f"python3 {stale_absolute}",
+        "./scripts/memory/wakeup.py",
+        "python3 -I scripts/memory/wakeup.py",
+    ]
+
+    for command in cases:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "workdir": str(workspace)}})
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+        assert "repo-local Ralph wakeup" in payload["reason"]
+        assert "scripts/memory/wakeup.py" in payload["suggested_command"]
+        assert str(workspace) in payload["suggested_command"]
+        assert command not in payload["reason"]
+
+
+def test_pre_tool_guard_allows_global_wakeup_command(tmp_path: Path) -> None:
+    command = f"python3 {ROOT / 'scripts' / 'memory' / 'wakeup.py'} --project clerum"
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "workdir": str(tmp_path)}})
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
 def test_pre_tool_guard_only_scans_python_m_pip_module(tmp_path: Path) -> None:
     for command in [
         "python3 -m http.server install",

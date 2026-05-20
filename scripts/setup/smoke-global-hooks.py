@@ -59,6 +59,7 @@ def main() -> int:
     required = {
         "SessionStart": ["session_start_wakeup.py"],
         "UserPromptSubmit": ["user_prompt_capture.py", "continuity_prompt_context.py"],
+        "PreToolUse": ["pre_tool_guard.py"],
         "PostToolUse": ["post_tool_extract_memory.py", "post_tool_checkpoint.py", "post_tool_cost_ledger.py"],
         "Stop": ["stop_persist_memory.py", "stop_memory_promotion_review.py"],
     }
@@ -133,6 +134,15 @@ def main() -> int:
         assert_ok("session_start_wakeup.py", wakeup)
         if "Latest Rolling Checkpoint" not in wakeup.stdout:
             raise RuntimeError("session start did not include rolling checkpoint")
+
+        stale_wakeup = run_hook(
+            "pre_tool_guard.py",
+            {"tool_input": {"command": "python3 scripts/memory/wakeup.py", "workdir": str(project_a)}},
+            env,
+        )
+        assert_ok("pre_tool_guard.py stale wakeup", stale_wakeup)
+        if '"decision": "block"' not in stale_wakeup.stdout or "repo-local Ralph wakeup" not in stale_wakeup.stdout:
+            raise RuntimeError("pre_tool_guard did not block stale repo-local wakeup")
 
         stop = run_hook(
             "stop_persist_memory.py",
