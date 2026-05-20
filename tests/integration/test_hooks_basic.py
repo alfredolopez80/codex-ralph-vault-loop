@@ -192,6 +192,16 @@ def test_pre_tool_guard_does_not_scan_python_script_arguments_for_pip(tmp_path: 
         assert result.stdout == ""
 
 
+def test_pre_tool_guard_only_scans_python_m_pip_module(tmp_path: Path) -> None:
+    for command in [
+        "python3 -m http.server install",
+        "python3 -I -m http.server install",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
 def test_pre_tool_guard_does_not_scan_past_terminal_help_or_version_flags(tmp_path: Path) -> None:
     for command in [
         "npm --version ci",

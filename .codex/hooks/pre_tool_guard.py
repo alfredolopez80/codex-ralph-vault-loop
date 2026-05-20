@@ -274,6 +274,8 @@ def python_invokes_pip(tokens: list[str]) -> bool:
         if arg == "-m":
             if index + 1 >= len(tokens):
                 return False
+            if tokens[index + 1] != "pip":
+                return False
             return pip_args_require_sfw(tokens[index + 2 :])
         if arg == "-c":
             return False
