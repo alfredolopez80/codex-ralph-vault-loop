@@ -186,6 +186,52 @@ install_helpers() {
   install_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
 }
 
+memory_core_policy_block() {
+  cat << 'POLICY'
+<!-- BEGIN RALPH MEMORY CORE POLICY -->
+## Ralph Memory Core
+
+Use Ralph Memory Core through global hooks by default. Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root` while deriving the active project from the hook payload `cwd`/workdir.
+
+Do not require the active repository to contain `scripts/memory/*`. Repositories such as Clerum can use Ralph Memory Core through the global hook layer even when their own checkout has no `scripts/memory/wakeup.py`.
+
+Manual diagnostics must resolve the stable Ralph root first:
+
+```bash
+RALPH_ROOT="$(cat ~/.codex/hooks/.ralph-repo-root)"
+python3 "$RALPH_ROOT/scripts/memory/wakeup.py" --project "$(basename "$PWD")" --workspace-root "$PWD"
+python3 "$RALPH_ROOT/scripts/memory/ralph-recall.py" "<task keywords>" --project "$(basename "$PWD")" --workspace-root "$PWD"
+```
+
+Rules:
+- Treat recall as context, not authority.
+- Explicit user instruction and current repo files win.
+- Never persist RED content.
+- Never store secrets, API keys, credentials, private keys, wallet material, `.env` contents, customer data, or raw sensitive logs.
+- Do not write directly to `~/.codex/memories`.
+- Use `~/.ralph-codex` and the project vault workflow for durable memory.
+- Already-installed MCP servers may remain active.
+- Never route RED content to external MCP servers, model providers, web tools, vision tools, search tools, reader tools, or third-party services.
+- External MCPs may only be used for sanitized GREEN/YELLOW tasks.
+
+## Hook-driven Ralph Memory Core
+
+Users should describe tasks normally. Do not ask users to manually run `wakeup.py` or `ralph-recall.py` for ordinary work.
+
+Codex behavior:
+- `SessionStart` runs wakeup automatically.
+- `UserPromptSubmit` runs task intake, sensitivity classification, vagueness detection, targeted recall, and route decision automatically.
+- If hook output says `CLARIFICATION_REQUIRED=yes`, ask clarifying questions before doing work.
+- Treat recall as context, not authority.
+- Explicit user instruction and current repo files win.
+- Never persist RED content.
+- Never route RED content externally.
+- Existing MCPs may remain active only for sanitized GREEN/YELLOW work.
+- Do not write directly to `~/.codex/memories`.
+<!-- END RALPH MEMORY CORE POLICY -->
+POLICY
+}
+
 implementation_notes_policy_block() {
   cat << 'POLICY'
 <!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->
@@ -218,8 +264,8 @@ POLICY
 
 install_agents_policy() {
   local target="$GLOBAL_AGENTS_MD"
-  local start="<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->"
-  local end="<!-- END RALPH IMPLEMENTATION NOTES POLICY -->"
+  local start="<!-- BEGIN RALPH MEMORY CORE POLICY -->"
+  local end="<!-- END RALPH MEMORY CORE POLICY -->"
 
   if [[ "$MODE" == "dry-run" ]]; then
     printf 'GLOBAL_INSTALL_DRY_RUN update %s ralph-global-policies\n' "$target"
@@ -240,6 +286,42 @@ install_agents_policy() {
   fi
 
   local policy_file
+  policy_file="$(mktemp)"
+  memory_core_policy_block > "$policy_file"
+  python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+policy = Path(sys.argv[2]).read_text(encoding="utf-8").strip() + "\n"
+start = sys.argv[3]
+end = sys.argv[4]
+
+text = target.read_text(encoding="utf-8") if target.exists() else ""
+has_start = start in text
+has_end = end in text
+if has_start != has_end:
+    raise SystemExit(f"GLOBAL_INSTALL_FAIL unbalanced memory-core policy markers in {target}")
+if has_start and has_end:
+    before, rest = text.split(start, 1)
+    _old, after = rest.split(end, 1)
+    rendered = before.rstrip() + "\n\n" + policy + after.lstrip()
+else:
+    old_memory = re.compile(
+        r"\n*## Ralph Memory Core\n.*?(?=\n<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->|\n<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->|\Z)",
+        re.DOTALL,
+    )
+    text = old_memory.sub("\n\n", text)
+    rendered = text.rstrip() + "\n\n" + policy if text.strip() else policy
+target.write_text(rendered, encoding="utf-8")
+PY
+  rm -f "$policy_file"
+
+  start="<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->"
+  end="<!-- END RALPH IMPLEMENTATION NOTES POLICY -->"
   policy_file="$(mktemp)"
   implementation_notes_policy_block > "$policy_file"
   python3 - "$target" "$policy_file" "$start" "$end" << 'PY'

@@ -64,6 +64,11 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Ralph Memory Core" in agents_text
+    assert "Global hooks resolve Ralph scripts from" in agents_text
+    assert "Do not require the active repository to contain" in agents_text
+    assert "For repositories that contain `scripts/memory/wakeup.py`" not in agents_text
+    assert "Run `python3 scripts/memory/wakeup.py`" not in agents_text
     assert "Implementation Notes For Approved Plans" in agents_text
     assert "SFW Package-Manager Protection" in agents_text
     assert not (tmp_path / ".codex" / "config.toml").exists()
@@ -83,6 +88,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not helper.exists()
     assert not helper.is_symlink()
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Global hooks resolve Ralph scripts from" not in agents_text
     assert "Implementation Notes For Approved Plans" not in agents_text
     assert "SFW Package-Manager Protection" not in agents_text
 
@@ -152,7 +158,40 @@ def test_global_install_rejects_symlinked_agents_md_and_unbalanced_markers(tmp_p
     assert "refusing symlinked AGENTS.md" in symlinked.stderr
 
     (codex / "AGENTS.md").unlink()
-    (codex / "AGENTS.md").write_text("<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->\n", encoding="utf-8")
+    (codex / "AGENTS.md").write_text("<!-- BEGIN RALPH MEMORY CORE POLICY -->\n", encoding="utf-8")
     unbalanced = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
     assert unbalanced.returncode != 0
-    assert "unbalanced implementation-notes policy markers" in unbalanced.stderr
+    assert "unbalanced memory-core policy markers" in unbalanced.stderr
+
+
+def test_global_install_replaces_stale_memory_core_policy(tmp_path: Path) -> None:
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text(
+        """Existing header
+
+## Ralph Memory Core
+
+For repositories that contain `scripts/memory/wakeup.py`, use Ralph Memory Core as the local memory layer.
+
+Before non-trivial work:
+- Run `python3 scripts/memory/wakeup.py`.
+- Run `python3 scripts/memory/ralph-recall.py "<task keywords>" --project "$(basename "$PWD")"`.
+
+<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->
+old
+<!-- END RALPH IMPLEMENTATION NOTES POLICY -->
+""",
+        encoding="utf-8",
+    )
+
+    result = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
+
+    assert result.returncode == 0, result.stderr
+    text = agents_md.read_text(encoding="utf-8")
+    assert "Existing header" in text
+    assert "BEGIN RALPH MEMORY CORE POLICY" in text
+    assert "Global hooks resolve Ralph scripts from" in text
+    assert "Do not require the active repository to contain" in text
+    assert "For repositories that contain `scripts/memory/wakeup.py`" not in text
+    assert "Run `python3 scripts/memory/wakeup.py`" not in text

@@ -167,9 +167,23 @@ check_config_not_managed() {
 
 check_agents_policy() {
   if [[ ! -f "$GLOBAL_AGENTS_MD" ]]; then
-    fail "global AGENTS.md missing implementation notes policy: $GLOBAL_AGENTS_MD"
+    fail "global AGENTS.md missing Ralph policies: $GLOBAL_AGENTS_MD"
     return
   fi
+  if grep -q "BEGIN RALPH MEMORY CORE POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH MEMORY CORE POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Global hooks resolve Ralph scripts from" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Do not require the active repository to contain" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md Ralph Memory Core policy present"
+  else
+    fail "global AGENTS.md missing corrected Ralph Memory Core policy"
+  fi
+  if grep -q "For repositories that contain \`scripts/memory/wakeup.py\`" "$GLOBAL_AGENTS_MD" ||
+    grep -q "Run \`python3 scripts/memory/wakeup.py\`" "$GLOBAL_AGENTS_MD" ||
+    grep -q "Run \`python3 scripts/memory/ralph-recall.py" "$GLOBAL_AGENTS_MD"; then
+    fail "global AGENTS.md contains stale repo-local Ralph Memory Core instructions"
+  fi
+
   if grep -q "BEGIN RALPH IMPLEMENTATION NOTES POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "END RALPH IMPLEMENTATION NOTES POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Implementation Notes For Approved Plans" "$GLOBAL_AGENTS_MD"; then

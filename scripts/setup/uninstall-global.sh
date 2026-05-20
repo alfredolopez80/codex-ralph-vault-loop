@@ -181,6 +181,10 @@ PY
 
 remove_agents_policy() {
   remove_policy_block \
+    "memory-core-policy" \
+    "<!-- BEGIN RALPH MEMORY CORE POLICY -->" \
+    "<!-- END RALPH MEMORY CORE POLICY -->"
+  remove_policy_block \
     "implementation-notes-policy" \
     "<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->" \
     "<!-- END RALPH IMPLEMENTATION NOTES POLICY -->"
