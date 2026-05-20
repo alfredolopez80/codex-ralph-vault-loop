@@ -93,11 +93,19 @@ def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
 def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands(tmp_path: Path) -> None:
     cases = {
         "npm ci": "sfw npm ci",
+        "npm --prefix app ci": "sfw npm --prefix app ci",
         "pnpm dlx prettier --version": "sfw pnpm dlx prettier --version",
+        "pnpm --dir app add left-pad": "sfw pnpm --dir app add left-pad",
         "npx eslint .": "sfw npx eslint .",
         "python3 -m pip install requests": "sfw python3 -m pip install requests",
+        "python3 -I -m pip install requests": "sfw python3 -I -m pip install requests",
+        "python3 -m pip --disable-pip-version-check install requests": (
+            "sfw python3 -m pip --disable-pip-version-check install requests"
+        ),
+        "pip --no-cache-dir install requests": "sfw pip --no-cache-dir install requests",
         "uvx ruff": "sfw uvx ruff",
         "cargo install cargo-audit": "sfw cargo install cargo-audit",
+        "yarn --cwd app add left-pad": "sfw yarn --cwd app add left-pad",
     }
 
     for command, suggested in cases.items():
@@ -111,13 +119,100 @@ def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands
 
 
 def test_pre_tool_guard_guides_instead_of_rewriting_complex_sfw_commands(tmp_path: Path) -> None:
-    for command in ["npm ci && npm test", "FOO=bar npm ci"]:
+    for command in [
+        "npm ci && npm test",
+        "npm test && npm ci",
+        "echo ok; pnpm dlx eslint",
+        "true | npx eslint .",
+        "echo $(npm ci)",
+        "echo `npm ci`",
+        "FOO=$BAR npm ci && echo ok",
+        "FOO=$BAR env npm ci && echo ok",
+        "FOO=bar npm ci",
+        "FOO=bar env env pnpm dlx prettier",
+        "env FOO=bar npm ci",
+        "/usr/bin/env npm ci",
+        "/bin/env -uFOO pnpm install",
+        "env env npm ci",
+        "env -i env npm ci",
+        "env -uFOO env -uBAR npm ci",
+        "env -i npm ci",
+        "env --ignore-environment npm ci",
+        "env -uSESSION npm ci",
+        "/bin/env -uSESSION npm ci",
+        "env -u NODE_ENV npm ci",
+        "env -uS npm ci",
+        "env -C/tmp npm ci",
+        "env -P/bin npm ci",
+        "env --unset NODE_ENV npm ci",
+        "env --unset=NODE_ENV npm ci",
+        "env -- npm ci",
+        "env -S 'npm ci'",
+        "env --split-string='npm ci'",
+        "env -S'npm ci'",
+        "env -vS'npm ci'",
+        "env -ivS'npm ci'",
+        "env -vS 'npm ci'",
+        "env -S '-i npm ci'",
+        "env -S '-uFOO npm ci'",
+        "env -S '-- npm ci'",
+        "env -S 'env npm ci'",
+        "env -S 'FOO=bar npm ci'",
+        "env -S '/usr/bin/env npm ci'",
+        "env --split-string='-uFOO pnpm dlx prettier'",
+    ]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
         assert result.returncode == 0
         payload = json.loads(result.stdout)
         assert payload["decision"] == "block"
         assert "sfw" in payload["reason"]
         assert "suggested_command" not in payload
+
+
+def test_pre_tool_guard_stops_env_option_parsing_after_assignments(tmp_path: Path) -> None:
+    for command in [
+        "env FOO=bar -i npm ci",
+        "env FOO=bar -uSESSION npm ci",
+        "env FOO=bar -S'npm ci'",
+        "env FOO=bar -- npm ci",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_does_not_scan_python_script_arguments_for_pip(tmp_path: Path) -> None:
+    for command in [
+        "python3 /tmp/argv_probe.py -m pip install requests",
+        "python3 -- /tmp/argv_probe.py -m pip install requests",
+        "python3 -c 'print(1)' -m pip install requests",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_only_scans_python_m_pip_module(tmp_path: Path) -> None:
+    for command in [
+        "python3 -m http.server install",
+        "python3 -I -m http.server install",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_does_not_scan_past_terminal_help_or_version_flags(tmp_path: Path) -> None:
+    for command in [
+        "npm --version ci",
+        "npm --help ci",
+        "pip --version install",
+        "pip -V install",
+        "python3 -m pip --help install",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
 
 
 def test_pre_tool_guard_allows_sfw_wrapped_package_manager_commands(tmp_path: Path) -> None:
