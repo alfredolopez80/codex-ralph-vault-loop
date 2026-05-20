@@ -125,6 +125,8 @@ def test_pre_tool_guard_guides_instead_of_rewriting_complex_sfw_commands(tmp_pat
         "true | npx eslint .",
         "echo $(npm ci)",
         "echo `npm ci`",
+        "FOO=$BAR npm ci && echo ok",
+        "FOO=$BAR env npm ci && echo ok",
         "FOO=bar npm ci",
         "FOO=bar env env pnpm dlx prettier",
         "env FOO=bar npm ci",

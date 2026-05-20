@@ -60,7 +60,7 @@ ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "-P", "-a", "--argv0
 ENV_SPLIT_STRING_OPTIONS = {"-S", "--split-string"}
 ENV_SHORT_OPTIONS_WITH_VALUE = {"u", "C", "P", "a"}
 ENV_SHORT_OPTIONS_WITHOUT_VALUE = {"0", "i", "v"}
-SHELL_SEGMENT_PUNCTUATION = ";&|()`$"
+SHELL_SEGMENT_PUNCTUATION = ";&|()`"
 CLI_OPTIONS_WITH_VALUE = {
     "-C",
     "-c",
