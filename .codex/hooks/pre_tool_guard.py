@@ -56,8 +56,52 @@ SFW_PROTECTED_COMMANDS = {
 PYTHON_BINARIES = {"python", "python3", "python3.10", "python3.11", "python3.12", "python3.13", "python3.14"}
 SFW_BLOCK_REASON = "Package-manager network commands must run through sfw."
 SFW_GUIDANCE = "Re-run the package-manager segment with sfw as the prefix."
-ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "--argv0"}
+ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "-P", "-a", "--argv0"}
 ENV_SPLIT_STRING_OPTIONS = {"-S", "--split-string"}
+ENV_SHORT_OPTIONS_WITH_VALUE = {"u", "C", "P", "a"}
+ENV_SHORT_OPTIONS_WITHOUT_VALUE = {"0", "i", "v"}
+SHELL_SEGMENT_PUNCTUATION = ";&|()`$"
+CLI_OPTIONS_WITH_VALUE = {
+    "-C",
+    "-c",
+    "-w",
+    "--cache",
+    "--chdir",
+    "--config",
+    "--cwd",
+    "--dir",
+    "--filter",
+    "--global-folder",
+    "--globalconfig",
+    "--prefix",
+    "--project",
+    "--registry",
+    "--userconfig",
+    "--workspace",
+}
+PIP_OPTIONS_WITH_VALUE = {
+    "--cache-dir",
+    "--cert",
+    "--client-cert",
+    "--config-settings",
+    "--exists-action",
+    "--extra-index-url",
+    "--find-links",
+    "--global-option",
+    "--index-url",
+    "--log",
+    "--platform",
+    "--prefix",
+    "--progress-bar",
+    "--proxy",
+    "--python",
+    "--retries",
+    "--root",
+    "--src",
+    "--target",
+    "--timeout",
+    "--trusted-host",
+}
 
 
 def executable_name(token: str) -> str:
@@ -68,27 +112,46 @@ def is_assignment_prefix(token: str) -> bool:
     return "=" in token and not token.startswith("-") and bool(token.split("=", 1)[0])
 
 
+def is_env_executable(token: str) -> bool:
+    return executable_name(token) == "env"
+
+
 def expand_env_split_string(split_string: str, suffix_tokens: list[str]) -> list[str]:
     try:
         split_tokens = shlex.split(split_string)
     except ValueError:
         return []
-    return strip_environment_prefix(split_tokens + suffix_tokens)
+    return strip_environment_prefix(strip_env_invocation(["env", *split_tokens, *suffix_tokens]))
 
 
-def compact_env_split_string_tokens(tokens: list[str], index: int) -> list[str] | None:
+def parse_short_env_options(tokens: list[str], index: int) -> tuple[str, list[str] | None]:
     shell_arg = tokens[index]
     if not shell_arg.startswith("-") or shell_arg.startswith("--"):
-        return None
-    split_option_index = shell_arg[1:].find("S")
-    if split_option_index < 0:
-        return None
-    split_string = shell_arg[split_option_index + 2 :]
-    if split_string:
-        return expand_env_split_string(split_string, tokens[index + 1 :])
-    if index + 1 >= len(tokens):
-        return []
-    return expand_env_split_string(tokens[index + 1], tokens[index + 2 :])
+        return ("not_short_option", None)
+
+    short_options = shell_arg[1:]
+    option_index = 0
+    while option_index < len(short_options):
+        option = short_options[option_index]
+        option_value = short_options[option_index + 1 :]
+        if option in ENV_SHORT_OPTIONS_WITHOUT_VALUE:
+            option_index += 1
+            continue
+        if option in ENV_SHORT_OPTIONS_WITH_VALUE:
+            if option_value:
+                return ("consume_option", None)
+            if index + 1 >= len(tokens):
+                return ("consume_option", None)
+            return ("consume_option_with_next", None)
+        if option == "S":
+            if option_value:
+                return ("split_string", expand_env_split_string(option_value, tokens[index + 1 :]))
+            if index + 1 >= len(tokens):
+                return ("split_string", [])
+            return ("split_string", expand_env_split_string(tokens[index + 1], tokens[index + 2 :]))
+        return ("unknown_option", None)
+
+    return ("consume_option", None)
 
 
 def strip_env_invocation(tokens: list[str]) -> list[str]:
@@ -109,9 +172,15 @@ def strip_env_invocation(tokens: list[str]) -> list[str]:
             return expand_env_split_string(tokens[index + 1], tokens[index + 2 :])
         if any(shell_arg.startswith(option + "=") for option in ENV_SPLIT_STRING_OPTIONS if option.startswith("--")):
             return expand_env_split_string(shell_arg.split("=", 1)[1], tokens[index + 1 :])
-        compact_split_tokens = compact_env_split_string_tokens(tokens, index)
-        if compact_split_tokens is not None:
-            return compact_split_tokens
+        short_option_action, short_option_tokens = parse_short_env_options(tokens, index)
+        if short_option_action == "split_string":
+            return short_option_tokens or []
+        if short_option_action == "consume_option":
+            index += 1
+            continue
+        if short_option_action == "consume_option_with_next":
+            index += 2
+            continue
         if shell_arg in ENV_OPTIONS_WITH_VALUE:
             index += 2
             continue
@@ -133,8 +202,10 @@ def strip_environment_prefix(tokens: list[str]) -> list[str]:
     index = 0
     while index < len(tokens):
         shell_arg = tokens[index]
-        if shell_arg == "env":
-            return strip_env_invocation(tokens[index:])
+        if is_env_executable(shell_arg):
+            tokens = strip_env_invocation(tokens[index:])
+            index = 0
+            continue
         if is_assignment_prefix(shell_arg):
             index += 1
             continue
@@ -145,7 +216,7 @@ def strip_environment_prefix(tokens: list[str]) -> list[str]:
 def has_environment_prefix(tokens: list[str]) -> bool:
     if not tokens:
         return False
-    if tokens[0] == "env":
+    if is_env_executable(tokens[0]):
         return True
     return is_assignment_prefix(tokens[0])
 
@@ -157,14 +228,63 @@ def command_tokens(command: str) -> list[str]:
         return []
 
 
+def command_index_after_options(tokens: list[str], start_index: int, value_options: set[str]) -> int | None:
+    index = start_index
+    while index < len(tokens):
+        arg = tokens[index]
+        if arg == "--":
+            return None
+        if not arg.startswith("-") or arg == "-":
+            return index
+        option_name = arg.split("=", 1)[0]
+        if option_name in value_options:
+            index += 1 if "=" in arg else 2
+            continue
+        if len(arg) > 2 and arg[:2] in value_options:
+            index += 1
+            continue
+        index += 1
+    return None
+
+
+def pip_args_require_sfw(tokens: list[str]) -> bool:
+    command_index = command_index_after_options(tokens, 0, PIP_OPTIONS_WITH_VALUE)
+    return command_index is not None and tokens[command_index] == "install"
+
+
 def python_invokes_pip(tokens: list[str]) -> bool:
-    if len(tokens) < 4:
+    if len(tokens) < 4 or executable_name(tokens[0]) not in PYTHON_BINARIES:
         return False
-    if executable_name(tokens[0]) not in PYTHON_BINARIES:
+    for index in range(1, len(tokens) - 1):
+        if tokens[index] == "-m" and tokens[index + 1] == "pip":
+            return pip_args_require_sfw(tokens[index + 2 :])
+    return False
+
+
+def shell_segments(command: str) -> list[list[str]]:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=SHELL_SEGMENT_PUNCTUATION)
+    lexer.whitespace_split = True
+    tokens = list(lexer)
+    segments: list[list[str]] = []
+    current_segment: list[str] = []
+    for token in tokens:
+        if token and all(char in SHELL_SEGMENT_PUNCTUATION for char in token):
+            if current_segment:
+                segments.append(current_segment)
+                current_segment = []
+            continue
+        current_segment.append(token)
+    if current_segment:
+        segments.append(current_segment)
+    return segments
+
+
+def shell_segments_require_sfw(command: str) -> bool:
+    try:
+        segments = shell_segments(command)
+    except ValueError:
         return False
-    if tokens[1] != "-m" or tokens[2] != "pip":
-        return False
-    return tokens[3] == "install"
+    return any(tokens_require_sfw(strip_environment_prefix(segment)) for segment in segments)
 
 
 def tokens_require_sfw(tokens: list[str]) -> bool:
@@ -176,12 +296,13 @@ def tokens_require_sfw(tokens: list[str]) -> bool:
         return True
 
     tool = executable_name(tokens[0])
+    if tool in {"pip", "pip3"}:
+        return pip_args_require_sfw(tokens[1:])
     protected_subcommands = SFW_PROTECTED_COMMANDS.get(tool)
     if protected_subcommands is None:
         return tool in SFW_PROTECTED_COMMANDS
-    if protected_subcommands is not None and len(tokens) > 1:
-        return tokens[1] in protected_subcommands
-    return False
+    command_index = command_index_after_options(tokens, 1, CLI_OPTIONS_WITH_VALUE)
+    return command_index is not None and tokens[command_index] in protected_subcommands
 
 
 def command_requires_sfw(command: str) -> bool:
@@ -190,8 +311,7 @@ def command_requires_sfw(command: str) -> bool:
 
 def sfw_protection_payload(command: str) -> dict[str, str] | None:
     if SHELL_COMPLEXITY_RE.search(command):
-        tokens = command_tokens(command)
-        if tokens_require_sfw(tokens):
+        if shell_segments_require_sfw(command):
             return {"reason": SFW_GUIDANCE}
         return None
 
