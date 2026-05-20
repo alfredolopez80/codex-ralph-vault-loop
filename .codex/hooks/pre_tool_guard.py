@@ -93,8 +93,14 @@ def compact_env_split_string_tokens(tokens: list[str], index: int) -> list[str] 
 
 def strip_env_invocation(tokens: list[str]) -> list[str]:
     index = 1
+    operands_started = False
     while index < len(tokens):
         shell_arg = tokens[index]
+        if operands_started:
+            if is_assignment_prefix(shell_arg):
+                index += 1
+                continue
+            return tokens[index:]
         if shell_arg == "--":
             return tokens[index + 1 :]
         if shell_arg in ENV_SPLIT_STRING_OPTIONS:
@@ -116,6 +122,7 @@ def strip_env_invocation(tokens: list[str]) -> list[str]:
             index += 1
             continue
         if is_assignment_prefix(shell_arg):
+            operands_started = True
             index += 1
             continue
         return tokens[index:]

@@ -136,6 +136,13 @@ def test_pre_tool_guard_guides_instead_of_rewriting_complex_sfw_commands(tmp_pat
         assert "suggested_command" not in payload
 
 
+def test_pre_tool_guard_stops_env_option_parsing_after_assignments(tmp_path: Path) -> None:
+    for command in ["env FOO=bar -i npm ci", "env FOO=bar -- npm ci"]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
 def test_pre_tool_guard_allows_sfw_wrapped_package_manager_commands(tmp_path: Path) -> None:
     for command in ["sfw npm ci", "sfw pnpm add left-pad", "sfw uvx ruff"]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
