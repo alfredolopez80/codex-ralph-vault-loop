@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,110 @@ DOTFILE_PERSISTENCE_PATTERNS = [
 ]
 
 HOME = Path.home().resolve()
+SHELL_COMPLEXITY_RE = re.compile(r"&&|\|\||;|\||`|\$\(")
+
+SFW_PROTECTED_COMMANDS = {
+    "bun": {"add", "install", "update", "x"},
+    "bundle": {"add", "install", "update"},
+    "cargo": {"add", "fetch", "install", "update"},
+    "composer": {"install", "require", "update"},
+    "gem": {"install", "update"},
+    "go": {"get", "install"},
+    "npm": {"add", "ci", "exec", "install", "i", "update", "x"},
+    "npx": None,
+    "pip": {"install"},
+    "pip3": {"install"},
+    "pnpm": {"add", "dlx", "exec", "i", "import", "install", "update", "up"},
+    "uv": {"add", "pip", "run", "sync", "tool"},
+    "uvx": None,
+    "yarn": {"add", "dlx", "exec", "install", "up", "upgrade"},
+}
+PYTHON_BINARIES = {"python", "python3", "python3.10", "python3.11", "python3.12", "python3.13", "python3.14"}
+SFW_BLOCK_REASON = "Package-manager network commands must run through sfw."
+SFW_GUIDANCE = "Re-run the package-manager segment with sfw as the prefix."
+
+
+def executable_name(token: str) -> str:
+    return Path(token).name.lower()
+
+
+def strip_environment_prefix(tokens: list[str]) -> list[str]:
+    index = 0
+    while index < len(tokens):
+        shell_arg = tokens[index]
+        if shell_arg == "env":
+            index += 1
+            continue
+        if "=" in shell_arg and not shell_arg.startswith("-") and shell_arg.split("=", 1)[0]:
+            index += 1
+            continue
+        break
+    return tokens[index:]
+
+
+def has_environment_prefix(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if tokens[0] == "env":
+        return True
+    return "=" in tokens[0] and not tokens[0].startswith("-") and bool(tokens[0].split("=", 1)[0])
+
+
+def command_tokens(command: str) -> list[str]:
+    try:
+        return strip_environment_prefix(shlex.split(command))
+    except ValueError:
+        return []
+
+
+def python_invokes_pip(tokens: list[str]) -> bool:
+    if len(tokens) < 4:
+        return False
+    if executable_name(tokens[0]) not in PYTHON_BINARIES:
+        return False
+    if tokens[1] != "-m" or tokens[2] != "pip":
+        return False
+    return tokens[3] == "install"
+
+
+def tokens_require_sfw(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if executable_name(tokens[0]) == "sfw":
+        return False
+    if python_invokes_pip(tokens):
+        return True
+
+    tool = executable_name(tokens[0])
+    protected_subcommands = SFW_PROTECTED_COMMANDS.get(tool)
+    if protected_subcommands is None:
+        return tool in SFW_PROTECTED_COMMANDS
+    if protected_subcommands is not None and len(tokens) > 1:
+        return tokens[1] in protected_subcommands
+    return False
+
+
+def command_requires_sfw(command: str) -> bool:
+    return tokens_require_sfw(command_tokens(command))
+
+
+def sfw_protection_payload(command: str) -> dict[str, str] | None:
+    if SHELL_COMPLEXITY_RE.search(command):
+        tokens = command_tokens(command)
+        if tokens_require_sfw(tokens):
+            return {"reason": SFW_GUIDANCE}
+        return None
+
+    try:
+        raw_tokens = shlex.split(command)
+    except ValueError:
+        return None
+    tokens = strip_environment_prefix(raw_tokens)
+    if not tokens_require_sfw(tokens):
+        return None
+    if has_environment_prefix(raw_tokens):
+        return {"reason": SFW_GUIDANCE}
+    return {"reason": SFW_BLOCK_REASON, "suggested_command": shlex.join(["sfw", *tokens])}
 
 
 def tool_input_from_payload(payload: dict[str, Any]) -> Any:
@@ -159,6 +264,10 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
             return 0
+    sfw_payload = sfw_protection_payload(command)
+    if sfw_payload:
+        write_json({"decision": "block", **sfw_payload})
+        return 0
     if is_red(command):
         report = sensitivity_report(command)
         finding_labels = [item["label"] for item in report.get("findings", []) if isinstance(item, dict)]

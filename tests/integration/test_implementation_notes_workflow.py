@@ -80,6 +80,30 @@ def stop_payload_without_plan(cwd: Path, session_id: str) -> str:
     )
 
 
+def test_guard_skips_when_chat_has_no_repo_and_no_plan(tmp_path: Path) -> None:
+    non_repo = tmp_path / "no-repo-chat"
+    non_repo.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path / "home")
+
+    guarded = run(
+        [sys.executable, str(HOOK)],
+        cwd=ROOT,
+        env=env,
+        input_text=json.dumps(
+            {
+                "hook_event_name": "Stop",
+                "session_id": "no-repo-session",
+                "cwd": str(non_repo),
+                "last_assistant_message": "Answered a chat that is not associated with a repository.",
+            }
+        ),
+    )
+
+    assert guarded.returncode == 0, guarded.stderr
+    assert guarded.stdout == ""
+
+
 def test_implementation_notes_workflow_survives_worktree_cleanup(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     source_plan = active / ".ralph" / "plans" / "2026-05-19-fixture-plan.md"

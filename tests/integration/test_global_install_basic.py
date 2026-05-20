@@ -63,7 +63,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
-    assert "Implementation Notes For Approved Plans" in agents_md.read_text(encoding="utf-8")
+    agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Implementation Notes For Approved Plans" in agents_text
+    assert "SFW Package-Manager Protection" in agents_text
     assert not (tmp_path / ".codex" / "config.toml").exists()
 
     doctor = run_script(tmp_path, "doctor-global.sh")
@@ -80,7 +82,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not agent.is_symlink()
     assert not helper.exists()
     assert not helper.is_symlink()
-    assert "Implementation Notes For Approved Plans" not in agents_md.read_text(encoding="utf-8")
+    agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Implementation Notes For Approved Plans" not in agents_text
+    assert "SFW Package-Manager Protection" not in agents_text
 
 
 def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:

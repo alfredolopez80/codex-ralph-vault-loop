@@ -90,6 +90,50 @@ def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
     assert ".env" not in payload["reason"]
 
 
+def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands(tmp_path: Path) -> None:
+    cases = {
+        "npm ci": "sfw npm ci",
+        "pnpm dlx prettier --version": "sfw pnpm dlx prettier --version",
+        "npx eslint .": "sfw npx eslint .",
+        "python3 -m pip install requests": "sfw python3 -m pip install requests",
+        "uvx ruff": "sfw uvx ruff",
+        "cargo install cargo-audit": "sfw cargo install cargo-audit",
+    }
+
+    for command, suggested in cases.items():
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+        assert "sfw" in payload["reason"]
+        assert payload["suggested_command"] == suggested
+        assert command not in payload["reason"]
+
+
+def test_pre_tool_guard_guides_instead_of_rewriting_complex_sfw_commands(tmp_path: Path) -> None:
+    for command in ["npm ci && npm test", "FOO=bar npm ci"]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+        assert "sfw" in payload["reason"]
+        assert "suggested_command" not in payload
+
+
+def test_pre_tool_guard_allows_sfw_wrapped_package_manager_commands(tmp_path: Path) -> None:
+    for command in ["sfw npm ci", "sfw pnpm add left-pad", "sfw uvx ruff"]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_does_not_require_sfw_for_local_package_scripts(tmp_path: Path) -> None:
+    for command in ["npm test", "cargo test"]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
 def test_pre_tool_guard_blocks_direct_local_cron_automation(tmp_path: Path) -> None:
     result = run_hook(
         "pre_tool_guard.py",
