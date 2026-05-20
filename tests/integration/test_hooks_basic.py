@@ -192,6 +192,19 @@ def test_pre_tool_guard_does_not_scan_python_script_arguments_for_pip(tmp_path: 
         assert result.stdout == ""
 
 
+def test_pre_tool_guard_does_not_scan_past_terminal_help_or_version_flags(tmp_path: Path) -> None:
+    for command in [
+        "npm --version ci",
+        "npm --help ci",
+        "pip --version install",
+        "pip -V install",
+        "python3 -m pip --help install",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
 def test_pre_tool_guard_allows_sfw_wrapped_package_manager_commands(tmp_path: Path) -> None:
     for command in ["sfw npm ci", "sfw pnpm add left-pad", "sfw uvx ruff"]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})

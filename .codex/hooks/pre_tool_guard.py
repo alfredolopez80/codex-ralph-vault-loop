@@ -79,6 +79,7 @@ CLI_OPTIONS_WITH_VALUE = {
     "--userconfig",
     "--workspace",
 }
+CLI_TERMINAL_OPTIONS = {"-h", "--help", "--version"}
 PIP_OPTIONS_WITH_VALUE = {
     "--cache-dir",
     "--cert",
@@ -102,6 +103,7 @@ PIP_OPTIONS_WITH_VALUE = {
     "--timeout",
     "--trusted-host",
 }
+PIP_TERMINAL_OPTIONS = {"-h", "-V", "--help", "--version"}
 PYTHON_OPTIONS_WITH_VALUE = {"-W", "-X", "--check-hash-based-pycs"}
 
 
@@ -229,8 +231,14 @@ def command_tokens(command: str) -> list[str]:
         return []
 
 
-def command_index_after_options(tokens: list[str], start_index: int, value_options: set[str]) -> int | None:
+def command_index_after_options(
+    tokens: list[str],
+    start_index: int,
+    value_options: set[str],
+    terminal_options: set[str] | None = None,
+) -> int | None:
     index = start_index
+    terminal_options = terminal_options or set()
     while index < len(tokens):
         arg = tokens[index]
         if arg == "--":
@@ -238,6 +246,8 @@ def command_index_after_options(tokens: list[str], start_index: int, value_optio
         if not arg.startswith("-") or arg == "-":
             return index
         option_name = arg.split("=", 1)[0]
+        if option_name in terminal_options:
+            return None
         if option_name in value_options:
             index += 1 if "=" in arg else 2
             continue
@@ -249,7 +259,7 @@ def command_index_after_options(tokens: list[str], start_index: int, value_optio
 
 
 def pip_args_require_sfw(tokens: list[str]) -> bool:
-    command_index = command_index_after_options(tokens, 0, PIP_OPTIONS_WITH_VALUE)
+    command_index = command_index_after_options(tokens, 0, PIP_OPTIONS_WITH_VALUE, PIP_TERMINAL_OPTIONS)
     return command_index is not None and tokens[command_index] == "install"
 
 
@@ -320,7 +330,7 @@ def tokens_require_sfw(tokens: list[str]) -> bool:
     protected_subcommands = SFW_PROTECTED_COMMANDS.get(tool)
     if protected_subcommands is None:
         return tool in SFW_PROTECTED_COMMANDS
-    command_index = command_index_after_options(tokens, 1, CLI_OPTIONS_WITH_VALUE)
+    command_index = command_index_after_options(tokens, 1, CLI_OPTIONS_WITH_VALUE, CLI_TERMINAL_OPTIONS)
     return command_index is not None and tokens[command_index] in protected_subcommands
 
 
