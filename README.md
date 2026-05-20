@@ -39,6 +39,8 @@ The overlay supports several working modes:
 | Subagents           | Provides narrow Codex agent definitions for coding, review, testing, security, evaluation, research, vision, and model counterpart work.                                     |
 | Design workflow     | Adds `codex-design-studio`, a reusable Claude Design-like workflow for frontend/full-stack UI, decks, prototypes, style extraction, planning, implementation, and visual QA. |
 | Codex maintenance   | Adds `keep-codex-fast`, a report-first skill for inspecting local Codex state, creating handoff reminders, backing up, and archive-only maintenance.                         |
+| SFW command guard   | Guides package-manager network commands through `sfw` so install, fetch, and remote execution paths are protected without blocking safe retry workflows.                    |
+| Repo-aware planning | Enforces `.ralph/plans` and implementation notes only when the active chat is associated with a real Git repository.                                                         |
 
 ## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Current Status
 
@@ -59,6 +61,8 @@ Current acceptance evidence:
 - Gates generate reports.
 - Unit, integration, and eval suites pass.
 - `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
+- Package-manager network commands are protected by the PreTool guard with `sfw` guidance and simple protected retry suggestions.
+- Plan and implementation-note enforcement is repo-aware, so non-repo chats are treated as general work and do not require `.ralph/plans` artifacts.
 - RED content does not externalize and does not persist.
 
 ## <img src="./docs/assets/branding/heading-architecture.svg" width="22" alt=""> Architecture
@@ -148,6 +152,14 @@ The quality spine is scriptable and repeatable:
 | `scripts/evals/vision_eval.py`                                     | Validates vision-analysis behavior in mock/offline mode.                                       |
 | `scripts/evals/coding_model_eval.py`                               | Validates MCP-oriented coding model behavior.                                                  |
 | `scripts/evals/autoresearch_dry_run.py`                            | Runs the deterministic toy AutoResearch fixture and keep/discard decision.                     |
+
+## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> SFW And Repo-Aware Workflow Guards
+
+The PreTool guard protects remote package-manager activity by requiring `sfw` for install, fetch, and remote execution commands such as `npm ci`, `pnpm install`, `pnpm dlx`, `npx`, `uvx`, `python3 -m pip install`, and `cargo install`. Simple commands receive a structured `suggested_command`, for example `sfw npm ci`, so Codex can retry safely instead of stopping at a generic block. Commands already prefixed with `sfw` pass, and local scripts such as `npm test`, `pnpm test`, and `cargo test` remain allowed by default unless they clearly fetch remote code.
+
+Environment-prefixed or shell-complex package-manager commands are intentionally guidance-only rather than rewritten. For example, `FOO=bar npm ci` or `env -i npm ci` block with SFW guidance but no automatic `suggested_command`, because preserving shell and environment semantics requires human or model review before retrying.
+
+Approved-plan implementation notes are repo-aware. Hooks first resolve whether the active `cwd`/workdir belongs to a real Git repository. Non-repo chats do not create `.ralph/plans`, do not create implementation notes, and do not block finalization for missing notes. Repo-backed work uses the repo-local `.ralph/plans` policy, and Codex worktrees resolve durable notes to the canonical stable repo root when available.
 
 ## <img src="./docs/assets/branding/heading-design.svg" width="22" alt=""> Codex Design Studio
 
