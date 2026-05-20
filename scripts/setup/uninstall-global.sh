@@ -80,7 +80,7 @@ Safety:
   - Refuses to remove non-symlink global entries.
   - Refuses to remove symlinks that do not point at this repo.
   - Does not edit ~/.codex/config.toml.
-  - Removes only the marked Ralph implementation-notes policy block from ~/.codex/AGENTS.md.
+  - Removes only marked Ralph policy blocks from ~/.codex/AGENTS.md.
 USAGE
 }
 
@@ -136,13 +136,14 @@ remove_helpers() {
   remove_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
 }
 
-remove_agents_policy() {
+remove_policy_block() {
   local target="$GLOBAL_AGENTS_MD"
-  local start="<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->"
-  local end="<!-- END RALPH IMPLEMENTATION NOTES POLICY -->"
+  local label="$1"
+  local start="$2"
+  local end="$3"
 
   if [[ ! -f "$target" ]]; then
-    printf 'GLOBAL_UNINSTALL_OK absent %s implementation-notes-policy\n' "$target"
+    printf 'GLOBAL_UNINSTALL_OK absent %s %s\n' "$target" "$label"
     return 0
   fi
   if [[ -L "$target" ]]; then
@@ -150,15 +151,15 @@ remove_agents_policy() {
     return 0
   fi
   if ! grep -q "$start" "$target" && ! grep -q "$end" "$target"; then
-    printf 'GLOBAL_UNINSTALL_OK absent %s implementation-notes-policy\n' "$target"
+    printf 'GLOBAL_UNINSTALL_OK absent %s %s\n' "$target" "$label"
     return 0
   fi
   if ! grep -q "$start" "$target" || ! grep -q "$end" "$target"; then
-    printf 'GLOBAL_UNINSTALL_FAIL unbalanced implementation-notes policy markers in %s\n' "$target" >&2
+    printf 'GLOBAL_UNINSTALL_FAIL unbalanced %s markers in %s\n' "$label" "$target" >&2
     return 1
   fi
   if [[ "$MODE" == "dry-run" ]]; then
-    printf 'GLOBAL_UNINSTALL_DRY_RUN remove %s implementation-notes-policy\n' "$target"
+    printf 'GLOBAL_UNINSTALL_DRY_RUN remove %s %s\n' "$target" "$label"
     return 0
   fi
   python3 - "$target" "$start" "$end" << 'PY'
@@ -175,7 +176,18 @@ before, rest = text.split(start, 1)
 _old, after = rest.split(end, 1)
 target.write_text((before.rstrip() + "\n\n" + after.lstrip()).strip() + "\n", encoding="utf-8")
 PY
-  printf 'GLOBAL_UNINSTALL_REMOVE %s implementation-notes-policy\n' "$target"
+  printf 'GLOBAL_UNINSTALL_REMOVE %s %s\n' "$target" "$label"
+}
+
+remove_agents_policy() {
+  remove_policy_block \
+    "implementation-notes-policy" \
+    "<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->" \
+    "<!-- END RALPH IMPLEMENTATION NOTES POLICY -->"
+  remove_policy_block \
+    "sfw-package-manager-policy" \
+    "<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->" \
+    "<!-- END RALPH SFW PACKAGE MANAGER POLICY -->"
 }
 
 main() {

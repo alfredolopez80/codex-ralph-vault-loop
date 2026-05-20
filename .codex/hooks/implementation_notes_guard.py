@@ -85,8 +85,13 @@ def main() -> int:
         return 0
 
     try:
-        roots = resolve_roots(_payload_cwd(payload) or Path.cwd())
         plan_value = _payload_plan_path(payload)
+        try:
+            roots = resolve_roots(_payload_cwd(payload) or Path.cwd())
+        except ImplementationNotesError as exc:
+            if "not inside a git repository" in str(exc):
+                return 0
+            raise
         if not plan_value:
             state = read_implementation_plan_state(roots.active_worktree_root, _payload_session_id(payload))
             plan_value = state.get("plan_path", "")

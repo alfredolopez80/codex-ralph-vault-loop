@@ -177,6 +177,14 @@ check_agents_policy() {
   else
     fail "global AGENTS.md missing implementation notes policy"
   fi
+
+  if grep -q "BEGIN RALPH SFW PACKAGE MANAGER POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH SFW PACKAGE MANAGER POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "SFW Package-Manager Protection" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md SFW package-manager policy present"
+  else
+    fail "global AGENTS.md missing SFW package-manager policy"
+  fi
 }
 
 check_hook_marker() {
