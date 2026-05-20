@@ -68,6 +68,29 @@ def is_assignment_prefix(token: str) -> bool:
     return "=" in token and not token.startswith("-") and bool(token.split("=", 1)[0])
 
 
+def expand_env_split_string(split_string: str, suffix_tokens: list[str]) -> list[str]:
+    try:
+        split_tokens = shlex.split(split_string)
+    except ValueError:
+        return []
+    return strip_environment_prefix(split_tokens + suffix_tokens)
+
+
+def compact_env_split_string_tokens(tokens: list[str], index: int) -> list[str] | None:
+    shell_arg = tokens[index]
+    if not shell_arg.startswith("-") or shell_arg.startswith("--"):
+        return None
+    split_option_index = shell_arg[1:].find("S")
+    if split_option_index < 0:
+        return None
+    split_string = shell_arg[split_option_index + 2 :]
+    if split_string:
+        return expand_env_split_string(split_string, tokens[index + 1 :])
+    if index + 1 >= len(tokens):
+        return []
+    return expand_env_split_string(tokens[index + 1], tokens[index + 2 :])
+
+
 def strip_env_invocation(tokens: list[str]) -> list[str]:
     index = 1
     while index < len(tokens):
@@ -77,17 +100,12 @@ def strip_env_invocation(tokens: list[str]) -> list[str]:
         if shell_arg in ENV_SPLIT_STRING_OPTIONS:
             if index + 1 >= len(tokens):
                 return []
-            try:
-                split_tokens = shlex.split(tokens[index + 1])
-            except ValueError:
-                return []
-            return strip_environment_prefix(split_tokens + tokens[index + 2 :])
+            return expand_env_split_string(tokens[index + 1], tokens[index + 2 :])
         if any(shell_arg.startswith(option + "=") for option in ENV_SPLIT_STRING_OPTIONS if option.startswith("--")):
-            try:
-                split_tokens = shlex.split(shell_arg.split("=", 1)[1])
-            except ValueError:
-                return []
-            return strip_environment_prefix(split_tokens + tokens[index + 1 :])
+            return expand_env_split_string(shell_arg.split("=", 1)[1], tokens[index + 1 :])
+        compact_split_tokens = compact_env_split_string_tokens(tokens, index)
+        if compact_split_tokens is not None:
+            return compact_split_tokens
         if shell_arg in ENV_OPTIONS_WITH_VALUE:
             index += 2
             continue

@@ -122,6 +122,11 @@ def test_pre_tool_guard_guides_instead_of_rewriting_complex_sfw_commands(tmp_pat
         "env --unset=NODE_ENV npm ci",
         "env -- npm ci",
         "env -S 'npm ci'",
+        "env --split-string='npm ci'",
+        "env -S'npm ci'",
+        "env -vS'npm ci'",
+        "env -ivS'npm ci'",
+        "env -vS 'npm ci'",
     ]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
         assert result.returncode == 0
