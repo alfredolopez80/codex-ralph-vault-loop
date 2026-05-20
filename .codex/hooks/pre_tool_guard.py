@@ -102,6 +102,7 @@ PIP_OPTIONS_WITH_VALUE = {
     "--timeout",
     "--trusted-host",
 }
+PYTHON_OPTIONS_WITH_VALUE = {"-W", "-X", "--check-hash-based-pycs"}
 
 
 def executable_name(token: str) -> str:
@@ -255,9 +256,27 @@ def pip_args_require_sfw(tokens: list[str]) -> bool:
 def python_invokes_pip(tokens: list[str]) -> bool:
     if len(tokens) < 4 or executable_name(tokens[0]) not in PYTHON_BINARIES:
         return False
-    for index in range(1, len(tokens) - 1):
-        if tokens[index] == "-m" and tokens[index + 1] == "pip":
+    index = 1
+    while index < len(tokens):
+        arg = tokens[index]
+        if arg == "--":
+            return False
+        if arg == "-m":
+            if index + 1 >= len(tokens):
+                return False
             return pip_args_require_sfw(tokens[index + 2 :])
+        if arg == "-c":
+            return False
+        if not arg.startswith("-") or arg == "-":
+            return False
+        option_name = arg.split("=", 1)[0]
+        if option_name in PYTHON_OPTIONS_WITH_VALUE:
+            index += 1 if "=" in arg or (len(arg) > 2 and arg[:2] in PYTHON_OPTIONS_WITH_VALUE) else 2
+            continue
+        if len(arg) > 2 and arg[:2] in PYTHON_OPTIONS_WITH_VALUE:
+            index += 1
+            continue
+        index += 1
     return False
 
 

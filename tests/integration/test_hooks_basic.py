@@ -98,6 +98,7 @@ def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands
         "pnpm --dir app add left-pad": "sfw pnpm --dir app add left-pad",
         "npx eslint .": "sfw npx eslint .",
         "python3 -m pip install requests": "sfw python3 -m pip install requests",
+        "python3 -I -m pip install requests": "sfw python3 -I -m pip install requests",
         "python3 -m pip --disable-pip-version-check install requests": (
             "sfw python3 -m pip --disable-pip-version-check install requests"
         ),
@@ -174,6 +175,17 @@ def test_pre_tool_guard_stops_env_option_parsing_after_assignments(tmp_path: Pat
         "env FOO=bar -uSESSION npm ci",
         "env FOO=bar -S'npm ci'",
         "env FOO=bar -- npm ci",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_does_not_scan_python_script_arguments_for_pip(tmp_path: Path) -> None:
+    for command in [
+        "python3 /tmp/argv_probe.py -m pip install requests",
+        "python3 -- /tmp/argv_probe.py -m pip install requests",
+        "python3 -c 'print(1)' -m pip install requests",
     ]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
         assert result.returncode == 0
