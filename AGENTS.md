@@ -49,9 +49,12 @@ When the user approves a plan and asks Codex to implement it, Codex must maintai
 - Do not configure Z.ai or MiniMax as direct `model_provider` profiles.
 - Use official MCPs and the custom `ralph_coding_models` MCP.
 - Use `ralph_coding_models.validate_coding_models` to confirm model availability before relying on external coding routes.
-- Use GLM-5.1 for medium/high complexity counterpart review, architecture review, debugging, and risk analysis.
+- Route by intent, safety, and expected verification value before considering cost.
+- Use GLM-5.1 for deep analysis, architecture, debugging, migrations, spec review, failure analysis, claim adjudication, and risk analysis.
 - Use GLM-5-Turbo for fast OpenClaw-like command following and small agentic reasoning tasks.
-- Use MiniMax-M2.7-highspeed for fast tasks, log summaries, diffs, test ideas, and lightweight coding support.
+- Use MiniMax-M2.7-highspeed for fast log summaries, diffs, PR summaries, test ideas, and lightweight synthesis.
+- Use official Z.ai MCPs for current search, URL reading, public repo reading, and vision/diagram/chart understanding.
+- Use official MiniMax MCPs for fast search and quick image understanding.
 - External model output is advisory. Codex main must inspect, adapt, and verify before accepting it.
 
 ## Image and Video Policy
@@ -89,14 +92,44 @@ Target -> Onboard -> Setup -> Doctor -> Packet -> Log -> Continue or Finalize
 
 Codex should create target-repo session files through `scripts/autoresearch/setup.py`, verify with `doctor.py`, run benchmark packets with `next.py`, log packet decisions with `log.py`, and summarize with `state.py`. Benchmarks must emit `METRIC name=value`; the primary metric drives keep/discard. Every logged packet must include ASI fields: hypothesis, evidence, next action hint, and rollback reason for discard/crash/checks_failed. Optional upstream `codex-autoresearch` tools are read-only guidance unless Codex main explicitly approves mutation. Ralph scorecards, gates, scoped commit paths, stale-packet checks, and RED-sensitive content blocking remain authoritative.
 
-## Complexity Routing
+## Intent-Based MCP Routing
 
-| Complexity | Default route |
+Choose the best safe MCP lane by task intent. Cost is secondary to intent, sensitivity, and verification value.
+
+| Intent | Default route |
 |---|---|
-| 1-2 | Codex direct execution or a fast worker. |
-| 3-4 | Fast external worker through MCP, then Codex synthesis and verification. |
-| 5-6 | GLM-5.1 counterpart review before final Codex action. |
-| 7+ | Codex main owns the work with gates, strong review, and explicit risk control. |
+| Trivial local work | `local` |
+| Logs, diffs, summaries, PR summaries | `minimax-fast` |
+| Test ideas and lightweight implementation support | `minimax-fast` or `zai-fast` |
+| Debugging, architecture, auth, migrations, rollout risk | `zai-deep` |
+| Claim adjudication / reviewer disagreement | `zai-deep` |
+| Spec vs implementation review | `zai-deep` |
+| Current web research | `zai-search` or MiniMax search |
+| Specific URL reading | `zai-reader` |
+| Public GitHub repo research | `zai-repo` |
+| Screenshot, diagram, or chart understanding | `zai-vision` or `minimax-vision` |
+| RED/sensitive content | `local` |
+
+For complexity 7+, Codex main owns the work with gates. Z.ai or MiniMax may still provide advisory MCP output only when the content is GREEN or sanitized YELLOW and Codex can verify locally.
+
+Before sending context to Z.ai or MiniMax for non-trivial work, shape the request as:
+
+```text
+EXTERNAL_MCP_BRIEF
+tool=<Z.ai|MiniMax>
+role=<debug analyst|spec reviewer|claim adjudicator|log summarizer|researcher|vision analyst|implementation advisor>
+sensitivity=<GREEN|YELLOW-sanitized>
+context_minimized=yes
+task=<specific question>
+constraints=<what not to change, what assumptions matter>
+required_output=
+- findings or verdict
+- evidence
+- confidence
+- risks
+- recommended next action
+codex_final_owner=yes
+```
 
 ## Routing Decision Protocol
 
@@ -105,10 +138,13 @@ Before substantive non-trivial work, record a route decision in the thread or ro
 ```text
 ROUTE_DECISION
 sensitivity=GREEN|YELLOW|RED
+intent=<logs|diff|summary|test-ideas|debugging|architecture|spec-review|claim-adjudication|research|repo-reading|url-reading|vision|implementation-support>
 complexity=1-10
-task_type=<code_review|debugging|logs|tests|research|implementation|other>
-route=<local|mcp:minimax-fast|mcp:zai-fast|mcp:zai-deep|codex-subagent|fallback-local>
+task_type=<legacy-compatible task type>
+route=<local|minimax-fast|zai-fast|zai-deep|zai-search|zai-reader|zai-repo|zai-vision|minimax-vision|codex-subagent|fallback-local>
+tool=<optional MCP tool>
 reason=<short reason>
+verification=<local verification expected>
 fallback=<none or reason>
 ```
 

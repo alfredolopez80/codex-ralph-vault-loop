@@ -8,14 +8,15 @@ from _cost_common import route_task
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Route a task through the Ralph cost/model policy.")
+    parser = argparse.ArgumentParser(description="Route a task through the Ralph intent-based MCP policy.")
     parser.add_argument("--task-type", required=True)
+    parser.add_argument("--intent", default=None, help="Optional explicit intent override for intent-based MCP routing.")
     parser.add_argument("--complexity", required=True, type=int)
     parser.add_argument("--sensitivity", required=True)
     parser.add_argument("--text", default=None, help="Optional context to scan before routing externally.")
     args = parser.parse_args()
 
-    route = route_task(args.task_type, args.complexity, args.sensitivity, text=args.text)
+    route = route_task(args.task_type, args.complexity, args.sensitivity, text=args.text, intent=args.intent)
     print(json.dumps(route, indent=2, sort_keys=True))
     return 1 if route["blocked"] else 0
 

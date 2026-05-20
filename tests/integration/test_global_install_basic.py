@@ -68,6 +68,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Intent-Based Z.ai and MiniMax MCP Usage" in agents_text
+    assert "EXTERNAL_MCP_BRIEF" in agents_text
+    assert "Default Codex/Codex App Model Routing Policy" not in agents_text
+    assert "Mandatory default routing" not in agents_text
     assert "Ralph Memory Core" in agents_text
     assert "Global hooks resolve Ralph scripts from" in agents_text
     assert "Do not require the active repository to contain" in agents_text
@@ -94,6 +98,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not helper.exists()
     assert not helper.is_symlink()
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Intent-Based Z.ai and MiniMax MCP Usage" not in agents_text
     assert "Global hooks resolve Ralph scripts from" not in agents_text
     assert "Implementation Notes For Approved Plans" not in agents_text
     assert "SFW Package-Manager Protection" not in agents_text
@@ -201,3 +206,124 @@ old
     assert "Do not require the active repository to contain" in text
     assert "For repositories that contain `scripts/memory/wakeup.py`" not in text
     assert "Run `python3 scripts/memory/wakeup.py`" not in text
+
+
+def test_global_install_replaces_stale_complexity_routing_policy(tmp_path: Path) -> None:
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text(
+        """Existing header
+
+## Default Codex/Codex App Model Routing Policy
+
+### Mandatory default routing
+
+Use these MCP routes automatically by complexity.
+
+## End Default Codex/Codex App Model Routing Policy
+
+<!-- BEGIN RALPH MEMORY CORE POLICY -->
+old memory
+<!-- END RALPH MEMORY CORE POLICY -->
+""",
+        encoding="utf-8",
+    )
+
+    result = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
+
+    assert result.returncode == 0, result.stderr
+    text = agents_md.read_text(encoding="utf-8")
+    assert "Existing header" in text
+    assert "BEGIN RALPH INTENT MCP POLICY" in text
+    assert "Intent-Based Z.ai and MiniMax MCP Usage" in text
+    assert "EXTERNAL_MCP_BRIEF" in text
+    assert "Default Codex/Codex App Model Routing Policy" not in text
+    assert "Mandatory default routing" not in text
+    assert "Use these MCP routes automatically" not in text
+
+
+def test_global_install_preserves_policies_accidentally_inside_stale_routing_block(tmp_path: Path) -> None:
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text(
+        """Existing header
+
+## Default Codex/Codex App Model Routing Policy
+
+### Mandatory default routing
+
+Use these MCP routes automatically by complexity.
+
+## Production Code Integrity Policy
+
+keep production policy
+
+## Docker And Minikube Sandbox Policy
+
+keep docker policy
+
+## End Default Codex/Codex App Model Routing Policy
+
+<!-- BEGIN RALPH MEMORY CORE POLICY -->
+old memory
+<!-- END RALPH MEMORY CORE POLICY -->
+""",
+        encoding="utf-8",
+    )
+
+    result = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
+
+    assert result.returncode == 0, result.stderr
+    text = agents_md.read_text(encoding="utf-8")
+    assert "Existing header" in text
+    assert "Intent-Based Z.ai and MiniMax MCP Usage" in text
+    assert "## Production Code Integrity Policy" in text
+    assert "keep production policy" in text
+    assert "## Docker And Minikube Sandbox Policy" in text
+    assert "keep docker policy" in text
+    assert "Default Codex/Codex App Model Routing Policy" not in text
+    assert "End Default Codex/Codex App Model Routing Policy" not in text
+    assert "Mandatory default routing" not in text
+    assert "Use these MCP routes automatically" not in text
+
+
+def test_global_doctor_rejects_stale_complexity_routing_policy(tmp_path: Path) -> None:
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text(
+        """<!-- BEGIN RALPH INTENT MCP POLICY -->
+## Intent-Based Z.ai and MiniMax MCP Usage
+
+EXTERNAL_MCP_BRIEF
+<!-- END RALPH INTENT MCP POLICY -->
+
+## Default Codex/Codex App Model Routing Policy
+
+### Mandatory default routing
+
+Use these MCP routes automatically by complexity.
+
+## End Default Codex/Codex App Model Routing Policy
+
+<!-- BEGIN RALPH MEMORY CORE POLICY -->
+## Ralph Memory Core
+
+Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root`.
+Do not require the active repository to contain `scripts/memory/*`.
+<!-- END RALPH MEMORY CORE POLICY -->
+
+<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->
+## Implementation Notes For Approved Plans
+<!-- END RALPH IMPLEMENTATION NOTES POLICY -->
+
+<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->
+## SFW Package-Manager Protection
+<!-- END RALPH SFW PACKAGE MANAGER POLICY -->
+""",
+        encoding="utf-8",
+    )
+
+    doctor = run_script(tmp_path, "doctor-global.sh")
+
+    assert doctor.returncode != 0
+    assert "stale cost/complexity-only MCP routing instructions" in doctor.stdout + doctor.stderr

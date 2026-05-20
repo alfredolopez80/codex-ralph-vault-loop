@@ -1,6 +1,6 @@
 ---
 name: model-router
-description: Route sanitized work to ralph_coding_models, official Z.ai MCPs, MiniMax MCPs, and local Codex tools while keeping Codex main as final owner.
+description: Route sanitized work to intent-appropriate Z.ai, MiniMax, ralph_coding_models, official MCPs, and local Codex tools while keeping Codex main as final owner.
 ---
 # Model Router
 
@@ -24,15 +24,43 @@ Use Z.ai official MCPs or configured aliases for external context. `zai_web_sear
 
 Use `minimax_coding_tools.web_search` for fast external search and `minimax_coding_tools.understand_image` for quick image checks.
 
-## Complexity Routing
+## Intent Routing
 
-For complexity 1-2, Codex can work directly when the task is trivial. Use `ralph_coding_models.zai_coding_fast` for OpenClaw-like command following. Use `ralph_coding_models.minimax_agentic_fast` for logs, diffs, summaries, and test ideas.
+Use intent, sensitivity, and expected local verification value before considering cost:
 
-For complexity 3-4, use GLM-5-Turbo or MiniMax-M2.7-highspeed through `ralph_coding_models`, then let Codex main synthesize and verify. For complexity 5-6, use GLM-5.1 through `ralph_coding_models.zai_coding_deep` as a counterpart. For complexity 7 and above, Codex main owns the work with gates; GLM-5.1 may provide advisory review only when the content is not RED.
+- `minimax-fast`: logs, diffs, summaries, PR summaries, and test ideas.
+- `zai-fast`: lightweight implementation support and small command-following/agentic reasoning.
+- `zai-deep`: debugging, architecture, auth, migrations, rollout risk, claim adjudication, spec review, and failure analysis.
+- `zai-search`: current web research.
+- `zai-reader`: specific public/safe URL reading.
+- `zai-repo`: public GitHub repository research.
+- `zai-vision` or `minimax-vision`: screenshot, diagram, chart, and UI understanding only.
+- `local`: trivial work, RED content, unavailable MCPs, or context that cannot be safely minimized.
 
-Use `scripts/cost/route-task.py` for deterministic route selection before external delegation.
+Use `scripts/cost/route-task.py` for deterministic intent lane selection before external delegation. It keeps `task_type`, `route`, and `protocol_route` compatibility while adding `intent`, `lane`, `verification`, `route_decision`, and `external_mcp_brief`.
 
-For substantive non-trivial work, expose the selected route as a `ROUTE_DECISION` block or append it through `scripts/cost/ledger.py`. The protocol route must be one of `local`, `mcp:minimax-fast`, `mcp:zai-fast`, `mcp:zai-deep`, `codex-subagent`, or `fallback-local`. RED always maps to local work.
+For substantive non-trivial work, expose the selected route as a `ROUTE_DECISION` block or append it through `scripts/cost/ledger.py`. RED always maps to local work.
+
+## External MCP Brief
+
+Before sending context to Z.ai or MiniMax for non-trivial work, use the brief shape emitted by the router:
+
+```text
+EXTERNAL_MCP_BRIEF
+tool=<Z.ai|MiniMax>
+role=<debug analyst|spec reviewer|claim adjudicator|log summarizer|researcher|vision analyst|implementation advisor>
+sensitivity=<GREEN|YELLOW-sanitized>
+context_minimized=yes
+task=<specific question>
+constraints=<what not to change, what assumptions matter>
+required_output=
+- findings or verdict
+- evidence
+- confidence
+- risks
+- recommended next action
+codex_final_owner=yes
+```
 
 ## Forbidden
 

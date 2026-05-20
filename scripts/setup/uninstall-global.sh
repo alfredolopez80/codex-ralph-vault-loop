@@ -181,6 +181,10 @@ PY
 
 remove_agents_policy() {
   remove_policy_block \
+    "intent-mcp-policy" \
+    "<!-- BEGIN RALPH INTENT MCP POLICY -->" \
+    "<!-- END RALPH INTENT MCP POLICY -->"
+  remove_policy_block \
     "memory-core-policy" \
     "<!-- BEGIN RALPH MEMORY CORE POLICY -->" \
     "<!-- END RALPH MEMORY CORE POLICY -->"
