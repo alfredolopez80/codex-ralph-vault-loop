@@ -35,6 +35,11 @@ cookies*
 # Vault and memory data must stay external to this overlay
 /vault/
 /.vault/
+autoresearch.md
+autoresearch.jsonl
+autoresearch.ideas.md
+autoresearch.last-run.json
+autoresearch.research/
 .ralph/layers/
 .ralph/ledgers/
 .ralph/handoffs/

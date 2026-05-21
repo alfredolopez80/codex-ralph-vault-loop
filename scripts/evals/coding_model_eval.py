@@ -25,6 +25,10 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
     live_results = result_by_id(response)
     tasks = fixture.get("tasks", [])
     route_hits = 0
+    lane_hits = 0
+    lane_expected = 0
+    brief_hits = 0
+    brief_expected = 0
     accepted = 0
     rework = 0
     latency_values: list[float] = []
@@ -38,10 +42,35 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
         observed = live_results.get(task["id"], {})
         actual_route = observed.get("actual_route", routed["route"])
         actual_tool = observed.get("actual_tool", routed.get("tool"))
+        actual_protocol_route = observed.get("actual_protocol_route", routed.get("protocol_route"))
+        actual_lane = observed.get("actual_lane", routed.get("lane"))
         expected_tool = task.get("expected_tool")
-        route_ok = actual_route == task["expected_route"] and (expected_tool is None or actual_tool == expected_tool)
+        expected_protocol_route = task.get("expected_protocol_route")
+        route_ok = (
+            actual_route == task["expected_route"]
+            and (expected_tool is None or actual_tool == expected_tool)
+            and (expected_protocol_route is None or actual_protocol_route == expected_protocol_route)
+        )
         route_hits += 1 if route_ok else 0
         evaluated += 1
+
+        expected_lane = task.get("expected_lane")
+        if expected_lane is not None:
+            lane_expected += 1
+            lane_hits += 1 if actual_lane == expected_lane else 0
+
+        expected_brief = task.get("expected_external_brief")
+        if expected_brief is not None:
+            brief_expected += 1
+            brief = routed.get("external_mcp_brief")
+            brief_ok = bool(brief) == bool(expected_brief)
+            expected_brief_tool = task.get("expected_brief_tool")
+            expected_brief_role = task.get("expected_brief_role")
+            if expected_brief_tool is not None:
+                brief_ok = brief_ok and bool(brief) and brief.get("tool") == expected_brief_tool
+            if expected_brief_role is not None:
+                brief_ok = brief_ok and bool(brief) and brief.get("role") == expected_brief_role
+            brief_hits += 1 if brief_ok else 0
 
         blocked = bool(routed["blocked"])
         externalized = bool(observed.get("externalized", task.get("externalized", False)))
@@ -58,9 +87,14 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
                 "id": task["id"],
                 "expected_route": task["expected_route"],
                 "actual_route": actual_route,
+                "expected_lane": expected_lane,
+                "actual_lane": actual_lane,
                 "expected_tool": expected_tool,
                 "actual_tool": actual_tool,
+                "expected_protocol_route": expected_protocol_route,
+                "actual_protocol_route": actual_protocol_route,
                 "route_ok": route_ok,
+                "lane_ok": True if expected_lane is None else actual_lane == expected_lane,
                 "blocked": blocked,
                 "externalized": externalized,
             }
@@ -73,6 +107,8 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
     incident_score = 1.0 if sensitive_incidents == 0 else 0.0
     metrics = {
         "route_correctness": ratio(route_hits, evaluated),
+        "intent_lane_coverage": ratio(lane_hits, lane_expected),
+        "brief_contract_coverage": ratio(brief_hits, brief_expected),
         "acceptance_rate": ratio(accepted, non_blocked),
         "rework_rate": round(rework_rate, 4),
         "latency": latency_score,
@@ -84,6 +120,8 @@ def score_coding_router(fixture: dict[str, Any], response: dict[str, Any]) -> di
         1.0 - metrics["rework_rate"],
         metrics["latency"],
         incident_score,
+        metrics["intent_lane_coverage"],
+        metrics["brief_contract_coverage"],
     ])
     return {
         "metrics": metrics,

@@ -85,7 +85,7 @@ Safety:
   - Uses symlinks; does not copy secrets or vault data.
   - Does not edit ~/.codex/config.toml.
   - Installs ~/.codex/hooks and ~/.codex/hooks.json through install-global-hooks.py.
-  - Updates ~/.codex/AGENTS.md with the Ralph implementation-notes policy.
+  - Updates ~/.codex/AGENTS.md with marked Ralph global policies.
   - Backs up conflicting global entries before replacing them.
   - Links skills into both ~/.agents/skills and ~/.codex/skills.
 USAGE
@@ -198,6 +198,59 @@ install_hooks() {
   python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
 }
 
+intent_mcp_policy_block() {
+  cat << 'POLICY'
+<!-- BEGIN RALPH INTENT MCP POLICY -->
+## Intent-Based Z.ai and MiniMax MCP Usage
+
+Z.ai and MiniMax are MCP-backed advisors or workers, never direct Codex `model_provider` backends. Codex main remains final owner of decisions, edits, safety, synthesis, and verification.
+
+Route by task intent, sensitivity, and expected verification value before considering cost:
+
+| Intent | Default lane |
+|---|---|
+| Trivial local work | `local` |
+| Logs, diffs, summaries, PR summaries | `minimax-fast` |
+| Test ideas and lightweight implementation support | `minimax-fast` or `zai-fast` |
+| Debugging, architecture, auth, migrations, rollout risk | `zai-deep` |
+| Claim adjudication / reviewer disagreement | `zai-deep` |
+| Spec vs implementation review | `zai-deep` |
+| Current web research | `zai-search` or MiniMax search |
+| Specific URL reading | `zai-reader` |
+| Public GitHub repo research | `zai-repo` |
+| Screenshot, diagram, or chart understanding | `zai-vision` or `minimax-vision` |
+| RED/sensitive content | `local` |
+
+Before sending context to Z.ai or MiniMax for non-trivial work, shape the request as:
+
+```text
+EXTERNAL_MCP_BRIEF
+tool=<Z.ai|MiniMax>
+role=<debug analyst|spec reviewer|claim adjudicator|log summarizer|researcher|vision analyst|implementation advisor>
+sensitivity=<GREEN|YELLOW-sanitized>
+context_minimized=yes
+task=<specific question>
+constraints=<what not to change, what assumptions matter>
+required_output=
+- findings or verdict
+- evidence
+- confidence
+- risks
+- recommended next action
+codex_final_owner=yes
+```
+
+Rules:
+- RED content stays local.
+- Never configure Z.ai or MiniMax as direct `model_provider` profiles.
+- Preserve `ralph_coding_models`, official Z.ai MCPs, and official MiniMax MCP availability.
+- Do not use Z.ai or MiniMax for image, video, music, voice, TTS, voice cloning, or visual generation.
+- GPT Images 2 is the only approved image generation route.
+- Codex must verify external output locally before acting on it.
+<!-- END RALPH INTENT MCP POLICY -->
+POLICY
+}
+
 memory_core_policy_block() {
   cat << 'POLICY'
 <!-- BEGIN RALPH MEMORY CORE POLICY -->
@@ -276,8 +329,8 @@ POLICY
 
 install_agents_policy() {
   local target="$GLOBAL_AGENTS_MD"
-  local start="<!-- BEGIN RALPH MEMORY CORE POLICY -->"
-  local end="<!-- END RALPH MEMORY CORE POLICY -->"
+  local start="<!-- BEGIN RALPH INTENT MCP POLICY -->"
+  local end="<!-- END RALPH INTENT MCP POLICY -->"
 
   if [[ "$MODE" == "dry-run" ]]; then
     printf 'GLOBAL_INSTALL_DRY_RUN update %s ralph-global-policies\n' "$target"
@@ -298,6 +351,69 @@ install_agents_policy() {
   fi
 
   local policy_file
+  policy_file="$(mktemp)"
+  intent_mcp_policy_block > "$policy_file"
+  python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+policy = Path(sys.argv[2]).read_text(encoding="utf-8").strip() + "\n"
+start = sys.argv[3]
+end = sys.argv[4]
+
+text = target.read_text(encoding="utf-8") if target.exists() else ""
+has_start = start in text
+has_end = end in text
+if has_start != has_end:
+    raise SystemExit(f"GLOBAL_INSTALL_FAIL unbalanced intent-mcp policy markers in {target}")
+if has_start and has_end:
+    before, rest = text.split(start, 1)
+    _old, after = rest.split(end, 1)
+    rendered = before.rstrip() + "\n\n" + policy + after.lstrip()
+else:
+    old_start = "## Default Codex/Codex App Model Routing Policy"
+    old_end = "## End Default Codex/Codex App Model Routing Policy"
+
+    def remove_legacy_routing_policy(value: str) -> str:
+        start_index = value.find(old_start)
+        if start_index == -1:
+            return re.sub(r"\n*## End Default Codex/Codex App Model Routing Policy\n?", "\n\n", value)
+
+        # Some early global AGENTS files accidentally wrapped unrelated
+        # production-integrity, Docker, AutoResearch, Oracle, diagram, and E2E
+        # policies inside the old routing start/end markers. Preserve those
+        # sections by stopping at the first known non-routing policy boundary.
+        boundaries = [
+            "\n## Production Code Integrity Policy",
+            "\n## Docker And Minikube Sandbox Policy",
+            "\n## Default Ralph AutoResearch Global V2 Policy",
+            "\n## Oracle / ChatGPT Pro second opinion",
+            "\n## Default Technical Diagram Policy",
+            "\n## Default E2E Guardian Global Policy",
+            "\n## Default Plans Folder",
+            "\n## Ralph Memory Core",
+            "\n<!-- BEGIN RALPH MEMORY CORE POLICY -->",
+            "\n<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->",
+            "\n<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->",
+            "\n## End Default Codex/Codex App Model Routing Policy",
+        ]
+        candidates = [idx for marker in boundaries if (idx := value.find(marker, start_index + len(old_start))) != -1]
+        end_index = min(candidates) if candidates else len(value)
+        rendered_value = value[:start_index].rstrip() + "\n\n" + value[end_index:].lstrip()
+        return re.sub(r"\n*## End Default Codex/Codex App Model Routing Policy\n?", "\n\n", rendered_value)
+
+    text = remove_legacy_routing_policy(text)
+    rendered = text.rstrip() + "\n\n" + policy if text.strip() else policy
+target.write_text(rendered, encoding="utf-8")
+PY
+  rm -f "$policy_file"
+
+  start="<!-- BEGIN RALPH MEMORY CORE POLICY -->"
+  end="<!-- END RALPH MEMORY CORE POLICY -->"
   policy_file="$(mktemp)"
   memory_core_policy_block > "$policy_file"
   python3 - "$target" "$policy_file" "$start" "$end" << 'PY'

@@ -5,13 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 GLOBAL_HOOK_ROOT="${HOME}/.codex/hooks"
 GLOBAL_HOOK_MARKER="${GLOBAL_HOOK_ROOT}/.ralph-repo-root"
+
+is_git_checkout() {
+  local target="$1"
+  git -C "$target" rev-parse --is-inside-work-tree > /dev/null 2>&1
+}
+
 REPO_ROOT="$SCRIPT_REPO_ROOT"
 if [[ -f "$GLOBAL_HOOK_MARKER" ]]; then
   MARKER_REPO_ROOT="$(cat "$GLOBAL_HOOK_MARKER" 2> /dev/null || true)"
   case "$MARKER_REPO_ROOT" in
     "$HOME/.codex/worktrees"/*) ;;
     *)
-      if [[ -n "$MARKER_REPO_ROOT" && -d "$MARKER_REPO_ROOT/.git" && -f "$MARKER_REPO_ROOT/scripts/memory/wakeup.py" ]]; then
+      if [[ -n "$MARKER_REPO_ROOT" && -d "$MARKER_REPO_ROOT" && -f "$MARKER_REPO_ROOT/scripts/memory/wakeup.py" ]] && is_git_checkout "$MARKER_REPO_ROOT"; then
         REPO_ROOT="$MARKER_REPO_ROOT"
       fi
       ;;
@@ -171,6 +177,21 @@ check_agents_policy() {
     fail "global AGENTS.md missing Ralph policies: $GLOBAL_AGENTS_MD"
     return
   fi
+  if grep -q "BEGIN RALPH INTENT MCP POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH INTENT MCP POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Intent-Based Z.ai and MiniMax MCP Usage" "$GLOBAL_AGENTS_MD" &&
+    grep -q "EXTERNAL_MCP_BRIEF" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md intent-based MCP policy present"
+  else
+    fail "global AGENTS.md missing intent-based MCP policy"
+  fi
+  if grep -q "Default Codex/Codex App Model Routing Policy" "$GLOBAL_AGENTS_MD" ||
+    grep -q "End Default Codex/Codex App Model Routing Policy" "$GLOBAL_AGENTS_MD" ||
+    grep -q "Mandatory default routing" "$GLOBAL_AGENTS_MD" ||
+    grep -q "Use these MCP routes automatically" "$GLOBAL_AGENTS_MD"; then
+    fail "global AGENTS.md contains stale cost/complexity-only MCP routing instructions"
+  fi
+
   if grep -q "BEGIN RALPH MEMORY CORE POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "END RALPH MEMORY CORE POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Global hooks resolve Ralph scripts from" "$GLOBAL_AGENTS_MD" &&
@@ -219,7 +240,7 @@ check_hook_marker() {
       return
       ;;
   esac
-  if [[ ! -d "$target/.git" ]]; then
+  if ! is_git_checkout "$target"; then
     fail "global hook repo marker is not a git checkout: $target"
   elif [[ ! -f "$target/scripts/memory/wakeup.py" || ! -f "$target/scripts/memory/task-intake.py" ]]; then
     fail "global hook repo marker missing Ralph memory scripts: $target"

@@ -62,8 +62,10 @@ def test_coding_model_eval_mock_scores_routing_and_red_block(tmp_path: Path) -> 
     assert result.returncode == 0, result.stderr
     report = load_output(output)
     assert report["metrics"]["route_correctness"] == 1.0
+    assert report["metrics"]["intent_lane_coverage"] == 1.0
+    assert report["metrics"]["brief_contract_coverage"] == 1.0
     assert report["metrics"]["acceptance_rate"] == 1.0
-    assert report["metrics"]["rework_rate"] == 0.25
+    assert report["metrics"]["rework_rate"] < 0.1
     assert report["metrics"]["sensitive_externalization_incidents"] == 0
     red_detail = [item for item in report["details"] if item["id"] == "red-block"][0]
     assert red_detail["blocked"] is True
@@ -71,6 +73,12 @@ def test_coding_model_eval_mock_scores_routing_and_red_block(tmp_path: Path) -> 
     secret_detail = [item for item in report["details"] if item["id"] == "secret-content-block"][0]
     assert secret_detail["blocked"] is True
     assert secret_detail["externalized"] is False
+    research_detail = [item for item in report["details"] if item["id"] == "research-search"][0]
+    assert research_detail["actual_lane"] == "zai-search"
+    assert research_detail["actual_tool"] == "zai_web_search.web_search_prime"
+    unknown_detail = [item for item in report["details"] if item["id"] == "unknown-local"][0]
+    assert unknown_detail["actual_lane"] == "local"
+    assert unknown_detail["actual_tool"] is None
 
 
 def test_coding_model_eval_counts_sensitive_externalization_incident(tmp_path: Path) -> None:

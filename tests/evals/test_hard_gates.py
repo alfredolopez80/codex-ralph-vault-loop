@@ -38,17 +38,22 @@ def test_run_scorecard_processes_minimal_fixture(tmp_path: Path) -> None:
             {
                 "metrics": {
                     "correct_route_selected": 1,
+                    "intent_lane_selected": 1,
                     "codex_synthesis_required": 1,
                     "mcp_policy_respected": 1,
-                    "cheapest_safe_route": 1,
+                    "best_safe_lane": 1,
+                    "unnecessary_external_call_avoided": 1,
                     "context_estimated": 1,
                     "red_blocks_external": 1,
                     "no_direct_external_provider": 1,
                     "no_secret_leak": 1,
+                    "brief_contract_respected": 1,
                     "ledger_written": 1,
                     "route_reason_recorded": 1,
+                    "route_decision_verification_recorded": 1,
                     "deterministic_json": 1,
                     "simple_policy_table": 1,
+                    "backward_compatibility_fields": 1,
                 },
                 "hard_gates": {
                     "tests_pass": True,
