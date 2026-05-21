@@ -1,7 +1,7 @@
 id: cost_router_v1
 name: Cost Router v1
 version: 1
-description: Scores cost-aware model routing and MCP delegation decisions.
+description: Scores intent-aware MCP routing, Codex ownership, and safety-preserving Z.ai/MiniMax delegation decisions. Historical cost-router id remains for compatibility; cost is secondary to intent, sensitivity, and verification value.
 weights:
   effectiveness: 0.35
   efficiency: 0.20
@@ -11,21 +11,26 @@ weights:
 metrics:
   effectiveness:
     - correct_route_selected
+    - intent_lane_selected
     - codex_synthesis_required
     - mcp_policy_respected
   efficiency:
-    - cheapest_safe_route
+    - best_safe_lane
+    - unnecessary_external_call_avoided
     - context_estimated
   reliability_safety:
     - red_blocks_external
     - no_direct_external_provider
     - no_secret_leak
+    - brief_contract_respected
   memory_research_quality:
     - ledger_written
     - route_reason_recorded
+    - route_decision_verification_recorded
   maintainability_simplicity:
     - deterministic_json
     - simple_policy_table
+    - backward_compatibility_fields
 hard_gates:
   - tests_pass
   - no_secret_leak

@@ -83,6 +83,21 @@ def test_route_task_research_url_and_repo_use_zai_official_lanes() -> None:
     assert repo["tool"] == "zai_zread.search_doc"
 
 
+def test_route_task_claim_vision_and_high_risk_lanes() -> None:
+    claim = json.loads(run_script("route-task.py", "--task-type", "claim-adjudication", "--complexity", "5", "--sensitivity", "yellow").stdout)
+    vision = json.loads(run_script("route-task.py", "--task-type", "quick_image", "--complexity", "2", "--sensitivity", "green").stdout)
+    high_risk = json.loads(run_script("route-task.py", "--task-type", "architecture", "--complexity", "8", "--sensitivity", "yellow").stdout)
+
+    assert claim["lane"] == "zai-deep"
+    assert claim["external_mcp_brief"]["role"] == "claim adjudicator"
+    assert vision["lane"] == "minimax-vision"
+    assert vision["tool"] == "minimax_coding_tools.understand_image"
+    assert high_risk["route"] == "codex_main_with_gates"
+    assert high_risk["lane"] == "zai-deep"
+    assert high_risk["tool"] == "ralph_coding_models.zai_coding_deep"
+    assert high_risk["requires_codex_synthesis"] is True
+
+
 def test_route_task_unknown_intent_defaults_local() -> None:
     result = run_script("route-task.py", "--task-type", "unknown_task", "--complexity", "4", "--sensitivity", "green")
     assert result.returncode == 0, result.stderr
