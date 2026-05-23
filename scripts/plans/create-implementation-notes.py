@@ -23,6 +23,7 @@ from implementation_notes_lib import (
     sync_plan_to_primary,
     write_implementation_plan_state,
 )
+from implementation_index_lib import upsert_plan_entry
 
 
 def main() -> int:
@@ -76,6 +77,14 @@ def main() -> int:
         notes_path.parent.mkdir(parents=True, exist_ok=True)
         notes_path.write_text(html, encoding="utf-8")
         write_implementation_plan_state(roots, session_id, canonical_plan, notes_path)
+        upsert_plan_entry(
+            primary_root=roots.primary_repo_root,
+            plan_path=canonical_plan,
+            notes_path=notes_path,
+            status="active",
+            active_root=roots.active_worktree_root,
+            session_id=session_id,
+        )
         print(f"IMPLEMENTATION_NOTES_CREATED {notes_path}")
         return 0
     except ImplementationNotesError as exc:

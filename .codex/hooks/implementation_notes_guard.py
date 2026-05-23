@@ -28,14 +28,12 @@ from implementation_notes_lib import (  # noqa: E402
     resolve_roots,
     safe_session_id,
 )
+from implementation_index_lib import current_git_metadata, upsert_plan_entry  # noqa: E402
 
 
 PLAN_PATH_CHARS = r"[^\s`()\[\]]"
 MARKDOWN_PLAN_LINK_RE = re.compile(
     rf"\[[^\]\n]*\]\((?P<path>{PLAN_PATH_CHARS}+\.ralph/plans/{PLAN_PATH_CHARS}+\.md)\)"
-)
-PLAN_RE = re.compile(
-    rf"(?P<path>(?:/{PLAN_PATH_CHARS}+|\.\.?/{PLAN_PATH_CHARS}+){PLAN_PATH_CHARS}*\.ralph/plans/{PLAN_PATH_CHARS}+\.md)"
 )
 
 
@@ -53,8 +51,7 @@ def _payload_plan_path(payload: dict[str, Any]) -> str:
     match = MARKDOWN_PLAN_LINK_RE.search(message)
     if match:
         return match.group("path")
-    match = PLAN_RE.search(message)
-    return match.group("path") if match else ""
+    return ""
 
 
 def _explicit_approved(payload: dict[str, Any]) -> bool:
@@ -136,6 +133,17 @@ def main() -> int:
             return block("Implementation notes path points to an ephemeral Codex worktree.")
         if not notes_has_non_initial_entry(notes_path):
             return block("Implementation notes exist but do not contain any decision entries beyond the initial template.")
+        git_meta = current_git_metadata(roots.active_worktree_root)
+        upsert_plan_entry(
+            primary_root=roots.primary_repo_root,
+            plan_path=plan_path,
+            notes_path=notes_path,
+            status="implemented",
+            active_root=roots.active_worktree_root,
+            commit=git_meta["commit"],
+            branch=git_meta["branch"],
+            session_id=_payload_session_id(payload),
+        )
         return 0
     except ImplementationNotesError as exc:
         return block(f"Implementation notes guard could not validate plan: {exc}")

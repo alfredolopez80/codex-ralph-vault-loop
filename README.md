@@ -159,7 +159,7 @@ The PreTool guard protects remote package-manager activity by requiring `sfw` fo
 
 Environment-prefixed or shell-complex package-manager commands are intentionally guidance-only rather than rewritten. For example, `FOO=bar npm ci` or `env -i npm ci` block with SFW guidance but no automatic `suggested_command`, because preserving shell and environment semantics requires human or model review before retrying.
 
-Approved-plan implementation notes are repo-aware. Hooks first resolve whether the active `cwd`/workdir belongs to a real Git repository. Non-repo chats do not create `.ralph/plans`, do not create implementation notes, and do not block finalization for missing notes. Repo-backed work uses the repo-local `.ralph/plans` policy, and Codex worktrees resolve durable plans and notes to the canonical stable repo root. Finalization blocks when the approved plan or notes exist only under an ephemeral worktree.
+Approved-plan implementation notes are repo-aware. Hooks first resolve whether the active `cwd`/workdir belongs to a real Git repository. Non-repo chats do not create `.ralph/plans`, do not create implementation notes, and do not block finalization for missing notes. Repo-backed work uses the repo-local `.ralph/plans` policy, and Codex worktrees resolve durable plans, notes, and the implementation index to the canonical stable repo root. Finalization blocks when the approved plan or notes exist only under an ephemeral worktree. The per-plan HTML remains the detailed source; `implementation-index.json` and `implementation-index.md` list implemented plans, linked notes, commits, PR references, and loose commits without duplicating the note body.
 
 ## <img src="./docs/assets/branding/heading-design.svg" width="22" alt=""> Codex Design Studio
 

@@ -9,6 +9,8 @@ The durable local plan and implementation-notes copies belong under the canonica
 ```text
 <primary-repo-root>/.ralph/plans/<plan-slug>.md
 <primary-repo-root>/.ralph/plans/<plan-slug>-implementation-notes.html
+<primary-repo-root>/.ralph/plans/implementation-index.json
+<primary-repo-root>/.ralph/plans/implementation-index.md
 ```
 
 Codex often works from secondary worktrees under `~/.codex/worktrees/`. A worktree may keep a convenience copy, but that copy is disposable. Before finalizing work or cleaning a worktree, Codex must verify that the canonical local repo root copy exists and has the latest entries.
@@ -27,6 +29,25 @@ Plan approval status: pending|approved
 ```
 
 Implementation starts only when the plan is approved in metadata or the current user turn explicitly approves it.
+
+## Project Implementation Index
+
+The per-plan HTML notes remain the detailed source of truth. The project-level
+implementation index is metadata only: it links plans, notes, implementation
+status, branch, commits, PR references, and loose commits that did not have an
+approved plan.
+
+`implementation-index.json` is the machine-readable source. `implementation-index.md`
+is the human-readable view. Both are stored beside the plans in the canonical
+repo root `.ralph/plans/` directory and should not be kept only in worktrees.
+
+The lifecycle is:
+
+- Creating implementation notes registers the plan as `active`.
+- Successful Stop hook validation marks the plan as `implemented` and records
+  the current commit metadata.
+- Commits without an approved plan can be registered as `loose_commit` entries
+  through `scripts/plans/update-implementation-index.py`.
 
 ## What To Record
 
@@ -56,7 +77,7 @@ Every entry should include timestamp, category, decision, reason, impact, relate
 The workflow is not validated by file existence alone. The local workflow test should prove:
 
 ```text
-approved plan -> notes update -> Stop hook guard -> canonical repo-root sync -> cleanup survival
+approved plan -> notes update -> project index update -> Stop hook guard -> canonical repo-root sync -> cleanup survival
 ```
 
 A notes file without approved plan metadata is not proof of a valid implementation flow.
