@@ -46,6 +46,8 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Blocks when a referenced approved plan requires implementation notes but the
     canonical repo-root notes file is missing, empty beyond the initial
     template, not approved, or present only inside an ephemeral Codex worktree.
+  - Updates the canonical project implementation index after a valid plan/notes
+    pair passes finalization, recording status and current commit metadata.
   - Treats hooks as guardrails only. It never writes implementation decisions.
   - Keeps RED-sensitive sessions local by skipping validation when the final
     assistant message classifies as RED.

@@ -53,9 +53,11 @@ pass "bash syntax"
 
 PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
   "$HOOKS/implementation_notes_guard.py" \
+  "$ROOT/scripts/plans/implementation_index_lib.py" \
   "$ROOT/scripts/plans/implementation_notes_lib.py" \
   "$ROOT/scripts/plans/create-implementation-notes.py" \
-  "$ROOT/scripts/plans/append-implementation-note.py" || fail "python implementation notes syntax"
+  "$ROOT/scripts/plans/append-implementation-note.py" \
+  "$ROOT/scripts/plans/update-implementation-index.py" || fail "python implementation notes syntax"
 pass "implementation notes python syntax"
 
 simple_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-simple.json)"

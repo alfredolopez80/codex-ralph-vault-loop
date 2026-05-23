@@ -16,6 +16,7 @@ if str(SCRIPTS_PLANS) not in sys.path:
 
 from implementation_notes_lib import (  # noqa: E402
     ImplementationNotesError,
+    canonical_plan_path,
     ensure_plan_path_allowed,
     is_codex_worktree,
     is_plan_approved,
@@ -27,9 +28,13 @@ from implementation_notes_lib import (  # noqa: E402
     resolve_roots,
     safe_session_id,
 )
+from implementation_index_lib import current_git_metadata, upsert_plan_entry  # noqa: E402
 
 
-PLAN_RE = re.compile(r"(?P<path>(?:/[^\s`]+|\.\.?/[^\s`]+)[^\s`]*\.ralph/plans/[^\s`]+\.md)")
+PLAN_PATH_CHARS = r"[^\s`()\[\]]"
+MARKDOWN_PLAN_LINK_RE = re.compile(
+    rf"\[[^\]\n]*\]\((?P<path>{PLAN_PATH_CHARS}+\.ralph/plans/{PLAN_PATH_CHARS}+\.md)\)"
+)
 
 
 def _message(payload: dict[str, Any]) -> str:
@@ -43,8 +48,10 @@ def _payload_plan_path(payload: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     message = _message(payload)
-    match = PLAN_RE.search(message)
-    return match.group("path") if match else ""
+    match = MARKDOWN_PLAN_LINK_RE.search(message)
+    if match:
+        return match.group("path")
+    return ""
 
 
 def _explicit_approved(payload: dict[str, Any]) -> bool:
@@ -75,6 +82,18 @@ def block(reason: str) -> int:
     return 0
 
 
+def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
+    if not is_codex_worktree(plan_path):
+        return plan_path
+    canonical_plan = canonical_plan_path(plan_path, roots.primary_repo_root)
+    if not canonical_plan.exists():
+        raise ImplementationNotesError(
+            "approved implementation plan exists only in an ephemeral Codex worktree; "
+            "copy it to the canonical repo root .ralph/plans/ before finalizing"
+        )
+    return canonical_plan
+
+
 def main() -> int:
     payload = read_hook_input()
     if payload.get("stop_hook_active"):
@@ -99,6 +118,8 @@ def main() -> int:
             return 0
         plan_path = resolve_for_read(plan_value)
         ensure_plan_path_allowed(plan_path, roots)
+        plan_path = canonical_plan_for_guard(plan_path, roots)
+        ensure_plan_path_allowed(plan_path, roots)
         metadata = parse_plan_metadata(plan_path)
         if not metadata.implementation_notes_required:
             return 0
@@ -112,6 +133,17 @@ def main() -> int:
             return block("Implementation notes path points to an ephemeral Codex worktree.")
         if not notes_has_non_initial_entry(notes_path):
             return block("Implementation notes exist but do not contain any decision entries beyond the initial template.")
+        git_meta = current_git_metadata(roots.active_worktree_root)
+        upsert_plan_entry(
+            primary_root=roots.primary_repo_root,
+            plan_path=plan_path,
+            notes_path=notes_path,
+            status="implemented",
+            active_root=roots.active_worktree_root,
+            commit=git_meta["commit"],
+            branch=git_meta["branch"],
+            session_id=_payload_session_id(payload),
+        )
         return 0
     except ImplementationNotesError as exc:
         return block(f"Implementation notes guard could not validate plan: {exc}")

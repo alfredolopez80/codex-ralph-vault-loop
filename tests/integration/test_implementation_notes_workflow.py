@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CREATE = ROOT / "scripts" / "plans" / "create-implementation-notes.py"
 APPEND = ROOT / "scripts" / "plans" / "append-implementation-note.py"
+INDEX = ROOT / "scripts" / "plans" / "update-implementation-index.py"
 HOOK = ROOT / ".codex" / "hooks" / "implementation_notes_guard.py"
 
 
@@ -69,6 +70,18 @@ def hook_payload(plan: Path, cwd: Path, *, approved: bool = False) -> str:
     )
 
 
+def hook_payload_with_markdown_plan_link(plan: Path, cwd: Path) -> str:
+    return json.dumps(
+        {
+            "hook_event_name": "Stop",
+            "session_id": "fixture-session",
+            "cwd": str(cwd),
+            "plan_approved": True,
+            "last_assistant_message": f"Plan: [{plan.relative_to(cwd)}]({plan})",
+        }
+    )
+
+
 def stop_payload_without_plan(cwd: Path, session_id: str) -> str:
     return json.dumps(
         {
@@ -78,6 +91,26 @@ def stop_payload_without_plan(cwd: Path, session_id: str) -> str:
             "last_assistant_message": "Implementation completed with notes.",
         }
     )
+
+
+def stop_payload_with_example_plan_path(cwd: Path) -> str:
+    return json.dumps(
+        {
+            "hook_event_name": "Stop",
+            "session_id": "example-path-session",
+            "cwd": str(cwd),
+            "last_assistant_message": (
+                "Example only: /Users/example/project/.ralph/plans/plan.md and "
+                "/Users/example/project/.ralph/plans/plan-implementation-notes.html"
+            ),
+        }
+    )
+
+
+def git_stdout(cwd: Path, *args: str) -> str:
+    result = run(["git", *args], cwd=cwd)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
 
 
 def test_guard_skips_when_chat_has_no_repo_and_no_plan(tmp_path: Path) -> None:
@@ -128,6 +161,13 @@ def test_implementation_notes_workflow_survives_worktree_cleanup(tmp_path: Path)
     notes = primary / ".ralph" / "plans" / "2026-05-19-fixture-plan-implementation-notes.html"
     assert canonical_plan.is_file()
     assert notes.is_file()
+    index_json = primary / ".ralph" / "plans" / "implementation-index.json"
+    index_md = primary / ".ralph" / "plans" / "implementation-index.md"
+    active_index = json.loads(index_json.read_text(encoding="utf-8"))
+    assert active_index["plans"][0]["plan"] == ".ralph/plans/2026-05-19-fixture-plan.md"
+    assert active_index["plans"][0]["notes"] == ".ralph/plans/2026-05-19-fixture-plan-implementation-notes.html"
+    assert active_index["plans"][0]["status"] == "active"
+    assert "2026-05-19-fixture-plan.md" in index_md.read_text(encoding="utf-8")
 
     appended = run(
         [
@@ -180,6 +220,9 @@ def test_implementation_notes_workflow_survives_worktree_cleanup(tmp_path: Path)
     html = notes.read_text(encoding="utf-8")
     assert str(primary) in html
     assert str(active) in html
+    assert 'class="hero"' in html
+    assert ".meta-grid" in html
+    assert ".entry::before" in html
     assert 'data-entry-kind="decision"' in html
     assert 'data-entry-section="decision"' in html
     assert 'data-entry-section="validation"' in html
@@ -195,10 +238,82 @@ def test_implementation_notes_workflow_survives_worktree_cleanup(tmp_path: Path)
     guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=hook_payload(canonical_plan, active))
     assert guarded.returncode == 0, guarded.stderr
     assert guarded.stdout == ""
+    implemented_index = json.loads(index_json.read_text(encoding="utf-8"))
+    implemented_entry = implemented_index["plans"][0]
+    assert implemented_entry["status"] == "implemented"
+    assert git_stdout(active, "rev-parse", "HEAD") in implemented_entry["commits"]
 
     if (active / ".ralph").exists():
         shutil.rmtree(active / ".ralph")
     assert notes.is_file()
+
+
+def test_guard_extracts_plan_from_markdown_link_target(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "linked-plan.md"
+    write_plan(plan)
+
+    guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=hook_payload_with_markdown_plan_link(plan, active))
+
+    assert guarded.returncode == 0, guarded.stderr
+    data = json.loads(guarded.stdout)
+    assert data["decision"] == "block"
+    assert "exists only in an ephemeral Codex worktree" in data["reason"]
+    assert "](" not in data["reason"]
+
+
+def test_guard_ignores_example_plan_paths_in_final_message(tmp_path: Path) -> None:
+    _primary, active, env = make_repo_with_worktree(tmp_path)
+
+    guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=stop_payload_with_example_plan_path(active))
+
+    assert guarded.returncode == 0, guarded.stderr
+    assert guarded.stdout == ""
+
+
+def test_guard_uses_canonical_plan_when_markdown_link_points_to_worktree(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "linked-plan.md"
+    canonical_plan = primary / ".ralph" / "plans" / "linked-plan.md"
+    write_plan(plan)
+    write_plan(canonical_plan)
+
+    guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=hook_payload_with_markdown_plan_link(plan, active))
+
+    assert guarded.returncode == 0, guarded.stderr
+    data = json.loads(guarded.stdout)
+    assert data["decision"] == "block"
+    assert "notes file was not found" in data["reason"]
+    assert "](" not in data["reason"]
+
+
+def test_update_implementation_index_records_loose_commit(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    commit = git_stdout(active, "rev-parse", "HEAD")
+
+    updated = run(
+        [
+            sys.executable,
+            str(INDEX),
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+            "--loose-commit",
+            commit,
+            "--reason",
+            "hotfix without an approved implementation plan",
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert updated.returncode == 0, updated.stderr
+    data = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert data["loose_commits"][0]["commit"] == commit
+    assert data["loose_commits"][0]["linked_plan"] is None
+    rendered = (primary / ".ralph" / "plans" / "implementation-index.md").read_text(encoding="utf-8")
+    assert "hotfix without an approved implementation plan" in rendered
 
 
 def test_stop_guard_uses_session_state_when_final_message_omits_plan_path(tmp_path: Path) -> None:

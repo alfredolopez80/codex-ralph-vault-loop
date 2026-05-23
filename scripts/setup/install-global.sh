@@ -307,6 +307,7 @@ When the user approves a plan and asks Codex to implement it, Codex must maintai
 - Store notes beside the approved plan under the canonical local repo root `.ralph/plans/`, not in `HOME` and not only in an ephemeral Codex worktree.
 - Treat secondary worktree notes as disposable convenience copies. The canonical local repo root copy is the durable local source of truth.
 - Use `<plan-slug>-implementation-notes.html` by default.
+- Maintain `.ralph/plans/implementation-index.json` and `.ralph/plans/implementation-index.md` as the project-level index of implemented plans, linked notes, commits, PR references, and loose commits. The index is metadata only; the per-plan HTML remains the detailed implementation source.
 - Create the notes file at implementation start, after the plan is approved.
 - Add timestamped entries for design decisions, spec interpretations, intentional deviations, tradeoffs, open questions, and validation findings that affect the implementation.
 - Normalize and constrain note paths before writing; reject traversal, symlink escape, and sensitive filenames.

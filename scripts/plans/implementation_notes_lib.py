@@ -483,39 +483,130 @@ def html_document(
   <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:\">
   <title>{safe_title}</title>
   <style>
-    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; background: #f8fafc; color: #111827; line-height: 1.55; }}
-    main {{ max-width: 980px; margin: 0 auto; padding: 32px 20px 48px; }}
+    :root {{
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-muted: #f0f4f8;
+      --text: #172033;
+      --muted: #5d6b82;
+      --line: #d8e0ea;
+      --accent: #126b5d;
+      --accent-strong: #0a4f46;
+      --shadow: 0 20px 60px rgba(23, 32, 51, 0.09);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: linear-gradient(180deg, rgba(18, 107, 93, 0.08), transparent 320px), var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;
+      line-height: 1.58;
+    }}
+    .page {{ width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 64px; }}
+    .hero {{
+      padding: 34px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }}
+    .eyebrow {{
+      margin: 0 0 8px;
+      color: var(--accent-strong);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
     h1, h2, h3 {{ line-height: 1.2; }}
-    h1 {{ margin: 0 0 8px; font-size: 2rem; }}
-    h2 {{ margin-top: 32px; padding-bottom: 6px; border-bottom: 1px solid #d1d5db; }}
-    .entry-section {{ margin-top: 28px; }}
+    h1 {{ margin: 0; max-width: 900px; font-size: 3rem; line-height: 1; letter-spacing: 0; }}
+    h2 {{ margin: 36px 0 18px; font-size: 1.35rem; }}
+    h3 {{ margin: 0 0 12px; color: var(--accent-strong); }}
+    .summary-text {{ margin: 12px 0 0; max-width: 760px; color: var(--muted); }}
+    .meta-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }}
+    .meta-card {{
+      margin: 0;
+      padding: 14px 16px;
+      background: var(--surface-muted);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-width: 0;
+    }}
+    .meta-card dt, .meta-card dd {{ display: block; }}
+    .meta-card dt {{
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 750;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }}
+    .meta-card dd {{ margin: 0; overflow-wrap: anywhere; font-weight: 650; }}
+    .entry-section {{ position: relative; margin-top: 32px; padding-left: 20px; }}
     .entry-section:not(:has(.entry)) {{ display: none; }}
-    .meta, .entry {{ background: #fff; border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; margin: 14px 0; }}
-    dl {{ display: grid; grid-template-columns: 180px 1fr; gap: 8px 16px; margin: 0; }}
-    dt {{ font-weight: 650; color: #4b5563; }}
+    .entry-section::before {{
+      content: \"\";
+      position: absolute;
+      top: 52px;
+      bottom: 8px;
+      left: 5px;
+      width: 2px;
+      background: var(--line);
+    }}
+    .entry {{
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin: 14px 0;
+      box-shadow: 0 8px 26px rgba(23, 32, 51, 0.05);
+    }}
+    .entry::before {{
+      content: \"\";
+      position: absolute;
+      top: 24px;
+      left: -20px;
+      width: 12px;
+      height: 12px;
+      background: var(--accent);
+      border: 3px solid var(--bg);
+      border-radius: 999px;
+    }}
+    dl {{ display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 8px 16px; margin: 0; }}
+    dt {{ font-weight: 700; color: var(--muted); }}
     dd {{ margin: 0; overflow-wrap: anywhere; }}
-    .entry h3 {{ margin: 0 0 8px; color: #0f766e; }}
-    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.95em; }}
+    code {{ padding: 0.1em 0.35em; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }}
+    @media (max-width: 820px) {{
+      .page {{ width: min(100% - 20px, 1120px); padding: 20px 0 40px; }}
+      .hero {{ padding: 22px; }}
+      .meta-grid {{ grid-template-columns: 1fr; }}
+      h1 {{ font-size: 2rem; }}
+      dl {{ grid-template-columns: 1fr; }}
+      .entry-section {{ padding-left: 16px; }}
+      .entry {{ padding: 16px; }}
+    }}
   </style>
 </head>
 <body>
-  <main data-implementation-notes=\"true\">
-    <h1>{safe_title}</h1>
-    <p>Running implementation notes for an approved plan. Content is sanitized before persistence.</p>
-    <section class=\"meta\" aria-labelledby=\"summary-heading\">
-      <h2 id=\"summary-heading\">Summary</h2>
-      <dl>
-        <dt>Plan</dt><dd><code>{html_escape(plan_path)}</code></dd>
-        <dt>Notes</dt><dd><code>{html_escape(notes_path)}</code></dd>
-        <dt>Canonical repo root</dt><dd><code>{html_escape(roots.primary_repo_root)}</code></dd>
-        <dt>Active worktree root</dt><dd><code>{html_escape(roots.active_worktree_root)}</code></dd>
-        <dt>Session id</dt><dd><code>{html_escape(session_id)}</code></dd>
-        <dt>Git branch</dt><dd><code>{html_escape(git_branch)}</code></dd>
-        <dt>Git SHA</dt><dd><code>{html_escape(git_sha)}</code></dd>
-        <dt>Implementation start</dt><dd><time datetime=\"{html_escape(timestamp)}\">{html_escape(timestamp)}</time></dd>
-        <dt>Status</dt><dd>active</dd>
+  <main class=\"page\" data-implementation-notes=\"true\">
+    <header class=\"hero\">
+      <p class=\"eyebrow\">Implementation Notes</p>
+      <h1>{safe_title}</h1>
+      <p class=\"summary-text\">Running implementation notes for an approved plan. Content is sanitized before persistence.</p>
+      <dl class=\"meta-grid\" aria-label=\"Implementation metadata\">
+        <div class=\"meta-card\"><dt>Plan</dt><dd><code>{html_escape(plan_path)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Notes</dt><dd><code>{html_escape(notes_path)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Status</dt><dd>active</dd></div>
+        <div class=\"meta-card\"><dt>Canonical repo root</dt><dd><code>{html_escape(roots.primary_repo_root)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Active worktree root</dt><dd><code>{html_escape(roots.active_worktree_root)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Session id</dt><dd><code>{html_escape(session_id)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Git branch</dt><dd><code>{html_escape(git_branch)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Git SHA</dt><dd><code>{html_escape(git_sha)}</code></dd></div>
+        <div class=\"meta-card\"><dt>Implementation start</dt><dd><time datetime=\"{html_escape(timestamp)}\">{html_escape(timestamp)}</time></dd></div>
       </dl>
-    </section>
+    </header>
     <section aria-labelledby=\"timeline-heading\">
       <h2 id=\"timeline-heading\">Timeline</h2>
       <article class=\"entry\" data-entry-kind=\"initial\">
