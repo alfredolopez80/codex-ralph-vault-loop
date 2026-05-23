@@ -29,7 +29,13 @@ from implementation_notes_lib import (  # noqa: E402
 )
 
 
-PLAN_RE = re.compile(r"(?P<path>(?:/[^\s`]+|\.\.?/[^\s`]+)[^\s`]*\.ralph/plans/[^\s`]+\.md)")
+PLAN_PATH_CHARS = r"[^\s`()\[\]]"
+MARKDOWN_PLAN_LINK_RE = re.compile(
+    rf"\[[^\]\n]*\]\((?P<path>{PLAN_PATH_CHARS}+\.ralph/plans/{PLAN_PATH_CHARS}+\.md)\)"
+)
+PLAN_RE = re.compile(
+    rf"(?P<path>(?:/{PLAN_PATH_CHARS}+|\.\.?/{PLAN_PATH_CHARS}+){PLAN_PATH_CHARS}*\.ralph/plans/{PLAN_PATH_CHARS}+\.md)"
+)
 
 
 def _message(payload: dict[str, Any]) -> str:
@@ -43,6 +49,9 @@ def _payload_plan_path(payload: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     message = _message(payload)
+    match = MARKDOWN_PLAN_LINK_RE.search(message)
+    if match:
+        return match.group("path")
     match = PLAN_RE.search(message)
     return match.group("path") if match else ""
 
