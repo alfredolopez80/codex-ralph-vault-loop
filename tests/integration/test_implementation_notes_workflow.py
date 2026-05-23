@@ -226,6 +226,22 @@ def test_guard_extracts_plan_from_markdown_link_target(tmp_path: Path) -> None:
     assert guarded.returncode == 0, guarded.stderr
     data = json.loads(guarded.stdout)
     assert data["decision"] == "block"
+    assert "exists only in an ephemeral Codex worktree" in data["reason"]
+    assert "](" not in data["reason"]
+
+
+def test_guard_uses_canonical_plan_when_markdown_link_points_to_worktree(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "linked-plan.md"
+    canonical_plan = primary / ".ralph" / "plans" / "linked-plan.md"
+    write_plan(plan)
+    write_plan(canonical_plan)
+
+    guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=hook_payload_with_markdown_plan_link(plan, active))
+
+    assert guarded.returncode == 0, guarded.stderr
+    data = json.loads(guarded.stdout)
+    assert data["decision"] == "block"
     assert "notes file was not found" in data["reason"]
     assert "](" not in data["reason"]
 

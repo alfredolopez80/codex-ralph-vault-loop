@@ -16,6 +16,7 @@ if str(SCRIPTS_PLANS) not in sys.path:
 
 from implementation_notes_lib import (  # noqa: E402
     ImplementationNotesError,
+    canonical_plan_path,
     ensure_plan_path_allowed,
     is_codex_worktree,
     is_plan_approved,
@@ -84,6 +85,18 @@ def block(reason: str) -> int:
     return 0
 
 
+def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
+    if not is_codex_worktree(plan_path):
+        return plan_path
+    canonical_plan = canonical_plan_path(plan_path, roots.primary_repo_root)
+    if not canonical_plan.exists():
+        raise ImplementationNotesError(
+            "approved implementation plan exists only in an ephemeral Codex worktree; "
+            "copy it to the canonical repo root .ralph/plans/ before finalizing"
+        )
+    return canonical_plan
+
+
 def main() -> int:
     payload = read_hook_input()
     if payload.get("stop_hook_active"):
@@ -107,6 +120,8 @@ def main() -> int:
         if not plan_value:
             return 0
         plan_path = resolve_for_read(plan_value)
+        ensure_plan_path_allowed(plan_path, roots)
+        plan_path = canonical_plan_for_guard(plan_path, roots)
         ensure_plan_path_allowed(plan_path, roots)
         metadata = parse_plan_metadata(plan_path)
         if not metadata.implementation_notes_required:

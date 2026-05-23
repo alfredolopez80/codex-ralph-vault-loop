@@ -4,15 +4,16 @@ Use implementation notes when a plan has been approved and the user asks Codex t
 
 ## Location
 
-The durable local copy belongs under the canonical local project checkout:
+The durable local plan and implementation-notes copies belong under the canonical local project checkout:
 
 ```text
+<primary-repo-root>/.ralph/plans/<plan-slug>.md
 <primary-repo-root>/.ralph/plans/<plan-slug>-implementation-notes.html
 ```
 
 Codex often works from secondary worktrees under `~/.codex/worktrees/`. A worktree may keep a convenience copy, but that copy is disposable. Before finalizing work or cleaning a worktree, Codex must verify that the canonical local repo root copy exists and has the latest entries.
 
-Do not use a shared `HOME` directory for plan notes. That risks cross-project contamination. `.ralph/plans/` remains ignored by Git unless the user explicitly asks to publish sanitized notes.
+Do not use a shared `HOME` directory for plan notes. Do not leave the only approved plan or implementation notes under a worktree. Those locations risk cross-project contamination or data loss during worktree cleanup. `.ralph/plans/` remains ignored by Git unless the user explicitly asks to publish sanitized notes.
 
 ## Required Plan Metadata
 
@@ -62,5 +63,6 @@ A notes file without approved plan metadata is not proof of a valid implementati
 
 When a referenced plan declares `Implementation notes required: yes`, the Stop
 hook blocks finalization if the plan is not approved, notes are missing, notes
-exist only in an ephemeral worktree, notes contain only the initial template, or
-the notes path cannot be validated inside the allowed repo-local boundary.
+exist only in an ephemeral worktree, the approved plan exists only in an
+ephemeral worktree, notes contain only the initial template, or the notes path
+cannot be validated inside the allowed repo-local boundary.
