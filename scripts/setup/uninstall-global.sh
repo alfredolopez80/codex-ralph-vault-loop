@@ -38,6 +38,7 @@ DEFAULT_SKILLS=(
   ralph-memory-dream
   keep-codex-fast
   visual-explainer
+  human-e2e-recorder
   ultrathink
   make-requirements-great
   framing-doc
