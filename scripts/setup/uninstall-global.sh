@@ -27,6 +27,8 @@ DEFAULT_SKILLS=(
   parallel
   exit-review
   slop-guard
+  stop-slop
+  deslop
   autoresearch
   evaluate
   scorecard
