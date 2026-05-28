@@ -199,6 +199,18 @@ install_hooks() {
   python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
 }
 
+ultrathink_policy_block() {
+  cat << 'POLICY'
+<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->
+## Default Ultrathink Policy
+
+Apply the global `ultrathink` skill as the default operating mode for every Codex session. For trivial work, keep it lightweight: reframe the task briefly, respect higher-priority instructions, execute directly, and avoid extra ceremony. For complex work, use the full ultrathink workflow: inspect context, make tradeoffs explicit, plan before editing, validate proportionally, and simplify the solution.
+
+This default never overrides system, developer, project, or explicit user instructions.
+<!-- END RALPH ULTRATHINK DEFAULT POLICY -->
+POLICY
+}
+
 intent_mcp_policy_block() {
   cat << 'POLICY'
 <!-- BEGIN RALPH INTENT MCP POLICY -->
@@ -398,6 +410,7 @@ else:
             "\n## Default E2E Guardian Global Policy",
             "\n## Default Plans Folder",
             "\n## Ralph Memory Core",
+            "\n<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->",
             "\n<!-- BEGIN RALPH MEMORY CORE POLICY -->",
             "\n<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->",
             "\n<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->",
@@ -410,6 +423,38 @@ else:
 
     text = remove_legacy_routing_policy(text)
     rendered = text.rstrip() + "\n\n" + policy if text.strip() else policy
+target.write_text(rendered, encoding="utf-8")
+PY
+  rm -f "$policy_file"
+
+  start="<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->"
+  end="<!-- END RALPH ULTRATHINK DEFAULT POLICY -->"
+  policy_file="$(mktemp)"
+  ultrathink_policy_block > "$policy_file"
+  python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+policy = Path(sys.argv[2]).read_text(encoding="utf-8").strip() + "\n"
+start = sys.argv[3]
+end = sys.argv[4]
+
+text = target.read_text(encoding="utf-8") if target.exists() else ""
+has_start = start in text
+has_end = end in text
+if has_start != has_end:
+    raise SystemExit(f"GLOBAL_INSTALL_FAIL unbalanced ultrathink policy markers in {target}")
+if has_start and has_end:
+    before, rest = text.split(start, 1)
+    _old, after = rest.split(end, 1)
+    rendered = before.rstrip() + "\n\n" + policy + after.lstrip()
+elif text.strip():
+    rendered = text.rstrip() + "\n\n" + policy
+else:
+    rendered = policy
 target.write_text(rendered, encoding="utf-8")
 PY
   rm -f "$policy_file"

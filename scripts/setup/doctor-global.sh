@@ -178,6 +178,15 @@ check_agents_policy() {
     fail "global AGENTS.md missing Ralph policies: $GLOBAL_AGENTS_MD"
     return
   fi
+  if grep -q "BEGIN RALPH ULTRATHINK DEFAULT POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH ULTRATHINK DEFAULT POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Default Ultrathink Policy" "$GLOBAL_AGENTS_MD" &&
+    grep -Eq "global .*ultrathink.* skill as the default operating mode" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md ultrathink default policy present"
+  else
+    fail "global AGENTS.md missing ultrathink default policy"
+  fi
+
   if grep -q "BEGIN RALPH INTENT MCP POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "END RALPH INTENT MCP POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Intent-Based Z.ai and MiniMax MCP Usage" "$GLOBAL_AGENTS_MD" &&

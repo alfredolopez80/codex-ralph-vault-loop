@@ -68,6 +68,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Default Ultrathink Policy" in agents_text
+    assert "global `ultrathink` skill as the default operating mode" in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" in agents_text
     assert "EXTERNAL_MCP_BRIEF" in agents_text
     assert "Default Codex/Codex App Model Routing Policy" not in agents_text
@@ -98,6 +100,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not helper.exists()
     assert not helper.is_symlink()
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Default Ultrathink Policy" not in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" not in agents_text
     assert "Global hooks resolve Ralph scripts from" not in agents_text
     assert "Implementation Notes For Approved Plans" not in agents_text
@@ -311,6 +314,12 @@ Use these MCP routes automatically by complexity.
 Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root`.
 Do not require the active repository to contain `scripts/memory/*`.
 <!-- END RALPH MEMORY CORE POLICY -->
+
+<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->
+## Default Ultrathink Policy
+
+Apply the global `ultrathink` skill as the default operating mode.
+<!-- END RALPH ULTRATHINK DEFAULT POLICY -->
 
 <!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->
 ## Implementation Notes For Approved Plans

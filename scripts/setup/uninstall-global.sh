@@ -182,6 +182,10 @@ PY
 
 remove_agents_policy() {
   remove_policy_block \
+    "ultrathink-default-policy" \
+    "<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->" \
+    "<!-- END RALPH ULTRATHINK DEFAULT POLICY -->"
+  remove_policy_block \
     "intent-mcp-policy" \
     "<!-- BEGIN RALPH INTENT MCP POLICY -->" \
     "<!-- END RALPH INTENT MCP POLICY -->"

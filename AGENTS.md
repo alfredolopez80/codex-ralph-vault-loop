@@ -13,6 +13,12 @@
 - Do not bypass critical hooks. If `prettier`, `gitleaks`, `semgrep`, or `pre-commit` are missing from `PATH`, use the local machine binaries when present, install only with approval, or stop and report the blocker; do not use `--no-verify` to skip security or formatting gates unless the user explicitly orders that exact bypass.
 - Do not merge or close a PR until review feedback and automated checks have been inspected, and any actionable comments are addressed or explicitly documented as non-actionable. If feedback arrives after an early merge, open a follow-up branch/PR instead of silently ignoring it.
 
+## Default Ultrathink
+
+Apply the global `ultrathink` skill as the default operating mode for Codex sessions. For trivial work, this should stay lightweight: reframe the task briefly, respect higher-priority instructions, execute directly, and avoid extra ceremony. For complex work, use the full ultrathink workflow: inspect context, make tradeoffs explicit, plan before editing, validate proportionally, and simplify the solution.
+
+This default never overrides system, developer, project, or explicit user instructions.
+
 ## SFW Package-Manager Protection
 
 Before running package-manager commands that install, fetch, execute, or update remote packages, prefix the command with `sfw`. Examples: `sfw npm ci`, `sfw pnpm install`, `sfw pnpm dlx ...`, `sfw npx ...`, `sfw uvx ...`, `sfw python3 -m pip install ...`, and `sfw cargo install ...`. Local test/build scripts such as `npm test`, `pnpm test`, or `cargo test` do not need `sfw` unless they fetch remote code.
