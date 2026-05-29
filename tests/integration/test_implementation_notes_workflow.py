@@ -271,6 +271,45 @@ def test_guard_ignores_example_plan_paths_in_final_message(tmp_path: Path) -> No
     assert guarded.stdout == ""
 
 
+def test_guard_ignores_cross_repo_markdown_plan_links(tmp_path: Path) -> None:
+    _primary, active, env = make_repo_with_worktree(tmp_path)
+    external_plan = tmp_path / "other-repo" / ".ralph" / "plans" / "foreign-plan.md"
+    external_plan.parent.mkdir(parents=True, exist_ok=True)
+    external_plan.write_text(
+        "# Foreign Plan\n\n"
+        "Implementation notes required: after approval\n"
+        "Plan approval status: pending\n",
+        encoding="utf-8",
+    )
+    payload = json.dumps(
+        {
+            "hook_event_name": "Stop",
+            "session_id": "cross-repo-link-session",
+            "cwd": str(active),
+            "last_assistant_message": f"Reference only: [foreign plan]({external_plan})",
+        }
+    )
+
+    guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=payload)
+
+    assert guarded.returncode == 0, guarded.stderr
+    assert guarded.stdout == ""
+
+
+def test_guard_keeps_blocking_explicit_cross_repo_plan_paths(tmp_path: Path) -> None:
+    _primary, active, env = make_repo_with_worktree(tmp_path)
+    external_plan = tmp_path / "other-repo" / ".ralph" / "plans" / "foreign-plan.md"
+    external_plan.parent.mkdir(parents=True, exist_ok=True)
+    write_plan(external_plan)
+
+    guarded = run([sys.executable, str(HOOK)], cwd=ROOT, env=env, input_text=hook_payload(external_plan, active))
+
+    assert guarded.returncode == 0, guarded.stderr
+    data = json.loads(guarded.stdout)
+    assert data["decision"] == "block"
+    assert "plan path escapes active/canonical .ralph/plans roots" in data["reason"]
+
+
 def test_guard_uses_canonical_plan_when_markdown_link_points_to_worktree(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "linked-plan.md"

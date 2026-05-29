@@ -42,16 +42,16 @@ def _message(payload: dict[str, Any]) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _payload_plan_path(payload: dict[str, Any]) -> str:
+def _payload_plan_path(payload: dict[str, Any]) -> tuple[str, str]:
     for key in ("implementation_plan_path", "implementationPlanPath", "plan_path", "planPath"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            return value.strip(), "payload"
     message = _message(payload)
     match = MARKDOWN_PLAN_LINK_RE.search(message)
     if match:
-        return match.group("path")
-    return ""
+        return match.group("path"), "markdown"
+    return "", ""
 
 
 def _explicit_approved(payload: dict[str, Any]) -> bool:
@@ -94,6 +94,15 @@ def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
     return canonical_plan
 
 
+def markdown_plan_link_is_in_scope(plan_value: str, roots: Any) -> bool:
+    candidate = Path(plan_value).expanduser().resolve(strict=False)
+    try:
+        ensure_plan_path_allowed(candidate, roots)
+    except ImplementationNotesError:
+        return False
+    return True
+
+
 def main() -> int:
     payload = read_hook_input()
     if payload.get("stop_hook_active"):
@@ -104,7 +113,7 @@ def main() -> int:
         return 0
 
     try:
-        plan_value = _payload_plan_path(payload)
+        plan_value, plan_source = _payload_plan_path(payload)
         try:
             roots = resolve_roots(_payload_cwd(payload) or Path.cwd())
         except ImplementationNotesError as exc:
@@ -114,7 +123,10 @@ def main() -> int:
         if not plan_value:
             state = read_implementation_plan_state(roots.active_worktree_root, _payload_session_id(payload))
             plan_value = state.get("plan_path", "")
+            plan_source = "state" if plan_value else ""
         if not plan_value:
+            return 0
+        if plan_source == "markdown" and not markdown_plan_link_is_in_scope(plan_value, roots):
             return 0
         plan_path = resolve_for_read(plan_value)
         ensure_plan_path_allowed(plan_path, roots)
