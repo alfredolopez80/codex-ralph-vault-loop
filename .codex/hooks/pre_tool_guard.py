@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.paths import REPO_ROOT, read_hook_input, write_json
+from shared.context_budget import classify_command, classify_patch_payload, payload_patch_text
 from shared.redaction import is_red, sensitivity_report
 
 
@@ -376,6 +377,11 @@ def command_from_payload(payload: dict[str, Any]) -> str:
     return str(tool_input)
 
 
+def payload_is_patch_text(payload: dict[str, Any]) -> bool:
+    text = payload_patch_text(payload).lstrip()
+    return text.startswith("*** Begin Patch")
+
+
 def cwd_from_payload(payload: dict[str, Any]) -> Path:
     candidates: list[str] = []
     for key in ("cwd", "workdir", "working_directory", "workspace_root"):
@@ -576,6 +582,13 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
 
 def main() -> int:
     payload = read_hook_input()
+    patch_finding = classify_patch_payload(payload_patch_text(payload))
+    if patch_finding:
+        write_json(patch_finding.hook_payload())
+        return 0
+    if payload_is_patch_text(payload):
+        return 0
+
     automation_reason = blocked_automation_reason(payload)
     if automation_reason:
         write_json({"decision": "block", "reason": automation_reason})
@@ -593,6 +606,10 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
             return 0
+    context_finding = classify_command(command, cwd_from_payload(payload))
+    if context_finding:
+        write_json(context_finding.hook_payload())
+        return 0
     wakeup_payload = stale_repo_local_wakeup_payload(command, payload)
     if wakeup_payload:
         write_json({"decision": "block", **wakeup_payload})

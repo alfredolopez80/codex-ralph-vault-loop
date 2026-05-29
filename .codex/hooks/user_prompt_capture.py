@@ -7,7 +7,8 @@ import subprocess
 import sys
 
 from shared.active_context import ActiveContext, active_context_from_payload, hash_text, project_runtime_root
-from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input
+from shared.context_budget import classify_prompt
+from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input, write_json
 from shared.redaction import is_red
 
 
@@ -89,6 +90,11 @@ def main() -> int:
     context = active_context_from_payload(payload)
     prompt = payload.get("prompt") or payload.get("user_prompt") or ""
     if not isinstance(prompt, str) or not prompt.strip():
+        return 0
+
+    prompt_finding = classify_prompt(prompt)
+    if prompt_finding:
+        write_json(prompt_finding.hook_payload())
         return 0
 
     if not is_red(prompt):

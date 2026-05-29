@@ -5,6 +5,7 @@ from typing import Any
 
 from shared.active_context import active_context_from_payload, project_runtime_root
 from shared.checkpoint_io import update_checkpoint
+from shared.context_budget import text_is_toxic
 from shared.paths import append_jsonl, now_iso, read_hook_input
 from shared.redaction import is_red, safe_preview
 
@@ -116,7 +117,7 @@ def unsafe_payload(payload: dict[str, Any], command: str) -> bool:
             payload.get("result", ""),
         )
     )
-    return is_red(material)
+    return is_red(material) or text_is_toxic(material)
 
 
 def is_validation_command(command: str) -> bool:

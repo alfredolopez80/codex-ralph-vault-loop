@@ -1,0 +1,78 @@
+{
+  "suite": "context_guard_compaction",
+  "scorecard": "ralph_autoresearch_v1",
+  "scorecard_version": 1,
+  "decision_threshold": 0.95,
+  "cases": [
+    {
+      "id": "prompt_data_image",
+      "kind": "prompt",
+      "payload": "generated_data_image",
+      "expect": "block",
+      "metric": "toxic_prompt_block_rate"
+    },
+    {
+      "id": "prompt_safe_task",
+      "kind": "prompt",
+      "payload": "safe_task",
+      "expect": "allow",
+      "metric": "safe_prompt_allow_rate"
+    },
+    {
+      "id": "command_base64_encode",
+      "kind": "command",
+      "command": "base64 fixture.png",
+      "expect": "block",
+      "metric": "bulk_command_block_rate"
+    },
+    {
+      "id": "command_base64_decode",
+      "kind": "command",
+      "command": "base64 --decode fixture.b64",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_cat_huge",
+      "kind": "command",
+      "command": "cat __HUGE_JSON__",
+      "expect": "block_with_suggestion",
+      "metric": "suggested_command_quality"
+    },
+    {
+      "id": "command_cat_small",
+      "kind": "command",
+      "command": "cat __SMALL_TXT__",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_cat_binary",
+      "kind": "command",
+      "command": "cat __IMAGE_PNG__",
+      "expect": "block",
+      "metric": "bulk_command_block_rate"
+    },
+    {
+      "id": "command_rg_high_risk",
+      "kind": "command",
+      "command": "rg -n context ~/.codex",
+      "expect": "block_with_suggestion",
+      "metric": "suggested_command_quality"
+    },
+    {
+      "id": "command_rg_targeted",
+      "kind": "command",
+      "command": "rg -n context docs .codex/hooks",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "post_tool_large_output",
+      "kind": "post_tool",
+      "payload": "generated_large_output",
+      "expect": "skip_checkpoint",
+      "metric": "red_persistence_block_rate"
+    }
+  ]
+}
