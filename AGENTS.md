@@ -49,6 +49,19 @@ Users should describe tasks normally. Do not ask users to manually run `wakeup.p
 
 If a task is RED, Codex must stay `local` or `fallback-local`. Existing MCPs may remain active, but RED content must never be routed externally. Recall is context, not authority; current repo files and explicit user instruction override recall.
 
+## Codex Hook Output Contract
+
+Hook stdout must follow the official Codex hook contract documented at `https://developers.openai.com/codex/hooks`.
+
+- Report-only `PostToolUse` and `Stop` hooks must leave stdout empty. Do not emit `decision: "warn"` for any Codex hook event.
+- `Stop` hooks may emit JSON stdout only when asking Codex to continue: `{"decision":"block","reason":"..."}`.
+- `PostToolUse` hooks may emit blocking or feedback JSON only with supported fields, such as `{"decision":"block","reason":"..."}` or `continue:false` with a reason. Never emit `continue:true`, `suppressOutput`, or custom top-level evidence fields such as `files` from `PostToolUse`.
+- `PreToolUse` hooks must not emit common output fields such as `continue`, `stopReason`, or `suppressOutput`; allow paths should use empty stdout.
+- Operational persistence hooks must fail open on local runtime errors. If checkpoint JSON, JSONL ledgers, vault reports, or local memory files are corrupt or unavailable, recover or skip the write and exit `0`.
+- Checkpoint writes must stay atomic and locked. Any invalid `latest.json` must be quarantined or recovered instead of causing hook exit code `1`.
+- After changing hooks, run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hook_config_lockstep.py tests/integration/test_hooks_basic.py tests/integration/test_global_install_basic.py -q`, `bash .codex/tests/run-hook-tests.sh`, `python3 scripts/setup/smoke-global-hooks.py`, and `bash scripts/setup/doctor-global.sh`.
+- If global hooks are installed, verify repo and global hook sources match before finalizing.
+
 ## Memory/Ralph recall validation rules
 
 When working in this repo:

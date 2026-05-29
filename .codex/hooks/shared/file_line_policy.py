@@ -124,7 +124,8 @@ def guidance(limit: int) -> str:
 
 
 def emit_block(findings: list[tuple[Path, int]], limit: int) -> None:
-    files = [{"path": str(path), "lines": lines} for path, lines in findings[:8]]
+    files = [f"{path} ({lines} lines)" for path, lines in findings[:8]]
     more = len(findings) - len(files)
+    details = " Oversized files: " + "; ".join(files) + "."
     suffix = f" Additional oversized files: {more}." if more > 0 else ""
-    write_json({"decision": "block", "reason": guidance(limit) + suffix, "files": files})
+    write_json({"decision": "block", "reason": guidance(limit) + details + suffix})
