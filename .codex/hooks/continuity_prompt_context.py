@@ -42,7 +42,10 @@ def main() -> int:
     if is_continuation(prompt):
         maybe_inject(session_id, context)
         return 0
-    maybe_update_objective(prompt, context)
+    try:
+        maybe_update_objective(prompt, context)
+    except Exception:
+        return 0
     return 0
 
 

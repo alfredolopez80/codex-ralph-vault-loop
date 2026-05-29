@@ -142,6 +142,24 @@ They allow stop by writing nothing to stdout. Report-only Stop findings, such
 as routing or vault-review reminders, are persisted to local reports or JSONL
 ledgers instead of emitting `decision:warn`.
 
+## Output Contract
+
+The active contract follows the official Codex hooks docs at
+`https://developers.openai.com/codex/hooks`.
+
+| Event              | Ralph stdout contract                                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SessionStart`     | Empty stdout, plain text context, or JSON with common fields / `hookSpecificOutput.additionalContext`.                                                                                                       |
+| `UserPromptSubmit` | Empty stdout, plain text context, JSON `hookSpecificOutput.additionalContext`, or blocking JSON `{"decision":"block","reason":"..."}`.                                                                       |
+| `PreToolUse`       | Empty stdout for allow. Blocking uses `hookSpecificOutput.permissionDecision="deny"` or legacy `{"decision":"block","reason":"..."}`. Do not emit `continue`, `stopReason`, or `suppressOutput`.             |
+| `PostToolUse`      | Empty stdout for report-only observers. Blocking/feedback uses `{"decision":"block","reason":"..."}` or `continue:false` with a reason. Do not emit `decision:"warn"`, `continue:true`, or `suppressOutput`. |
+| `Stop`             | Empty stdout for allow/report-only. JSON stdout must be valid and should only be `{"decision":"block","reason":"..."}` when asking Codex to continue.                                                        |
+
+Operational hooks should fail open for persistence errors. If a JSONL ledger,
+checkpoint, vault report, or local memory file is unavailable or corrupt, the
+hook must return exit code `0` and either recover local state or skip the
+write. Guardrail hooks may still block intentionally with supported JSON.
+
 ## Trusting Hooks In Codex
 
 Use `/hooks` in Codex to review and trust the commands registered in

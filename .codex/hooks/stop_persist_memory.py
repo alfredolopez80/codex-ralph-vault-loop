@@ -30,23 +30,26 @@ def checkpoint_for_handoff(context: ActiveContext) -> tuple[str, str]:
 
 
 def main() -> int:
-    payload = read_hook_input()
-    context = active_context_from_payload(payload)
-    if payload.get("stop_hook_active"):
+    try:
+        payload = read_hook_input()
+        context = active_context_from_payload(payload)
+        if payload.get("stop_hook_active"):
+            return 0
+        message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
+        if not isinstance(message, str) or not message.strip():
+            return 0
+        if is_red(message):
+            return 0
+        text = safe_preview(message, limit=2_000)
+        checkpoint_section, next_step = checkpoint_for_handoff(context)
+        summary = f"{checkpoint_section}\n\n## Final Assistant Message\n\n{text}" if checkpoint_section else text
+        write_handoff(summary, status="stop-hook", next_step=next_step, context=context)
+        if not payload_indicates_failure(payload):
+            learning = extract_validated_learning(text)
+            if learning:
+                save_learning(learning, source="Stop", classification="YELLOW", context=context)
+    except Exception:
         return 0
-    message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
-    if not isinstance(message, str) or not message.strip():
-        return 0
-    if is_red(message):
-        return 0
-    text = safe_preview(message, limit=2_000)
-    checkpoint_section, next_step = checkpoint_for_handoff(context)
-    summary = f"{checkpoint_section}\n\n## Final Assistant Message\n\n{text}" if checkpoint_section else text
-    write_handoff(summary, status="stop-hook", next_step=next_step, context=context)
-    if not payload_indicates_failure(payload):
-        learning = extract_validated_learning(text)
-        if learning:
-            save_learning(learning, source="Stop", classification="YELLOW", context=context)
     return 0
 
 

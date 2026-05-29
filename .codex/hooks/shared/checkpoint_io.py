@@ -4,9 +4,16 @@ import json
 import os
 import subprocess
 import hashlib
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX compatibility.
+    fcntl = None  # type: ignore[assignment]
 
 from .active_context import ActiveContext, ensure_project_runtime, project_metadata
 from .paths import append_jsonl, now_iso, ralph_home
@@ -58,6 +65,10 @@ def load_latest(root: Path | None = None, context: ActiveContext | None = None) 
     path = checkpoint_paths(root, context)["latest_json"]
     if not path.exists():
         return None
+    return read_checkpoint_json(path)
+
+
+def read_checkpoint_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -65,6 +76,57 @@ def load_latest(root: Path | None = None, context: ActiveContext | None = None) 
     if not isinstance(payload, dict):
         raise CheckpointError("latest checkpoint must be a JSON object")
     return payload
+
+
+def timestamp_for_filename() -> str:
+    return now_iso().replace(":", "").replace("+", "Z")
+
+
+def compact_error(value: str, limit: int = 240) -> str:
+    text = " ".join(value.split())
+    return text if len(text) <= limit else text[:limit].rstrip() + "...[truncated]"
+
+
+def quarantine_invalid_latest(paths: dict[str, Path], error: CheckpointError) -> None:
+    source = paths["latest_json"]
+    if not source.exists():
+        return
+    target = paths["base"] / f"latest.invalid.{timestamp_for_filename()}.json"
+    try:
+        os.replace(source, target)
+    except OSError:
+        return
+    append_jsonl(
+        paths["events"],
+        {
+            "created_at": now_iso(),
+            "event": "recovered_invalid_latest",
+            "invalid_checkpoint": target.name,
+            "error": compact_error(str(error)),
+        },
+    )
+
+
+def load_latest_for_update(paths: dict[str, Path], root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any] | None:
+    try:
+        return load_latest(root, context)
+    except CheckpointError as exc:
+        quarantine_invalid_latest(paths, exc)
+        return None
+
+
+@contextmanager
+def checkpoint_lock(paths: dict[str, Path]):
+    lock_path = paths["base"] / "latest.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a", encoding="utf-8") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = None) -> None:
@@ -79,34 +141,35 @@ def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = N
 
 def update_checkpoint(update: dict[str, Any], root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any]:
     paths = ensure_checkpoint_runtime(root, context)
-    current = load_latest(root, context) or default_checkpoint(context)
-    merged = merge_checkpoint(current, update, context)
-    safety = classify_payload(merged)
-    if safety["classification"] == "RED":
-        append_jsonl(
-            paths["events"],
-            {
-                "created_at": now_iso(),
-                "event": "skipped_red",
-                "findings": safety["findings"],
-                "source": merged.get("source", "manual"),
-            },
-        )
-        return {"status": "skipped_red", "findings": safety["findings"]}
+    with checkpoint_lock(paths):
+        current = load_latest_for_update(paths, root, context) or default_checkpoint(context)
+        merged = merge_checkpoint(current, update, context)
+        safety = classify_payload(merged)
+        if safety["classification"] == "RED":
+            append_jsonl(
+                paths["events"],
+                {
+                    "created_at": now_iso(),
+                    "event": "skipped_red",
+                    "findings": safety["findings"],
+                    "source": merged.get("source", "manual"),
+                },
+            )
+            return {"status": "skipped_red", "findings": safety["findings"]}
 
-    merged["classification"] = str(safety["classification"])
-    rendered = render_checkpoint(merged)
-    merged["content_hash"] = content_hash(rendered)
-    write_checkpoint(paths, merged, rendered)
-    return {"status": "ok", "checkpoint": merged, "markdown": rendered}
+        merged["classification"] = str(safety["classification"])
+        rendered = render_checkpoint(merged)
+        merged["content_hash"] = content_hash(rendered)
+        write_checkpoint(paths, merged, rendered)
+        return {"status": "ok", "checkpoint": merged, "markdown": rendered}
 
 
 def write_checkpoint(paths: dict[str, Path], checkpoint: dict[str, Any], rendered: str) -> None:
     json_text = json.dumps(checkpoint, indent=2, sort_keys=True) + "\n"
-    paths["latest_json"].write_text(json_text, encoding="utf-8")
-    paths["latest_md"].write_text(rendered, encoding="utf-8")
+    atomic_write_text(paths["latest_json"], json_text)
+    atomic_write_text(paths["latest_md"], rendered)
     timestamp = str(checkpoint["updated_at"]).replace(":", "").replace("+", "Z")
-    (paths["archive"] / f"{timestamp}.json").write_text(json_text, encoding="utf-8")
+    atomic_write_text(paths["archive"] / f"{timestamp}.json", json_text)
     append_jsonl(
         paths["events"],
         {
@@ -121,6 +184,23 @@ def write_checkpoint(paths: dict[str, Path], checkpoint: dict[str, Any], rendere
             "session_id": checkpoint.get("session_id", ""),
         },
     )
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:

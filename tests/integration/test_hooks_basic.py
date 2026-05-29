@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -16,6 +17,7 @@ def run_hook(name: str, ralph_home: Path, payload: dict, extra_env: dict[str, st
     env["RALPH_HOME"] = str(ralph_home)
     env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    env["CODEX_HOOK_STATE_ROOT"] = str(ralph_home / "codex-hook-state")
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
@@ -39,6 +41,7 @@ def run_bash_hook(
     env["RALPH_HOME"] = str(ralph_home)
     env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    env["CODEX_HOOK_STATE_ROOT"] = str(ralph_home / "codex-hook-state")
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
@@ -376,6 +379,54 @@ def test_post_tool_hooks_write_ledgers(tmp_path: Path) -> None:
     assert line["route_decision_observed"] is False
 
 
+def test_post_tool_checkpoint_recovers_corrupt_latest_json(tmp_path: Path) -> None:
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": "checkpoint-corrupt",
+        "cwd": str(ROOT),
+        "tool_name": "exec_command",
+        "tool_input": {"cmd": "git status --short --branch", "workdir": str(ROOT)},
+        "success": True,
+    }
+    first = run_hook("post_tool_checkpoint.py", tmp_path, payload)
+    assert first.returncode == 0, first.stderr
+    checkpoint_root = project_root(tmp_path) / "checkpoints"
+    latest = checkpoint_root / "latest.json"
+    latest.write_text('{"broken": ', encoding="utf-8")
+
+    second = run_hook("post_tool_checkpoint.py", tmp_path, payload)
+
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == ""
+    assert json.loads(latest.read_text(encoding="utf-8"))["source"] == "PostToolUse"
+    assert list(checkpoint_root.glob("latest.invalid.*.json"))
+
+
+def test_post_tool_checkpoint_parallel_writes_keep_latest_json_valid(tmp_path: Path) -> None:
+    def invoke(index: int) -> subprocess.CompletedProcess[str]:
+        return run_hook(
+            "post_tool_checkpoint.py",
+            tmp_path,
+            {
+                "hook_event_name": "PostToolUse",
+                "session_id": "checkpoint-parallel",
+                "cwd": str(ROOT),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": f"echo checkpoint-{index}", "workdir": str(ROOT)},
+                "success": True,
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(invoke, range(16)))
+
+    for result in results:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+    latest = project_root(tmp_path) / "checkpoints" / "latest.json"
+    assert json.loads(latest.read_text(encoding="utf-8"))["source"] == "PostToolUse"
+
+
 def test_post_tool_memory_extracts_spanish_learning(tmp_path: Path) -> None:
     memory = run_hook(
         "post_tool_extract_memory.py",
@@ -591,11 +642,13 @@ def test_shaping_ripple_warns_for_shaping_markdown_without_content(tmp_path: Pat
     result = run_hook("shaping_ripple.py", tmp_path, {"tool_input": {"path": str(doc), "cwd": str(tmp_path)}})
 
     assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["decision"] == "warn"
-    assert payload["files"] == [{"path": "shaping.md"}]
-    assert "Sensitive title should not leak" not in result.stdout
-    assert "affordance tables" in payload["reason"]
+    assert result.stdout == ""
+    warnings = tmp_path / "reports" / "shaping-ripple-warnings.jsonl"
+    line = json.loads(warnings.read_text(encoding="utf-8").splitlines()[-1])
+    assert line["severity"] == "warn"
+    assert line["files"] == [{"path": "shaping.md"}]
+    assert "Sensitive title should not leak" not in warnings.read_text(encoding="utf-8")
+    assert "affordance tables" in line["reason"]
 
 
 def test_shaping_ripple_ignores_missing_file(tmp_path: Path) -> None:

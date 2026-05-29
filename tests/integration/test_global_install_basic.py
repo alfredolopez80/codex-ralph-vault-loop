@@ -95,6 +95,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert doctor.returncode == 0, doctor.stderr + doctor.stdout
     assert "GLOBAL_DOCTOR_PASS" in doctor.stdout
 
+    smoke = run_python_script(tmp_path, "smoke-global-hooks.py")
+    assert smoke.returncode == 0, smoke.stderr + smoke.stdout
+    assert "GLOBAL_HOOKS_SMOKE_PASS" in smoke.stdout
+
     uninstall = run_script(tmp_path, "uninstall-global.sh", "--uninstall", "--with-agents")
     assert uninstall.returncode == 0, uninstall.stderr
     assert not skill.exists()

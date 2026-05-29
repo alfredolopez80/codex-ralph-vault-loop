@@ -17,26 +17,29 @@ GIT_MARKERS = ("git ", "git-")
 
 
 def main() -> int:
-    payload = read_hook_input()
-    context = active_context_from_payload(payload)
-    safe_observe_post_tool_payload(payload, context)
-    update = checkpoint_update_from_payload(payload)
-    if not update:
+    try:
+        payload = read_hook_input()
+        context = active_context_from_payload(payload)
+        safe_observe_post_tool_payload(payload, context)
+        update = checkpoint_update_from_payload(payload)
+        if not update:
+            return 0
+        result = update_checkpoint(update, context=context)
+        root = project_runtime_root(context)
+        append_jsonl(
+            root / "checkpoints" / "post-tool-events.jsonl",
+            {
+                "created_at": now_iso(),
+                "event": "post_tool_checkpoint",
+                "status": result.get("status", "unknown"),
+                "source": update.get("source", "PostToolUse"),
+                "project_id": context.project_id,
+                "project": context.project_slug,
+                "session_id": context.session_id,
+            },
+        )
+    except Exception:
         return 0
-    result = update_checkpoint(update, context=context)
-    root = project_runtime_root(context)
-    append_jsonl(
-        root / "checkpoints" / "post-tool-events.jsonl",
-        {
-            "created_at": now_iso(),
-            "event": "post_tool_checkpoint",
-            "status": result.get("status", "unknown"),
-            "source": update.get("source", "PostToolUse"),
-            "project_id": context.project_id,
-            "project": context.project_slug,
-            "session_id": context.session_id,
-        },
-    )
     return 0
 
 

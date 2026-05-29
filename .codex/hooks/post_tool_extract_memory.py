@@ -11,11 +11,14 @@ LEARNING_FIELDS = ("output", "output_preview", "outputPreview", "result")
 
 
 def main() -> int:
-    payload = read_hook_input()
-    context = active_context_from_payload(payload)
-    text = learning_text_from_payload(payload, LEARNING_FIELDS)
-    if text:
-        save_learning(text, source="PostToolUse", classification="YELLOW", context=context)
+    try:
+        payload = read_hook_input()
+        context = active_context_from_payload(payload)
+        text = learning_text_from_payload(payload, LEARNING_FIELDS)
+        if text:
+            save_learning(text, source="PostToolUse", classification="YELLOW", context=context)
+    except Exception:
+        return 0
     return 0
 
 

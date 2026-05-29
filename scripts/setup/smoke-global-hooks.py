@@ -43,6 +43,10 @@ def assert_ok(label: str, result: subprocess.CompletedProcess[str]) -> None:
 
 
 def assert_stop_output_contract(label: str, result: subprocess.CompletedProcess[str]) -> None:
+    assert_hook_output_contract("Stop", label, result)
+
+
+def assert_hook_output_contract(event: str, label: str, result: subprocess.CompletedProcess[str]) -> None:
     assert_ok(label, result)
     output = result.stdout.strip()
     if not output:
@@ -50,10 +54,20 @@ def assert_stop_output_contract(label: str, result: subprocess.CompletedProcess[
     try:
         payload = json.loads(output)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"{label} emitted non-JSON Stop stdout: {output[:200]}") from exc
-    if payload.get("decision") == "block" and isinstance(payload.get("reason"), str) and payload["reason"].strip():
-        return
-    raise RuntimeError(f"{label} emitted invalid Stop hook output: {output[:200]}")
+        if event in {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"}:
+            return
+        raise RuntimeError(f"{label} emitted invalid plain stdout: {output[:200]}") from exc
+    decision = payload.get("decision")
+    if decision is not None:
+        if decision != "block" or not isinstance(payload.get("reason"), str) or not payload["reason"].strip():
+            raise RuntimeError(f"{label} emitted unsupported decision payload: {output[:200]}")
+    if event == "PreToolUse" and any(key in payload for key in ("continue", "stopReason", "suppressOutput")):
+        raise RuntimeError(f"{label} emitted unsupported PreToolUse common output: {output[:200]}")
+    if event == "PostToolUse":
+        if payload.get("decision") == "warn":
+            raise RuntimeError(f"{label} emitted unsupported PostToolUse warn payload: {output[:200]}")
+        if payload.get("continue") is True or "suppressOutput" in payload:
+            raise RuntimeError(f"{label} emitted unsupported PostToolUse common output: {output[:200]}")
 
 
 def hook_basenames(config: dict, event: str) -> list[str]:
@@ -96,7 +110,13 @@ def main() -> int:
         "SessionStart": ["session_start_wakeup.py"],
         "UserPromptSubmit": ["user_prompt_capture.py", "continuity_prompt_context.py"],
         "PreToolUse": ["pre_tool_guard.py"],
-        "PostToolUse": ["post_tool_extract_memory.py", "post_tool_checkpoint.py", "post_tool_cost_ledger.py"],
+        "PostToolUse": [
+            "file_line_guard.py",
+            "shaping_ripple.py",
+            "post_tool_extract_memory.py",
+            "post_tool_checkpoint.py",
+            "post_tool_cost_ledger.py",
+        ],
         "Stop": ["stop_persist_memory.py", "stop_memory_promotion_review.py"],
     }
     for event, names in required.items():
@@ -199,6 +219,35 @@ def main() -> int:
         for index, command in enumerate(hook_commands(config, "Stop")):
             stop_result = run_hook_command(command, stop_payload, env)
             assert_stop_output_contract(f"Stop hook {index} {command}", stop_result)
+
+        shaping_doc = project_a / "shaping.md"
+        shaping_doc.write_text("---\nshaping: true\n---\n# Smoke shaping\n", encoding="utf-8")
+        event_payloads = {
+            "SessionStart": {"session_id": "global-hook-smoke-contract", "cwd": str(project_a), "source": "startup"},
+            "UserPromptSubmit": {
+                "session_id": "global-hook-smoke-contract",
+                "cwd": str(project_a),
+                "prompt": "Validate global hook contracts.",
+            },
+            "PreToolUse": {
+                "session_id": "global-hook-smoke-contract",
+                "cwd": str(project_a),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": "git status --short --branch", "workdir": str(project_a)},
+            },
+            "PostToolUse": {
+                "session_id": "global-hook-smoke-contract",
+                "cwd": str(project_a),
+                "tool_name": "apply_patch",
+                "tool_input": {"path": str(shaping_doc), "cwd": str(project_a)},
+                "tool_response": {"status": "ok"},
+                "success": True,
+            },
+        }
+        for event, payload in event_payloads.items():
+            for index, command in enumerate(hook_commands(config, event)):
+                result = run_hook_command(command, {"hook_event_name": event, **payload}, env)
+                assert_hook_output_contract(event, f"{event} hook {index} {command}", result)
 
     print(f"GLOBAL_HOOKS_SMOKE_PASS repo={repo_root}")
     return 0

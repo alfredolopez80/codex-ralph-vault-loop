@@ -22,25 +22,28 @@ def run_assisted_promotion(context: ActiveContext) -> None:
         "RALPH_WORKSPACE_ROOT": str(context.workspace_root),
         "RALPH_SESSION_ID": context.session_id,
     }
-    subprocess.run(
-        [
-            sys.executable,
-            str(script),
-            "--auto-update-state",
-            "--assist-promote",
-            "--vault-project",
-            context.project_slug,
-            "--project-id",
-            context.project_id,
-            "--workspace-root",
-            str(context.workspace_root),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-        env=env,
-    )
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--auto-update-state",
+                "--assist-promote",
+                "--vault-project",
+                context.project_slug,
+                "--project-id",
+                context.project_id,
+                "--workspace-root",
+                str(context.workspace_root),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+            env=env,
+        )
+    except Exception:
+        return
 
 
 def run_vault_inbox_review(context: ActiveContext) -> None:
@@ -96,25 +99,28 @@ def vault_review_summary(context: ActiveContext) -> dict[str, object]:
 
 
 def main() -> int:
-    payload = read_hook_input()
-    context = active_context_from_payload(payload)
-    if payload.get("stop_hook_active"):
+    try:
+        payload = read_hook_input()
+        context = active_context_from_payload(payload)
+        if payload.get("stop_hook_active"):
+            return 0
+        run_assisted_promotion(context)
+        run_vault_inbox_review(context)
+        summary = promotion_summary(context)
+        vault_review = vault_review_summary(context)
+        warnings = []
+        review = summary.get("review_requested")
+        if isinstance(review, list) and review:
+            preview = []
+            for item in review[:3]:
+                if isinstance(item, dict):
+                    preview.append(f"{item.get('target_layer', '?')} {float(item.get('confidence', 0.0)):.2f}: {item.get('text', '')}")
+            warnings.append("Ralph Memory found promotion candidates that need review before becoming canonical: " + " | ".join(preview))
+        ask_user = int(vault_review.get("ask_user") or 0)
+        if ask_user:
+            warnings.append(f"GRADUATION_REVIEW_REQUIRED count={ask_user}: MiVault inbox has ambiguous or global candidates.")
+    except Exception:
         return 0
-    run_assisted_promotion(context)
-    run_vault_inbox_review(context)
-    summary = promotion_summary(context)
-    vault_review = vault_review_summary(context)
-    warnings = []
-    review = summary.get("review_requested")
-    if isinstance(review, list) and review:
-        preview = []
-        for item in review[:3]:
-            if isinstance(item, dict):
-                preview.append(f"{item.get('target_layer', '?')} {float(item.get('confidence', 0.0)):.2f}: {item.get('text', '')}")
-        warnings.append("Ralph Memory found promotion candidates that need review before becoming canonical: " + " | ".join(preview))
-    ask_user = int(vault_review.get("ask_user") or 0)
-    if ask_user:
-        warnings.append(f"GRADUATION_REVIEW_REQUIRED count={ask_user}: MiVault inbox has ambiguous or global candidates.")
     if not warnings:
         return 0
     return 0

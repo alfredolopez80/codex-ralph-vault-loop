@@ -6,7 +6,7 @@ from pathlib import Path
 
 from shared.file_line_candidates import candidate_paths, workspace_root
 from shared.file_line_policy import SENSITIVE_PATH_RE
-from shared.paths import read_hook_input, write_json
+from shared.paths import append_jsonl, ensure_runtime, now_iso, read_hook_input, write_json
 
 
 MAX_FRONTMATTER_BYTES = 4096
@@ -57,20 +57,40 @@ def shaping_paths(payload: dict) -> list[Path]:
     return found
 
 
+def record_warning(paths: list[Path], reason: str) -> None:
+    try:
+        root = ensure_runtime()
+        append_jsonl(
+            root / "reports" / "shaping-ripple-warnings.jsonl",
+            {
+                "created_at": now_iso(),
+                "event": "shaping_ripple",
+                "severity": "warn",
+                "reason": reason,
+                "files": [{"path": str(path)} for path in paths[:8]],
+            },
+        )
+    except Exception:
+        return
+
+
 def main() -> int:
     payload = read_hook_input()
     paths = shaping_paths(payload)
     if not paths:
         return 0
 
-    decision = "block" if os.environ.get("RALPH_SHAPING_RIPPLE_STRICT", "").lower() in {"1", "true", "yes", "on"} else "warn"
     reason = (
         "Shaping ripple check: a Markdown file has shaping: true frontmatter. "
         "Verify related shaping artifacts stayed in sync: update affordance tables before Mermaid, "
         "reflect requirements changes in fit checks plus gaps/open questions, reflect shape-part changes "
         "in gaps/open questions by part, and sync work streams or slice plans with their related diagrams."
     )
-    write_json({"decision": decision, "reason": reason, "files": [{"path": str(path)} for path in paths[:8]]})
+    if os.environ.get("RALPH_SHAPING_RIPPLE_STRICT", "").lower() in {"1", "true", "yes", "on"}:
+        write_json({"decision": "block", "reason": reason, "files": [{"path": str(path)} for path in paths[:8]]})
+        return 0
+
+    record_warning(paths, reason)
     return 0
 
 
