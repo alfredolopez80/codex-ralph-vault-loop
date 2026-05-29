@@ -58,6 +58,7 @@ def run_task_intake(payload: dict, context: ActiveContext) -> None:
             "RALPH_PROJECT_ID": context.project_id,
             "RALPH_WORKSPACE_ROOT": str(context.workspace_root),
             "RALPH_SESSION_ID": context.session_id,
+            "RALPH_BRANCH": context.branch,
         }
         result = subprocess.run(
             [
@@ -69,6 +70,8 @@ def run_task_intake(payload: dict, context: ActiveContext) -> None:
                 context.project_id,
                 "--workspace-root",
                 str(context.workspace_root),
+                "--branch",
+                context.branch,
             ],
             input=json.dumps(payload, ensure_ascii=True),
             text=True,

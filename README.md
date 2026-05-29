@@ -295,6 +295,13 @@ python3 -m pytest tests -q
 python3 scripts/evals/coding_model_eval.py --mode mock
 ```
 
+For the focused Ralph memory recall, selection, injection, fallback, scope, trace,
+and post-hook persistence checks:
+
+```bash
+bash scripts/validate-ralph-memory-flow.sh
+```
+
 Validate MCP coding models from a Codex session when the MCP is available:
 
 ```text
