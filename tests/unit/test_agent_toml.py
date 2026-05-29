@@ -21,6 +21,7 @@ REQUIRED_AGENTS = {
     "ralph-search-researcher",
     "ralph-vision-analyst",
     "ralph-evaluator",
+    "thermo-nuclear-code-quality-review",
 }
 
 
