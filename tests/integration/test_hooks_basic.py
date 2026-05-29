@@ -29,6 +29,29 @@ def run_hook(name: str, ralph_home: Path, payload: dict, extra_env: dict[str, st
     )
 
 
+def run_bash_hook(
+    name: str,
+    ralph_home: Path,
+    payload: dict,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["RALPH_HOME"] = str(ralph_home)
+    env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
+    env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        ["bash", str(HOOKS / name)],
+        cwd=ROOT,
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+
 def project_roots(ralph_home: Path) -> list[Path]:
     return sorted(path for path in (ralph_home / "projects").glob("*") if path.is_dir())
 
@@ -506,8 +529,7 @@ def test_stop_route_decision_warns_for_nontrivial_missing_marker(tmp_path: Path)
         },
     )
     assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["decision"] == "warn"
+    assert result.stdout == ""
     assert (tmp_path / "cost" / "routing-warnings.jsonl").is_file()
 
 
@@ -748,7 +770,35 @@ def test_stop_memory_promotion_review_warns_for_review_candidates(tmp_path: Path
     )
 
     assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["decision"] == "warn"
-    assert "promotion candidates" in payload["reason"]
-    assert "security review" in payload["reason"]
+    assert result.stdout == ""
+    report = json.loads((project_root(tmp_path) / "reports" / "memory" / "promotion-latest.json").read_text(encoding="utf-8"))
+    assert report["review_requested"]
+    assert "security review" in json.dumps(report["review_requested"])
+
+
+def test_stop_shell_hooks_emit_only_blocks(tmp_path: Path) -> None:
+    anti_allow = run_bash_hook(
+        "anti-rationalization-stop.sh",
+        tmp_path,
+        {"last_assistant_message": "VERIFIED_DONE: true."},
+    )
+    assert anti_allow.returncode == 0, anti_allow.stderr
+    assert anti_allow.stdout == ""
+
+    anti_block = run_bash_hook(
+        "anti-rationalization-stop.sh",
+        tmp_path,
+        {"session_id": "anti-block", "last_assistant_message": "This should work."},
+    )
+    assert anti_block.returncode == 0, anti_block.stderr
+    payload = json.loads(anti_block.stdout)
+    assert payload["decision"] == "block"
+    assert payload["reason"]
+
+    quality_allow = run_bash_hook(
+        "ralph-stop-quality-gate.sh",
+        tmp_path,
+        {"session_id": "quality-allow", "cwd": str(tmp_path)},
+    )
+    assert quality_allow.returncode == 0, quality_allow.stderr
+    assert quality_allow.stdout == ""

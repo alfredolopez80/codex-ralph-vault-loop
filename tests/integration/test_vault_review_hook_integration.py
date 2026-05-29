@@ -74,9 +74,7 @@ def test_stop_promotion_hook_runs_vault_review_in_report_only_mode(tmp_path: Pat
     result = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": "done"})
 
     assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["decision"] == "warn"
-    assert "GRADUATION_REVIEW_REQUIRED count=1" in payload["reason"]
+    assert result.stdout == ""
     report = latest_project_vault_review(ralph_home)
     assert report["mode"] == "report-only"
     assert report["ask_user"] == 1

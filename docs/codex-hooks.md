@@ -132,17 +132,15 @@ bash .codex/hooks/ralph-stop-quality-gate.sh < .codex/tests/fixtures/stop-verifi
 python3 .codex/hooks/implementation_notes_guard.py < .codex/tests/fixtures/implementation-notes-no-plan.json
 ```
 
-Every hook should print valid JSON. `Stop` hooks block with:
+Hooks that write to stdout must print valid JSON. `Stop` hooks block with:
 
 ```json
 { "decision": "block", "reason": "..." }
 ```
 
-They allow stop with:
-
-```json
-{ "continue": true, "stopReason": "..." }
-```
+They allow stop by writing nothing to stdout. Report-only Stop findings, such
+as routing or vault-review reminders, are persisted to local reports or JSONL
+ledgers instead of emitting `decision:warn`.
 
 ## Trusting Hooks In Codex
 

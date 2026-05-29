@@ -4,12 +4,8 @@ umask 077
 
 INPUT="$(head -c 100000 2> /dev/null || true)"
 
-emit_json() {
-  if command -v jq > /dev/null 2>&1; then
-    jq -n "$@"
-  else
-    printf '{"continue":true,"stopReason":"jq unavailable; Ralph quality gate fail-open."}\n'
-  fi
+emit_block() {
+  jq -n "$@"
 }
 
 json_get() {
@@ -113,7 +109,6 @@ block_or_allow_max() {
       printf '{"blocks":0}\n' 2> /dev/null > "$block_file" || true
     fi
     append_log "ALLOW max block count reached: $reason"
-    emit_json '{continue: true, stopReason: "Ralph stop quality gate max blocks reached; allowing stop to avoid loop."}'
     exit 0
   fi
   local next=$((count + 1))
@@ -121,17 +116,15 @@ block_or_allow_max() {
     jq -n --argjson blocks "$next" --arg reason "$reason" '{blocks: $blocks, last_reason: $reason}' 2> /dev/null > "$block_file" || true
   fi
   append_log "BLOCK $next/5: $reason"
-  emit_json --arg reason "Ralph stop quality gate: $reason" '{decision: "block", reason: $reason}'
+  emit_block --arg reason "Ralph stop quality gate: $reason" '{decision: "block", reason: $reason}'
   exit 0
 }
 
 if ! command -v jq > /dev/null 2>&1; then
-  emit_json '{continue: true, stopReason: "jq unavailable; Ralph quality gate fail-open."}'
   exit 0
 fi
 
 if [[ "$(json_get '.stop_hook_active')" == "true" ]]; then
-  emit_json '{continue: true, stopReason: "stop_hook_active set; Ralph quality gate bypassed."}'
   exit 0
 fi
 
@@ -233,7 +226,6 @@ done
 
 if [[ "$ACTIVE_FOUND" != "true" ]]; then
   append_log "ALLOW no active Ralph/Codex state"
-  emit_json '{continue: true, stopReason: "No active Ralph/Codex state found."}'
   exit 0
 fi
 
@@ -243,7 +235,6 @@ fi
 
 if [[ "$VERIFIED_FOUND" == "true" ]]; then
   append_log "ALLOW verified_done true"
-  emit_json '{continue: true, stopReason: "verified_done true."}'
   exit 0
 fi
 

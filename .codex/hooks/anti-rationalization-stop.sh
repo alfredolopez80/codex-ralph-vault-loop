@@ -4,12 +4,8 @@ umask 077
 
 INPUT="$(head -c 100000 2> /dev/null || true)"
 
-emit_json() {
-  if command -v jq > /dev/null 2>&1; then
-    jq -n "$@"
-  else
-    printf '{"continue":true,"stopReason":"jq unavailable; anti-rationalization gate fail-open."}\n'
-  fi
+emit_block() {
+  jq -n "$@"
 }
 
 json_get() {
@@ -79,13 +75,11 @@ resolve_safe_file() {
 }
 
 if ! command -v jq > /dev/null 2>&1; then
-  emit_json '{continue: true, stopReason: "jq unavailable; anti-rationalization gate fail-open."}'
   exit 0
 fi
 
 STOP_HOOK_ACTIVE="$(json_get '.stop_hook_active')"
 if [[ "$STOP_HOOK_ACTIVE" == "true" ]]; then
-  emit_json '{continue: true, stopReason: "stop_hook_active set; anti-rationalization gate bypassed."}'
   exit 0
 fi
 
@@ -109,7 +103,6 @@ if [[ "$BLOCK_COUNT" -ge "$MAX_BLOCKS" ]]; then
   if [[ -d "$STATE_DIR" ]]; then
     printf '{"blocks":0}\n' 2> /dev/null > "$STATE_FILE" || true
   fi
-  emit_json '{continue: true, stopReason: "Anti-rationalization max blocks reached; allowing stop to avoid loop."}'
   exit 0
 fi
 
@@ -129,7 +122,6 @@ SCAN_TEXT="$MESSAGE
 $TRANSCRIPT_TEXT"
 
 if contains_evidence "$SCAN_TEXT"; then
-  emit_json '{continue: true, stopReason: "Factual verification evidence detected."}'
   exit 0
 fi
 
@@ -163,8 +155,8 @@ if [[ -n "$MATCH" ]]; then
     jq -n --argjson blocks "$NEW_COUNT" --arg pattern "$MATCH" '{blocks: $blocks, last_pattern: $pattern}' 2> /dev/null > "$STATE_FILE" || true
   fi
   REASON="Anti-rationalization gate: detected ${MATCH}. Continue with factual verification: run tests/lint or provide explicit VERIFIED_DONE evidence."
-  emit_json --arg reason "$REASON" '{decision: "block", reason: $reason}'
+  emit_block --arg reason "$REASON" '{decision: "block", reason: $reason}'
   exit 0
 fi
 
-emit_json '{continue: true, stopReason: "No anti-rationalization pattern detected."}'
+exit 0

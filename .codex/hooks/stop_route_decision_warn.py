@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from shared.paths import append_jsonl, ensure_runtime, now_iso, read_hook_input, write_json
+from shared.paths import append_jsonl, ensure_runtime, now_iso, read_hook_input
 from shared.redaction import is_red
 
 
@@ -63,7 +63,6 @@ def main() -> int:
         "reason": "Non-trivial session completed without a visible ROUTE_DECISION marker.",
     }
     append_jsonl(root / "cost" / "routing-warnings.jsonl", warning)
-    write_json({"decision": "warn", "reason": warning["reason"]})
     return 0
 
 

@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
-from shared.paths import REPO_ROOT, read_hook_input, write_json
+from shared.paths import REPO_ROOT, read_hook_input
 
 
 def run_assisted_promotion(context: ActiveContext) -> None:
@@ -117,8 +117,6 @@ def main() -> int:
         warnings.append(f"GRADUATION_REVIEW_REQUIRED count={ask_user}: MiVault inbox has ambiguous or global candidates.")
     if not warnings:
         return 0
-    reason = " | ".join(warnings)
-    write_json({"decision": "warn", "reason": reason})
     return 0
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -25,9 +26,34 @@ def run_hook(name: str, payload: dict, env: dict[str, str]) -> subprocess.Comple
     )
 
 
+def run_hook_command(command: str, payload: dict, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        shlex.split(command),
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        env=os.environ.copy() | env,
+        check=False,
+    )
+
+
 def assert_ok(label: str, result: subprocess.CompletedProcess[str]) -> None:
     if result.returncode != 0:
         raise RuntimeError(f"{label} failed: {result.stderr or result.stdout}")
+
+
+def assert_stop_output_contract(label: str, result: subprocess.CompletedProcess[str]) -> None:
+    assert_ok(label, result)
+    output = result.stdout.strip()
+    if not output:
+        return
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{label} emitted non-JSON Stop stdout: {output[:200]}") from exc
+    if payload.get("decision") == "block" and isinstance(payload.get("reason"), str) and payload["reason"].strip():
+        return
+    raise RuntimeError(f"{label} emitted invalid Stop hook output: {output[:200]}")
 
 
 def hook_basenames(config: dict, event: str) -> list[str]:
@@ -38,6 +64,16 @@ def hook_basenames(config: dict, event: str) -> list[str]:
             if matches:
                 names.append(matches[-1])
     return names
+
+
+def hook_commands(config: dict, event: str) -> list[str]:
+    commands: list[str] = []
+    for group in config.get("hooks", {}).get(event, []):
+        for hook in group.get("hooks", []):
+            command = hook.get("command")
+            if isinstance(command, str) and command.strip():
+                commands.append(command)
+    return commands
 
 
 def init_git(path: Path) -> None:
@@ -154,6 +190,15 @@ def main() -> int:
         handoff = handoff_path.read_text(encoding="utf-8")
         if "## Rolling Checkpoint" not in handoff:
             raise RuntimeError("stop handoff missing rolling checkpoint")
+
+        stop_payload = {
+            "session_id": "global-hook-smoke-stop-contract",
+            "cwd": str(project_a),
+            "last_assistant_message": "Smoke done.",
+        }
+        for index, command in enumerate(hook_commands(config, "Stop")):
+            stop_result = run_hook_command(command, stop_payload, env)
+            assert_stop_output_contract(f"Stop hook {index} {command}", stop_result)
 
     print(f"GLOBAL_HOOKS_SMOKE_PASS repo={repo_root}")
     return 0
