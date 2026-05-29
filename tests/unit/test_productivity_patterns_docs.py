@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -21,9 +22,13 @@ def test_productivity_patterns_keep_report_only_automation_contract() -> None:
 def test_productivity_patterns_do_not_adopt_unsafe_continuity_or_permissions() -> None:
     text = (ROOT / "docs" / "codex-productivity-patterns.md").read_text(encoding="utf-8")
 
-    assert "| `/resume` and `/compact` | Do not adopt as Ralph continuity |" in text
-    assert "| `/permissions` | Do not adopt |" in text
-    assert "| `--yolo` | Do not adopt |" in text
+    expected_rows = (
+        r"\|\s*`/resume` and `/compact`\s*\|\s*Do not adopt as Ralph continuity\s*\|",
+        r"\|\s*`/permissions`\s*\|\s*Do not adopt\s*\|",
+        r"\|\s*`--yolo`\s*\|\s*Do not adopt\s*\|",
+    )
+    for row in expected_rows:
+        assert re.search(row, text)
     assert "$handoff" in text
     assert "wakeup/recall" in text
     assert "implementation notes" in text

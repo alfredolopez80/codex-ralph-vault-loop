@@ -40,6 +40,7 @@ autoresearch.jsonl
 autoresearch.ideas.md
 autoresearch.last-run.json
 autoresearch.research/
+autoresearch.runs/
 .ralph/layers/
 .ralph/ledgers/
 .ralph/handoffs/
