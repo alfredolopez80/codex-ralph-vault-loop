@@ -66,6 +66,7 @@ DEFAULT_SKILLS=(
   make-requirements-great
   framing-doc
   kickoff-doc
+  thermo-nuclear-code-quality-review
 )
 
 DEFAULT_AGENTS=(
@@ -81,6 +82,7 @@ DEFAULT_AGENTS=(
   ralph-vision-analyst
   ralph-evaluator
   ralph-slop-reviewer
+  thermo-nuclear-code-quality-review
 )
 
 ok() {
