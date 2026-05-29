@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.active_context import active_context_from_payload, project_runtime_root
+from shared.autoresearch_observer import safe_observe_post_tool_payload
 from shared.checkpoint_io import update_checkpoint
 from shared.context_budget import text_is_toxic
 from shared.paths import append_jsonl, now_iso, read_hook_input
@@ -18,6 +19,7 @@ GIT_MARKERS = ("git ", "git-")
 def main() -> int:
     payload = read_hook_input()
     context = active_context_from_payload(payload)
+    safe_observe_post_tool_payload(payload, context)
     update = checkpoint_update_from_payload(payload)
     if not update:
         return 0

@@ -81,6 +81,12 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Run `python3 scripts/memory/wakeup.py`" not in agents_text
     assert "Implementation Notes For Approved Plans" in agents_text
     assert "SFW Package-Manager Protection" in agents_text
+    assert "Codex Productivity Patterns" in agents_text
+    assert "Done when:" in agents_text
+    assert "CONTEXT_ONLY" in agents_text
+    assert "NO_PREAMBLE" in agents_text
+    assert "report-only by default" in agents_text
+    assert "Do not use `--yolo`" in agents_text
     assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
     assert not (tmp_path / ".codex" / "config.toml").exists()
@@ -105,6 +111,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Global hooks resolve Ralph scripts from" not in agents_text
     assert "Implementation Notes For Approved Plans" not in agents_text
     assert "SFW Package-Manager Protection" not in agents_text
+    assert "Codex Productivity Patterns" not in agents_text
 
 
 def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:
@@ -328,6 +335,16 @@ Apply the global `ultrathink` skill as the default operating mode.
 <!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->
 ## SFW Package-Manager Protection
 <!-- END RALPH SFW PACKAGE MANAGER POLICY -->
+
+<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->
+## Codex Productivity Patterns
+
+Done when:
+CONTEXT_ONLY
+NO_PREAMBLE
+report-only by default
+Do not use `--yolo`
+<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->
 """,
         encoding="utf-8",
     )
@@ -336,3 +353,53 @@ Apply the global `ultrathink` skill as the default operating mode.
 
     assert doctor.returncode != 0
     assert "stale cost/complexity-only MCP routing instructions" in doctor.stdout + doctor.stderr
+
+
+def test_global_doctor_rejects_unsafe_productivity_policy(tmp_path: Path) -> None:
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text(
+        """<!-- BEGIN RALPH INTENT MCP POLICY -->
+## Intent-Based Z.ai and MiniMax MCP Usage
+
+EXTERNAL_MCP_BRIEF
+<!-- END RALPH INTENT MCP POLICY -->
+
+<!-- BEGIN RALPH MEMORY CORE POLICY -->
+## Ralph Memory Core
+
+Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root`.
+Do not require the active repository to contain `scripts/memory/*`.
+<!-- END RALPH MEMORY CORE POLICY -->
+
+<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->
+## Default Ultrathink Policy
+
+Apply the global `ultrathink` skill as the default operating mode.
+<!-- END RALPH ULTRATHINK DEFAULT POLICY -->
+
+<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->
+## Implementation Notes For Approved Plans
+<!-- END RALPH IMPLEMENTATION NOTES POLICY -->
+
+<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->
+## SFW Package-Manager Protection
+<!-- END RALPH SFW PACKAGE MANAGER POLICY -->
+
+<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->
+## Codex Productivity Patterns
+
+Done when:
+CONTEXT_ONLY
+NO_PREAMBLE
+report-only by default
+Use --yolo as the normal autonomous workflow.
+<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->
+""",
+        encoding="utf-8",
+    )
+
+    doctor = run_script(tmp_path, "doctor-global.sh")
+
+    assert doctor.returncode != 0
+    assert "unsafe --yolo usage" in doctor.stdout + doctor.stderr

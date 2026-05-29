@@ -345,6 +345,26 @@ Before running package-manager commands that install, fetch, execute, or update 
 POLICY
 }
 
+productivity_patterns_policy_block() {
+  cat << 'POLICY'
+<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->
+## Codex Productivity Patterns
+
+Use productivity patterns only when they preserve the existing safety model:
+
+- Add explicit `Done when:` criteria for non-trivial work so completion can be verified.
+- Treat `[NO_PREAMBLE]` and `[CONTEXT_ONLY]` as request-local style hints only. Context-only prompts may be acknowledged without generation, but they do not authorize persistence or bypass Context Budget Guard, RED checks, or Ralph memory validation.
+- Use native `/goal` for bounded objectives. Use `$ralph-objective-prep` before broad, risky, vague, recovery-oriented, audit-oriented, or plan-driven goals.
+- Use `$handoff`, `.local-notes` where applicable, hook-driven wakeup/recall, scoped memory trace, and approved-plan implementation notes for continuity. Do not adopt `/resume` or `/compact` as Ralph continuity workflows.
+- Use explicit skill names and `@file` references when they improve scope precision.
+- Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
+- Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
+- Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.
+- Do not use `--yolo` for production, shared, or sensitive local work.
+<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->
+POLICY
+}
+
 install_agents_policy() {
   local target="$GLOBAL_AGENTS_MD"
   local start="<!-- BEGIN RALPH INTENT MCP POLICY -->"
@@ -418,6 +438,7 @@ else:
             "\n<!-- BEGIN RALPH MEMORY CORE POLICY -->",
             "\n<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->",
             "\n<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->",
+            "\n<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->",
             "\n## End Default Codex/Codex App Model Routing Policy",
         ]
         candidates = [idx for marker in boundaries if (idx := value.find(marker, start_index + len(old_start))) != -1]
@@ -551,6 +572,38 @@ has_start = start in text
 has_end = end in text
 if has_start != has_end:
     raise SystemExit(f"GLOBAL_INSTALL_FAIL unbalanced sfw package-manager policy markers in {target}")
+if has_start and has_end:
+    before, rest = text.split(start, 1)
+    _old, after = rest.split(end, 1)
+    rendered = before.rstrip() + "\n\n" + policy + after.lstrip()
+elif text.strip():
+    rendered = text.rstrip() + "\n\n" + policy
+else:
+    rendered = policy
+target.write_text(rendered, encoding="utf-8")
+PY
+  rm -f "$policy_file"
+
+  start="<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->"
+  end="<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->"
+  policy_file="$(mktemp)"
+  productivity_patterns_policy_block > "$policy_file"
+  python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+policy = Path(sys.argv[2]).read_text(encoding="utf-8").strip() + "\n"
+start = sys.argv[3]
+end = sys.argv[4]
+
+text = target.read_text(encoding="utf-8") if target.exists() else ""
+has_start = start in text
+has_end = end in text
+if has_start != has_end:
+    raise SystemExit(f"GLOBAL_INSTALL_FAIL unbalanced productivity-patterns policy markers in {target}")
 if has_start and has_end:
     before, rest = text.split(start, 1)
     _old, after = rest.split(end, 1)

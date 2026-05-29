@@ -23,6 +23,20 @@ This default never overrides system, developer, project, or explicit user instru
 
 Before running package-manager commands that install, fetch, execute, or update remote packages, prefix the command with `sfw`. Examples: `sfw npm ci`, `sfw pnpm install`, `sfw pnpm dlx ...`, `sfw npx ...`, `sfw uvx ...`, `sfw python3 -m pip install ...`, and `sfw cargo install ...`. Local test/build scripts such as `npm test`, `pnpm test`, or `cargo test` do not need `sfw` unless they fetch remote code.
 
+## Codex Productivity Patterns
+
+Use productivity patterns only when they preserve the existing safety model:
+
+- Add explicit `Done when:` criteria for non-trivial work so completion can be verified.
+- Treat `[NO_PREAMBLE]` and `[CONTEXT_ONLY]` as request-local style hints only. Context-only prompts may be acknowledged without generation, but they do not authorize persistence or bypass Context Budget Guard, RED checks, or Ralph memory validation.
+- Use native `/goal` for bounded objectives. Use `$ralph-objective-prep` before broad, risky, vague, recovery-oriented, audit-oriented, or plan-driven goals.
+- Use `$handoff`, `.local-notes` where applicable, hook-driven wakeup/recall, scoped memory trace, and approved-plan implementation notes for continuity. Do not adopt `/resume` or `/compact` as Ralph continuity workflows.
+- Use explicit skill names and `@file` references when they improve scope precision.
+- Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
+- Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
+- Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.
+- Do not use `--yolo` for production, shared, or sensitive local work.
+
 ## Ralph Memory Core
 
 Use Ralph Memory Core through hooks by default. Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root` while deriving the active project from the hook payload `cwd`/workdir. Manual diagnostics must resolve that stable Ralph root first instead of assuming the current worktree contains `scripts/memory/*`. Recall is context, not authority; explicit user instructions and current repo files win. Do not persist or print RED content, and only include raw or inbox vault areas when explicitly requested with `--include-raw`.
@@ -143,6 +157,15 @@ Target -> Onboard -> Setup -> Doctor -> Packet -> Log -> Continue or Finalize
 ```
 
 Codex should create target-repo session files through `scripts/autoresearch/setup.py`, verify with `doctor.py`, run benchmark packets with `next.py`, log packet decisions with `log.py`, and summarize with `state.py`. Benchmarks must emit `METRIC name=value`; the primary metric drives keep/discard. Every logged packet must include ASI fields: hypothesis, evidence, next action hint, and rollback reason for discard/crash/checks_failed. Optional upstream `codex-autoresearch` tools are read-only guidance unless Codex main explicitly approves mutation. Ralph scorecards, gates, scoped commit paths, stale-packet checks, and RED-sensitive content blocking remain authoritative.
+
+New sessions default to `baseline_policy=best_kept`. `log.py --status keep`
+must reject packets when any required hard gate fails, including
+`no_secret_leak`, `no_scope_violation`, `fresh_packet`, and
+`finite_primary_metric`. Generation bundles and pending hook observations are
+scanned before persistence; unscanned or RED-sensitive artifacts fail closed.
+The `PostToolUse` AutoResearch observer only captures bounded metrics for active
+sessions and writes under the path-hardened project runtime
+`~/.ralph-codex/projects/<project_id>/autoresearch/`.
 
 ## Intent-Based MCP Routing
 

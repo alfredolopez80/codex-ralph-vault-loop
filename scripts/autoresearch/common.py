@@ -33,6 +33,17 @@ IDEAS = "autoresearch.ideas.md"
 LAST_RUN = "autoresearch.last-run.json"
 METRIC_RE = re.compile(r"^\s*METRIC\s+([A-Za-z_][A-Za-z0-9_.-]*)=([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$")
 VALID_STATUSES = {"keep", "discard", "crash", "checks_failed"}
+SUPPORTED_BASELINE_POLICIES = {"initial", "latest_kept", "best_kept"}
+DEFAULT_BASELINE_POLICY = "best_kept"
+REQUIRED_KEEP_GATES = (
+    "tests_pass",
+    "no_secret_leak",
+    "eval_harness_unchanged",
+    "no_scope_violation",
+    "no_eval_gaming",
+    "fresh_packet",
+    "finite_primary_metric",
+)
 
 
 class AutoResearchError(RuntimeError):
@@ -94,13 +105,36 @@ def latest_config(entries: list[dict[str, Any]]) -> dict[str, Any]:
     raise AutoResearchError(f"missing config entry in {LEDGER}; run setup first")
 
 
-def latest_baseline(entries: list[dict[str, Any]], metric: str) -> float | None:
+def baseline_policy_from_config(config: dict[str, Any]) -> str:
+    policy = str(config.get("baseline_policy") or DEFAULT_BASELINE_POLICY)
+    if policy not in SUPPORTED_BASELINE_POLICIES:
+        raise AutoResearchError(f"unsupported baseline_policy: {policy}")
+    return policy
+
+
+def latest_baseline(entries: list[dict[str, Any]], metric: str, direction: str | None = None, policy: str | None = None) -> float | None:
+    candidates: list[float] = []
     for entry in entries:
-        if entry.get("status") in {"keep", "baseline"}:
-            metrics = entry.get("metrics") or {}
-            value = metrics.get(metric)
-            if is_finite_number(value):
-                return float(value)
+        if entry.get("status") not in {"keep", "baseline"}:
+            continue
+        metrics = entry.get("metrics") or {}
+        value = metrics.get(metric)
+        if is_finite_number(value):
+            candidates.append(float(value))
+    if not candidates:
+        return None
+    selected_policy = policy or "initial"
+    if selected_policy == "initial":
+        return candidates[0]
+    if selected_policy == "latest_kept":
+        return candidates[-1]
+    if selected_policy == "best_kept":
+        if direction == "lower":
+            return min(candidates)
+        if direction == "higher":
+            return max(candidates)
+        raise AutoResearchError("best_kept baseline policy requires direction")
+    raise AutoResearchError(f"unsupported baseline_policy: {selected_policy}")
     return None
 
 
@@ -178,7 +212,7 @@ def git_state(cwd: Path) -> dict[str, str]:
 
 
 def non_git_state(cwd: Path) -> dict[str, str]:
-    ignored_dirs = {".git", "node_modules", ".ralph-codex", "__pycache__"}
+    ignored_dirs = {".git", "node_modules", ".ralph-codex", "__pycache__", "autoresearch.runs"}
     ignored_files = {SESSION_DOC, LEDGER, IDEAS, LAST_RUN}
     state: dict[str, str] = {}
     for path in sorted(cwd.rglob("*")):
@@ -205,14 +239,62 @@ def fingerprint(cwd: Path, config: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def default_hard_gates(tests_pass: bool, text: str = "") -> dict[str, bool]:
+def default_hard_gates(tests_pass: bool, text: str = "", primary_metric_present: bool = True) -> dict[str, bool]:
     return {
         "tests_pass": bool(tests_pass),
         "no_secret_leak": not is_red(text),
         "eval_harness_unchanged": True,
         "no_scope_violation": True,
         "no_eval_gaming": True,
+        "fresh_packet": True,
+        "finite_primary_metric": bool(primary_metric_present),
     }
+
+
+def scoped_diff_paths(cwd: Path) -> list[str]:
+    status = git_value(cwd, "diff", "--name-only")
+    staged = git_value(cwd, "diff", "--cached", "--name-only")
+    paths = [line.strip() for line in f"{status}\n{staged}".splitlines() if line.strip()]
+    return sorted(dict.fromkeys(paths))
+
+
+def path_in_scope(path: str, scopes: list[str]) -> bool:
+    clean = path.strip().lstrip("./")
+    normalized = [scope.strip().lstrip("./").rstrip("/") for scope in scopes if scope.strip()]
+    if not normalized:
+        return True
+    return any(clean == scope or clean.startswith(f"{scope}/") for scope in normalized)
+
+
+def scope_gate(cwd: Path, commit_paths: list[str]) -> dict[str, Any]:
+    if git_state(cwd).get("inside") != "true":
+        return {"passed": True, "changed_paths": [], "out_of_scope_paths": [], "reason": "not_git"}
+    changed = scoped_diff_paths(cwd)
+    out_of_scope = [path for path in changed if not path_in_scope(path, commit_paths)]
+    return {"passed": not out_of_scope, "changed_paths": changed, "out_of_scope_paths": out_of_scope}
+
+
+def hard_gates_for_packet(cwd: Path, config: dict[str, Any], tests_pass: bool, text: str, metric_value: Any) -> dict[str, bool]:
+    scope = scope_gate(cwd, list(config.get("commit_paths") or []))
+    gates = default_hard_gates(tests_pass, text, is_finite_number(metric_value))
+    gates["no_scope_violation"] = bool(scope["passed"])
+    return gates
+
+
+def gate_failures(hard_gates: dict[str, Any], required: tuple[str, ...] = REQUIRED_KEEP_GATES) -> list[str]:
+    failures: list[str] = []
+    for gate in required:
+        if gate not in hard_gates:
+            failures.append(f"{gate}:missing")
+        elif hard_gates.get(gate) is not True:
+            failures.append(gate)
+    return failures
+
+
+def assert_keep_allowed(hard_gates: dict[str, Any]) -> None:
+    failures = gate_failures(hard_gates)
+    if failures:
+        raise AutoResearchError(f"keep rejected; hard gates failed: {', '.join(failures)}")
 
 
 def required_entry_fields(config: dict[str, Any], status: str, delta: float | None, hard_gates: dict[str, Any], asi: dict[str, Any]) -> dict[str, Any]:

@@ -18,6 +18,21 @@ Memory quality checks now include the deterministic dream/consolidation flow. Th
 
 AutoResearch Global V2 extends the eval-only dry run into a reusable loop for target repos. Session state lives in `autoresearch.md`, `autoresearch.jsonl`, `autoresearch.ideas.md`, and `autoresearch.last-run.json`. Benchmarks emit `METRIC name=value`; `next.py` captures packet evidence, `log.py --from-last` records `keep`, `discard`, `crash`, or `checks_failed`, and stale-packet checks prevent logging evidence after unrelated changes. Every packet includes scorecard id/version, primary metric, direction, delta, hard gates, scoped commit paths, ASI, and timestamp.
 
+New sessions default to `baseline_policy=best_kept`, with `initial` and
+`latest_kept` retained as explicit compatibility policies. `log.py --status
+keep` fails closed unless required hard gates are present and true:
+`tests_pass`, `no_secret_leak`, `eval_harness_unchanged`,
+`no_scope_violation`, `no_eval_gaming`, `fresh_packet`, and
+`finite_primary_metric`.
+
+Optional generation bundles live under
+`autoresearch.runs/<segment_id>/gen_<n>/`. They store bounded stdout/stderr
+previews, metrics, checks, hard gates, decisions, ASI, improvement notes, and
+trace metadata after RED scanning. `PostToolUse` can also attach bounded
+pending metric observations under the project runtime path
+`~/.ralph-codex/projects/<project_id>/autoresearch/`; hooks do not run
+benchmarks, Git scans, external advisors, MCP tools, or synthesis inline.
+
 The deterministic fixture remains the acceptance gate for this behavior. It now covers kept candidates, low-delta discard, missing primary metrics, crash/checks_failed status handling, and fixture mutation protection.
 
 Related phases: [PHASE_11](../migration/checkpoints/PHASE_11.md), [PHASE_12](../migration/checkpoints/PHASE_12.md), [PHASE_13](../migration/checkpoints/PHASE_13.md).

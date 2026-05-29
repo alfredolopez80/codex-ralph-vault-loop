@@ -81,6 +81,34 @@ The v1 guard intentionally does not add `PreCompact` or `PostCompact` behavior.
 Compact lifecycle hooks should be added only after the local hook contract is
 verified and covered by global install smoke tests.
 
+## AutoResearch Observer
+
+AutoResearch hook support is deliberately cheap. Hooks may observe bounded
+`METRIC name=value` output when a valid AutoResearch session is active, but they
+must not run benchmarks, Git scans, external models, MCP tools, or synthesis.
+Pending observations are written under the project-scoped Ralph runtime path:
+
+```text
+~/.ralph-codex/projects/<project_id>/autoresearch/pending-metrics.jsonl
+```
+
+Runtime paths are normalized and constrained, symlink escapes are rejected, and
+new observation files use restrictive permissions with single-call atomic append
+writes. Set
+`RALPH_AUTORESEARCH_OBSERVER=0` to disable observer writes.
+
+## Hook Timing And Responsibility
+
+| Timing                   | Hook event / surface                                                                                    | Responsibility                                                                                                                                      | Validation evidence                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session start            | `SessionStart` / `session_start_wakeup.py`                                                              | Run dream catch-up when due, then Ralph wakeup for the active project.                                                                              | `bash scripts/setup/doctor-global.sh`; `python3 scripts/setup/smoke-global-hooks.py` after install.                                        |
+| Before prompt context    | `UserPromptSubmit` / `user_prompt_capture.py`, `task-intake.py`, `ralph-recall.py`, `context_budget.py` | Classify sensitivity, run scoped recall, reject stale or wrong-scope memory, inject selected memory as non-authoritative context or trace fallback. | `python3 -m pytest tests/unit/test_ralph_recall_context.py -q`; `python3 -m pytest tests/integration/test_memory_recall_flow_e2e.py -q`.   |
+| Before command execution | `PreToolUse` / `pre_tool_guard.py`                                                                      | Enforce SFW, RED, context-budget, package-manager, and dangerous-command guardrails.                                                                | `bash .codex/tests/run-hook-tests.sh`; `python3 -m pytest tests/unit/test_context_budget.py -q`.                                           |
+| After command execution  | `PostToolUse` / `post_tool_checkpoint.py`, `post_tool_extract_memory.py`, `autoresearch_observer.py`    | Skip RED or context-toxic persistence; capture bounded AutoResearch metrics only when an active session exists.                                     | `python3 -m pytest tests/integration/test_hooks_basic.py -q`; `python3 -m pytest tests/integration/test_autoresearch_hook_observer.py -q`. |
+| Thread finalization      | `Stop` hooks and `implementation_notes_guard.py`                                                        | Enforce quality gates, safe handoff, route warnings, and approved-plan implementation notes.                                                        | `bash .codex/tests/run-hook-tests.sh`; implementation-notes integration tests.                                                             |
+| Compact lifecycle        | `PreCompact` / `PostCompact`                                                                            | Deferred; no productivity pattern may assume compact hook enforcement.                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                            |
+| Weekly validation        | Codex App automation                                                                                    | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                  |
+
 ## Manual Tests
 
 Run the local hook smoke suite:

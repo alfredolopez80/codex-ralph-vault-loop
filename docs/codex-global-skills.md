@@ -4,6 +4,11 @@ This repo documents Codex skills that are installed globally in
 `~/.codex/skills` and are expected to be available across projects after
 restarting Codex.
 
+The safe operator templates for `Done when:`, native `/goal`,
+`$ralph-objective-prep`, read-only exploration, explicit skill and `@file`
+references, worktrees, continuity, notifications, and report-only automations
+live in [`docs/codex-productivity-patterns.md`](./codex-productivity-patterns.md).
+
 ## ralph-objective-prep
 
 | Field | Value |
@@ -20,6 +25,11 @@ audit/recovery work, autonomy, or a risky first step. Simple native operations
 such as `/goal`, `/goal status`, pause, resume, complete, clear, or token-budget
 updates should remain owned by Codex App or Codex CLI unless they are ambiguous
 or unsafe.
+
+For simple, bounded work, keep native `/goal` thin and include explicit
+`Done when:` criteria. For broad, risky, vague, recovery-oriented, or
+plan-driven objectives, use this skill first and let it prepare assumptions,
+risks, likely files, and validation gates before execution starts.
 
 This skill is for Codex App standard. It does not depend on Codex++, does not
 modify the Codex App UI, and does not add tweaks, panels, badges, DOM
@@ -140,6 +150,17 @@ python3 ~/.ralph-codex/bin/autoresearch/state.py --cwd . --compact
 Benchmarks must print `METRIC name=value`. The configured primary metric drives
 keep/discard. Each logged packet records scorecard id/version, metric,
 direction, status, delta, hard gates, commit paths, ASI, and timestamp.
+New sessions default to `baseline_policy=best_kept`, and `log.py --status keep`
+rejects packets when required hard gates fail. Optional generation bundles store
+bounded, scanned evidence under `autoresearch.runs/`; hook observations store
+only safe pending metric summaries under
+`~/.ralph-codex/projects/<project_id>/autoresearch/`.
+
+The weekly AutoResearch validation automation is report-only by policy. It
+should run deterministic doctor/state/eval commands with
+`PYTHONDONTWRITEBYTECODE=1`, compare `git status --short` before and after, and
+ask for explicit user approval before any recommendation changes the global
+agent flow.
 
 ### Safety Rules
 

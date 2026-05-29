@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 
-from common import add_common_args, default_hard_gates, direction_delta, fail_result, fingerprint, latest_baseline, latest_config, parse_metrics, print_result, read_ledger, resolve_cwd, run_shell, session_paths, write_json
+from common import add_common_args, baseline_policy_from_config, direction_delta, fail_result, fingerprint, git_value, hard_gates_for_packet, latest_baseline, latest_config, parse_metrics, print_result, read_ledger, resolve_cwd, run_shell, session_paths, write_json
+from generation import write_generation_bundle
 
 
 def run_next(args: argparse.Namespace) -> dict:
@@ -26,10 +28,11 @@ def run_next(args: argparse.Namespace) -> dict:
         checks_result = {"returncode": checks.returncode}
         checks_pass = checks.returncode == 0
         combined = f"{combined}\n{checks.stdout}\n{checks.stderr}"
-    baseline = latest_baseline(entries, metric_name)
+    baseline_policy = baseline_policy_from_config(config)
+    baseline = latest_baseline(entries, metric_name, config["direction"], baseline_policy)
     if baseline is None and metric_value is not None:
         baseline = metric_value
-    hard_gates = default_hard_gates(result.returncode == 0 and checks_pass, combined)
+    hard_gates = hard_gates_for_packet(cwd, config, result.returncode == 0 and checks_pass, combined, metric_value)
     packet = {
         "ok": result.returncode == 0 and metric_value is not None and hard_gates["no_secret_leak"],
         "cwd": str(cwd),
@@ -40,6 +43,8 @@ def run_next(args: argparse.Namespace) -> dict:
         "metrics": metrics,
         "primary_metric_present": metric_value is not None,
         "baseline": baseline,
+        "baseline_policy": baseline_policy,
+        "baseline_policy_source": config.get("baseline_policy_source", "default"),
         "delta": direction_delta(baseline, metric_value, config["direction"]) if metric_value is not None else None,
         "hard_gates": hard_gates,
         "freshness_fingerprint": fingerprint(cwd, config),
@@ -53,6 +58,38 @@ def run_next(args: argparse.Namespace) -> dict:
             "risk": "",
         },
     }
+    if config.get("generation_spine_enabled") or os.environ.get("RALPH_AUTORESEARCH_GENERATION_SPINE") == "1":
+        packet["generation"] = write_generation_bundle(
+            cwd,
+            config["segment_id"],
+            {
+                "candidate_patch": git_value(cwd, "diff", "--stat") or "No candidate patch captured.\n",
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "command": {
+                    "benchmark_command": command,
+                    "checks_command": checks_command or "",
+                    "timeout": args.timeout,
+                    "cwd": str(cwd),
+                    "env_allowlist": ["PYTHONDONTWRITEBYTECODE", "RALPH_AUTORESEARCH_GENERATION_SPINE"],
+                },
+                "metrics": metrics,
+                "checks": {"benchmark_returncode": result.returncode, "checks": checks_result},
+                "hard_gates": hard_gates,
+                "decision": {
+                    "status": "pending",
+                    "delta": packet["delta"],
+                    "baseline": baseline,
+                    "baseline_policy": baseline_policy,
+                },
+                "asi": packet["asi_template"],
+                "trace": {
+                    "freshness_fingerprint": packet["freshness_fingerprint"],
+                    "primary_metric_present": packet["primary_metric_present"],
+                    "output_preview_bytes": 65_536,
+                },
+            },
+        )
     write_json(session_paths(cwd)["last_run"], packet)
     return packet
 

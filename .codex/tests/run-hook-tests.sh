@@ -55,6 +55,7 @@ PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
   "$HOOKS/pre_tool_guard.py" \
   "$HOOKS/user_prompt_capture.py" \
   "$HOOKS/post_tool_checkpoint.py" \
+  "$HOOKS/shared/autoresearch_observer.py" \
   "$HOOKS/shared/context_budget.py" \
   "$HOOKS/shared/learning.py" \
   "$HOOKS/implementation_notes_guard.py" \

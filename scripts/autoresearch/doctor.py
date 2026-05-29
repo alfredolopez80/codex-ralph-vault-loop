@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 
-from common import add_common_args, detect_upstream_backend, fail_result, fingerprint, git_state, latest_config, load_scorecard_info, print_result, read_ledger, resolve_cwd, session_paths
+from common import add_common_args, baseline_policy_from_config, detect_upstream_backend, fail_result, fingerprint, git_state, latest_config, load_scorecard_info, print_result, read_ledger, resolve_cwd, session_paths
 
 
 def build_doctor(cwd_raw: str | None) -> dict:
@@ -31,6 +31,8 @@ def build_doctor(cwd_raw: str | None) -> dict:
         "scorecard": scorecard,
         "git": git,
         "warnings": warnings,
+        "baseline_policy": baseline_policy_from_config(config) if config else None,
+        "observer_enabled": config.get("observer_enabled", True) if config else None,
         "fingerprint": fingerprint(cwd, config) if config else None,
         "upstream_backend": detect_upstream_backend(cwd),
     }

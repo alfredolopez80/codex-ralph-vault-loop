@@ -41,6 +41,7 @@ The overlay supports several working modes:
 | Codex maintenance   | Adds `keep-codex-fast`, a report-first skill for inspecting local Codex state, creating handoff reminders, backing up, and archive-only maintenance.                         |
 | SFW command guard   | Guides package-manager network commands through `sfw` so install, fetch, and remote execution paths are protected without blocking safe retry workflows.                    |
 | Repo-aware planning | Enforces `.ralph/plans` and implementation notes only when the active chat is associated with a real Git repository.                                                         |
+| Productivity patterns | Documents safe `Done when`, native `/goal`, read-only exploration, skill/`@file`, worktree, notification, and report-only automation patterns without adopting `/resume`, `/compact`, `/permissions`, or `--yolo`. |
 
 ## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Current Status
 
@@ -220,6 +221,12 @@ python3 scripts/maintenance/keep_codex_fast.py --apply --archive-older-than-days
 
 Recurring maintenance must be a report/reminder only. Do not schedule `--apply`; manual apply should happen only after important chats have handoffs and Codex is closed.
 
+## Codex Productivity Patterns
+
+Safe operator shortcuts are documented in [`docs/codex-productivity-patterns.md`](./docs/codex-productivity-patterns.md). Use `Done when:` criteria for non-trivial work, native `/goal` for bounded objectives, `$ralph-objective-prep` for broad or risky goals, explicit skills and `@file` references for scope, and report-only automations by default.
+
+The Ralph continuity path remains `$handoff`, `.local-notes` where applicable, hook-driven wakeup/recall, scoped memory trace, and approved-plan implementation notes. `/resume`, `/compact`, `/permissions`, and `--yolo` are not adopted as Ralph workflows.
+
 ## <img src="./docs/assets/branding/heading-goal.svg" width="22" alt=""> Ralph Objective Prep
 
 `ralph-objective-prep` is a global prep skill for Codex App standard Goal workflows. It complements native `/goal`; it does not replace the slash command, modify the Codex App UI, depend on Codex++, or install badges, panels, DOM interceptors, keyboard automation, or custom visual commands.
@@ -349,6 +356,7 @@ codex-ralph-vault-loop/
 | [Architecture overview](./docs/architecture/overview.md)                | System-level architecture and responsibilities.  |
 | [MCP model router](./docs/architecture/mcp-model-router.md)             | External model routing policy and constraints.   |
 | [Memory stack](./docs/architecture/memory-stack.md)                     | Worktree-aware wakeup, handoff, vault, graduation, and recall model. |
+| [Codex productivity patterns](./docs/codex-productivity-patterns.md)     | Safe prompt, goal, worktree, continuity, notification, and report-only automation patterns. |
 | [Memory visual explainer](./docs/architecture/ralph-memory-architecture-explainer.html) | Browser-readable visual guide for the Ralph memory architecture. |
 | [Hooks](./docs/architecture/hooks.md)                                   | Codex lifecycle hooks and safety behavior.       |
 | [Subagents](./docs/architecture/subagents.md)                           | Codex subagent definitions and roles.            |

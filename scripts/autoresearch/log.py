@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
-from common import VALID_STATUSES, add_common_args, append_jsonl, fail_result, fingerprint, is_finite_number, latest_config, parse_asi_arg, print_result, read_json, read_ledger, required_entry_fields, resolve_cwd, session_paths
+from common import VALID_STATUSES, add_common_args, append_jsonl, assert_keep_allowed, fail_result, fingerprint, is_finite_number, latest_config, parse_asi_arg, print_result, read_json, read_ledger, required_entry_fields, resolve_cwd, session_paths
+from generation import atomic_write_json
 
 
 def log_packet(args: argparse.Namespace) -> dict:
@@ -22,16 +24,38 @@ def log_packet(args: argparse.Namespace) -> dict:
     metric_value = (last.get("metrics") or {}).get(config["metric"])
     if args.status in {"keep", "discard"} and not is_finite_number(metric_value):
         raise RuntimeError("keep/discard requires a finite primary metric")
+    hard_gates = last.get("hard_gates", {})
+    if args.status == "keep":
+        assert_keep_allowed(hard_gates)
     asi = parse_asi_arg(args.asi, args.status, args.description)
     entry = {
-        **required_entry_fields(config, args.status, last.get("delta"), last.get("hard_gates", {}), asi),
+        **required_entry_fields(config, args.status, last.get("delta"), hard_gates, asi),
         "entry_type": "packet",
         "description": args.description or "",
         "metrics": last.get("metrics", {}),
         "baseline": last.get("baseline"),
+        "baseline_policy": last.get("baseline_policy"),
         "last_run_path": str(paths["last_run"]),
     }
     append_jsonl(paths["ledger"], entry)
+    generation = last.get("generation") or {}
+    decision_file = ((generation.get("files") or {}).get("decision")) if isinstance(generation, dict) else None
+    if decision_file:
+        decision_path = Path(decision_file).resolve()
+        try:
+            decision_path.relative_to(cwd.resolve())
+        except ValueError as exc:
+            raise RuntimeError("generation decision path escapes AutoResearch cwd") from exc
+        atomic_write_json(
+            decision_path,
+            {
+                "status": args.status,
+                "delta": last.get("delta"),
+                "baseline": last.get("baseline"),
+                "baseline_policy": last.get("baseline_policy"),
+                "logged_at": entry["created_at"],
+            },
+        )
     return {"ok": True, "cwd": str(cwd), "logged": entry, "continuation": {"shouldContinue": args.status != "crash", "forbidFinalAnswer": False}}
 
 

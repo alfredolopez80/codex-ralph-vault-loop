@@ -205,6 +205,10 @@ remove_agents_policy() {
     "sfw-package-manager-policy" \
     "<!-- BEGIN RALPH SFW PACKAGE MANAGER POLICY -->" \
     "<!-- END RALPH SFW PACKAGE MANAGER POLICY -->"
+  remove_policy_block \
+    "productivity-patterns-policy" \
+    "<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->" \
+    "<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->"
 }
 
 main() {

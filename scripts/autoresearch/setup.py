@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import re
 
-from common import add_common_args, append_jsonl, assert_not_red, default_hard_gates, fail_result, load_scorecard_info, now_iso, print_result, required_entry_fields, resolve_cwd, session_paths
+from common import DEFAULT_BASELINE_POLICY, SUPPORTED_BASELINE_POLICIES, add_common_args, append_jsonl, assert_not_red, default_hard_gates, fail_result, load_scorecard_info, now_iso, print_result, required_entry_fields, resolve_cwd, session_paths
 
 
 def slug(value: str) -> str:
@@ -16,6 +16,10 @@ def split_paths(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def segment_timestamp() -> str:
+    return now_iso().replace(":", "").replace("+00:00", "Z").replace("+0000", "Z")
 
 
 def setup_session(args: argparse.Namespace) -> dict:
@@ -32,7 +36,7 @@ def setup_session(args: argparse.Namespace) -> dict:
     scorecard_info = load_scorecard_info(args.scorecard)
     scorecard = scorecard_info["data"]
     paths = session_paths(cwd)
-    segment_id = f"{slug(args.goal)}-{now_iso().replace(':', '').replace('+00:00', 'Z')}"
+    segment_id = f"{slug(args.goal)}-{segment_timestamp()}"
     commit_paths = split_paths(args.commit_paths)
     config = {
         "entry_type": "config",
@@ -47,6 +51,10 @@ def setup_session(args: argparse.Namespace) -> dict:
         "checks_command": args.checks_command,
         "scope": args.scope,
         "commit_paths": commit_paths,
+        "baseline_policy": args.baseline_policy,
+        "baseline_policy_source": "explicit" if args.baseline_policy != DEFAULT_BASELINE_POLICY else "default",
+        "minimum_delta": args.minimum_delta,
+        "generation_spine_enabled": bool(args.generation_spine),
     }
     entry = {
         **required_entry_fields(config, "config", None, default_hard_gates(True), {"hypothesis": "Session setup", "evidence": "Configuration recorded", "rollback_reason": "", "next_action_hint": "Run doctor, then next."}),
@@ -62,6 +70,7 @@ def setup_session(args: argparse.Namespace) -> dict:
                 "",
                 "## Metric",
                 f"- Primary: {args.metric} ({args.direction} is better)",
+                f"- Baseline policy: {args.baseline_policy}",
                 "",
                 "## Scope",
                 args.scope or "Not specified; keep edits explicitly scoped before logging keep decisions.",
@@ -93,6 +102,9 @@ def main() -> int:
     parser.add_argument("--checks-command", default=None)
     parser.add_argument("--scope", default="")
     parser.add_argument("--commit-paths", default="")
+    parser.add_argument("--baseline-policy", choices=sorted(SUPPORTED_BASELINE_POLICIES), default=DEFAULT_BASELINE_POLICY)
+    parser.add_argument("--minimum-delta", type=float, default=0.0)
+    parser.add_argument("--generation-spine", action="store_true", help="Write manual generation evidence bundles from next.py.")
     parser.add_argument("--scorecard", default=None)
     args = parser.parse_args()
     try:

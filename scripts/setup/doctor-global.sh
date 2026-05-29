@@ -235,6 +235,35 @@ check_agents_policy() {
   else
     fail "global AGENTS.md missing SFW package-manager policy"
   fi
+
+  if grep -q "BEGIN RALPH PRODUCTIVITY PATTERNS POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH PRODUCTIVITY PATTERNS POLICY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Codex Productivity Patterns" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Done when:" "$GLOBAL_AGENTS_MD" &&
+    grep -q "CONTEXT_ONLY" "$GLOBAL_AGENTS_MD" &&
+    grep -q "NO_PREAMBLE" "$GLOBAL_AGENTS_MD" &&
+    grep -q "report-only by default" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Do not use \`--yolo\`" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md productivity patterns policy present"
+  else
+    fail "global AGENTS.md missing safe productivity patterns policy"
+  fi
+  if ! python3 - "$GLOBAL_AGENTS_MD" << 'PY'; then
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+negative = re.compile(r"\b(do not|don't|never|forbid|forbidden|reject|conflict|not part|avoid)\b", re.I)
+unsafe = re.compile(r"\b(use|enable|run|recommend|default|normal|autonomous)\b.*--yolo|--yolo.*\b(default|normal|workflow)\b", re.I)
+for line in text.splitlines():
+    if "--yolo" in line and unsafe.search(line) and not negative.search(line):
+        raise SystemExit(1)
+PY
+    fail "global AGENTS.md recommends unsafe --yolo usage"
+  fi
 }
 
 check_hook_marker() {
