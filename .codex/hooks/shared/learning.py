@@ -5,6 +5,7 @@ import unicodedata
 from typing import Iterable
 
 from .redaction import is_red, safe_preview
+from .context_budget import text_is_toxic
 
 
 LEARNING_KEYWORDS = (
@@ -75,7 +76,7 @@ def should_persist_learning(text: str) -> bool:
 def learning_text_from_payload(payload: dict, fields: tuple[str, ...]) -> str | None:
     raw_parts = [str(payload.get(field, "")) for field in fields if payload.get(field)]
     raw_text = " ".join(raw_parts)
-    if not raw_text.strip() or is_red(raw_text):
+    if not raw_text.strip() or is_red(raw_text) or text_is_toxic(raw_text):
         return None
     text = " ".join(safe_preview(payload.get(field, "")) for field in fields if payload.get(field))
     if should_persist_learning(text):

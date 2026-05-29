@@ -52,6 +52,11 @@ done
 pass "bash syntax"
 
 PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
+  "$HOOKS/pre_tool_guard.py" \
+  "$HOOKS/user_prompt_capture.py" \
+  "$HOOKS/post_tool_checkpoint.py" \
+  "$HOOKS/shared/context_budget.py" \
+  "$HOOKS/shared/learning.py" \
   "$HOOKS/implementation_notes_guard.py" \
   "$ROOT/scripts/plans/implementation_index_lib.py" \
   "$ROOT/scripts/plans/implementation_notes_lib.py" \
@@ -106,7 +111,71 @@ post_tool_red="$(run_python_hook post_tool_checkpoint.py post-tool-red-output.js
 [[ -z "$post_tool_red" ]] || fail "post_tool_checkpoint red fixture emitted output"
 red_after="$(find "$RALPH_HOME/projects" -path '*/checkpoints/*' -type f -print | sort | xargs shasum 2> /dev/null || true)"
 [[ "$red_before" == "$red_after" ]] || fail "post_tool_checkpoint red fixture changed checkpoint artifacts"
+
+context_payload="$(
+  python3 - << 'PY'
+import json
+prompt = "data:" + "image/png;" + "base64," + ("A" * 4100)
+print(json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt}))
+PY
+)"
+context_prompt="$(printf '%s' "$context_payload" | python3 "$HOOKS/user_prompt_capture.py")"
+assert_json "$context_prompt"
+printf '%s' "$context_prompt" | jq -e '.decision == "block"' > /dev/null || fail "context budget prompt did not block"
+printf '%s' "$context_prompt" | grep -q 'AAAA' && fail "context budget prompt echoed raw payload"
+
+CONTEXT_DIR="$STATE/context-budget"
+mkdir -p "$CONTEXT_DIR"
+python3 - "$CONTEXT_DIR" << 'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+(root / "huge.json").write_text("x" * 70000, encoding="utf-8")
+(root / "small.txt").write_text("safe\n", encoding="utf-8")
+(root / "image.png").write_bytes(b"fake")
+PY
+
+base64_block="$(jq -n '{tool_input:{command:"base64 fixture.png"}}' | python3 "$HOOKS/pre_tool_guard.py")"
+assert_json "$base64_block"
+printf '%s' "$base64_block" | jq -e '.decision == "block"' > /dev/null || fail "context budget base64 encode did not block"
+
+base64_decode="$(jq -n '{tool_input:{command:"base64 --decode fixture.b64"}}' | python3 "$HOOKS/pre_tool_guard.py")"
+[[ -z "$base64_decode" ]] || fail "context budget base64 decode blocked unexpectedly"
+
+huge_cat="$(jq -n --arg cmd "cat $CONTEXT_DIR/huge.json" --arg cwd "$ROOT" '{tool_input:{command:$cmd,cwd:$cwd}}' | python3 "$HOOKS/pre_tool_guard.py")"
+assert_json "$huge_cat"
+printf '%s' "$huge_cat" | jq -e '.decision == "block" and (.suggested_command | contains("sed"))' > /dev/null || fail "context budget huge cat did not suggest bounded read"
+
+small_cat="$(jq -n --arg cmd "cat $CONTEXT_DIR/small.txt" --arg cwd "$ROOT" '{tool_input:{command:$cmd,cwd:$cwd}}' | python3 "$HOOKS/pre_tool_guard.py")"
+[[ -z "$small_cat" ]] || fail "context budget small cat blocked unexpectedly"
+
+rg_home="$(jq -n --arg cwd "$ROOT" '{tool_input:{command:"rg -n context ~/.codex",cwd:$cwd}}' | python3 "$HOOKS/pre_tool_guard.py")"
+assert_json "$rg_home"
+printf '%s' "$rg_home" | jq -e '.decision == "block" and (.suggested_command | contains("--max-count"))' > /dev/null || fail "context budget high-risk rg did not block"
+
+rg_targeted="$(jq -n --arg cwd "$ROOT" '{tool_input:{command:"rg -n context docs .codex/hooks",cwd:$cwd}}' | python3 "$HOOKS/pre_tool_guard.py")"
+[[ -z "$rg_targeted" ]] || fail "context budget targeted rg blocked unexpectedly"
+
+toxic_before="$(find "$RALPH_HOME/projects" -path '*/checkpoints/*' -type f -print | sort | xargs shasum 2> /dev/null || true)"
+toxic_payload="$(
+  python3 - << 'PY'
+import json
+output = "A" * 4100
+payload = {
+    "hook_event_name": "PostToolUse",
+    "tool_input": {"command": "python3 -m pytest tests/unit/test_context_budget.py"},
+    "success": True,
+    "output": output,
+}
+print(json.dumps(payload))
+PY
+)"
+toxic_post="$(printf '%s' "$toxic_payload" | python3 "$HOOKS/post_tool_checkpoint.py")"
+[[ -z "$toxic_post" ]] || fail "post_tool_checkpoint toxic fixture emitted output"
+toxic_after="$(find "$RALPH_HOME/projects" -path '*/checkpoints/*' -type f -print | sort | xargs shasum 2> /dev/null || true)"
+[[ "$toxic_before" == "$toxic_after" ]] || fail "post_tool_checkpoint toxic fixture changed checkpoint artifacts"
 pass "post tool checkpoint"
+pass "context budget guard"
 
 excuse="$(run_hook anti-rationalization-stop.sh stop-excuse.json)"
 assert_json "$excuse"

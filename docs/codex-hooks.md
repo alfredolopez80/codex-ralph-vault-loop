@@ -52,6 +52,35 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Keeps RED-sensitive sessions local by skipping validation when the final
     assistant message classifies as RED.
 
+## Context Budget Guard
+
+The shared detector in `.codex/hooks/shared/context_budget.py` protects the
+thread and Ralph memory from context-toxic payloads. It is integrated into the
+existing hook chain rather than installed as a separate hook system.
+
+- `UserPromptSubmit` via `.codex/hooks/user_prompt_capture.py`
+  - Blocks inline image/base64-like prompts, huge single-line payloads, repeated
+    generated replacement history, and RED-sensitive prompt material.
+  - Returns only a sanitized reason; it does not echo the raw payload or persist
+    the raw prompt.
+- `PreToolUse` via `.codex/hooks/pre_tool_guard.py`
+  - Blocks base64 encode commands, likely binary/media/database dumps, oversized
+    full-file displays, high-risk broad `rg` searches over home/global runtime
+    roots, and toxic patch payloads.
+  - Uses `suggested_command` for bounded reads such as `sed -n '1,160p' <file>`
+    instead of rewriting commands.
+  - Keeps normal targeted searches and small text reads allowed.
+- `PostToolUse` via `.codex/hooks/post_tool_checkpoint.py` and shared learning
+  helpers
+  - Skips checkpoint and learning persistence when output metadata contains
+    RED-sensitive or context-toxic material.
+  - Treats PostToolUse as a persistence boundary, not the primary prevention
+    boundary.
+
+The v1 guard intentionally does not add `PreCompact` or `PostCompact` behavior.
+Compact lifecycle hooks should be added only after the local hook contract is
+verified and covered by global install smoke tests.
+
 ## Manual Tests
 
 Run the local hook smoke suite:
