@@ -386,6 +386,102 @@ def test_post_tool_memory_deduplicates_learning_events(tmp_path: Path) -> None:
     assert len(events) == 1
 
 
+def test_does_not_persist_raw_agent_response(tmp_path: Path) -> None:
+    raw_response = "\n".join(
+        [
+            "I inspected several files and here is a verbose raw response.",
+            "Decision: persist only validated memory facts.",
+            "Raw agent trailer should not become trusted memory.",
+        ]
+    )
+
+    result = run_hook("post_tool_extract_memory.py", tmp_path, {"cwd": str(ROOT), "session_id": "test-session", "output": raw_response})
+
+    assert result.returncode == 0, result.stderr
+    persisted = "\n".join(path.read_text(encoding="utf-8") for path in project_learning_paths(tmp_path))
+    assert "Decision: persist only validated memory facts." in persisted
+    assert "verbose raw response" not in persisted
+    assert "Raw agent trailer" not in persisted
+
+
+def test_persists_only_validated_facts(tmp_path: Path) -> None:
+    output = "\n".join(
+        [
+            "Unvalidated narrative should not be saved.",
+            "Validated fact: hook memory stores only scoped facts.",
+            "Another unvalidated sentence should not be saved.",
+        ]
+    )
+
+    result = run_hook("post_tool_extract_memory.py", tmp_path, {"cwd": str(ROOT), "session_id": "test-session", "output": output})
+
+    assert result.returncode == 0, result.stderr
+    persisted = "\n".join(path.read_text(encoding="utf-8") for path in project_learning_paths(tmp_path))
+    assert "Validated fact: hook memory stores only scoped facts." in persisted
+    assert "Unvalidated narrative" not in persisted
+    assert "Another unvalidated sentence" not in persisted
+
+
+def test_persisted_memory_has_source_confidence_repo_branch_commit(tmp_path: Path) -> None:
+    result = run_hook(
+        "post_tool_extract_memory.py",
+        tmp_path,
+        {"cwd": str(ROOT), "session_id": "test-session", "output": "Decision: persist learning with complete provenance."},
+    )
+
+    assert result.returncode == 0, result.stderr
+    [path] = project_learning_paths(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert 'source: "PostToolUse"' in text
+    assert 'confidence: "' in text
+    assert 'repo: "codex-ralph-vault-loop"' in text
+    assert 'branch: "' in text
+    assert 'branch: ""' not in text
+    assert 'commit: "' in text
+    assert 'commit: ""' not in text
+    assert 'session_id: "test-session"' in text
+    assert 'created_at: "' in text
+    assert 'trust_status: "trusted"' in text
+
+
+def test_does_not_persist_secrets(tmp_path: Path) -> None:
+    red_text = "Decision: token" + "=abc123 should never persist."
+
+    result = run_hook("post_tool_extract_memory.py", tmp_path, {"cwd": str(ROOT), "session_id": "test-session", "output": red_text})
+
+    assert result.returncode == 0, result.stderr
+    assert not project_learning_paths(tmp_path)
+
+
+def test_duplicate_memory_is_not_written_twice(tmp_path: Path) -> None:
+    payload = {"cwd": str(ROOT), "session_id": "test-session", "output": "Decision: dedupe trusted learning before writing."}
+
+    first = run_hook("post_tool_extract_memory.py", tmp_path, payload)
+    second = run_hook("post_tool_extract_memory.py", tmp_path, payload)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert len(project_learning_paths(tmp_path)) == 1
+    events = (project_root(tmp_path) / "ledgers" / "learning-events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(events) == 1
+
+
+def test_failed_task_does_not_create_trusted_memory(tmp_path: Path) -> None:
+    result = run_hook(
+        "post_tool_extract_memory.py",
+        tmp_path,
+        {
+            "cwd": str(ROOT),
+            "session_id": "test-session",
+            "success": False,
+            "output": "Decision: this failed task output must not become trusted memory.",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not project_learning_paths(tmp_path)
+
+
 def test_post_tool_cost_ledger_records_route_metadata_only(tmp_path: Path) -> None:
     payload = {
         "tool_name": "ralph_coding_models.minimax_agentic_fast",

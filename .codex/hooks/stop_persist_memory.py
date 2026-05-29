@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from shared.active_context import ActiveContext, active_context_from_payload
 from shared.checkpoint_io import CheckpointError, classify_payload, load_latest, render_checkpoint
-from shared.learning import should_persist_learning
+from shared.learning import extract_validated_learning, payload_indicates_failure
 from shared.paths import read_hook_input
 from shared.redaction import is_red, safe_preview
 from shared.vault_io import save_learning, write_handoff
@@ -43,8 +43,10 @@ def main() -> int:
     checkpoint_section, next_step = checkpoint_for_handoff(context)
     summary = f"{checkpoint_section}\n\n## Final Assistant Message\n\n{text}" if checkpoint_section else text
     write_handoff(summary, status="stop-hook", next_step=next_step, context=context)
-    if should_persist_learning(text):
-        save_learning(text, source="Stop", classification="YELLOW", context=context)
+    if not payload_indicates_failure(payload):
+        learning = extract_validated_learning(text)
+        if learning:
+            save_learning(learning, source="Stop", classification="YELLOW", context=context)
     return 0
 
 
