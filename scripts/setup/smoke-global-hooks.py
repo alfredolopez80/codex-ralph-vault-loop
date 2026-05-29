@@ -64,10 +64,17 @@ def assert_hook_output_contract(event: str, label: str, result: subprocess.Compl
     if event == "PreToolUse" and any(key in payload for key in ("continue", "stopReason", "suppressOutput")):
         raise RuntimeError(f"{label} emitted unsupported PreToolUse common output: {output[:200]}")
     if event == "PostToolUse":
+        extra = set(payload) - {"decision", "reason", "systemMessage", "continue", "stopReason", "hookSpecificOutput"}
+        if extra:
+            raise RuntimeError(f"{label} emitted unsupported PostToolUse fields {sorted(extra)}: {output[:200]}")
         if payload.get("decision") == "warn":
             raise RuntimeError(f"{label} emitted unsupported PostToolUse warn payload: {output[:200]}")
         if payload.get("continue") is True or "suppressOutput" in payload:
             raise RuntimeError(f"{label} emitted unsupported PostToolUse common output: {output[:200]}")
+    if event == "Stop":
+        extra = set(payload) - {"decision", "reason", "continue", "stopReason", "systemMessage", "suppressOutput"}
+        if extra:
+            raise RuntimeError(f"{label} emitted unsupported Stop fields {sorted(extra)}: {output[:200]}")
 
 
 def hook_basenames(config: dict, event: str) -> list[str]:
@@ -222,6 +229,8 @@ def main() -> int:
 
         shaping_doc = project_a / "shaping.md"
         shaping_doc.write_text("---\nshaping: true\n---\n# Smoke shaping\n", encoding="utf-8")
+        large_file = project_a / "large.py"
+        large_file.write_text("x\n" * 351, encoding="utf-8")
         event_payloads = {
             "SessionStart": {"session_id": "global-hook-smoke-contract", "cwd": str(project_a), "source": "startup"},
             "UserPromptSubmit": {
@@ -248,6 +257,19 @@ def main() -> int:
             for index, command in enumerate(hook_commands(config, event)):
                 result = run_hook_command(command, {"hook_event_name": event, **payload}, env)
                 assert_hook_output_contract(event, f"{event} hook {index} {command}", result)
+
+        post_tool_large_payload = {
+            "hook_event_name": "PostToolUse",
+            "session_id": "global-hook-smoke-contract-large",
+            "cwd": str(project_a),
+            "tool_name": "apply_patch",
+            "tool_input": {"path": str(large_file), "cwd": str(project_a)},
+            "tool_response": {"status": "ok"},
+            "success": True,
+        }
+        for index, command in enumerate(hook_commands(config, "PostToolUse")):
+            result = run_hook_command(command, post_tool_large_payload, env)
+            assert_hook_output_contract("PostToolUse", f"PostToolUse large hook {index} {command}", result)
 
     print(f"GLOBAL_HOOKS_SMOKE_PASS repo={repo_root}")
     return 0

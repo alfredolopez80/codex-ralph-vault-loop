@@ -87,7 +87,8 @@ def main() -> int:
         "in gaps/open questions by part, and sync work streams or slice plans with their related diagrams."
     )
     if os.environ.get("RALPH_SHAPING_RIPPLE_STRICT", "").lower() in {"1", "true", "yes", "on"}:
-        write_json({"decision": "block", "reason": reason, "files": [{"path": str(path)} for path in paths[:8]]})
+        files = "; ".join(str(path) for path in paths[:8])
+        write_json({"decision": "block", "reason": f"{reason} Files: {files}."})
         return 0
 
     record_warning(paths, reason)

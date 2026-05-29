@@ -70,6 +70,8 @@ def run_configured_hook(command: str, tmp_path: Path, payload: dict) -> subproce
 
 PLAIN_TEXT_ALLOWED_EVENTS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"}
 COMMON_OUTPUT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop"}
+POST_TOOL_OUTPUT_KEYS = {"decision", "reason", "systemMessage", "continue", "stopReason", "hookSpecificOutput"}
+STOP_OUTPUT_KEYS = {"decision", "reason", "continue", "stopReason", "systemMessage", "suppressOutput"}
 
 
 def assert_codex_hook_output_contract(event: str, command: str, result: subprocess.CompletedProcess[str]) -> None:
@@ -96,9 +98,14 @@ def assert_codex_hook_output_contract(event: str, command: str, result: subproce
         assert "stopReason" not in payload, f"{event} {command} emitted unsupported stopReason field: {payload}"
         assert "suppressOutput" not in payload, f"{event} {command} emitted unsupported suppressOutput field: {payload}"
     elif event == "PostToolUse":
+        extra = set(payload) - POST_TOOL_OUTPUT_KEYS
+        assert not extra, f"{event} {command} emitted unsupported fields {sorted(extra)}: {payload}"
         if "continue" in payload:
             assert payload["continue"] is False, f"{event} {command} emitted unsupported continue value: {payload}"
         assert "suppressOutput" not in payload, f"{event} {command} emitted unsupported suppressOutput field: {payload}"
+    elif event == "Stop":
+        extra = set(payload) - STOP_OUTPUT_KEYS
+        assert not extra, f"{event} {command} emitted unsupported fields {sorted(extra)}: {payload}"
     elif event not in COMMON_OUTPUT_EVENTS:
         assert "continue" not in payload, f"{event} {command} emitted unsupported continue field: {payload}"
         assert "stopReason" not in payload, f"{event} {command} emitted unsupported stopReason field: {payload}"
@@ -154,6 +161,8 @@ def test_configured_post_tool_hooks_emit_only_codex_supported_output(tmp_path: P
     config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     shaping_doc = tmp_path / "shaping.md"
     shaping_doc.write_text("---\nshaping: true\n---\n# Sensitive title should not leak\n", encoding="utf-8")
+    large_file = tmp_path / "large.py"
+    large_file.write_text("x\n" * 351, encoding="utf-8")
     payloads = [
         {
             "hook_event_name": "PostToolUse",
@@ -172,6 +181,16 @@ def test_configured_post_tool_hooks_emit_only_codex_supported_output(tmp_path: P
             "tool_name": "apply_patch",
             "tool_use_id": "toolu_contract_shaping",
             "tool_input": {"path": str(shaping_doc), "cwd": str(tmp_path)},
+            "tool_response": {"status": "ok"},
+            "success": True,
+        },
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": f"post-contract-file-line-{uuid.uuid4()}",
+            "cwd": str(tmp_path),
+            "tool_name": "apply_patch",
+            "tool_use_id": "toolu_contract_file_line",
+            "tool_input": {"path": str(large_file), "cwd": str(tmp_path)},
             "tool_response": {"status": "ok"},
             "success": True,
         },

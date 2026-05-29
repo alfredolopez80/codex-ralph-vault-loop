@@ -610,8 +610,9 @@ def test_file_line_guard_blocks_touched_large_file(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
-    assert payload["files"][0]["lines"] == 351
-    assert "large_component.tsx" in payload["files"][0]["path"]
+    assert set(payload) == {"decision", "reason"}
+    assert "large_component.tsx" in payload["reason"]
+    assert "351 lines" in payload["reason"]
     assert "Split the file before continuing" in payload["reason"]
 
 
@@ -672,7 +673,8 @@ def test_shaping_ripple_strict_mode_blocks(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
-    assert payload["files"] == [{"path": "strict.md"}]
+    assert set(payload) == {"decision", "reason"}
+    assert "strict.md" in payload["reason"]
 
 
 def test_file_line_guard_detects_apply_patch_payload(tmp_path: Path) -> None:
@@ -685,7 +687,8 @@ def test_file_line_guard_detects_apply_patch_payload(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
-    assert payload["files"][0]["path"].endswith("large_patch_file.py")
+    assert set(payload) == {"decision", "reason"}
+    assert "large_patch_file.py" in payload["reason"]
 
 
 def test_file_line_guard_stop_scans_changed_git_files_when_enabled(tmp_path: Path) -> None:
@@ -709,7 +712,8 @@ def test_file_line_guard_stop_scans_changed_git_files_when_enabled(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
-    assert payload["files"][0]["path"].endswith("large_service.py")
+    assert set(payload) == {"decision", "reason"}
+    assert "large_service.py" in payload["reason"]
 
 
 def test_file_line_guard_stop_ignores_unowned_dirty_files_by_default(tmp_path: Path) -> None:
