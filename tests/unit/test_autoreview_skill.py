@@ -69,6 +69,45 @@ def test_parallel_test_status_goes_to_stderr(capsys) -> None:
     assert captured.out == ""
 
 
+def test_main_preserves_engine_failure(monkeypatch, tmp_path: Path) -> None:
+    cli = load_module("cli")
+    args = SimpleNamespace(
+        base="origin/main",
+        commit="HEAD",
+        dry_run=False,
+        fetch=False,
+        include_untracked=False,
+        mode="branch",
+        parallel_tests=None,
+        prompt=None,
+        prompt_file=None,
+        dataset=None,
+        strict_changed_paths=False,
+        sensitivity="YELLOW",
+        web_search=False,
+        output=None,
+        json_output=None,
+        engine="codex",
+        codex_bin="codex",
+        model=None,
+    )
+    monkeypatch.setattr(cli, "parse_args", lambda: args)
+    monkeypatch.setattr(cli, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "choose_target", lambda repo, mode, base: ("branch", "origin/main"))
+    monkeypatch.setattr(cli, "load_classifier", lambda repo: (lambda prompt, sensitivity: {"classification": "YELLOW", "findings": []}))
+    monkeypatch.setattr(cli, "changed_paths", lambda repo, target, target_ref, commit, include_untracked: {"src/app.py"})
+    monkeypatch.setattr(cli, "sensitive_path_matches", lambda paths: [])
+    monkeypatch.setattr(cli, "build_bundle", lambda args, repo, target, target_ref: ("diff", target_ref))
+    monkeypatch.setattr(cli, "build_prompt", lambda repo, target, target_ref, bundle, extra_prompt, extra_files: "prompt")
+    monkeypatch.setattr(cli, "run_codex", lambda args, repo, prompt: (_ for _ in ()).throw(SystemExit("engine failed")))
+    try:
+        cli.main()
+    except SystemExit as exc:
+        assert "engine failed" in str(exc)
+    else:
+        raise AssertionError("expected original engine failure to propagate")
+
+
 def test_heartbeat_does_not_resend_stdin_after_timeout(tmp_path: Path) -> None:
     review = load_module("review")
     code = "import sys, time; data = sys.stdin.read(); time.sleep(0.15); print(data)"

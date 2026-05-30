@@ -117,16 +117,20 @@ def main() -> int:
     tests_proc: subprocess.Popen[str] | None = None
     if args.parallel_tests:
         tests_proc = start_parallel_tests(args.parallel_tests, repo)
+    report: dict[str, Any] | None = None
     try:
         raw = run_codex(args, repo, prompt)
-        report = extract_json(raw)
-        validate_report(report, reviewed_paths, strict_changed_paths=args.strict_changed_paths)
-        write_optional_outputs(args, repo, report)
+        candidate_report = extract_json(raw)
+        validate_report(candidate_report, reviewed_paths, strict_changed_paths=args.strict_changed_paths)
+        write_optional_outputs(args, repo, candidate_report)
+        report = candidate_report
     finally:
         tests_status = tests_proc.wait() if tests_proc is not None else 0
         if tests_proc is not None:
             log_path = getattr(tests_proc, "autoreview_log_path", "<unknown>")
             print(f"tests exit: {tests_status} log={log_path}", file=sys.stderr)
+    if report is None:
+        raise SystemExit("autoreview did not produce a validated report")
     return 1 if tests_status != 0 or report["findings"] or report["overall_correctness"] == "patch is incorrect" else 0
 
 
