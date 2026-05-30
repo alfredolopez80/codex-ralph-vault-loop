@@ -103,6 +103,8 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
         cmd.extend(
             [
                 "exec",
+                "-c",
+                "shell_environment_policy.inherit=none",
                 "--ignore-user-config",
                 "--ignore-rules",
                 "--skip-git-repo-check",
@@ -118,16 +120,25 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
                 "-",
             ]
         )
-        result = run_with_heartbeat(cmd, review_root, input_text=prompt, label="codex", env=sanitized_codex_env())
+        result = run_with_heartbeat(cmd, review_root, input_text=prompt, label="codex", env=sanitized_codex_env(review_root))
         output = output_path.read_text(encoding="utf-8")
         if result.returncode != 0:
             raise SystemExit(f"codex engine failed ({result.returncode})\n{result.stderr or result.stdout}")
         return output or result.stdout
 
 
-def sanitized_codex_env() -> dict[str, str]:
-    allowed = {"CODEX_HOME", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER"}
-    return {key: value for key, value in os.environ.items() if key in allowed}
+def sanitized_codex_env(workspace: Path) -> dict[str, str]:
+    runtime_home = workspace / "home"
+    runtime_codex_home = workspace / "codex-home"
+    runtime_tmp = workspace / "tmp"
+    for path in (runtime_home, runtime_codex_home, runtime_tmp):
+        path.mkdir(mode=0o700, exist_ok=True)
+    allowed = {"LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TERM", "USER"}
+    env = {key: value for key, value in os.environ.items() if key in allowed}
+    env["HOME"] = str(runtime_home)
+    env["CODEX_HOME"] = str(runtime_codex_home)
+    env["TMPDIR"] = str(runtime_tmp)
+    return env
 
 
 def write_json_temp(data: dict[str, Any], *, directory: Path | None = None) -> Path:

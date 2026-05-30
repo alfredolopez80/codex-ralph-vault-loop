@@ -129,7 +129,9 @@ def commit_bundle(repo: Path, commit_ref: str) -> str:
 
 def load_extra_files(repo: Path, values: list[str] | None, *, label: str) -> str:
     chunks: list[str] = []
+    resolved_repo = repo.resolve()
     for raw in values or []:
         path = assert_safe_repo_file(repo, raw, context=label)
-        chunks.append(f"# {label}: {path}\n{read_text(path)}")
+        rel = path.relative_to(resolved_repo)
+        chunks.append(f"# {label}: {rel.as_posix()}\n{read_text(path)}")
     return "\n\n".join(chunks)

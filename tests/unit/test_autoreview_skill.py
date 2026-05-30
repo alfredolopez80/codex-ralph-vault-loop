@@ -97,6 +97,10 @@ def test_run_codex_uses_sanitized_workspace(tmp_path: Path, monkeypatch) -> None
     review = load_module("review")
     repo = tmp_path / "repo"
     repo.mkdir()
+    real_home = str(tmp_path / "real-home")
+    real_codex_home = str(tmp_path / "real-codex-home")
+    monkeypatch.setenv("HOME", real_home)
+    monkeypatch.setenv("CODEX_HOME", real_codex_home)
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 
     def fake_run_with_heartbeat(cmd, cwd, *, input_text, label, heartbeat_seconds=60, env=None):
@@ -111,14 +115,34 @@ def test_run_codex_uses_sanitized_workspace(tmp_path: Path, monkeypatch) -> None
         assert "--skip-git-repo-check" in cmd
         assert "--ignore-user-config" in cmd
         assert "--ignore-rules" in cmd
+        assert "shell_environment_policy.inherit=none" in cmd
         assert env is not None
         assert "AWS_SECRET_ACCESS_KEY" not in env
+        assert env["HOME"] != real_home
+        assert env["CODEX_HOME"] != real_codex_home
+        assert Path(env["HOME"]).is_dir()
+        assert Path(env["CODEX_HOME"]).is_dir()
+        assert Path(env["HOME"]).parent == workspace
+        assert Path(env["CODEX_HOME"]).parent == workspace
         return subprocess.CompletedProcess(cmd, 0, '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}', "")
 
     monkeypatch.setattr(review, "run_with_heartbeat", fake_run_with_heartbeat)
     args = SimpleNamespace(codex_bin="codex", web_search=False, model=None)
     raw = review.run_codex(args, repo, "prompt")
     assert '"overall_correctness":"patch is correct"' in raw
+
+
+def test_extra_files_use_relative_labels(tmp_path: Path) -> None:
+    git_bundle = load_module("git_bundle")
+    repo = tmp_path / "repo"
+    docs = repo / "docs"
+    docs.mkdir(parents=True)
+    note = docs / "note.md"
+    note.write_text("public context", encoding="utf-8")
+    output = git_bundle.load_extra_files(repo, ["docs/note.md"], label="dataset")
+    assert str(repo) not in output
+    assert "# dataset: docs/note.md" in output
+    assert "public context" in output
 
 
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
