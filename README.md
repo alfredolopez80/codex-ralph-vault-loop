@@ -150,7 +150,7 @@ The quality spine is scriptable and repeatable:
 | `scripts/vault/vault-graduate.py`                                  | Applies safe high-confidence project-scoped graduation into curated MiVault targets.           |
 | `scripts/setup/pre-global-audit.py`                                | Generates the blocking `PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS` report before global hook installation. |
 | `scripts/setup/smoke-global-hooks.py`                              | Smoke-tests installed global hooks from `~/.codex/hooks` using a temporary runtime.            |
-| `scripts/gates/run-gates.py --minimal`                             | Writes `.ralph-codex/reports/gates/latest.json` and `.md`.                                     |
+| `scripts/gates/run-gates.py --minimal`                             | Writes `latest.json` and `latest.md` under `GATES_REPORT_DIR` or `.ralph-codex/reports/gates`. |
 | `scripts/evals/run_scorecard.py`                                   | Applies RASS v1 scorecards.                                                                    |
 | `scripts/evals/research_eval.py`                                   | Validates research behavior in mock/offline mode.                                              |
 | `scripts/evals/vision_eval.py`                                     | Validates vision-analysis behavior in mock/offline mode.                                       |
@@ -225,8 +225,17 @@ Run the same checks used during acceptance:
 ```bash
 bash scripts/setup/doctor.sh
 python3 scripts/gates/run-gates.py --minimal
-python3 -m pytest tests -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests -q
 python3 scripts/evals/coding_model_eval.py --mode mock
+```
+
+`run-gates.py` runs repository pytest through `scripts/gates/run-tests.py`, which
+sets `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` for pytest subprocesses so global pytest
+plugins cannot create false red gates. If the repo-local report directory is not
+writable in a sandbox, set an explicit report directory:
+
+```bash
+GATES_REPORT_DIR=/private/tmp/codex-ralph-gates python3 scripts/gates/run-gates.py --minimal
 ```
 
 For the focused Ralph memory recall, selection, injection, fallback, scope, trace,
