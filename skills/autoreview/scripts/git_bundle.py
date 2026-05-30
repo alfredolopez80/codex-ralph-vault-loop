@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from safety import assert_safe_path
+from safety import assert_safe_repo_file
 
 
 def run(args: list[str], cwd: Path, *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -92,14 +92,14 @@ def local_bundle(repo: Path, *, include_untracked: bool) -> str:
         if untracked:
             parts.append("# Untracked Files")
             for rel in untracked:
-                assert_safe_path(rel, context="untracked")
-                parts.append(f"## {rel}\n{read_text(repo / rel)}")
+                safe_path = assert_safe_repo_file(repo, rel, context="untracked")
+                parts.append(f"## {rel}\n{read_text(safe_path)}")
     return "\n\n".join(parts)
 
 
 def branch_bundle(repo: Path, base_ref: str, *, fetch: bool) -> str:
     if fetch:
-        git(repo, "fetch", "origin", "--quiet", check=False)
+        git(repo, "fetch", "origin", "--quiet")
     return "\n\n".join(
         [
             "# Branch Diff",
@@ -121,12 +121,9 @@ def commit_bundle(repo: Path, commit_ref: str) -> str:
     )
 
 
-def load_extra_files(values: list[str] | None, *, label: str) -> str:
+def load_extra_files(repo: Path, values: list[str] | None, *, label: str) -> str:
     chunks: list[str] = []
     for raw in values or []:
-        assert_safe_path(raw, context=label)
-        path = Path(raw)
-        if path.is_dir():
-            raise SystemExit(f"--{label} must be a file, got directory: {path}")
+        path = assert_safe_repo_file(repo, raw, context=label)
         chunks.append(f"# {label}: {path}\n{read_text(path)}")
     return "\n\n".join(chunks)

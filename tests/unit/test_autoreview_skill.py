@@ -33,6 +33,20 @@ def test_sensitive_path_guard_blocks_extra_context() -> None:
     assert safety.is_path_sensitive("private/credential.txt")
 
 
+def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
+    safety = load_module("safety")
+    target = tmp_path / "target.txt"
+    target.write_text("public", encoding="utf-8")
+    link = tmp_path / "notes.txt"
+    link.symlink_to(target)
+    try:
+        safety.assert_safe_repo_file(tmp_path, "notes.txt", context="dataset")
+    except SystemExit as exc:
+        assert "symlink" in str(exc)
+    else:
+        raise AssertionError("expected symlink path to be rejected")
+
+
 def finding_at(path: str) -> dict[str, object]:
     return {
         "title": "Shared guard now allows unsafe caller",

@@ -14,12 +14,14 @@ DENIED_PATH_SUBSTRINGS = ("secret", "token", "credential", "wallet")
 
 
 def load_classifier(repo: Path) -> Callable[[object, str | None], Any]:
-    candidates = [repo / "scripts" / "security" / "sensitive_content.py"]
+    candidates = []
     root_file = Path.home() / ".codex" / "hooks" / ".ralph-repo-root"
     try:
         if root_file.exists():
             root = Path(root_file.read_text(encoding="utf-8").strip())
-            candidates.append(root / "scripts" / "security" / "sensitive_content.py")
+            candidate = root / "scripts" / "security" / "sensitive_content.py"
+            if not is_within(candidate.resolve(), repo.resolve()):
+                candidates.append(candidate)
     except OSError:
         pass
     for candidate in candidates:
@@ -86,3 +88,27 @@ def assert_safe_path(path: str, *, context: str) -> None:
         raise SystemExit(f"refusing unsafe {context} path: {path}")
     if is_path_sensitive(path):
         raise SystemExit(f"refusing sensitive {context} path: {path}")
+
+
+def assert_safe_repo_file(repo: Path, path: str, *, context: str) -> Path:
+    assert_safe_path(path, context=context)
+    candidate = repo / path
+    if candidate.is_symlink():
+        raise SystemExit(f"refusing symlink {context} path: {path}")
+    try:
+        resolved_repo = repo.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"refusing unreadable {context} path: {path}: {exc}") from exc
+    if not is_within(resolved, resolved_repo):
+        raise SystemExit(f"refusing {context} path outside repository: {path}")
+    relative = resolved.relative_to(resolved_repo)
+    if is_path_sensitive(str(relative)):
+        raise SystemExit(f"refusing sensitive resolved {context} path: {path}")
+    if not resolved.is_file():
+        raise SystemExit(f"refusing non-file {context} path: {path}")
+    return resolved
+
+
+def is_within(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents

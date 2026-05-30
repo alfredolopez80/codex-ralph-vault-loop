@@ -83,8 +83,8 @@ def main() -> int:
     extra_files = "\n\n".join(
         chunk
         for chunk in (
-            load_extra_files(args.prompt_file, label="prompt-file"),
-            load_extra_files(args.dataset, label="dataset"),
+            load_extra_files(repo, args.prompt_file, label="prompt-file"),
+            load_extra_files(repo, args.dataset, label="dataset"),
         )
         if chunk
     )
