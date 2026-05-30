@@ -29,6 +29,7 @@ def cli_args(**overrides):
         "mode": "branch",
         "parallel_tests": None,
         "review_pass": 1,
+        "review_total": 2,
         "prompt": None,
         "prompt_file": None,
         "dataset": None,

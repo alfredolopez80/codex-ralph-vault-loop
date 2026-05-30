@@ -17,6 +17,7 @@ from safety import CLASSIFICATIONS, load_classifier, report_classification, repo
 
 
 ENGINES = ("codex",)
+MAX_REVIEW_TOTAL = 10
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,7 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output")
     parser.add_argument("--json-output")
     parser.add_argument("--parallel-tests", help="Trusted operator-supplied shell command to run concurrently.")
-    parser.add_argument("--review-pass", type=int, choices=[1, 2], help="Bounded pass number. Pass 1 discovers; pass 2 is final closure.")
+    parser.add_argument("--review-pass", type=int, help="Bounded pass number, from 1 to --review-total.")
+    parser.add_argument("--review-total", type=int, default=2, help=f"Total bounded review passes, from 1 to {MAX_REVIEW_TOTAL}.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -79,8 +81,7 @@ def start_parallel_tests(command: str, repo: Path) -> subprocess.Popen[str]:
 
 def main() -> int:
     args = parse_args()
-    if not args.dry_run and args.review_pass is None:
-        raise SystemExit("autoreview execution requires --review-pass 1 or --review-pass 2; do not rerun indefinitely")
+    validate_review_budget(args)
     repo = repo_root()
     target, target_ref = choose_target(repo, args.mode, args.base)
     classifier = load_classifier(repo)
@@ -97,7 +98,7 @@ def main() -> int:
     if sensitive_paths:
         raise SystemExit("refusing review with sensitive changed paths: " + ", ".join(sensitive_paths))
     bundle, target_ref = build_bundle(args, repo, target, target_ref)
-    prompt_chunks = [bounded_review_instructions(args.review_pass), *(args.prompt or [])]
+    prompt_chunks = [bounded_review_instructions(args.review_pass, args.review_total), *(args.prompt or [])]
     extra_prompt = "\n\n".join(chunk for chunk in prompt_chunks if chunk)
     extra_files = "\n\n".join(
         chunk
@@ -151,7 +152,7 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
     print(f"autoreview target: {target}", file=sys.stderr)
     print(f"branch: {current_branch(repo)}", file=sys.stderr)
     print(f"engine: {args.engine}", file=sys.stderr)
-    print(f"review_pass: {args.review_pass if args.review_pass else 'unspecified'} of 2", file=sys.stderr)
+    print(f"review_pass: {args.review_pass if args.review_pass else 'unspecified'} of {args.review_total}", file=sys.stderr)
     print(f"web_search: {'on' if args.web_search else 'off'}", file=sys.stderr)
     print(f"fetch: {'on' if args.fetch else 'off'}", file=sys.stderr)
     print(f"include_untracked: {'on' if args.include_untracked else 'off'}", file=sys.stderr)
@@ -161,17 +162,38 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
     print(f"bundle: {prompt_len} chars", file=sys.stderr)
 
 
-def bounded_review_instructions(review_pass: int | None) -> str:
+def validate_review_budget(args: argparse.Namespace) -> None:
+    if args.review_total < 1 or args.review_total > MAX_REVIEW_TOTAL:
+        raise SystemExit(f"autoreview --review-total must be between 1 and {MAX_REVIEW_TOTAL}")
+    if not args.dry_run and args.review_pass is None:
+        raise SystemExit("autoreview execution requires --review-pass N and --review-total M; do not rerun indefinitely")
+    if args.review_pass is not None and (args.review_pass < 1 or args.review_pass > args.review_total):
+        raise SystemExit("autoreview --review-pass must be between 1 and --review-total")
+
+
+def bounded_review_instructions(review_pass: int | None, review_total: int = 2) -> str:
+    if review_pass == 1 and review_total == 1:
+        return (
+            "Bounded review protocol: this is review pass 1 of 1, the only and final closure pass. "
+            "Find all actionable defects in one integrated review. "
+            "After this pass, do not request another automatic autoreview run; residual findings must be reported for human decision."
+        )
     if review_pass == 1:
         return (
-            "Bounded review protocol: this is review pass 1 of 2. "
+            f"Bounded review protocol: this is review pass 1 of {review_total}. "
             "Find all actionable defects in one integrated review instead of one finding per rerun. "
-            "The operator will batch fixes from this pass before the final pass."
+            "The operator will batch fixes from this pass and will not commit between review passes."
         )
-    if review_pass == 2:
+    if review_pass == review_total:
         return (
-            "Bounded review protocol: this is review pass 2 of 2, the final closure pass. "
-            "Report only unresolved issues or regressions introduced by the pass-1 fixes. "
+            f"Bounded review protocol: this is review pass {review_pass} of {review_total}, the final closure pass. "
+            "Report only unresolved issues or regressions introduced by earlier fixes. "
             "After this pass, do not request another automatic autoreview run; residual findings must be reported for human decision."
+        )
+    if review_pass:
+        return (
+            f"Bounded review protocol: this is review pass {review_pass} of {review_total}. "
+            "Focus on unresolved issues and regressions introduced by prior fixes. "
+            "Do not ask for commits between passes; the operator will batch all fixes into one final commit."
         )
     return ""
