@@ -124,7 +124,9 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
         output = output_path.read_text(encoding="utf-8")
         if result.returncode != 0:
             raise SystemExit(f"codex engine failed ({result.returncode})\n{engine_error_summary(result)}")
-        return output or result.stdout
+        if not output.strip():
+            raise SystemExit("codex engine did not write structured output to --output-last-message")
+        return output
 
 
 def sanitized_codex_env(workspace: Path) -> dict[str, str]:

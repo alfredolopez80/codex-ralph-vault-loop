@@ -106,6 +106,7 @@ def test_run_codex_uses_sanitized_workspace(tmp_path: Path, monkeypatch) -> None
     def fake_run_with_heartbeat(cmd, cwd, *, input_text, label, heartbeat_seconds=60, env=None):
         cmd_text = " ".join(cmd)
         workspace = Path(cmd[cmd.index("-C") + 1])
+        output_path = Path(cmd[cmd.index("--output-last-message") + 1])
         assert input_text == "prompt"
         assert label == "codex"
         assert cwd == workspace
@@ -122,12 +123,31 @@ def test_run_codex_uses_sanitized_workspace(tmp_path: Path, monkeypatch) -> None
         assert env["CODEX_HOME"] == real_codex_home
         assert Path(env["HOME"]).is_dir()
         assert Path(env["HOME"]).parent == workspace
+        output_path.write_text('{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}', encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}', "")
 
     monkeypatch.setattr(review, "run_with_heartbeat", fake_run_with_heartbeat)
     args = SimpleNamespace(codex_bin="codex", web_search=False, model=None)
     raw = review.run_codex(args, repo, "prompt")
     assert '"overall_correctness":"patch is correct"' in raw
+
+
+def test_run_codex_fails_closed_when_output_file_is_empty(tmp_path: Path, monkeypatch) -> None:
+    review = load_module("review")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def fake_run_with_heartbeat(cmd, cwd, *, input_text, label, heartbeat_seconds=60, env=None):
+        return subprocess.CompletedProcess(cmd, 0, '{"findings":[]}', "")
+
+    monkeypatch.setattr(review, "run_with_heartbeat", fake_run_with_heartbeat)
+    args = SimpleNamespace(codex_bin="codex", web_search=False, model=None)
+    try:
+        review.run_codex(args, repo, "prompt")
+    except SystemExit as exc:
+        assert "did not write structured output" in str(exc)
+    else:
+        raise AssertionError("expected empty --output-last-message to fail closed")
 
 
 def test_engine_error_summary_suppresses_stdout_bundle() -> None:
