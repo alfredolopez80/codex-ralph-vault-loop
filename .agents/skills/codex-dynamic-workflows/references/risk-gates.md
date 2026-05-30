@@ -9,7 +9,7 @@ Ask one clear approval question before work that may:
 - delete, overwrite, mass-rename, force-push, or rewrite history
 - deploy, publish, email, post, create public resources, or mutate external systems
 - run database migrations, broad codemods, or dependency upgrades
-- touch credentials, secrets, billing, production data, user accounts, or private customer data
+- touch credentials, secrets, billing, production data, user accounts, or private user records
 - spawn many agents, run expensive jobs, or consume unusual time or compute
 - make changes outside the requested repository or workspace
 - send repository context, logs, or sensitive data to external agents, MCPs, or services without explicit authorization and minimization
