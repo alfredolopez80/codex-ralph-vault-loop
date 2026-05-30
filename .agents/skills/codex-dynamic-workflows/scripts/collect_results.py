@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 from pathlib import Path
 
@@ -98,7 +99,7 @@ def main() -> int:
         lines.extend([f"## {heading_for(file)}", ""])
         snippets = interesting_lines(text)
         if snippets:
-            lines.extend(f"- untrusted result snippet: {json.dumps(snippet)}" for snippet in snippets)
+            lines.extend(f"- untrusted result snippet: {html.escape(json.dumps(snippet), quote=True)}" for snippet in snippets)
         else:
             lines.append("No checklist-like lines found; inspect this result manually.")
         lines.append("")
