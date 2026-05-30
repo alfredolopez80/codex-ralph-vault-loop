@@ -37,6 +37,16 @@ def test_sensitive_path_guard_blocks_extra_context() -> None:
     assert safety.sensitive_path_matches({"config/prod-token.txt", "src/app.py"}) == ["config/prod-token.txt"]
 
 
+def test_malformed_classifier_result_fails_closed() -> None:
+    safety = load_module("safety")
+    try:
+        safety.report_classification({})
+    except SystemExit as exc:
+        assert "malformed sensitive-content classifier result" in str(exc)
+    else:
+        raise AssertionError("expected malformed classifier output to fail closed")
+
+
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
     safety = load_module("safety")
     target = tmp_path / "target.txt"

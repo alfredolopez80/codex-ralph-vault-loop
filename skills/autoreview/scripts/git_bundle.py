@@ -101,7 +101,7 @@ def local_bundle(repo: Path, *, include_untracked: bool) -> str:
 
 def branch_bundle(repo: Path, base_ref: str, *, fetch: bool) -> str:
     if fetch:
-        git(repo, "fetch", "origin", "--quiet")
+        fetch_origin(repo)
     return "\n\n".join(
         [
             "# Branch Diff",
@@ -110,6 +110,10 @@ def branch_bundle(repo: Path, base_ref: str, *, fetch: bool) -> str:
             git(repo, "diff", "--patch", "--find-renames", f"{base_ref}...HEAD"),
         ]
     )
+
+
+def fetch_origin(repo: Path) -> None:
+    git(repo, "fetch", "origin", "--quiet")
 
 
 def commit_bundle(repo: Path, commit_ref: str) -> str:

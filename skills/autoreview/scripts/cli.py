@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, load_extra_files, local_bundle, repo_root
+from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, fetch_origin, load_extra_files, local_bundle, repo_root
 from review import build_prompt, extract_json, print_report, run_codex, validate_report
 from safety import CLASSIFICATIONS, load_classifier, report_classification, report_findings, resolve_safe_repo_output, sensitive_path_matches
 
@@ -46,7 +46,7 @@ def build_bundle(args: argparse.Namespace, repo: Path, target: str, target_ref: 
         return local_bundle(repo, include_untracked=args.include_untracked), target_ref
     if target == "branch":
         assert target_ref
-        return branch_bundle(repo, target_ref, fetch=args.fetch), target_ref
+        return branch_bundle(repo, target_ref, fetch=False), target_ref
     return commit_bundle(repo, args.commit), args.commit
 
 
@@ -81,6 +81,8 @@ def main() -> int:
         raise SystemExit("--web-search requires --sensitivity GREEN")
     if args.sensitivity == "RED":
         raise SystemExit("refusing reviewer execution for requested RED sensitivity")
+    if target == "branch" and args.fetch:
+        fetch_origin(repo)
 
     reviewed_paths = changed_paths(repo, target, target_ref, args.commit, include_untracked=args.include_untracked)
     sensitive_paths = sensitive_path_matches(reviewed_paths)
@@ -131,4 +133,3 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
     if findings:
         print(f"safety_findings: {json.dumps(findings, sort_keys=True)}")
     print(f"bundle: {prompt_len} chars")
-

@@ -61,8 +61,13 @@ def fail_closed_classifier(_text: object, _requested: str | None = None) -> dict
 
 def report_classification(report: Any) -> str:
     if isinstance(report, dict):
-        return str(report.get("classification", "GREEN")).upper()
-    return str(getattr(report, "classification", "GREEN")).upper()
+        raw = report.get("classification")
+    else:
+        raw = getattr(report, "classification", None)
+    classification = str(raw).upper() if raw is not None else ""
+    if classification not in CLASSIFICATIONS:
+        raise SystemExit("refusing reviewer execution after malformed sensitive-content classifier result")
+    return classification
 
 
 def report_findings(report: Any) -> list[dict[str, str]]:
