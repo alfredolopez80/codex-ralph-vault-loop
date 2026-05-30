@@ -114,5 +114,23 @@ def assert_safe_repo_file(repo: Path, path: str, *, context: str) -> Path:
     return resolved
 
 
+def resolve_safe_repo_output(repo: Path, path: str, *, context: str) -> Path:
+    assert_safe_path(path, context=context)
+    target = repo / path
+    if target.exists() and target.is_symlink():
+        raise SystemExit(f"refusing symlink {context} path: {path}")
+    try:
+        resolved_repo = repo.resolve(strict=True)
+        resolved_parent = target.parent.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"refusing {context} path with unreadable parent: {path}: {exc}") from exc
+    if not is_within(resolved_parent, resolved_repo):
+        raise SystemExit(f"refusing {context} path outside repository: {path}")
+    relative = (resolved_parent / target.name).relative_to(resolved_repo)
+    if is_path_sensitive(str(relative)):
+        raise SystemExit(f"refusing sensitive {context} path: {path}")
+    return resolved_parent / target.name
+
+
 def is_within(path: Path, root: Path) -> bool:
     return path == root or root in path.parents

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -10,7 +12,7 @@ from typing import Any
 
 from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, load_extra_files, local_bundle, repo_root
 from review import build_prompt, extract_json, print_report, run_codex, validate_report
-from safety import CLASSIFICATIONS, load_classifier, report_classification, report_findings, sensitive_path_matches
+from safety import CLASSIFICATIONS, load_classifier, report_classification, report_findings, resolve_safe_repo_output, sensitive_path_matches
 
 
 ENGINES = ("codex",)
@@ -48,17 +50,20 @@ def build_bundle(args: argparse.Namespace, repo: Path, target: str, target_ref: 
     return commit_bundle(repo, args.commit), args.commit
 
 
-def write_optional_outputs(args: argparse.Namespace, report: dict[str, Any]) -> None:
+def write_optional_outputs(args: argparse.Namespace, repo: Path, report: dict[str, Any]) -> None:
+    json_text = json.dumps(report, indent=2) + "\n"
     if args.json_output:
-        Path(args.json_output).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    if not args.output:
+        resolve_safe_repo_output(repo, args.json_output, context="json-output").write_text(json_text, encoding="utf-8")
+    if args.output:
+        resolve_safe_repo_output(repo, args.output, context="output").write_text(human_report_text(report), encoding="utf-8")
+    sys.stdout.write(json_text)
+
+
+def human_report_text(report: dict[str, Any]) -> str:
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
         print_report(report)
-        return
-    original_stdout = sys.stdout
-    with Path(args.output).open("w", encoding="utf-8") as handle:
-        sys.stdout = Tee(original_stdout, handle)
-        print_report(report)
-        sys.stdout = original_stdout
+    return buffer.getvalue()
 
 
 def start_parallel_tests(command: str, repo: Path) -> subprocess.Popen[str]:
@@ -107,7 +112,7 @@ def main() -> int:
         raw = run_codex(args, repo, prompt)
         report = extract_json(raw)
         validate_report(report, reviewed_paths, strict_changed_paths=args.strict_changed_paths)
-        write_optional_outputs(args, report)
+        write_optional_outputs(args, repo, report)
     finally:
         tests_status = tests_proc.wait() if tests_proc is not None else 0
         if tests_proc is not None:
@@ -127,15 +132,3 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
         print(f"safety_findings: {json.dumps(findings, sort_keys=True)}")
     print(f"bundle: {prompt_len} chars")
 
-
-class Tee:
-    def __init__(self, *streams: Any) -> None:
-        self.streams = streams
-
-    def write(self, data: str) -> None:
-        for stream in self.streams:
-            stream.write(data)
-
-    def flush(self) -> None:
-        for stream in self.streams:
-            stream.flush()

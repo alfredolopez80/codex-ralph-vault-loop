@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,6 +47,37 @@ def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
         assert "symlink" in str(exc)
     else:
         raise AssertionError("expected symlink path to be rejected")
+
+
+def test_output_guard_rejects_symlink(tmp_path: Path) -> None:
+    safety = load_module("safety")
+    target = tmp_path / "target.txt"
+    target.write_text("old", encoding="utf-8")
+    link = tmp_path / "report.txt"
+    link.symlink_to(target)
+    try:
+        safety.resolve_safe_repo_output(tmp_path, "report.txt", context="output")
+    except SystemExit as exc:
+        assert "symlink" in str(exc)
+    else:
+        raise AssertionError("expected symlink output path to be rejected")
+
+
+def test_local_bundle_fails_when_untracked_files_are_omitted(tmp_path: Path) -> None:
+    git_bundle = load_module("git_bundle")
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "AutoReview Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "autoreview@example.test"], cwd=tmp_path, check=True)
+    (tmp_path / "tracked.txt").write_text("tracked", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "init"], cwd=tmp_path, check=True)
+    (tmp_path / "new.txt").write_text("new", encoding="utf-8")
+    try:
+        git_bundle.local_bundle(tmp_path, include_untracked=False)
+    except SystemExit as exc:
+        assert "untracked files omitted" in str(exc)
+    else:
+        raise AssertionError("expected untracked local review to fail closed")
 
 
 def finding_at(path: str) -> dict[str, object]:

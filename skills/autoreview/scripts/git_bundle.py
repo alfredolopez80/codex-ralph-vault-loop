@@ -77,6 +77,9 @@ def changed_paths(repo: Path, target: str, target_ref: str | None, commit_ref: s
 
 
 def local_bundle(repo: Path, *, include_untracked: bool) -> str:
+    untracked = [line for line in git(repo, "ls-files", "--others", "--exclude-standard").splitlines() if line]
+    if untracked and not include_untracked:
+        raise SystemExit("refusing local review with untracked files omitted; rerun with --include-untracked after checking paths")
     parts = [
         "# Git Status",
         git(repo, "status", "--short"),
@@ -88,7 +91,6 @@ def local_bundle(repo: Path, *, include_untracked: bool) -> str:
         git(repo, "diff", "--patch", "--find-renames"),
     ]
     if include_untracked:
-        untracked = [line for line in git(repo, "ls-files", "--others", "--exclude-standard").splitlines() if line]
         if untracked:
             parts.append("# Untracked Files")
             for rel in untracked:
