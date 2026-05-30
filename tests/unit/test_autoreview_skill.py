@@ -69,6 +69,20 @@ def test_parallel_test_status_goes_to_stderr(capsys) -> None:
     assert captured.out == ""
 
 
+def test_heartbeat_does_not_resend_stdin_after_timeout(tmp_path: Path) -> None:
+    review = load_module("review")
+    code = "import sys, time; data = sys.stdin.read(); time.sleep(0.15); print(data)"
+    result = review.run_with_heartbeat(
+        [sys.executable, "-c", code],
+        tmp_path,
+        input_text="payload",
+        label="test",
+        heartbeat_seconds=0.01,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "payload"
+
+
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
     safety = load_module("safety")
     target = tmp_path / "target.txt"

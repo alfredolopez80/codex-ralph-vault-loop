@@ -104,17 +104,25 @@ def write_json_temp(data: dict[str, Any]) -> Path:
     return Path(handle.name)
 
 
-def run_with_heartbeat(args: list[str], cwd: Path, *, input_text: str, label: str) -> subprocess.CompletedProcess[str]:
+def run_with_heartbeat(
+    args: list[str],
+    cwd: Path,
+    *,
+    input_text: str | None,
+    label: str,
+    heartbeat_seconds: float = 60,
+) -> subprocess.CompletedProcess[str]:
     started = time.monotonic()
     proc = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    pending_input = input_text
     while True:
         try:
-            stdout, stderr = proc.communicate(input=input_text, timeout=60)
+            stdout, stderr = proc.communicate(input=pending_input, timeout=heartbeat_seconds)
             return subprocess.CompletedProcess(args, int(proc.returncode or 0), stdout, stderr)
         except subprocess.TimeoutExpired:
             elapsed = int(time.monotonic() - started)
             print(f"review still running: {label} elapsed={elapsed}s pid={proc.pid}", file=sys.stderr, flush=True)
-            input_text = ""
+            pending_input = None
 
 
 def extract_json(raw: str) -> dict[str, Any]:
