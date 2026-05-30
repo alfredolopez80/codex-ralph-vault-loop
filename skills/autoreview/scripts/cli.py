@@ -10,7 +10,7 @@ from typing import Any
 
 from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, load_extra_files, local_bundle, repo_root
 from review import build_prompt, extract_json, print_report, run_codex, validate_report
-from safety import CLASSIFICATIONS, load_classifier, report_classification, report_findings
+from safety import CLASSIFICATIONS, load_classifier, report_classification, report_findings, sensitive_path_matches
 
 
 ENGINES = ("codex",)
@@ -77,8 +77,11 @@ def main() -> int:
     if args.sensitivity == "RED":
         raise SystemExit("refusing reviewer execution for requested RED sensitivity")
 
-    bundle, target_ref = build_bundle(args, repo, target, target_ref)
     reviewed_paths = changed_paths(repo, target, target_ref, args.commit, include_untracked=args.include_untracked)
+    sensitive_paths = sensitive_path_matches(reviewed_paths)
+    if sensitive_paths:
+        raise SystemExit("refusing review with sensitive changed paths: " + ", ".join(sensitive_paths))
+    bundle, target_ref = build_bundle(args, repo, target, target_ref)
     extra_prompt = "\n\n".join(args.prompt or [])
     extra_files = "\n\n".join(
         chunk

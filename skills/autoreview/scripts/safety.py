@@ -82,6 +82,10 @@ def is_path_sensitive(path: str) -> bool:
     return any(item in lowered for item in DENIED_PATH_SUBSTRINGS)
 
 
+def sensitive_path_matches(paths: set[str]) -> list[str]:
+    return sorted(path for path in paths if is_path_sensitive(path))
+
+
 def assert_safe_path(path: str, *, context: str) -> None:
     rel = Path(path)
     if rel.is_absolute() or ".." in rel.parts:

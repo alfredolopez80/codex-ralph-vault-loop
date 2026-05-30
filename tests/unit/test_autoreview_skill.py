@@ -31,6 +31,7 @@ def test_sensitive_path_guard_blocks_extra_context() -> None:
     assert safety.is_path_sensitive("." + "env.local")
     assert safety.is_path_sensitive("logs/service.log")
     assert safety.is_path_sensitive("private/credential.txt")
+    assert safety.sensitive_path_matches({"config/prod-token.txt", "src/app.py"}) == ["config/prod-token.txt"]
 
 
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
