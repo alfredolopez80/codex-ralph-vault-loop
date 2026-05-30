@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -45,6 +46,15 @@ def test_malformed_classifier_result_fails_closed() -> None:
         assert "malformed sensitive-content classifier result" in str(exc)
     else:
         raise AssertionError("expected malformed classifier output to fail closed")
+
+
+def test_status_output_goes_to_stderr(capsys) -> None:
+    cli = load_module("cli")
+    args = SimpleNamespace(engine="codex", web_search=False, fetch=False, include_untracked=False)
+    cli.print_status(args, ROOT, "branch", "YELLOW", [], 10)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "safety: YELLOW" in captured.err
 
 
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:

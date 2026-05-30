@@ -123,13 +123,13 @@ def main() -> int:
 
 
 def print_status(args: argparse.Namespace, repo: Path, target: str, classification: str, findings: list[dict[str, str]], prompt_len: int) -> None:
-    print(f"autoreview target: {target}")
-    print(f"branch: {current_branch(repo)}")
-    print(f"engine: {args.engine}")
-    print(f"web_search: {'on' if args.web_search else 'off'}")
-    print(f"fetch: {'on' if args.fetch else 'off'}")
-    print(f"include_untracked: {'on' if args.include_untracked else 'off'}")
-    print(f"safety: {classification}")
+    print(f"autoreview target: {target}", file=sys.stderr)
+    print(f"branch: {current_branch(repo)}", file=sys.stderr)
+    print(f"engine: {args.engine}", file=sys.stderr)
+    print(f"web_search: {'on' if args.web_search else 'off'}", file=sys.stderr)
+    print(f"fetch: {'on' if args.fetch else 'off'}", file=sys.stderr)
+    print(f"include_untracked: {'on' if args.include_untracked else 'off'}", file=sys.stderr)
+    print(f"safety: {classification}", file=sys.stderr)
     if findings:
-        print(f"safety_findings: {json.dumps(findings, sort_keys=True)}")
-    print(f"bundle: {prompt_len} chars")
+        print(f"safety_findings: {json.dumps(findings, sort_keys=True)}", file=sys.stderr)
+    print(f"bundle: {prompt_len} chars", file=sys.stderr)
