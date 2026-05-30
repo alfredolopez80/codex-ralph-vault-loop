@@ -8,6 +8,9 @@ import os
 from _gate_common import detect_project, result, run_command
 
 
+PYTEST_ENV = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+
+
 def python_results(project: dict, mode: str) -> list[dict]:
     py = project["python"]
     results = []
@@ -16,7 +19,14 @@ def python_results(project: dict, mode: str) -> list[dict]:
     if os.environ.get("RALPH_GATES_SKIP_TEST_EXECUTION") == "1":
         return [result("python.pytest", "skipped", reason="test execution disabled by environment")]
     if py["tests_dir"]:
-        results.append(run_command("python.pytest", ["python3", "-m", "pytest", "-q"], timeout=180))
+        results.append(
+            run_command(
+                "python.pytest",
+                ["python3", "-m", "pytest", "-q"],
+                timeout=180,
+                env=PYTEST_ENV,
+            )
+        )
     else:
         results.append(result("python.pytest", "skipped", reason="tests directory missing"))
     if mode in {"standard", "full", "critical"}:

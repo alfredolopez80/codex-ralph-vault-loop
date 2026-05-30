@@ -29,6 +29,7 @@ log() {
 
 # Get current repository root
 _HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
 source "${_HOOK_DIR}/lib/worktree-utils.sh" 2>/dev/null || {
   get_project_root() { git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-.}"; }
   get_main_repo() { get_project_root; }

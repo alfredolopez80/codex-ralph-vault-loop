@@ -82,20 +82,27 @@ Detected validation commands:
 ```bash
 bash scripts/setup/doctor.sh
 python3 scripts/gates/run-gates.py --minimal
-python3 -m pytest tests -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests -q
 python3 scripts/evals/coding_model_eval.py --mode mock
 bash scripts/validate-ralph-memory-flow.sh
 ```
 
+Use `GATES_REPORT_DIR=<writable-dir>` when the default repo-local
+`.ralph-codex/reports/gates` path is not writable in the active sandbox. The
+gate runner writes both `latest.json` and `latest.md` to that directory.
+
 Targeted memory commands:
 
 ```bash
-python3 -m pytest tests/unit/test_ralph_recall_context.py -q
-python3 -m pytest tests/integration/test_memory_recall_flow_e2e.py -q
-python3 -m pytest tests/integration/test_hooks_basic.py -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_ralph_recall_context.py -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_memory_recall_flow_e2e.py -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hooks_basic.py -q
 ```
 
-Lint/typecheck commands are detected by `scripts/gates/run-tests.py`: `ruff check .` runs when `ruff` is installed, `mypy .` runs in full/critical mode when `mypy` is installed, and shell lint runs through `shellcheck` in full/critical mode when available.
+Lint/typecheck commands are detected by `scripts/gates/run-tests.py`: pytest
+runs with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`, `ruff check .` runs when `ruff` is
+installed, `mypy .` runs in full/critical mode when `mypy` is installed, and
+shell lint runs through `shellcheck` in full/critical mode when available.
 
 Definition of done for memory changes:
 
