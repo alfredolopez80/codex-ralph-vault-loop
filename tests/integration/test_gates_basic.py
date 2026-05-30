@@ -104,7 +104,7 @@ def test_python_gate_disables_pytest_plugin_autoload(monkeypatch: pytest.MonkeyP
     ]
 
 
-def test_shell_file_detection_uses_git_tracked_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_shell_file_detection_uses_git_repo_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     gate_common = load_gate_script(monkeypatch, "_gate_common.py")
     local_env_script = tmp_path / ".venv-model-router" / "lib" / "completion.sh"
     local_env_script.parent.mkdir(parents=True)
@@ -117,7 +117,7 @@ def test_shell_file_detection_uses_git_tracked_files(monkeypatch: pytest.MonkeyP
         capture_output: bool,
         check: bool,
     ) -> subprocess.CompletedProcess[str]:
-        assert command == ["git", "ls-files", "*.sh"]
+        assert command == ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.sh"]
         assert cwd == tmp_path
         assert text is True
         assert capture_output is True
@@ -126,7 +126,7 @@ def test_shell_file_detection_uses_git_tracked_files(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(gate_common.subprocess, "run", fake_run)
 
-    assert gate_common.tracked_shell_files(tmp_path) == ["scripts/setup/doctor.sh"]
+    assert gate_common.repo_shell_files(tmp_path) == ["scripts/setup/doctor.sh"]
 
 
 @pytest.mark.parametrize("mode", ["minimal", "standard", "full", "critical"])

@@ -22,9 +22,9 @@ def command_exists(command: str) -> bool:
     return shutil.which(command) is not None
 
 
-def tracked_shell_files(root: Path = REPO_ROOT) -> list[str]:
+def repo_shell_files(root: Path = REPO_ROOT) -> list[str]:
     completed = subprocess.run(
-        ["git", "ls-files", "*.sh"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.sh"],
         cwd=root,
         text=True,
         capture_output=True,
@@ -66,7 +66,7 @@ def detect_project(root: Path = REPO_ROOT) -> dict[str, Any]:
             "package_manager": package_manager(root),
         },
         "shell": {
-            "files": tracked_shell_files(root),
+            "files": repo_shell_files(root),
             "shellcheck": command_exists("shellcheck"),
         },
         "security": {
