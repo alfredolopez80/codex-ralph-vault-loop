@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 
+MAX_OVERALL_EXPLANATION = 3200
+STRICT_CHANGED_PATHS_NOTE = "All findings were outside the changed path set under --strict-changed-paths."
+
+
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -38,7 +42,7 @@ SCHEMA: dict[str, Any] = {
             },
         },
         "overall_correctness": {"type": "string", "enum": ["patch is correct", "patch is incorrect"]},
-        "overall_explanation": {"type": "string", "minLength": 1, "maxLength": 3200},
+        "overall_explanation": {"type": "string", "minLength": 1, "maxLength": MAX_OVERALL_EXPLANATION},
         "overall_confidence": {"type": "number", "minimum": 0, "maximum": 1},
     },
 }
@@ -152,8 +156,12 @@ def validate_report(report: dict[str, Any], reviewed_paths: set[str], *, strict_
         raise SystemExit("review JSON findings must be an array")
     if report["overall_correctness"] not in {"patch is correct", "patch is incorrect"}:
         raise SystemExit("review JSON has invalid overall_correctness")
-    if not isinstance(report["overall_explanation"], str) or not report["overall_explanation"]:
-        raise SystemExit("review JSON overall_explanation must be a non-empty string")
+    validate_string(
+        "review JSON overall_explanation",
+        report["overall_explanation"],
+        min_length=1,
+        max_length=MAX_OVERALL_EXPLANATION,
+    )
     if not number_in_range(report["overall_confidence"]):
         raise SystemExit("review JSON overall_confidence must be numeric")
     filter_findings(report, reviewed_paths, strict_changed_paths=strict_changed_paths)
@@ -176,7 +184,11 @@ def filter_findings(report: dict[str, Any], reviewed_paths: set[str], *, strict_
         report["findings"] = kept
         if not kept and report["overall_correctness"] == "patch is incorrect":
             report["overall_correctness"] = "patch is correct"
-            report["overall_explanation"] += "\n\nAll findings were outside the changed path set under --strict-changed-paths."
+            report["overall_explanation"] = append_schema_bounded_note(
+                report["overall_explanation"],
+                STRICT_CHANGED_PATHS_NOTE,
+                max_length=MAX_OVERALL_EXPLANATION,
+            )
 
 
 def validate_finding(index: int, finding: Any) -> None:
@@ -189,10 +201,8 @@ def validate_finding(index: int, finding: Any) -> None:
     for key in allowed:
         if key not in finding:
             raise SystemExit(f"finding {index} missing required key: {key}")
-    if not isinstance(finding["title"], str) or not finding["title"] or len(finding["title"]) > 140:
-        raise SystemExit(f"finding {index} has invalid title")
-    if not isinstance(finding["body"], str) or not finding["body"] or len(finding["body"]) > 2200:
-        raise SystemExit(f"finding {index} has invalid body")
+    validate_string(f"finding {index} title", finding["title"], min_length=1, max_length=140)
+    validate_string(f"finding {index} body", finding["body"], min_length=1, max_length=2200)
     if finding["priority"] not in {"P0", "P1", "P2", "P3"}:
         raise SystemExit(f"finding {index} has invalid priority")
     if finding["category"] not in {"bug", "security", "regression", "test_gap", "maintainability"}:
@@ -205,12 +215,33 @@ def validate_finding(index: int, finding: Any) -> None:
 def validate_location(index: int, location: Any) -> None:
     if not isinstance(location, dict):
         raise SystemExit(f"finding {index} missing code_location")
-    rel = str(location.get("file_path", "")).strip()
+    allowed = {"file_path", "line"}
+    extra = set(location) - allowed
+    if extra:
+        raise SystemExit(f"finding {index} code_location has unexpected keys: {sorted(extra)}")
+    for key in allowed:
+        if key not in location:
+            raise SystemExit(f"finding {index} code_location missing required key: {key}")
+    if not isinstance(location["file_path"], str):
+        raise SystemExit(f"finding {index} has invalid file path")
+    rel = location["file_path"].strip()
     line = location.get("line")
     if not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
         raise SystemExit(f"finding {index} uses invalid file path: {rel}")
-    if not isinstance(line, int) or line < 1:
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
         raise SystemExit(f"finding {index} has invalid line")
+
+
+def validate_string(name: str, value: Any, *, min_length: int, max_length: int) -> None:
+    if not isinstance(value, str) or len(value) < min_length or len(value) > max_length:
+        raise SystemExit(f"{name} must be a string with length {min_length}..{max_length}")
+
+
+def append_schema_bounded_note(text: str, note: str, *, max_length: int) -> str:
+    suffix = f"\n\n{note}"
+    if len(text) + len(suffix) <= max_length:
+        return text + suffix
+    return note
 
 
 def number_in_range(value: Any) -> bool:

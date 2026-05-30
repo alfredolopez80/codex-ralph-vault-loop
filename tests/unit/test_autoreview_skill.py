@@ -177,3 +177,38 @@ def test_supporting_findings_can_be_strictly_dropped() -> None:
     review.validate_report(report, {"src/helper.py"}, strict_changed_paths=True)
     assert report["findings"] == []
     assert report["overall_correctness"] == "patch is correct"
+
+
+def test_review_validator_rejects_extra_code_location_keys() -> None:
+    review = load_module("review")
+    report = report_with("src/helper.py")
+    report["findings"][0]["code_location"]["end_line"] = 43
+    try:
+        review.validate_report(report, {"src/helper.py"}, strict_changed_paths=False)
+    except SystemExit as exc:
+        assert "code_location has unexpected keys" in str(exc)
+    else:
+        raise AssertionError("expected schema-invalid code_location to be rejected")
+
+
+def test_review_validator_rejects_long_overall_explanation() -> None:
+    review = load_module("review")
+    report = report_with("src/helper.py")
+    report["overall_explanation"] = "x" * 3201
+    try:
+        review.validate_report(report, {"src/helper.py"}, strict_changed_paths=False)
+    except SystemExit as exc:
+        assert "overall_explanation" in str(exc)
+    else:
+        raise AssertionError("expected overlong overall_explanation to be rejected")
+
+
+def test_strict_changed_paths_note_stays_schema_bounded() -> None:
+    review = load_module("review")
+    report = report_with("src/endpoint.py")
+    report["overall_explanation"] = "x" * 3200
+    review.validate_report(report, {"src/helper.py"}, strict_changed_paths=True)
+    assert report["findings"] == []
+    assert report["overall_correctness"] == "patch is correct"
+    assert len(report["overall_explanation"]) <= 3200
+    assert "outside the changed path set" in report["overall_explanation"]
