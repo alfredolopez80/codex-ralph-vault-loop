@@ -123,22 +123,30 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
         result = run_with_heartbeat(cmd, review_root, input_text=prompt, label="codex", env=sanitized_codex_env(review_root))
         output = output_path.read_text(encoding="utf-8")
         if result.returncode != 0:
-            raise SystemExit(f"codex engine failed ({result.returncode})\n{result.stderr or result.stdout}")
+            raise SystemExit(f"codex engine failed ({result.returncode})\n{engine_error_summary(result)}")
         return output or result.stdout
 
 
 def sanitized_codex_env(workspace: Path) -> dict[str, str]:
     runtime_home = workspace / "home"
-    runtime_codex_home = workspace / "codex-home"
     runtime_tmp = workspace / "tmp"
-    for path in (runtime_home, runtime_codex_home, runtime_tmp):
+    for path in (runtime_home, runtime_tmp):
         path.mkdir(mode=0o700, exist_ok=True)
     allowed = {"LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TERM", "USER"}
     env = {key: value for key, value in os.environ.items() if key in allowed}
     env["HOME"] = str(runtime_home)
-    env["CODEX_HOME"] = str(runtime_codex_home)
+    # Codex needs its real auth home before it starts the sandboxed review. The
+    # reviewer shell receives no inherited environment via the exec config.
+    env["CODEX_HOME"] = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
     env["TMPDIR"] = str(runtime_tmp)
     return env
+
+
+def engine_error_summary(result: subprocess.CompletedProcess[str]) -> str:
+    if result.stderr.strip():
+        lines = result.stderr.strip().splitlines()
+        return "\n".join(lines[-20:])
+    return "engine produced no stderr; stdout suppressed because it can echo the reviewed bundle"
 
 
 def write_json_temp(data: dict[str, Any], *, directory: Path | None = None) -> Path:

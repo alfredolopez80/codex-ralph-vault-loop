@@ -119,17 +119,23 @@ def test_run_codex_uses_sanitized_workspace(tmp_path: Path, monkeypatch) -> None
         assert env is not None
         assert "AWS_SECRET_ACCESS_KEY" not in env
         assert env["HOME"] != real_home
-        assert env["CODEX_HOME"] != real_codex_home
+        assert env["CODEX_HOME"] == real_codex_home
         assert Path(env["HOME"]).is_dir()
-        assert Path(env["CODEX_HOME"]).is_dir()
         assert Path(env["HOME"]).parent == workspace
-        assert Path(env["CODEX_HOME"]).parent == workspace
         return subprocess.CompletedProcess(cmd, 0, '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}', "")
 
     monkeypatch.setattr(review, "run_with_heartbeat", fake_run_with_heartbeat)
     args = SimpleNamespace(codex_bin="codex", web_search=False, model=None)
     raw = review.run_codex(args, repo, "prompt")
     assert '"overall_correctness":"patch is correct"' in raw
+
+
+def test_engine_error_summary_suppresses_stdout_bundle() -> None:
+    review = load_module("review")
+    result = subprocess.CompletedProcess(["codex"], 1, "bundle with local path /Users/example/repo", "")
+    summary = review.engine_error_summary(result)
+    assert "bundle with local path" not in summary
+    assert "stdout suppressed" in summary
 
 
 def test_extra_files_use_relative_labels(tmp_path: Path) -> None:
