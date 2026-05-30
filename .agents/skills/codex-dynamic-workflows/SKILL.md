@@ -188,10 +188,12 @@ Run the narrowest reliable checks first, then broaden as risk warrants:
 - migration dry run
 - manual checklist for non-code work
 
-Use `scripts/verify_workflow.py` to check workflow artifact completeness:
+Use `scripts/verify_workflow.py` to check initialized workflow structure. Add
+`--complete` when packet and result files should be required at closure:
 
 ```bash
 python3 /path/to/codex-dynamic-workflows/scripts/verify_workflow.py .workflow/<slug>
+python3 /path/to/codex-dynamic-workflows/scripts/verify_workflow.py --complete .workflow/<slug>
 ```
 
 Report skipped checks honestly. Do not treat a workflow as complete until the evidence proves the original success criteria.

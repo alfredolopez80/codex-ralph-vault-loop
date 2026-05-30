@@ -46,6 +46,7 @@ def resolve_child_path(path: Path, *, parent: Path, context: str) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workflow_dir", help="Path to .workflow/<slug>")
+    parser.add_argument("--complete", action="store_true", help="Require at least one packet and one result file.")
     args = parser.parse_args()
 
     try:
@@ -95,9 +96,9 @@ def main() -> int:
         resolve_child_path(file, parent=packets_dir, context="packet file")
     for file in result_files:
         resolve_child_path(file, parent=results_dir, context="result file")
-    if not packet_files:
+    if args.complete and not packet_files:
         failures.append("No packet files found under packets/")
-    if not result_files:
+    if args.complete and not result_files:
         failures.append("No result files found under results/")
 
     if failures:
