@@ -95,8 +95,6 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
             args.codex_bin,
             "--ask-for-approval",
             "never",
-            "--ignore-user-config",
-            "--ignore-rules",
         ]
         if args.web_search:
             cmd.append("--search")
@@ -105,6 +103,8 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
         cmd.extend(
             [
                 "exec",
+                "--ignore-user-config",
+                "--ignore-rules",
                 "--skip-git-repo-check",
                 "--ephemeral",
                 "-C",
