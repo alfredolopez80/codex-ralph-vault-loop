@@ -83,6 +83,44 @@ def test_heartbeat_does_not_resend_stdin_after_timeout(tmp_path: Path) -> None:
     assert result.stdout.strip() == "payload"
 
 
+def test_build_prompt_omits_absolute_repo_path(tmp_path: Path) -> None:
+    review = load_module("review")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    prompt = review.build_prompt(repo, "branch", "origin/main", "diff --git a/x b/x", "", "")
+    assert str(repo) not in prompt
+    assert "Repository label: repo" in prompt
+    assert "sanitized temporary directory" in prompt
+
+
+def test_run_codex_uses_sanitized_workspace(tmp_path: Path, monkeypatch) -> None:
+    review = load_module("review")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+
+    def fake_run_with_heartbeat(cmd, cwd, *, input_text, label, heartbeat_seconds=60, env=None):
+        cmd_text = " ".join(cmd)
+        workspace = Path(cmd[cmd.index("-C") + 1])
+        assert input_text == "prompt"
+        assert label == "codex"
+        assert cwd == workspace
+        assert repo != workspace
+        assert repo not in workspace.parents
+        assert str(repo) not in cmd_text
+        assert "--skip-git-repo-check" in cmd
+        assert "--ignore-user-config" in cmd
+        assert "--ignore-rules" in cmd
+        assert env is not None
+        assert "AWS_SECRET_ACCESS_KEY" not in env
+        return subprocess.CompletedProcess(cmd, 0, '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}', "")
+
+    monkeypatch.setattr(review, "run_with_heartbeat", fake_run_with_heartbeat)
+    args = SimpleNamespace(codex_bin="codex", web_search=False, model=None)
+    raw = review.run_codex(args, repo, "prompt")
+    assert '"overall_correctness":"patch is correct"' in raw
+
+
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
     safety = load_module("safety")
     target = tmp_path / "target.txt"

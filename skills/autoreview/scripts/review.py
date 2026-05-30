@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,7 @@ SCHEMA: dict[str, Any] = {
 
 def build_prompt(repo: Path, target: str, target_ref: str | None, bundle: str, extra_prompt: str, extra_files: str) -> str:
     target_line = f"{target} {target_ref}" if target_ref else target
+    repo_label = repo.name or "repository"
     return textwrap.dedent(
         f"""
         You are a senior code reviewer. Review the provided git change bundle only.
@@ -60,6 +62,7 @@ def build_prompt(repo: Path, target: str, target_ref: str | None, bundle: str, e
         {json.dumps(SCHEMA, indent=2)}
         - Do not modify files.
         - Do not invoke nested reviewers or review tools.
+        - Do not inspect the filesystem. The reviewer workspace is intentionally empty and the authoritative input is the bundle below.
         - Shell commands, if available, must be read-only inspection commands.
         - Do not run tests, formatters, package installs, generators, network mutation commands, git mutation commands, or commands that write files.
         - Report only actionable defects introduced or exposed by this change.
@@ -69,7 +72,8 @@ def build_prompt(repo: Path, target: str, target_ref: str | None, bundle: str, e
         - If there are no actionable findings, return an empty findings array and mark the patch correct.
 
         Review target: {target_line}
-        Repository: {repo}
+        Repository label: {repo_label}
+        Reviewer workspace: sanitized temporary directory; no target checkout is mounted.
 
         {extra_prompt}
 
@@ -82,27 +86,52 @@ def build_prompt(repo: Path, target: str, target_ref: str | None, bundle: str, e
 
 
 def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
-    schema_path = write_json_temp(SCHEMA)
-    output_path = Path(tempfile.NamedTemporaryFile("w", suffix=".json", delete=False).name)
-    cmd = [args.codex_bin, "--ask-for-approval", "never"]
-    if args.web_search:
-        cmd.append("--search")
-    if args.model:
-        cmd.extend(["--model", args.model])
-    cmd.extend(["exec", "--ephemeral", "-C", str(repo), "-s", "read-only", "--output-schema", str(schema_path), "--output-last-message", str(output_path), "-"])
-    result = run_with_heartbeat(cmd, repo, input_text=prompt, label="codex")
-    try:
-        output = output_path.read_text()
-    finally:
-        schema_path.unlink(missing_ok=True)
-        output_path.unlink(missing_ok=True)
-    if result.returncode != 0:
-        raise SystemExit(f"codex engine failed ({result.returncode})\n{result.stderr or result.stdout}")
-    return output or result.stdout
+    with tempfile.TemporaryDirectory(prefix="autoreview-codex-") as workspace:
+        review_root = Path(workspace)
+        schema_path = write_json_temp(SCHEMA, directory=review_root)
+        output_path = review_root / "last-message.json"
+        output_path.write_text("", encoding="utf-8")
+        cmd = [
+            args.codex_bin,
+            "--ask-for-approval",
+            "never",
+            "--ignore-user-config",
+            "--ignore-rules",
+        ]
+        if args.web_search:
+            cmd.append("--search")
+        if args.model:
+            cmd.extend(["--model", args.model])
+        cmd.extend(
+            [
+                "exec",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "-C",
+                str(review_root),
+                "-s",
+                "read-only",
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                str(output_path),
+                "-",
+            ]
+        )
+        result = run_with_heartbeat(cmd, review_root, input_text=prompt, label="codex", env=sanitized_codex_env())
+        output = output_path.read_text(encoding="utf-8")
+        if result.returncode != 0:
+            raise SystemExit(f"codex engine failed ({result.returncode})\n{result.stderr or result.stdout}")
+        return output or result.stdout
 
 
-def write_json_temp(data: dict[str, Any]) -> Path:
-    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+def sanitized_codex_env() -> dict[str, str]:
+    allowed = {"CODEX_HOME", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER"}
+    return {key: value for key, value in os.environ.items() if key in allowed}
+
+
+def write_json_temp(data: dict[str, Any], *, directory: Path | None = None) -> Path:
+    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, dir=directory)
     with handle:
         json.dump(data, handle)
     return Path(handle.name)
@@ -115,9 +144,10 @@ def run_with_heartbeat(
     input_text: str | None,
     label: str,
     heartbeat_seconds: float = 60,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     started = time.monotonic()
-    proc = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     pending_input = input_text
     while True:
         try:
