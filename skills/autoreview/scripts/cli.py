@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output")
     parser.add_argument("--json-output")
     parser.add_argument("--parallel-tests", help="Trusted operator-supplied shell command to run concurrently.")
+    parser.add_argument("--review-pass", type=int, choices=[1, 2], help="Bounded pass number. Pass 1 discovers; pass 2 is final closure.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -78,6 +79,8 @@ def start_parallel_tests(command: str, repo: Path) -> subprocess.Popen[str]:
 
 def main() -> int:
     args = parse_args()
+    if not args.dry_run and args.review_pass is None:
+        raise SystemExit("autoreview execution requires --review-pass 1 or --review-pass 2; do not rerun indefinitely")
     repo = repo_root()
     target, target_ref = choose_target(repo, args.mode, args.base)
     classifier = load_classifier(repo)
@@ -94,7 +97,8 @@ def main() -> int:
     if sensitive_paths:
         raise SystemExit("refusing review with sensitive changed paths: " + ", ".join(sensitive_paths))
     bundle, target_ref = build_bundle(args, repo, target, target_ref)
-    extra_prompt = "\n\n".join(args.prompt or [])
+    prompt_chunks = [bounded_review_instructions(args.review_pass), *(args.prompt or [])]
+    extra_prompt = "\n\n".join(chunk for chunk in prompt_chunks if chunk)
     extra_files = "\n\n".join(
         chunk
         for chunk in (
@@ -118,17 +122,26 @@ def main() -> int:
     if args.parallel_tests:
         tests_proc = start_parallel_tests(args.parallel_tests, repo)
     report: dict[str, Any] | None = None
+    primary_error: BaseException | None = None
+    tests_status = 0
+    tests_log_path: str | None = None
     try:
         raw = run_codex(args, repo, prompt)
         candidate_report = extract_json(raw)
         validate_report(candidate_report, reviewed_paths, strict_changed_paths=args.strict_changed_paths)
         write_optional_outputs(args, repo, candidate_report)
         report = candidate_report
+    except (Exception, SystemExit) as exc:
+        primary_error = exc
     finally:
         tests_status = tests_proc.wait() if tests_proc is not None else 0
         if tests_proc is not None:
-            log_path = getattr(tests_proc, "autoreview_log_path", "<unknown>")
-            print(f"tests exit: {tests_status} log={log_path}", file=sys.stderr)
+            tests_log_path = getattr(tests_proc, "autoreview_log_path", "<unknown>")
+            print(f"tests exit: {tests_status} log={tests_log_path}", file=sys.stderr)
+    if primary_error is not None:
+        if tests_status != 0:
+            raise SystemExit(f"{primary_error}\nparallel tests failed ({tests_status}) log={tests_log_path}")
+        raise primary_error
     if report is None:
         raise SystemExit("autoreview did not produce a validated report")
     return 1 if tests_status != 0 or report["findings"] or report["overall_correctness"] == "patch is incorrect" else 0
@@ -138,6 +151,7 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
     print(f"autoreview target: {target}", file=sys.stderr)
     print(f"branch: {current_branch(repo)}", file=sys.stderr)
     print(f"engine: {args.engine}", file=sys.stderr)
+    print(f"review_pass: {args.review_pass if args.review_pass else 'unspecified'} of 2", file=sys.stderr)
     print(f"web_search: {'on' if args.web_search else 'off'}", file=sys.stderr)
     print(f"fetch: {'on' if args.fetch else 'off'}", file=sys.stderr)
     print(f"include_untracked: {'on' if args.include_untracked else 'off'}", file=sys.stderr)
@@ -145,3 +159,19 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
     if findings:
         print(f"safety_findings: {json.dumps(findings, sort_keys=True)}", file=sys.stderr)
     print(f"bundle: {prompt_len} chars", file=sys.stderr)
+
+
+def bounded_review_instructions(review_pass: int | None) -> str:
+    if review_pass == 1:
+        return (
+            "Bounded review protocol: this is review pass 1 of 2. "
+            "Find all actionable defects in one integrated review instead of one finding per rerun. "
+            "The operator will batch fixes from this pass before the final pass."
+        )
+    if review_pass == 2:
+        return (
+            "Bounded review protocol: this is review pass 2 of 2, the final closure pass. "
+            "Report only unresolved issues or regressions introduced by the pass-1 fixes. "
+            "After this pass, do not request another automatic autoreview run; residual findings must be reported for human decision."
+        )
+    return ""
