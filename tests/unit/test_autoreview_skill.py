@@ -80,6 +80,22 @@ def test_local_bundle_fails_when_untracked_files_are_omitted(tmp_path: Path) -> 
         raise AssertionError("expected untracked local review to fail closed")
 
 
+def test_repo_classifier_must_match_origin_main(tmp_path: Path) -> None:
+    safety = load_module("safety")
+    classifier = tmp_path / "scripts" / "security" / "sensitive_content.py"
+    classifier.parent.mkdir(parents=True)
+    classifier.write_text("def classify_text(text, requested=None): return {'classification': 'GREEN', 'findings': []}\n", encoding="utf-8")
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "AutoReview Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "autoreview@example.test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "scripts/security/sensitive_content.py"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "init"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=tmp_path, check=True)
+    assert safety.classifier_is_unchanged(tmp_path, classifier)
+    classifier.write_text("def classify_text(text, requested=None): return {'classification': 'YELLOW', 'findings': []}\n", encoding="utf-8")
+    assert not safety.classifier_is_unchanged(tmp_path, classifier)
+
+
 def finding_at(path: str) -> dict[str, object]:
     return {
         "title": "Shared guard now allows unsafe caller",

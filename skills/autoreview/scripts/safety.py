@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -20,8 +21,14 @@ def load_classifier(repo: Path) -> Callable[[object, str | None], Any]:
         if root_file.exists():
             root = Path(root_file.read_text(encoding="utf-8").strip())
             candidate = root / "scripts" / "security" / "sensitive_content.py"
-            if not is_within(candidate.resolve(), repo.resolve()):
+            resolved = candidate.resolve()
+            resolved_repo = repo.resolve()
+            if not is_within(resolved, resolved_repo):
                 candidates.append(candidate)
+            elif classifier_is_unchanged(repo, resolved):
+                candidates.append(candidate)
+            else:
+                return fail_closed_classifier
     except OSError:
         pass
     for candidate in candidates:
@@ -34,6 +41,22 @@ def load_classifier(repo: Path) -> Callable[[object, str | None], Any]:
             spec.loader.exec_module(module)
             return module.classify_text
     return fallback_classify_text
+
+
+def classifier_is_unchanged(repo: Path, candidate: Path) -> bool:
+    try:
+        rel = candidate.relative_to(repo.resolve())
+    except ValueError:
+        return False
+    status = subprocess.run(["git", "status", "--porcelain", "--", str(rel)], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if status.returncode != 0 or status.stdout.strip():
+        return False
+    diff = subprocess.run(["git", "diff", "--name-only", "origin/main...HEAD", "--", str(rel)], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return diff.returncode == 0 and not diff.stdout.strip()
+
+
+def fail_closed_classifier(_text: object, _requested: str | None = None) -> dict[str, Any]:
+    raise SystemExit("refusing reviewer execution without a trusted sensitive-content classifier")
 
 
 def fallback_classify_text(text: object, requested: str | None = None) -> dict[str, Any]:
