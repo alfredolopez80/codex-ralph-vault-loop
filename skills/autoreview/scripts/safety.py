@@ -40,7 +40,7 @@ def load_classifier(repo: Path) -> Callable[[object, str | None], Any]:
             sys.modules[spec.name] = module
             spec.loader.exec_module(module)
             return module.classify_text
-    return fallback_classify_text
+    return fail_closed_classifier
 
 
 def classifier_is_unchanged(repo: Path, candidate: Path) -> bool:
@@ -57,17 +57,6 @@ def classifier_is_unchanged(repo: Path, candidate: Path) -> bool:
 
 def fail_closed_classifier(_text: object, _requested: str | None = None) -> dict[str, Any]:
     raise SystemExit("refusing reviewer execution without a trusted sensitive-content classifier")
-
-
-def fallback_classify_text(text: object, requested: str | None = None) -> dict[str, Any]:
-    value = "" if text is None else str(text).lower()
-    requested_upper = requested.upper() if requested else None
-    if requested_upper and requested_upper not in CLASSIFICATIONS:
-        raise SystemExit(f"--sensitivity must be one of {', '.join(CLASSIFICATIONS)}")
-    markers = ("api_" + "key", "access_" + "token", "password", "private_" + "key", "database_url", ENV_PREFIX)
-    findings = [{"kind": "sensitive_marker", "label": marker} for marker in markers if marker in value]
-    classification = "RED" if requested_upper == "RED" or findings else requested_upper or "YELLOW"
-    return {"classification": classification, "findings": findings}
 
 
 def report_classification(report: Any) -> str:

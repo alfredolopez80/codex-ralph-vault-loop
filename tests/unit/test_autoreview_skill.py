@@ -19,12 +19,14 @@ def load_module(name: str):
     return module
 
 
-def test_fallback_classifier_blocks_sensitive_bundle() -> None:
+def test_missing_trusted_classifier_fails_closed() -> None:
     safety = load_module("safety")
-    sample = "api_" + "key=fixture-value"
-    report = safety.fallback_classify_text(sample, "YELLOW")
-    assert report["classification"] == "RED"
-    assert report["findings"]
+    try:
+        safety.fail_closed_classifier("public text", "YELLOW")
+    except SystemExit as exc:
+        assert "trusted sensitive-content classifier" in str(exc)
+    else:
+        raise AssertionError("expected missing classifier to fail closed")
 
 
 def test_sensitive_path_guard_blocks_extra_context() -> None:
