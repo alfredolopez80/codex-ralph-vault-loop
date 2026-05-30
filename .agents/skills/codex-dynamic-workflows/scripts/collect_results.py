@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 
@@ -36,6 +37,19 @@ def resolve_workspace_path(value: str, *, cwd: Path) -> Path:
     return resolved
 
 
+def resolve_child_path(path: Path, *, parent: Path, context: str) -> Path:
+    if path.is_symlink():
+        raise SystemExit(f"Refusing symlink {context}: {path}")
+    try:
+        resolved = path.resolve(strict=True)
+        resolved_parent = parent.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"Refusing unreadable {context}: {path}: {exc}") from exc
+    if not is_relative_to(resolved, resolved_parent):
+        raise SystemExit(f"Refusing {context} outside workflow: {path}")
+    return resolved
+
+
 def heading_for(path: Path) -> str:
     return path.stem.replace("-", " ").replace("_", " ").title()
 
@@ -59,6 +73,7 @@ def main() -> int:
         "--output",
         help="Optional output Markdown path (default: print to stdout)",
     )
+    parser.add_argument("--force", action="store_true", help="Allow overwriting an existing regular output file.")
     args = parser.parse_args()
 
     cwd = Path.cwd().resolve()
@@ -67,19 +82,23 @@ def main() -> int:
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
     results_dir = workflow_dir / "results"
+    if results_dir.is_symlink():
+        raise SystemExit(f"Refusing symlink results directory: {results_dir}")
     if not results_dir.is_dir():
         raise SystemExit(f"Missing results directory: {results_dir}")
+    results_dir = resolve_child_path(results_dir, parent=workflow_dir, context="results directory")
 
     files = sorted(results_dir.glob("*.md"))
     lines = [f"# Integration Checklist: {workflow_dir.name}", ""]
     if not files:
         lines.extend(["No result files found.", ""])
     for file in files:
+        file = resolve_child_path(file, parent=results_dir, context="result file")
         text = file.read_text(encoding="utf-8")
         lines.extend([f"## {heading_for(file)}", ""])
         snippets = interesting_lines(text)
         if snippets:
-            lines.extend(snippets)
+            lines.extend(f"- untrusted result snippet: {json.dumps(snippet)}" for snippet in snippets)
         else:
             lines.append("No checklist-like lines found; inspect this result manually.")
         lines.append("")
@@ -108,6 +127,8 @@ def main() -> int:
             parser.error(str(exc))
         if output_path.exists() and (output_path.is_symlink() or not output_path.is_file()):
             raise SystemExit(f"Refusing to overwrite unsafe path: {output_path}")
+        if output_path.exists() and not args.force:
+            raise SystemExit(f"Refusing to overwrite existing output without --force: {output_path}")
         output_path.write_text(output, encoding="utf-8")
     else:
         print(output)

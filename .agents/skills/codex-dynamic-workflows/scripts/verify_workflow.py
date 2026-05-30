@@ -30,6 +30,19 @@ def resolve_workspace_path(value: str, *, cwd: Path) -> Path:
     return resolved
 
 
+def resolve_child_path(path: Path, *, parent: Path, context: str) -> Path:
+    if path.is_symlink():
+        raise SystemExit(f"Refusing symlink {context}: {path}")
+    try:
+        resolved = path.resolve(strict=True)
+        resolved_parent = parent.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"Refusing unreadable {context}: {path}: {exc}") from exc
+    if not is_relative_to(resolved, resolved_parent):
+        raise SystemExit(f"Refusing {context} outside workflow: {path}")
+    return resolved
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workflow_dir", help="Path to .workflow/<slug>")
@@ -45,19 +58,28 @@ def main() -> int:
         failures.append(f"Missing workflow directory: {workflow_dir}")
     for name in REQUIRED_FILES:
         path = workflow_dir / name
-        if not path.is_file():
+        if path.is_symlink():
+            failures.append(f"Symlink file is not allowed: {path}")
+        elif not path.is_file():
             failures.append(f"Missing file: {path}")
-        elif not path.read_text(encoding="utf-8").strip():
-            failures.append(f"Empty file: {path}")
+        else:
+            safe_path = resolve_child_path(path, parent=workflow_dir, context="required file")
+            if not safe_path.read_text(encoding="utf-8").strip():
+                failures.append(f"Empty file: {path}")
     for name in REQUIRED_DIRS:
         path = workflow_dir / name
-        if not path.is_dir():
+        if path.is_symlink():
+            failures.append(f"Symlink directory is not allowed: {path}")
+        elif not path.is_dir():
             failures.append(f"Missing directory: {path}")
+        else:
+            resolve_child_path(path, parent=workflow_dir, context="required directory")
 
     state_path = workflow_dir / "state.json"
-    if state_path.is_file():
+    if state_path.is_file() and not state_path.is_symlink():
         try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
+            safe_state_path = resolve_child_path(state_path, parent=workflow_dir, context="state file")
+            state = json.loads(safe_state_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             failures.append(f"Invalid JSON in {state_path}: {exc}")
         else:
@@ -65,8 +87,14 @@ def main() -> int:
                 if key not in state:
                     failures.append(f"Missing state key: {key}")
 
-    packet_files = sorted((workflow_dir / "packets").glob("*.md")) if (workflow_dir / "packets").is_dir() else []
-    result_files = sorted((workflow_dir / "results").glob("*.md")) if (workflow_dir / "results").is_dir() else []
+    packets_dir = workflow_dir / "packets"
+    results_dir = workflow_dir / "results"
+    packet_files = sorted(packets_dir.glob("*.md")) if packets_dir.is_dir() and not packets_dir.is_symlink() else []
+    result_files = sorted(results_dir.glob("*.md")) if results_dir.is_dir() and not results_dir.is_symlink() else []
+    for file in packet_files:
+        resolve_child_path(file, parent=packets_dir, context="packet file")
+    for file in result_files:
+        resolve_child_path(file, parent=results_dir, context="result file")
     if not packet_files:
         failures.append("No packet files found under packets/")
     if not result_files:

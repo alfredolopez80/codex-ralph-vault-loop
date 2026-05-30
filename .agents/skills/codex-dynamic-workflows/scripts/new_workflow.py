@@ -62,6 +62,8 @@ def main() -> int:
     run_dir = (root / slug).resolve()
     if not is_relative_to(run_dir, cwd):
         raise SystemExit(f"Refusing to write outside workspace: {run_dir}")
+    if run_dir.exists():
+        raise SystemExit(f"Refusing to reuse existing workflow directory: {run_dir}")
     packets_dir = run_dir / "packets"
     results_dir = run_dir / "results"
     packets_dir.mkdir(parents=True, exist_ok=True)
