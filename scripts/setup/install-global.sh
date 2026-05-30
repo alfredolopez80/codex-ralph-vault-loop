@@ -32,6 +32,7 @@ DEFAULT_SKILLS=(
   slop-guard
   stop-slop
   deslop
+  autoreview
   autoresearch
   evaluate
   scorecard
