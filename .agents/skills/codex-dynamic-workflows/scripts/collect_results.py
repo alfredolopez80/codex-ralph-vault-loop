@@ -99,7 +99,14 @@ def main() -> int:
         lines.extend([f"## {heading_for(file)}", ""])
         snippets = interesting_lines(text)
         if snippets:
-            lines.extend(f"- untrusted result snippet: {html.escape(json.dumps(snippet), quote=True)}" for snippet in snippets)
+            for snippet in snippets:
+                lines.extend(
+                    [
+                        "- untrusted result snippet:",
+                        "",
+                        f"    {html.escape(json.dumps(snippet), quote=True)}",
+                    ]
+                )
         else:
             lines.append("No checklist-like lines found; inspect this result manually.")
         lines.append("")
