@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -67,8 +68,12 @@ def human_report_text(report: dict[str, Any]) -> str:
 
 
 def start_parallel_tests(command: str, repo: Path) -> subprocess.Popen[str]:
-    print(f"trusted parallel tests: {command}")
-    return subprocess.Popen(command, cwd=repo, shell=True, text=True)
+    log = tempfile.NamedTemporaryFile("w", prefix="autoreview-tests.", suffix=".log", delete=False)
+    print(f"trusted parallel tests: {command} log={log.name}", file=sys.stderr)
+    proc = subprocess.Popen(command, cwd=repo, shell=True, text=True, stdout=log, stderr=subprocess.STDOUT)
+    proc.autoreview_log_path = log.name  # type: ignore[attr-defined]
+    log.close()
+    return proc
 
 
 def main() -> int:
@@ -104,6 +109,8 @@ def main() -> int:
     print_status(args, repo, target, classification, report_findings(safety), len(prompt))
     if classification == "RED":
         raise SystemExit("refusing reviewer execution because bundle contains sensitive material")
+    if args.web_search and classification != "GREEN":
+        raise SystemExit("refusing web search because classified bundle is not GREEN")
     if args.dry_run:
         return 0
 
@@ -118,7 +125,8 @@ def main() -> int:
     finally:
         tests_status = tests_proc.wait() if tests_proc is not None else 0
         if tests_proc is not None:
-            print(f"tests exit: {tests_status}")
+            log_path = getattr(tests_proc, "autoreview_log_path", "<unknown>")
+            print(f"tests exit: {tests_status} log={log_path}", file=sys.stderr)
     return 1 if tests_status != 0 or report["findings"] or report["overall_correctness"] == "patch is incorrect" else 0
 
 

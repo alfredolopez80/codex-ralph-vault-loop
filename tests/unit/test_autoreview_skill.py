@@ -57,6 +57,18 @@ def test_status_output_goes_to_stderr(capsys) -> None:
     assert "safety: YELLOW" in captured.err
 
 
+def test_parallel_test_status_goes_to_stderr(capsys) -> None:
+    cli = load_module("cli")
+    proc = cli.start_parallel_tests("printf parallel-test", ROOT)
+    assert proc.wait() == 0
+    log_path = Path(proc.autoreview_log_path)
+    assert log_path.read_text(encoding="utf-8") == "parallel-test"
+    log_path.unlink()
+    captured = capsys.readouterr()
+    assert "trusted parallel tests" in captured.err
+    assert captured.out == ""
+
+
 def test_repo_file_guard_rejects_symlinks(tmp_path: Path) -> None:
     safety = load_module("safety")
     target = tmp_path / "target.txt"
