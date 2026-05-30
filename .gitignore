@@ -54,6 +54,7 @@ autoresearch.runs/
 *.vault
 
 # Codex session artifacts (if accidentally created in repo)
+.workflow/
 .codex/sessions/
 .codex/cache/
 .codex/log/
