@@ -163,6 +163,44 @@ def test_consolidate_apply_validates_consolidated_targets_before_index_mutation(
     assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.html").exists()
 
 
+def test_consolidate_apply_blocks_worktree_notes_symlink_escape(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "symlink-source-plan.md"
+    write_plan(plan)
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    primary_notes = primary / ".ralph" / "plans" / "symlink-source-plan-implementation-notes.html"
+    append_decision(primary_notes, primary, active, env)
+    outside_notes = tmp_path / "outside-notes.html"
+    outside_notes.write_text(primary_notes.read_text(encoding="utf-8"), encoding="utf-8")
+    primary_notes.unlink()
+    active_notes = active / ".ralph" / "plans" / "symlink-source-plan-implementation-notes.html"
+    active_notes.parent.mkdir(parents=True, exist_ok=True)
+    active_notes.symlink_to(outside_notes)
+    (primary / ".ralph" / "plans" / "implementation-index.json").unlink()
+    (primary / ".ralph" / "plans" / "implementation-index.md").unlink()
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary), "--apply"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert "symlink target escapes .ralph/plans" in " ".join(by_slug["symlink-source-plan"]["conflicts"])
+    assert "conflicts must be resolved" in result.stderr
+    assert not primary_notes.exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-index.json").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.html").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.md").exists()
+
+
 def test_consolidate_apply_blocks_unsafe_current_schema_worktree_html(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "unsafe-current-plan.md"
