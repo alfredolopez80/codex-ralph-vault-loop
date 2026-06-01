@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 
+from consolidated_legacy_excerpt import legacy_excerpt
 from implementation_notes_lib import (
     CATEGORY_LABELS,
     IMPLEMENTATION_NOTES_SUFFIX,
@@ -59,20 +59,6 @@ class ConsolidatedItem:
     rows: tuple[tuple[str, str], ...]
 
 
-class PlainTextHTMLParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        stripped = data.strip()
-        if stripped:
-            self.parts.append(stripped)
-
-    def text(self) -> str:
-        return " ".join(" ".join(self.parts).split())
-
-
 def current_entries(path: Path) -> list[ConsolidatedEntry]:
     text = path.read_text(encoding="utf-8", errors="replace")
     ensure_not_red(f"implementation notes file {path}", text)
@@ -97,17 +83,6 @@ def current_entries(path: Path) -> list[ConsolidatedEntry]:
     return entries
 
 
-def legacy_excerpt(path: Path, limit: int = 6000) -> str:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    ensure_not_red(f"legacy implementation notes file {path}", text)
-    parser = PlainTextHTMLParser()
-    parser.feed(text)
-    extracted = parser.text()
-    if len(extracted) <= limit:
-        return extracted
-    return extracted[:limit].rstrip() + "..."
-
-
 def item_key(parts: list[str]) -> str:
     payload = "\0".join(parts)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -117,7 +92,7 @@ def consolidated_items(sections: list[ConsolidatedPlanSection]) -> list[Consolid
     items: list[ConsolidatedItem] = []
     for section in sections:
         if section.schema == "legacy":
-            rows = common_rows(section) + (("Excerpt", section.legacy_excerpt),)
+            rows = common_rows(section) + (("Legacy text", section.legacy_excerpt),)
             key = item_key([section.slug, "legacy", section.source_sha256, section.legacy_excerpt])
             items.append(ConsolidatedItem(key, section, "legacy", "", "Legacy Notes", rows))
             continue
@@ -199,11 +174,11 @@ def planned_append_counts(sections: list[ConsolidatedPlanSection], html_path: Pa
     }
 
 
-def append_consolidated_artifacts(primary_root: Path, html_path: Path, md_path: Path, sections: list[ConsolidatedPlanSection]) -> dict[str, int]:
+def append_consolidated_artifacts(primary_root: Path, html_path: Path, md_path: Path, sections: list[ConsolidatedPlanSection], *, rebuild: bool = False) -> dict[str, int]:
     validate_consolidated_targets(html_path, md_path)
     items = consolidated_items(sections)
-    html_text, html_appended, write_html = prepared_artifact(html_path, html_shell(primary_root), HTML_ANCHOR, HTML_KEY_RE, items, render_html_item, "HTML")
-    md_text, md_appended, write_md = prepared_artifact(md_path, markdown_shell(primary_root), MD_ANCHOR, MD_KEY_RE, items, render_markdown_item, "Markdown")
+    html_text, html_appended, write_html = prepared_artifact(html_path, html_shell(primary_root), HTML_ANCHOR, HTML_KEY_RE, items, render_html_item, "HTML", rebuild=rebuild)
+    md_text, md_appended, write_md = prepared_artifact(md_path, markdown_shell(primary_root), MD_ANCHOR, MD_KEY_RE, items, render_markdown_item, "Markdown", rebuild=rebuild)
     if write_html:
         html_path.parent.mkdir(parents=True, exist_ok=True)
         html_path.write_text(html_text, encoding="utf-8")
@@ -222,14 +197,14 @@ def validate_consolidated_targets(html_path: Path, md_path: Path) -> None:
         raise ImplementationNotesError(f"consolidated Markdown append anchor not found: {md_path}")
 
 
-def prepared_artifact(path: Path, shell: str, anchor: str, key_re: re.Pattern[str], items: list[ConsolidatedItem], render_item, label: str) -> tuple[str, int, bool]:
+def prepared_artifact(path: Path, shell: str, anchor: str, key_re: re.Pattern[str], items: list[ConsolidatedItem], render_item, label: str, *, rebuild: bool = False) -> tuple[str, int, bool]:
     exists = path.exists()
-    text = path.read_text(encoding="utf-8") if exists else shell
+    text = shell if rebuild else path.read_text(encoding="utf-8") if exists else shell
     if anchor not in text:
         raise ImplementationNotesError(f"consolidated {label} append anchor not found: {path}")
     seen = set(key_re.findall(text))
     missing = [item for item in items if item.key not in seen]
-    if not missing and exists:
+    if not missing and exists and not rebuild:
         return text, 0, False
     addition = "".join(render_item(item) for item in missing)
     ensure_not_red(f"consolidated implementation notes {label} append", addition)
@@ -267,6 +242,10 @@ def html_shell(primary_root: Path) -> str:
     dl {{ display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 8px 16px; margin: 0; }}
     dt {{ color: var(--muted); font-weight: 700; }}
     dd {{ margin: 0; }}
+    .excerpt-cell {{ min-width: 0; }}
+    .excerpt-details {{ border: 1px solid var(--line); border-radius: 8px; background: #fbfcfe; padding: 10px 12px; }}
+    .excerpt-details summary {{ cursor: pointer; color: var(--accent-warm); font-weight: 780; }}
+    .excerpt-text {{ margin: 10px 0 0; max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #273247; }}
     code {{ padding: 0.1em 0.35em; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }}
     @media (max-width: 900px) {{ .page {{ width: min(100% - 20px, 1180px); padding: 20px 0 40px; }} .hero, .entry {{ padding: 20px; }} h1 {{ font-size: 2rem; }} .meta-grid {{ grid-template-columns: 1fr; }} dl {{ grid-template-columns: 1fr; }} }}
   </style>
@@ -302,7 +281,7 @@ This file is append-only. It consolidates per-plan implementation notes without 
 
 
 def render_html_item(item: ConsolidatedItem) -> str:
-    rows = "\n".join(f"          <dt>{html_escape(label)}</dt><dd>{html_escape(value) or 'n/a'}</dd>" for label, value in item.rows)
+    rows = "\n".join(render_html_row(label, value) for label, value in item.rows)
     return f"""
     <article class=\"entry\" data-consolidated-key=\"{item.key}\" data-plan-slug=\"{html_escape(item.section.slug)}\" data-entry-kind=\"{html_escape(item.category)}\">
       <p class=\"eyebrow\">{html_escape(item.section.schema)} notes</p>
@@ -315,6 +294,18 @@ def render_html_item(item: ConsolidatedItem) -> str:
 """
 
 
+def render_html_row(label: str, value: str) -> str:
+    rendered_value = html_escape(value) or "n/a"
+    if label == "Legacy text":
+        return (
+            f"          <dt>{html_escape(label)}</dt>"
+            f"<dd class=\"excerpt-cell\"><details class=\"excerpt-details\">"
+            f"<summary>Show full legacy text</summary><div class=\"excerpt-text\">{rendered_value}</div>"
+            f"</details></dd>"
+        )
+    return f"          <dt>{html_escape(label)}</dt><dd>{rendered_value}</dd>"
+
+
 def render_markdown_item(item: ConsolidatedItem) -> str:
     lines = [
         f"\n<!-- consolidated-key: {item.key} -->",
@@ -323,7 +314,11 @@ def render_markdown_item(item: ConsolidatedItem) -> str:
         f"### {markdown_escape(item.title)}",
         "",
     ]
-    lines.extend(f"- **{markdown_escape(label)}:** {markdown_escape(value or 'n/a')}" for label, value in item.rows)
+    for label, value in item.rows:
+        if label == "Legacy text":
+            lines.extend(["", "**Legacy text:**", "", markdown_escape(value or "n/a")])
+        else:
+            lines.append(f"- **{markdown_escape(label)}:** {markdown_escape(value or 'n/a')}")
     return "\n".join(lines) + "\n"
 
 
