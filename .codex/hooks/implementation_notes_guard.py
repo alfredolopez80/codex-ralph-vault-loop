@@ -77,6 +77,16 @@ def _payload_session_id(payload: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _state_matches_roots(state: dict[str, str], roots: Any) -> bool:
+    stored_active = state.get("active_worktree_root", "").strip()
+    stored_primary = state.get("primary_repo_root", "").strip()
+    if not stored_active or not stored_primary:
+        return False
+    return Path(stored_active).expanduser().resolve(strict=False) == roots.active_worktree_root.resolve(
+        strict=False
+    ) and Path(stored_primary).expanduser().resolve(strict=False) == roots.primary_repo_root.resolve(strict=False)
+
+
 def block(reason: str) -> int:
     write_json({"decision": "block", "reason": reason})
     return 0
@@ -122,6 +132,8 @@ def main() -> int:
             raise
         if not plan_value:
             state = read_implementation_plan_state(roots.active_worktree_root, _payload_session_id(payload))
+            if state and not _state_matches_roots(state, roots):
+                state = {}
             plan_value = state.get("plan_path", "")
             plan_source = "state" if plan_value else ""
         if not plan_value:
