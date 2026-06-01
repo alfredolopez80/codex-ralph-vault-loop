@@ -18,6 +18,7 @@ from consolidated_notes_artifacts import (
     current_entries,
     legacy_excerpt,
     resolve_consolidated_paths,
+    validate_consolidated_targets,
 )
 from implementation_index_lib import load_index, upsert_plan_entry, write_index
 from implementation_notes_lib import (
@@ -33,14 +34,14 @@ from implementation_notes_lib import (
 
 
 LEGACY_ENTRY_RE = re.compile(r"<(?:article|section)\b", re.IGNORECASE)
-UNSAFE_LEGACY_HTML_RE = re.compile(
+UNSAFE_NOTES_HTML_RE = re.compile(
     r"(?is)"
     r"<\s*(script|iframe|object|embed|base|form|input|button|textarea|select|svg|math)\b"
-    r"|<\s*meta\b[^>]*http-equiv\s*="
     r"|<\s*link\b"
     r"|<[^>]+\s+on[a-z0-9_-]+\s*="
     r"|(?:href|src|xlink:href)\s*=\s*(['\"]?)\s*(?:javascript:|data:text/html|data:application)"
 )
+META_HTTP_EQUIV_RE = re.compile(r"(?is)<\s*meta\b[^>]*http-equiv\s*=\s*(?:['\"]([^'\"]+)['\"]|([^\s>]+))[^>]*>")
 
 @dataclass
 class NotesCopy:
@@ -98,19 +99,31 @@ def slug_for_notes(path: Path) -> str:
     return name[: -len(IMPLEMENTATION_NOTES_SUFFIX)]
 
 
+def unsafe_notes_html_match(text: str) -> re.Match[str] | None:
+    active_match = UNSAFE_NOTES_HTML_RE.search(text)
+    if active_match:
+        return active_match
+    for meta_match in META_HTTP_EQUIV_RE.finditer(text):
+        value = (meta_match.group(1) or meta_match.group(2) or "").strip().lower()
+        if value != "content-security-policy":
+            return meta_match
+    return None
+
+
 def classify_notes(path: Path) -> tuple[str, int, str]:
     text = path.read_text(encoding="utf-8", errors="replace")
     ensure_not_red(f"implementation notes file {path}", text)
+    unsafe_match = unsafe_notes_html_match(text)
+    if unsafe_match:
+        legacy_count = len(LEGACY_ENTRY_RE.findall(text))
+        matched = unsafe_match.group(0).strip().split()[0]
+        return "invalid", legacy_count, f"unsafe implementation notes HTML is not allowed: {matched}"
     try:
         entries = valid_non_initial_entries(text)
         return "current", len(entries), ""
     except ImplementationNotesError as exc:
         legacy_count = len(LEGACY_ENTRY_RE.findall(text))
         if "<html" in text.lower() and "implementation notes" in text.lower() and legacy_count:
-            unsafe_match = UNSAFE_LEGACY_HTML_RE.search(text)
-            if unsafe_match:
-                matched = unsafe_match.group(0).strip().split()[0]
-                return "invalid", legacy_count, f"unsafe legacy HTML is not allowed: {matched}"
             return "legacy", legacy_count, str(exc)
         return "invalid", legacy_count, str(exc)
 
@@ -283,6 +296,7 @@ def main() -> int:
                 print(json.dumps(report, indent=2, sort_keys=True))
                 print("IMPLEMENTATION_NOTES_CONSOLIDATE_ERROR conflicts must be resolved before --apply", file=sys.stderr)
                 return 1
+            validate_consolidated_targets(html_path, md_path)
             for record in records:
                 apply_record(record, roots.primary_repo_root, roots.active_worktree_root)
             records_by_slug = scan_notes_roots(roots.primary_repo_root, roots.active_worktree_root, extra_roots)

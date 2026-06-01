@@ -67,8 +67,8 @@ def test_consolidated_notes_html_carries_static_visual_contract(tmp_path: Path) 
             ConsolidatedEntry(
                 category="decision",
                 timestamp="2026-06-01T00:00:00+00:00",
-                decision="Keep one consolidated HTML without overwriting source notes.",
-                reason="Readers need a single durable view.",
+                decision="Keep one consolidated HTML without overwriting source notes. <img src=x onerror=alert(1)>",
+                reason="Readers need a single durable view with `inline code` and [click](javascript:alert(1)) preserved as text.",
                 impact="Per-plan notes remain source artifacts.",
                 related_files="visual-plan.md",
                 status="implemented",
@@ -93,8 +93,15 @@ def test_consolidated_notes_html_carries_static_visual_contract(tmp_path: Path) 
     assert ".meta-grid { grid-template-columns: 1fr; }" in html
     assert "overflow-wrap: anywhere" in html
     assert "Keep one consolidated HTML without overwriting source notes." in html
+    assert "<img src=x onerror=alert(1)>" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
     assert "visual-plan-implementation-notes.html" in html
     assert "Keep one consolidated HTML without overwriting source notes." in markdown
+    assert "<img src=x onerror=alert(1)>" not in markdown
+    assert "&lt;img src=x onerror=alert\\(1\\)&gt;" in markdown
+    assert "\\`inline code\\`" in markdown
+    assert "[click](javascript:alert(1))" not in markdown
+    assert "\\[click\\]\\(javascript:alert\\(1\\)\\)" in markdown
     assert "<!-- consolidated-key:" in markdown
 
 
@@ -113,3 +120,48 @@ def test_consolidated_notes_paths_reject_unsafe_targets(tmp_path: Path) -> None:
     link.symlink_to(outside)
     with pytest.raises(ImplementationNotesError, match="symlink target escapes"):
         resolve_consolidated_paths(tmp_path, None, None)
+
+    with pytest.raises(ImplementationNotesError, match="must be distinct"):
+        resolve_consolidated_paths(tmp_path, "same-output.html", "same-output.html")
+
+
+def test_consolidated_notes_paths_reject_symlinked_plans_root(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    external = tmp_path / "external-plans"
+    (primary / ".ralph").mkdir(parents=True)
+    external.mkdir()
+    (primary / ".ralph" / "plans").symlink_to(external)
+
+    with pytest.raises(ImplementationNotesError, match="resolves outside primary repo"):
+        resolve_consolidated_paths(primary, None, None)
+
+
+def test_consolidated_notes_validate_targets_before_partial_write(tmp_path: Path) -> None:
+    section = ConsolidatedPlanSection(
+        slug="atomic-plan",
+        plan_path=tmp_path / ".ralph" / "plans" / "atomic-plan.md",
+        notes_path=tmp_path / ".ralph" / "plans" / "atomic-plan-implementation-notes.html",
+        schema="current",
+        status="implemented",
+        source_sha256="abc123",
+        entries=[
+            ConsolidatedEntry(
+                category="decision",
+                timestamp="2026-06-01T00:00:00+00:00",
+                decision="Do not write one consolidated artifact if the sibling cannot accept appends.",
+                reason="Apply must reject bad targets before partial mutation.",
+                impact="Users do not get half-updated generated views.",
+                related_files="atomic-plan.md",
+                status="implemented",
+            )
+        ],
+    )
+    html_path = tmp_path / ".ralph" / "plans" / "implementation-notes-consolidated.html"
+    md_path = tmp_path / ".ralph" / "plans" / "implementation-notes-consolidated.md"
+    md_path.parent.mkdir(parents=True)
+    md_path.write_text("# Corrupt consolidated Markdown\n", encoding="utf-8")
+
+    with pytest.raises(ImplementationNotesError, match="Markdown append anchor not found"):
+        append_consolidated_artifacts(tmp_path, html_path, md_path, [section])
+
+    assert not html_path.exists()

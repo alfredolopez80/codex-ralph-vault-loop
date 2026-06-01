@@ -8,6 +8,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CREATE = ROOT / "scripts" / "plans" / "create-implementation-notes.py"
+APPEND = ROOT / "scripts" / "plans" / "append-implementation-note.py"
 CONSOLIDATE = ROOT / "scripts" / "plans" / "consolidate-implementation-notes.py"
 
 
@@ -50,6 +52,32 @@ def write_plan(path: Path) -> None:
     )
 
 
+def append_decision(notes: Path, primary: Path, active: Path, env: dict[str, str]) -> None:
+    result = run(
+        [
+            sys.executable,
+            str(APPEND),
+            "--notes",
+            str(notes),
+            "--category",
+            "decision",
+            "--decision",
+            "Keep current notes safe during consolidation.",
+            "--reason",
+            "The file needs one non-initial entry.",
+            "--impact",
+            "The fixture can exercise current-schema scanning.",
+            "--primary-root",
+            str(primary),
+            "--active-root",
+            str(active),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_consolidate_apply_blocks_unsafe_legacy_html(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = primary / ".ralph" / "plans" / "unsafe-legacy-plan.md"
@@ -73,8 +101,103 @@ def test_consolidate_apply_blocks_unsafe_legacy_html(tmp_path: Path) -> None:
     report = json.loads(result.stdout)
     by_slug = {item["slug"]: item for item in report["records"]}
     assert by_slug["unsafe-legacy-plan"]["schema"] == "invalid"
-    assert "unsafe legacy HTML is not allowed" in by_slug["unsafe-legacy-plan"]["schema_error"]
+    assert "unsafe implementation notes HTML is not allowed" in by_slug["unsafe-legacy-plan"]["schema_error"]
     assert "conflicts must be resolved" in result.stderr
+    assert not (primary / ".ralph" / "plans" / "implementation-index.json").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.html").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.md").exists()
+
+
+def test_consolidate_apply_blocks_meta_refresh_html(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = primary / ".ralph" / "plans" / "meta-refresh-plan.md"
+    write_plan(plan)
+    notes = primary / ".ralph" / "plans" / "meta-refresh-plan-implementation-notes.html"
+    notes.write_text(
+        "<!doctype html><html><head><meta http-equiv=\"refresh\" content=\"0;url=https://example.invalid\"></head>"
+        "<body><h1>Implementation Notes</h1><section><h3>Legacy decision</h3><p>Preserve.</p></section>"
+        "</body></html>\n",
+        encoding="utf-8",
+    )
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary), "--apply"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert by_slug["meta-refresh-plan"]["schema"] == "invalid"
+    assert "unsafe implementation notes HTML is not allowed" in by_slug["meta-refresh-plan"]["schema_error"]
+    assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.html").exists()
+
+
+def test_consolidate_apply_validates_consolidated_targets_before_index_mutation(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "preflight-plan.md"
+    write_plan(plan)
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    notes = primary / ".ralph" / "plans" / "preflight-plan-implementation-notes.html"
+    append_decision(notes, primary, active, env)
+    (primary / ".ralph" / "plans" / "implementation-index.json").unlink()
+    (primary / ".ralph" / "plans" / "implementation-index.md").unlink()
+    corrupt_md = primary / ".ralph" / "plans" / "implementation-notes-consolidated.md"
+    corrupt_md.write_text("# Missing append anchor\n", encoding="utf-8")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary), "--apply"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "Markdown append anchor not found" in result.stderr
+    assert not (primary / ".ralph" / "plans" / "implementation-index.json").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.html").exists()
+
+
+def test_consolidate_apply_blocks_unsafe_current_schema_worktree_html(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "unsafe-current-plan.md"
+    write_plan(plan)
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    primary_notes = primary / ".ralph" / "plans" / "unsafe-current-plan-implementation-notes.html"
+    append_decision(primary_notes, primary, active, env)
+    active_notes = active / ".ralph" / "plans" / "unsafe-current-plan-implementation-notes.html"
+    active_notes.parent.mkdir(parents=True, exist_ok=True)
+    active_notes.write_text(
+        primary_notes.read_text(encoding="utf-8").replace("</main>", "<script>alert('unsafe')</script></main>"),
+        encoding="utf-8",
+    )
+    primary_notes.unlink()
+    (primary / ".ralph" / "plans" / "implementation-index.json").unlink()
+    (primary / ".ralph" / "plans" / "implementation-index.md").unlink()
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary), "--apply"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert by_slug["unsafe-current-plan"]["schema"] == "invalid"
+    assert "unsafe implementation notes HTML is not allowed" in by_slug["unsafe-current-plan"]["schema_error"]
+    assert "conflicts must be resolved" in result.stderr
+    assert not primary_notes.exists()
     assert not (primary / ".ralph" / "plans" / "implementation-index.json").exists()
     assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.html").exists()
     assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.md").exists()

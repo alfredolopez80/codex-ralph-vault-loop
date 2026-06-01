@@ -149,6 +149,12 @@ def common_rows(section: ConsolidatedPlanSection) -> tuple[tuple[str, str], ...]
 
 def plans_artifact_path(primary_root: Path, explicit_path: str | None, default_name: str) -> Path:
     plans_root = primary_root / ".ralph" / "plans"
+    primary = primary_root.resolve(strict=False)
+    root = plans_root.resolve(strict=False)
+    try:
+        root.relative_to(primary)
+    except ValueError as exc:
+        raise ImplementationNotesError(f"primary .ralph/plans resolves outside primary repo: {plans_root}") from exc
     if explicit_path:
         explicit = Path(explicit_path).expanduser()
         candidate = explicit if explicit.is_absolute() else plans_root / explicit
@@ -158,7 +164,6 @@ def plans_artifact_path(primary_root: Path, explicit_path: str | None, default_n
         raise ImplementationNotesError(f"path traversal is not allowed: {candidate}")
     if any(SENSITIVE_NAME_RE.search(part) for part in candidate.parts):
         raise ImplementationNotesError(f"sensitive filename is not allowed: {candidate}")
-    root = plans_root.resolve()
     if candidate.is_symlink() and candidate.resolve().parent != root:
         raise ImplementationNotesError(f"symlink target escapes primary .ralph/plans: {candidate}")
     resolved = candidate.resolve(strict=False)
@@ -170,10 +175,11 @@ def plans_artifact_path(primary_root: Path, explicit_path: str | None, default_n
 
 
 def resolve_consolidated_paths(primary_root: Path, html_path: str | None, md_path: str | None) -> tuple[Path, Path]:
-    return (
-        plans_artifact_path(primary_root, html_path, CONSOLIDATED_HTML_NAME),
-        plans_artifact_path(primary_root, md_path, CONSOLIDATED_MD_NAME),
-    )
+    resolved_html = plans_artifact_path(primary_root, html_path, CONSOLIDATED_HTML_NAME)
+    resolved_md = plans_artifact_path(primary_root, md_path, CONSOLIDATED_MD_NAME)
+    if resolved_html == resolved_md:
+        raise ImplementationNotesError("consolidated HTML and Markdown artifacts must be distinct files")
+    return resolved_html, resolved_md
 
 
 def existing_keys(path: Path, pattern: re.Pattern[str]) -> set[str]:
@@ -194,40 +200,40 @@ def planned_append_counts(sections: list[ConsolidatedPlanSection], html_path: Pa
 
 
 def append_consolidated_artifacts(primary_root: Path, html_path: Path, md_path: Path, sections: list[ConsolidatedPlanSection]) -> dict[str, int]:
+    validate_consolidated_targets(html_path, md_path)
     items = consolidated_items(sections)
-    html_appended = append_html(primary_root, html_path, items)
-    md_appended = append_markdown(primary_root, md_path, items)
+    html_text, html_appended, write_html = prepared_artifact(html_path, html_shell(primary_root), HTML_ANCHOR, HTML_KEY_RE, items, render_html_item, "HTML")
+    md_text, md_appended, write_md = prepared_artifact(md_path, markdown_shell(primary_root), MD_ANCHOR, MD_KEY_RE, items, render_markdown_item, "Markdown")
+    if write_html:
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        html_path.write_text(html_text, encoding="utf-8")
+    if write_md:
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(md_text, encoding="utf-8")
     return {"items": len(items), "html_append": html_appended, "md_append": md_appended}
 
 
-def append_html(primary_root: Path, path: Path, items: list[ConsolidatedItem]) -> int:
-    text = path.read_text(encoding="utf-8") if path.exists() else html_shell(primary_root)
-    if HTML_ANCHOR not in text:
-        raise ImplementationNotesError(f"consolidated HTML append anchor not found: {path}")
-    seen = set(HTML_KEY_RE.findall(text))
-    missing = [item for item in items if item.key not in seen]
-    if not missing and path.exists():
-        return 0
-    addition = "".join(render_html_item(item) for item in missing)
-    ensure_not_red("consolidated implementation notes HTML append", addition)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.replace(HTML_ANCHOR, addition + HTML_ANCHOR, 1), encoding="utf-8")
-    return len(missing)
+def validate_consolidated_targets(html_path: Path, md_path: Path) -> None:
+    if html_path.resolve(strict=False) == md_path.resolve(strict=False):
+        raise ImplementationNotesError("consolidated HTML and Markdown artifacts must be distinct files")
+    if html_path.exists() and HTML_ANCHOR not in html_path.read_text(encoding="utf-8", errors="replace"):
+        raise ImplementationNotesError(f"consolidated HTML append anchor not found: {html_path}")
+    if md_path.exists() and MD_ANCHOR not in md_path.read_text(encoding="utf-8", errors="replace"):
+        raise ImplementationNotesError(f"consolidated Markdown append anchor not found: {md_path}")
 
 
-def append_markdown(primary_root: Path, path: Path, items: list[ConsolidatedItem]) -> int:
-    text = path.read_text(encoding="utf-8") if path.exists() else markdown_shell(primary_root)
-    if MD_ANCHOR not in text:
-        raise ImplementationNotesError(f"consolidated Markdown append anchor not found: {path}")
-    seen = set(MD_KEY_RE.findall(text))
+def prepared_artifact(path: Path, shell: str, anchor: str, key_re: re.Pattern[str], items: list[ConsolidatedItem], render_item, label: str) -> tuple[str, int, bool]:
+    exists = path.exists()
+    text = path.read_text(encoding="utf-8") if exists else shell
+    if anchor not in text:
+        raise ImplementationNotesError(f"consolidated {label} append anchor not found: {path}")
+    seen = set(key_re.findall(text))
     missing = [item for item in items if item.key not in seen]
-    if not missing and path.exists():
-        return 0
-    addition = "".join(render_markdown_item(item) for item in missing)
-    ensure_not_red("consolidated implementation notes Markdown append", addition)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.replace(MD_ANCHOR, addition + MD_ANCHOR, 1), encoding="utf-8")
-    return len(missing)
+    if not missing and exists:
+        return text, 0, False
+    addition = "".join(render_item(item) for item in missing)
+    ensure_not_red(f"consolidated implementation notes {label} append", addition)
+    return text.replace(anchor, addition + anchor, 1), len(missing), True
 
 
 def html_shell(primary_root: Path) -> str:
@@ -287,7 +293,7 @@ def html_shell(primary_root: Path) -> str:
 def markdown_shell(primary_root: Path) -> str:
     return f"""# Consolidated Implementation Notes
 
-Canonical repo root: `{primary_root}`
+Canonical repo root: `{markdown_escape(primary_root)}`
 
 This file is append-only. It consolidates per-plan implementation notes without replacing the source HTML notes.
 
@@ -312,10 +318,17 @@ def render_html_item(item: ConsolidatedItem) -> str:
 def render_markdown_item(item: ConsolidatedItem) -> str:
     lines = [
         f"\n<!-- consolidated-key: {item.key} -->",
-        f"## {item.section.slug}",
+        f"## {markdown_escape(item.section.slug)}",
         "",
-        f"### {item.title}",
+        f"### {markdown_escape(item.title)}",
         "",
     ]
-    lines.extend(f"- **{label}:** {value or 'n/a'}" for label, value in item.rows)
+    lines.extend(f"- **{markdown_escape(label)}:** {markdown_escape(value or 'n/a')}" for label, value in item.rows)
     return "\n".join(lines) + "\n"
+
+
+def markdown_escape(value: object) -> str:
+    escaped = html_escape("" if value is None else str(value)).replace("\\", "\\\\")
+    for char in "`*_[]()!":
+        escaped = escaped.replace(char, f"\\{char}")
+    return escaped
