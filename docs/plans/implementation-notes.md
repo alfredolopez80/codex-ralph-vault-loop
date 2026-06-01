@@ -87,3 +87,17 @@ hook blocks finalization if the plan is not approved, notes are missing, notes
 exist only in an ephemeral worktree, the approved plan exists only in an
 ephemeral worktree, notes contain only the initial template, or the notes path
 cannot be validated inside the allowed repo-local boundary.
+
+## Consolidation
+
+Use `scripts/plans/consolidate-implementation-notes.py` to inventory or recover
+implementation notes that predate the current index workflow. The command is
+dry-run by default and reports every discovered notes file, schema version,
+index action, duplicate copy, and conflict as JSON.
+
+`--apply` may write only under the canonical `<primary-repo-root>/.ralph/plans/`
+directory. It can copy a single safe worktree-only notes file into the primary
+repo and can add missing `implementation-index.json` entries for current or
+legacy notes. It must not write to `.codex/state`, mutate active session state,
+or choose between conflicting notes copies. If a primary and worktree copy differ,
+the command blocks and reports the conflict for manual review.

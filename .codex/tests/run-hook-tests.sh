@@ -69,6 +69,7 @@ PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
   "$ROOT/scripts/plans/implementation_notes_lib.py" \
   "$ROOT/scripts/plans/create-implementation-notes.py" \
   "$ROOT/scripts/plans/append-implementation-note.py" \
+  "$ROOT/scripts/plans/consolidate-implementation-notes.py" \
   "$ROOT/scripts/plans/update-implementation-index.py" || fail "python implementation notes syntax"
 pass "implementation notes python syntax"
 
