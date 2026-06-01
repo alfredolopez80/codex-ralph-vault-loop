@@ -31,6 +31,7 @@ def main() -> int:
     parser.add_argument("--consolidated-html", help=f"Aggregate HTML path inside .ralph/plans. Defaults to {CONSOLIDATED_HTML_NAME}.")
     parser.add_argument("--consolidated-md", help=f"Aggregate Markdown path inside .ralph/plans. Defaults to {CONSOLIDATED_MD_NAME}.")
     parser.add_argument("--apply", action="store_true", help="Apply safe copy/index updates. Default is dry-run inventory.")
+    parser.add_argument("--rebuild", action="store_true", help="With --apply, rewrite consolidated artifacts from current source notes instead of appending.")
     args = parser.parse_args()
 
     try:
@@ -48,7 +49,7 @@ def main() -> int:
 
         if args.apply:
             if blocked:
-                report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=True)
+                report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=True, rebuild=args.rebuild)
                 print(json.dumps(report, indent=2, sort_keys=True))
                 print("IMPLEMENTATION_NOTES_CONSOLIDATE_ERROR conflicts must be resolved before --apply", file=sys.stderr)
                 return 1
@@ -64,14 +65,14 @@ def main() -> int:
             blocked = [record for record in records if record.conflicts]
             sections = build_consolidated_sections(records) if not blocked else []
             if blocked:
-                report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=True)
+                report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=True, rebuild=args.rebuild)
                 print(json.dumps(report, indent=2, sort_keys=True))
                 print("IMPLEMENTATION_NOTES_CONSOLIDATE_ERROR conflicts appeared after apply", file=sys.stderr)
                 return 1
-            append_stats = append_and_index(roots.primary_repo_root, html_path, md_path, sections)
-            report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=True, html_path=html_path, md_path=md_path, blocked=False, append_stats=append_stats)
+            append_stats = append_and_index(roots.primary_repo_root, html_path, md_path, sections, rebuild=args.rebuild)
+            report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=True, html_path=html_path, md_path=md_path, blocked=False, append_stats=append_stats, rebuild=args.rebuild)
         else:
-            report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=bool(blocked))
+            report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=bool(blocked), rebuild=args.rebuild)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     except ImplementationNotesError as exc:

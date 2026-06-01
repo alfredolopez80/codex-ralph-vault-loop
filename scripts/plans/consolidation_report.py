@@ -8,9 +8,9 @@ from implementation_index_lib import load_index, write_index
 from implementation_notes_lib import ImplementationNotesError, now_local
 
 
-def append_and_index(primary_root: Path, html_path: Path, md_path: Path, sections: list[ConsolidatedPlanSection]) -> dict[str, int]:
-    stats = append_consolidated_artifacts(primary_root, html_path, md_path, sections)
-    write_consolidated_index_metadata(primary_root, html_path, md_path, sections, stats)
+def append_and_index(primary_root: Path, html_path: Path, md_path: Path, sections: list[ConsolidatedPlanSection], *, rebuild: bool = False) -> dict[str, int]:
+    stats = append_consolidated_artifacts(primary_root, html_path, md_path, sections, rebuild=rebuild)
+    write_consolidated_index_metadata(primary_root, html_path, md_path, sections, stats, rebuild=rebuild)
     return stats
 
 
@@ -20,6 +20,8 @@ def write_consolidated_index_metadata(
     md_path: Path,
     sections: list[ConsolidatedPlanSection],
     stats: dict[str, int],
+    *,
+    rebuild: bool = False,
 ) -> None:
     entry_count = sum(len(section.entries) + (1 if section.legacy_excerpt else 0) for section in sections)
     if stats["items"] != entry_count:
@@ -32,6 +34,7 @@ def write_consolidated_index_metadata(
         "entry_count": entry_count,
         "last_html_append_count": stats["html_append"],
         "last_md_append_count": stats["md_append"],
+        "last_operation": "rebuild" if rebuild else "append",
         "updated_at": now_local(),
         "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
     }
@@ -48,8 +51,19 @@ def render_report(
     md_path: Path,
     blocked: bool,
     append_stats: dict[str, int] | None = None,
+    rebuild: bool = False,
 ) -> dict[str, object]:
-    stats = append_stats or ({"items": 0, "html_append": 0, "md_append": 0} if blocked else planned_append_counts(sections, html_path, md_path))
+    entry_count = sum(len(section.entries) + (1 if section.legacy_excerpt else 0) for section in sections)
+    stats = append_stats or (
+        {"items": 0, "html_append": 0, "md_append": 0}
+        if blocked
+        else {"items": entry_count, "html_append": entry_count, "md_append": entry_count}
+        if rebuild
+        else planned_append_counts(sections, html_path, md_path)
+    )
+    action = "blocked_by_conflicts"
+    if not blocked:
+        action = "rebuild_complete" if applied and rebuild else "append_complete" if applied else "rebuild_on_apply" if rebuild else "append_on_apply"
     return {
         "applied": applied,
         "primary_repo_root": str(primary_root),
@@ -58,7 +72,7 @@ def render_report(
             "markdown": str(md_path),
             "html_exists": html_path.exists(),
             "markdown_exists": md_path.exists(),
-            "action": "blocked_by_conflicts" if blocked else ("append_complete" if applied else "append_on_apply"),
+            "action": action,
             "plan_count": len(sections),
             "entry_count": stats["items"],
             "html_append_count": stats["html_append"],
