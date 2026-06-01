@@ -9,8 +9,16 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
+from consolidation_report import append_and_index, render_report
+from consolidated_notes_artifacts import (
+    CONSOLIDATED_HTML_NAME,
+    CONSOLIDATED_MD_NAME,
+    ConsolidatedPlanSection,
+    current_entries,
+    legacy_excerpt,
+    resolve_consolidated_paths,
+)
 from implementation_index_lib import load_index, upsert_plan_entry, write_index
 from implementation_notes_lib import (
     IMPLEMENTATION_NOTES_SUFFIX,
@@ -25,15 +33,20 @@ from implementation_notes_lib import (
 
 
 LEGACY_ENTRY_RE = re.compile(r"<(?:article|section)\b", re.IGNORECASE)
-
+UNSAFE_LEGACY_HTML_RE = re.compile(
+    r"(?is)"
+    r"<\s*(script|iframe|object|embed|base|form|input|button|textarea|select|svg|math)\b"
+    r"|<\s*meta\b[^>]*http-equiv\s*="
+    r"|<\s*link\b"
+    r"|<[^>]+\s+on[a-z0-9_-]+\s*="
+    r"|(?:href|src|xlink:href)\s*=\s*(['\"]?)\s*(?:javascript:|data:text/html|data:application)"
+)
 
 @dataclass
 class NotesCopy:
     path: Path
-    root: Path
     location: str
     sha256: str
-
 
 @dataclass
 class NotesRecord:
@@ -48,14 +61,12 @@ class NotesRecord:
     actions: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
 
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
 
 def git_worktree_paths(root: Path) -> list[Path]:
     raw = run_git(root, "worktree", "list", "--porcelain")
@@ -67,7 +78,6 @@ def git_worktree_paths(root: Path) -> list[Path]:
         if candidate.exists():
             paths.append(candidate.resolve())
     return paths
-
 
 def unique_paths(paths: list[Path]) -> list[Path]:
     seen: set[Path] = set()
@@ -97,6 +107,10 @@ def classify_notes(path: Path) -> tuple[str, int, str]:
     except ImplementationNotesError as exc:
         legacy_count = len(LEGACY_ENTRY_RE.findall(text))
         if "<html" in text.lower() and "implementation notes" in text.lower() and legacy_count:
+            unsafe_match = UNSAFE_LEGACY_HTML_RE.search(text)
+            if unsafe_match:
+                matched = unsafe_match.group(0).strip().split()[0]
+                return "invalid", legacy_count, f"unsafe legacy HTML is not allowed: {matched}"
             return "legacy", legacy_count, str(exc)
         return "invalid", legacy_count, str(exc)
 
@@ -134,7 +148,7 @@ def scan_notes_roots(primary_root: Path, active_root: Path, extra_roots: list[Pa
         location = "primary" if root.resolve(strict=False) == primary_root.resolve(strict=False) else "worktree"
         for path in sorted(root_plans.glob(f"*{IMPLEMENTATION_NOTES_SUFFIX}")):
             slug = slug_for_notes(path)
-            record_for(slug).copies.append(NotesCopy(path=path, root=root, location=location, sha256=sha256(path)))
+            record_for(slug).copies.append(NotesCopy(path=path, location=location, sha256=sha256(path)))
     return records
 
 
@@ -165,6 +179,9 @@ def analyze_record(record: NotesRecord, primary_root: Path, indexed_notes: set[s
         for copy in worktree_copies:
             if copy.sha256 != primary_copy.sha256:
                 record.conflicts.append(f"worktree copy differs from primary: {copy.path}")
+
+    if record.schema == "invalid":
+        record.conflicts.append(f"implementation notes schema is invalid: {record.schema_error}")
 
     if not record.plan_path.exists():
         record.conflicts.append("matching plan file is missing in primary .ralph/plans")
@@ -211,33 +228,30 @@ def apply_record(record: NotesRecord, primary_root: Path, active_root: Path) -> 
     write_index(primary_root, data)
 
 
-def render_report(records: list[NotesRecord], primary_root: Path, applied: bool) -> dict[str, Any]:
-    return {
-        "applied": applied,
-        "primary_repo_root": str(primary_root),
-        "records": [
-            {
-                "slug": record.slug,
-                "plan": str(record.plan_path),
-                "notes": str(record.primary_notes),
-                "schema": record.schema,
-                "entry_count": record.entry_count,
-                "indexed": record.indexed,
-                "actions": record.actions,
-                "conflicts": record.conflicts,
-                "schema_error": record.schema_error,
-                "copies": [
-                    {
-                        "path": str(copy.path),
-                        "location": copy.location,
-                        "sha256": copy.sha256,
-                    }
-                    for copy in record.copies
-                ],
-            }
-            for record in records
-        ],
-    }
+def build_consolidated_sections(records: list[NotesRecord]) -> list[ConsolidatedPlanSection]:
+    sections: list[ConsolidatedPlanSection] = []
+    for record in records:
+        if record.conflicts or record.schema not in {"current", "legacy"} or not record.primary_notes.exists():
+            continue
+        if record.schema == "current":
+            entries = current_entries(record.primary_notes)
+            excerpt = ""
+        else:
+            entries = []
+            excerpt = legacy_excerpt(record.primary_notes)
+        sections.append(
+            ConsolidatedPlanSection(
+                slug=record.slug,
+                plan_path=record.plan_path,
+                notes_path=record.primary_notes,
+                schema=record.schema,
+                status=plan_status(record.plan_path, record.schema),
+                source_sha256=sha256(record.primary_notes),
+                entries=entries,
+                legacy_excerpt=excerpt,
+            )
+        )
+    return sections
 
 
 def main() -> int:
@@ -245,23 +259,28 @@ def main() -> int:
     parser.add_argument("--active-root", help="Active worktree root override.")
     parser.add_argument("--primary-root", help="Canonical local repo root override.")
     parser.add_argument("--extra-root", action="append", default=[], help="Additional repo/worktree root to scan.")
+    parser.add_argument("--consolidated-html", help=f"Aggregate HTML path inside .ralph/plans. Defaults to {CONSOLIDATED_HTML_NAME}.")
+    parser.add_argument("--consolidated-md", help=f"Aggregate Markdown path inside .ralph/plans. Defaults to {CONSOLIDATED_MD_NAME}.")
     parser.add_argument("--apply", action="store_true", help="Apply safe copy/index updates. Default is dry-run inventory.")
     args = parser.parse_args()
 
     try:
         roots = resolve_roots(args.active_root, args.primary_root)
         extra_roots = [Path(value).expanduser().resolve() for value in args.extra_root]
+        html_path, md_path = resolve_consolidated_paths(roots.primary_repo_root, args.consolidated_html, args.consolidated_md)
         records_by_slug = scan_notes_roots(roots.primary_repo_root, roots.active_worktree_root, extra_roots)
         index = load_index(roots.primary_repo_root)
         indexed_notes = {str(item.get("notes")) for item in index.get("plans", []) if isinstance(item, dict)}
         records = [records_by_slug[key] for key in sorted(records_by_slug)]
         for record in records:
             analyze_record(record, roots.primary_repo_root, indexed_notes)
+        blocked = [record for record in records if record.conflicts]
+        sections = build_consolidated_sections(records) if not blocked else []
 
         if args.apply:
-            blocked = [record for record in records if record.conflicts]
             if blocked:
-                print(json.dumps(render_report(records, roots.primary_repo_root, applied=False), indent=2, sort_keys=True))
+                report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=True)
+                print(json.dumps(report, indent=2, sort_keys=True))
                 print("IMPLEMENTATION_NOTES_CONSOLIDATE_ERROR conflicts must be resolved before --apply", file=sys.stderr)
                 return 1
             for record in records:
@@ -272,9 +291,17 @@ def main() -> int:
             records = [records_by_slug[key] for key in sorted(records_by_slug)]
             for record in records:
                 analyze_record(record, roots.primary_repo_root, indexed_notes)
-            report = render_report(records, roots.primary_repo_root, applied=True)
+            blocked = [record for record in records if record.conflicts]
+            sections = build_consolidated_sections(records) if not blocked else []
+            if blocked:
+                report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=True)
+                print(json.dumps(report, indent=2, sort_keys=True))
+                print("IMPLEMENTATION_NOTES_CONSOLIDATE_ERROR conflicts appeared after apply", file=sys.stderr)
+                return 1
+            append_stats = append_and_index(roots.primary_repo_root, html_path, md_path, sections)
+            report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=True, html_path=html_path, md_path=md_path, blocked=False, append_stats=append_stats)
         else:
-            report = render_report(records, roots.primary_repo_root, applied=False)
+            report = render_report(records=records, sections=sections, primary_root=roots.primary_repo_root, applied=False, html_path=html_path, md_path=md_path, blocked=bool(blocked))
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     except ImplementationNotesError as exc:

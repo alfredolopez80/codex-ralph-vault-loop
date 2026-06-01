@@ -4,13 +4,27 @@ Use implementation notes when a plan has been approved and the user asks Codex t
 
 ## Location
 
-The durable local plan and implementation-notes copies belong under the canonical local project checkout:
+The durable local plan and implementation-notes copies belong under the canonical local project checkout. Keep source artifacts, metadata indexes, and generated views separate so each file has one responsibility.
+
+Source artifacts:
 
 ```text
 <primary-repo-root>/.ralph/plans/<plan-slug>.md
 <primary-repo-root>/.ralph/plans/<plan-slug>-implementation-notes.html
+```
+
+Project implementation index:
+
+```text
 <primary-repo-root>/.ralph/plans/implementation-index.json
 <primary-repo-root>/.ralph/plans/implementation-index.md
+```
+
+Generated consolidated views:
+
+```text
+<primary-repo-root>/.ralph/plans/implementation-notes-consolidated.html
+<primary-repo-root>/.ralph/plans/implementation-notes-consolidated.md
 ```
 
 Codex often works from secondary worktrees under `~/.codex/worktrees/`. A worktree may keep a convenience copy, but that copy is disposable. Before finalizing work or cleaning a worktree, Codex must verify that the canonical local repo root copy exists and has the latest entries.
@@ -41,6 +55,11 @@ approved plan.
 is the human-readable view. Both are stored beside the plans in the canonical
 repo root `.ralph/plans/` directory and should not be kept only in worktrees.
 
+The implementation index is not the consolidated implementation-notes document.
+It is metadata only. The generated consolidated HTML and Markdown files are
+append-only reading views derived from the per-plan notes. They are not
+authoritative replacements for the per-plan HTML files.
+
 The lifecycle is:
 
 - Creating implementation notes registers the plan as `active`.
@@ -68,9 +87,11 @@ Every entry should include timestamp, category, decision, reason, impact, relate
 - Default writes are limited to `<primary-repo-root>/.ralph/plans/`.
 - Publishing sanitized completed notes to `<primary-repo-root>/docs/` is allowed only when explicitly requested.
 - Reject traversal, symlink escape, and sensitive filenames such as `.env`, keys, credentials, tokens, wallets, or cookies.
+- Custom consolidation output paths must still resolve inside `<primary-repo-root>/.ralph/plans/`.
 - Run note content through `scripts/security/sensitive_content.py` before writing.
 - RED-like content must be refused or redacted before persistence.
 - HTML notes must escape dynamic text, avoid inline JavaScript, avoid remote assets, and include a restrictive static-document CSP where practical.
+- Legacy HTML notes must be extracted as sanitized text before entering consolidated views. Do not copy legacy markup directly into the consolidated HTML.
 
 ## Validation
 
@@ -88,6 +109,18 @@ exist only in an ephemeral worktree, the approved plan exists only in an
 ephemeral worktree, notes contain only the initial template, or the notes path
 cannot be validated inside the allowed repo-local boundary.
 
+Consolidation tests must prove:
+
+```text
+dry-run -> reports pending append counts and writes nothing
+apply -> appends missing entries to consolidated HTML and Markdown
+second apply -> appends 0 entries and leaves consolidated files unchanged
+conflict -> blocks apply and does not mutate index or consolidated files
+path escape -> rejects traversal, symlink escape, and sensitive filenames
+visual contract -> HTML has CSP, no script, responsive CSS, and overflow-safe text
+source preservation -> per-plan HTML files are not overwritten by consolidation
+```
+
 ## Consolidation
 
 Use `scripts/plans/consolidate-implementation-notes.py` to inventory or recover
@@ -97,7 +130,28 @@ index action, duplicate copy, and conflict as JSON.
 
 `--apply` may write only under the canonical `<primary-repo-root>/.ralph/plans/`
 directory. It can copy a single safe worktree-only notes file into the primary
-repo and can add missing `implementation-index.json` entries for current or
-legacy notes. It must not write to `.codex/state`, mutate active session state,
-or choose between conflicting notes copies. If a primary and worktree copy differ,
-the command blocks and reports the conflict for manual review.
+repo, add missing `implementation-index.json` entries for current or legacy
+notes, and append missing entries to the generated consolidated HTML and
+Markdown views. It must not write to `.codex/state`, mutate active session
+state, or choose between conflicting notes copies. If a primary and worktree copy
+differ, the command blocks and reports the conflict for manual review.
+
+On a clean apply, consolidation also appends to two generated aggregate files
+beside the project implementation index:
+
+```text
+<primary-repo-root>/.ralph/plans/implementation-notes-consolidated.html
+<primary-repo-root>/.ralph/plans/implementation-notes-consolidated.md
+```
+
+Those files are append-only views over all safe current and legacy per-plan
+notes in the repo. They do not replace the per-plan HTML files, and they must
+not overwrite them. Each consolidated entry has a stable key, so re-running the
+command appends only decisions that have not already been consolidated. Invalid
+notes, missing plans, or divergent worktree copies block the apply so decisions
+are not silently dropped.
+
+If review work is delegated to subagents, subagents may return inventories,
+conflicts, and candidate corrections only. Codex main owns the apply step and is
+the only actor that may mutate the canonical index or consolidated views. This
+prevents concurrent workers from racing on the same append-only artifacts.
