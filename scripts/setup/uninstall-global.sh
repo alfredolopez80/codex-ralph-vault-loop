@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
+PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
 AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
@@ -47,6 +48,7 @@ DEFAULT_SKILLS=(
   framing-doc
   kickoff-doc
   thermo-nuclear-code-quality-review
+  telegram-app-integration
 )
 
 DEFAULT_AGENTS=(
@@ -129,8 +131,21 @@ remove_link() {
 
 remove_skill() {
   local name="$1"
-  remove_link "${SKILL_SOURCE_ROOT}/${name}" "${GLOBAL_SKILL_ROOT}/${name}"
-  remove_link "${SKILL_SOURCE_ROOT}/${name}" "${GLOBAL_CODEX_SKILL_ROOT}/${name}"
+  local source
+  source="$(resolve_skill_source "$name")"
+  remove_link "$source" "${GLOBAL_SKILL_ROOT}/${name}"
+  remove_link "$source" "${GLOBAL_CODEX_SKILL_ROOT}/${name}"
+}
+
+resolve_skill_source() {
+  local name="$1"
+  if [[ -e "${SKILL_SOURCE_ROOT}/${name}" ]]; then
+    printf '%s\n' "${SKILL_SOURCE_ROOT}/${name}"
+  elif [[ -f "${PLUGIN_SKILL_SOURCE_ROOT}/${name}/SKILL.md" ]]; then
+    printf '%s\n' "${PLUGIN_SKILL_SOURCE_ROOT}/${name}"
+  else
+    printf '%s\n' "${SKILL_SOURCE_ROOT}/${name}"
+  fi
 }
 
 remove_agent() {

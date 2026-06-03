@@ -24,6 +24,7 @@ if [[ -f "$GLOBAL_HOOK_MARKER" ]]; then
   esac
 fi
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
+PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
 AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
@@ -68,6 +69,7 @@ DEFAULT_SKILLS=(
   framing-doc
   kickoff-doc
   thermo-nuclear-code-quality-review
+  telegram-app-integration
 )
 
 DEFAULT_AGENTS=(
@@ -112,7 +114,8 @@ check_dir() {
 
 check_skill_link() {
   local name="$1"
-  local source="${SKILL_SOURCE_ROOT}/${name}"
+  local source
+  source="$(resolve_skill_source "$name")"
   local target="${GLOBAL_SKILL_ROOT}/${name}"
   if [[ ! -e "$source" ]]; then
     fail "source skill missing $source"
@@ -127,7 +130,8 @@ check_skill_link() {
 
 check_codex_skill_link() {
   local name="$1"
-  local source="${SKILL_SOURCE_ROOT}/${name}"
+  local source
+  source="$(resolve_skill_source "$name")"
   local target="${GLOBAL_CODEX_SKILL_ROOT}/${name}"
   if [[ ! -e "$source" ]]; then
     fail "source skill missing $source"
@@ -137,6 +141,17 @@ check_codex_skill_link() {
     fail "codex skill target exists but is not expected repo symlink: $target"
   else
     fail "codex skill missing $name"
+  fi
+}
+
+resolve_skill_source() {
+  local name="$1"
+  if [[ -e "${SKILL_SOURCE_ROOT}/${name}" ]]; then
+    printf '%s\n' "${SKILL_SOURCE_ROOT}/${name}"
+  elif [[ -f "${PLUGIN_SKILL_SOURCE_ROOT}/${name}/SKILL.md" ]]; then
+    printf '%s\n' "${PLUGIN_SKILL_SOURCE_ROOT}/${name}"
+  else
+    printf '%s\n' "${SKILL_SOURCE_ROOT}/${name}"
   fi
 }
 

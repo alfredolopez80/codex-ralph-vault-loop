@@ -55,6 +55,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert install.returncode == 0, install.stderr
     skill = tmp_path / ".agents" / "skills" / "orchestrator"
     codex_skill = tmp_path / ".codex" / "skills" / "orchestrator"
+    plugin_skill = tmp_path / ".agents" / "skills" / "telegram-app-integration"
+    plugin_codex_skill = tmp_path / ".codex" / "skills" / "telegram-app-integration"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
@@ -62,6 +64,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
     assert skill.is_symlink()
     assert codex_skill.is_symlink()
+    assert plugin_skill.is_symlink()
+    assert plugin_codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
     assert hooks_json.is_file()
@@ -70,6 +74,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
+    assert os.readlink(plugin_skill) == str(ROOT / "plugins" / "telegram-app-integration")
+    assert os.readlink(plugin_codex_skill) == str(ROOT / "plugins" / "telegram-app-integration")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     agents_text = agents_md.read_text(encoding="utf-8")
@@ -114,6 +120,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not skill.is_symlink()
     assert not codex_skill.exists()
     assert not codex_skill.is_symlink()
+    assert not plugin_skill.exists()
+    assert not plugin_skill.is_symlink()
+    assert not plugin_codex_skill.exists()
+    assert not plugin_codex_skill.is_symlink()
     assert not agent.exists()
     assert not agent.is_symlink()
     assert not helper.exists()
@@ -187,6 +197,43 @@ def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:
     backups = list((tmp_path / ".ralph-codex" / "backups" / "global-install").glob("*/.agents/skills/orchestrator"))
     assert len(backups) == 1
     assert (backups[0] / "SKILL.md").read_text(encoding="utf-8") == "local content\n"
+
+
+def test_global_install_supports_plugin_skill_sources(tmp_path: Path) -> None:
+    dry_run = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--dry-run",
+        "--skills",
+        "telegram-app-integration",
+        "--allow-worktree-source",
+    )
+
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert str(ROOT / "plugins" / "telegram-app-integration") in dry_run.stdout
+
+    install = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "telegram-app-integration",
+        "--allow-worktree-source",
+    )
+
+    assert install.returncode == 0, install.stderr
+    skill = tmp_path / ".agents" / "skills" / "telegram-app-integration"
+    codex_skill = tmp_path / ".codex" / "skills" / "telegram-app-integration"
+    expected = str(ROOT / "plugins" / "telegram-app-integration")
+    assert skill.is_symlink()
+    assert codex_skill.is_symlink()
+    assert os.readlink(skill) == expected
+    assert os.readlink(codex_skill) == expected
+
+    uninstall = run_script(tmp_path, "uninstall-global.sh", "--uninstall", "--skills", "telegram-app-integration")
+    assert uninstall.returncode == 0, uninstall.stderr
+    assert not skill.exists()
+    assert not codex_skill.exists()
 
 
 def test_router_global_installer_dry_run_includes_agents_and_hooks(tmp_path: Path) -> None:
