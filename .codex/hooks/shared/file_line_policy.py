@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from .paths import write_json
 
 
 DEFAULT_LINE_LIMIT = 350
+EXISTING_SOURCE_LINE_LIMIT = 1000
+DOCUMENT_LINE_LIMIT = 5000
 SENSITIVE_PATH_RE = re.compile(r"(?i)(^|/)(\.env|id_rsa|id_ed25519|[^/]*(secret|token|credential|wallet|keystore)[^/]*)($|/)")
 
 SKIP_DIRS = {
@@ -63,6 +67,63 @@ GENERATED_SUFFIXES = {
     ".wasm",
 }
 
+SOURCE_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".go",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".m",
+    ".mm",
+    ".php",
+    ".py",
+    ".rb",
+    ".rs",
+    ".scss",
+    ".sh",
+    ".swift",
+    ".ts",
+    ".tsx",
+}
+
+DOCUMENT_SUFFIXES = {
+    ".htm",
+    ".html",
+    ".markdown",
+    ".md",
+    ".mdx",
+}
+
+PLAN_OR_NOTE_NAME_RE = re.compile(r"(?i)(implementation[-_ ]?notes?|handoff|future[-_ ].*|notes?)")
+PLAN_OR_NOTE_SUFFIXES = DOCUMENT_SUFFIXES | {
+    ".json",
+    ".jsonl",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
+
+
+@dataclass(frozen=True)
+class FileLinePolicy:
+    limit: int
+    category: str
+    blocks: bool = True
+
+
+@dataclass(frozen=True)
+class FileLineFinding:
+    path: Path
+    lines: int
+    policy: FileLinePolicy
+
 
 def line_limit() -> int:
     raw = os.environ.get("RALPH_FILE_LINE_LIMIT", str(DEFAULT_LINE_LIMIT))
@@ -71,6 +132,15 @@ def line_limit() -> int:
     except ValueError:
         return DEFAULT_LINE_LIMIT
     return value if value > 0 else DEFAULT_LINE_LIMIT
+
+
+def document_line_limit() -> int:
+    raw = os.environ.get("RALPH_DOCUMENT_LINE_LIMIT", str(DOCUMENT_LINE_LIMIT))
+    try:
+        value = int(raw)
+    except ValueError:
+        return DOCUMENT_LINE_LIMIT
+    return value if value > 0 else DOCUMENT_LINE_LIMIT
 
 
 def should_skip(path: Path, root: Path) -> bool:
@@ -88,6 +158,60 @@ def should_skip(path: Path, root: Path) -> bool:
     return bool(parts & SKIP_DIRS)
 
 
+def relative_parts(path: Path, root: Path) -> tuple[str, ...]:
+    try:
+        return path.relative_to(root).parts
+    except ValueError:
+        return path.parts
+
+
+def is_plan_or_note(path: Path, root: Path) -> bool:
+    parts = relative_parts(path, root)
+    lower_parts = [part.lower() for part in parts]
+    if ".local-notes" in lower_parts:
+        return True
+    if ".ralph" in lower_parts and "plans" in lower_parts:
+        return True
+    if path.suffix.lower() not in PLAN_OR_NOTE_SUFFIXES:
+        return False
+    return any(PLAN_OR_NOTE_NAME_RE.search(part) for part in parts)
+
+
+def exists_in_git_head(path: Path, root: Path) -> bool:
+    try:
+        git_path = str(path.relative_to(root))
+    except ValueError:
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "cat-file", "-e", f"HEAD:{git_path}"],
+            cwd=root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    return result.returncode == 0
+
+
+def file_policy(path: Path, root: Path) -> FileLinePolicy:
+    if is_plan_or_note(path, root):
+        return FileLinePolicy(document_line_limit(), "plan/implementation note")
+
+    suffix = path.suffix.lower()
+    if suffix in DOCUMENT_SUFFIXES:
+        return FileLinePolicy(document_line_limit(), "document")
+
+    if suffix == ".json":
+        return FileLinePolicy(line_limit(), "structured JSON")
+
+    if suffix in SOURCE_SUFFIXES and exists_in_git_head(path, root):
+        return FileLinePolicy(EXISTING_SOURCE_LINE_LIMIT, "existing source/test file refactor threshold", blocks=False)
+
+    return FileLinePolicy(line_limit(), "new source/test file")
+
+
 def count_lines(path: Path) -> int | None:
     try:
         with path.open("rb") as handle:
@@ -100,32 +224,46 @@ def count_lines(path: Path) -> int | None:
         return None
 
 
-def oversized(paths: set[Path], root: Path, limit: int) -> list[tuple[Path, int]]:
-    findings: list[tuple[Path, int]] = []
+def oversized(paths: set[Path], root: Path, limit: int | None = None) -> list[FileLineFinding]:
+    findings: list[FileLineFinding] = []
     for path in sorted(paths):
         if should_skip(path, root):
             continue
         lines = count_lines(path)
-        if lines is not None and lines > limit:
-            findings.append((path, lines))
+        if lines is None:
+            continue
+        policy = file_policy(path, root)
+        if limit is not None and policy.limit == DEFAULT_LINE_LIMIT:
+            policy = FileLinePolicy(limit, policy.category)
+        if lines > policy.limit and policy.blocks:
+            findings.append(FileLineFinding(path, lines, policy))
     return findings
 
 
-def guidance(limit: int) -> str:
+def guidance() -> str:
     return (
-        f"Ralph file-line guard blocks files over {limit} lines. Split the file before continuing: "
-        "keep behavior stable with tests before/after, extract by domain/use-case/component boundary, "
+        "Ralph file-line guard blocks oversized files by category: new source/test files over "
+        f"{line_limit()} lines, documents/plans/implementation notes over {document_line_limit()} lines, "
+        "and large non-generated JSON "
+        "unless it belongs to a plan or note. Split the file before continuing. For source/JSON, keep behavior stable "
+        "with tests before/after, extract by domain/use-case/component boundary, "
         "avoid generic utils/helpers dumping grounds, preserve validation/auth/secrets and trust boundaries, "
         "avoid sec-context anti-patterns while moving code, and keep the smallest useful Kaizen refactor. "
+        f"Existing tracked source/test files over {EXISTING_SOURCE_LINE_LIMIT} lines are allowed for punctual edits; "
+        "recommend a refactor when the needed cleanup is small and affects few files, execute it only with explicit "
+        "user approval, and write a .local-notes/ follow-up when the refactor is broad or outside the current PR goal. "
         "For React/Next files, prefer one component per file, "
         "colocated private helpers, extracted use* hooks for shared logic, direct imports over barrels, "
         "and dynamic imports for heavy UI."
     )
 
 
-def emit_block(findings: list[tuple[Path, int]], limit: int) -> None:
-    files = [f"{path} ({lines} lines)" for path, lines in findings[:8]]
+def emit_block(findings: list[FileLineFinding], limit: int | None = None) -> None:
+    files = [
+        f"{finding.path} ({finding.lines} lines, limit {finding.policy.limit}, {finding.policy.category})"
+        for finding in findings[:8]
+    ]
     more = len(findings) - len(files)
     details = " Oversized files: " + "; ".join(files) + "."
     suffix = f" Additional oversized files: {more}." if more > 0 else ""
-    write_json({"decision": "block", "reason": guidance(limit) + details + suffix})
+    write_json({"decision": "block", "reason": guidance() + details + suffix})
