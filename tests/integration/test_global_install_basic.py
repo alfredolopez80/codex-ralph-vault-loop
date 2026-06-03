@@ -141,7 +141,7 @@ def test_global_doctor_fails_when_installed_slop_guard_is_stale(tmp_path: Path) 
     )
 
 
-def test_pre_global_audit_allows_pending_slop_guard_activation(tmp_path: Path) -> None:
+def test_pre_global_audit_reports_pending_slop_guard_activation_without_passing(tmp_path: Path) -> None:
     install = run_script(tmp_path, "install-global.sh", "--install", "--with-agents", "--allow-worktree-source")
     assert install.returncode == 0, install.stderr
     slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
@@ -163,11 +163,15 @@ def test_pre_global_audit_allows_pending_slop_guard_activation(tmp_path: Path) -
         check=False,
     )
 
-    assert audit.returncode == 0, audit.stderr + audit.stdout
-    assert "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS" in audit.stdout
+    assert audit.returncode != 0
+    assert "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL" in audit.stdout
+    latest = json.loads((report_dir / "latest.json").read_text(encoding="utf-8"))
+    assert latest["pass"] is False
+    assert latest["blockers"] == ["doctor-global"]
     doctor = json.loads((report_dir / "doctor-global.json").read_text(encoding="utf-8"))
     assert doctor["expected"] == "pending-slop-guard-install"
     assert doctor["pending_activation"] is True
+    assert doctor["pass"] is False
 
 
 def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:

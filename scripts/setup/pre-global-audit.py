@@ -98,10 +98,8 @@ def doctor_global_result() -> dict[str, Any]:
     if SLOP_GUARD_PENDING_INSTALL in combined and re.search(r"GLOBAL_DOCTOR_FAIL_COUNT\s+1\b", combined):
         return {
             **result,
-            "pass": True,
             "expected": "pending-slop-guard-install",
             "pending_activation": True,
-            "original_returncode": result["returncode"],
         }
     return result
 
