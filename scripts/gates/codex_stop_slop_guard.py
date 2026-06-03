@@ -392,6 +392,12 @@ def infer_repo(cwd: str) -> str | None:
     return repo or None
 
 
+def path_fingerprint(path: str | None) -> str | None:
+    if not path:
+        return None
+    return "sha256:" + hashlib.sha256(path.encode("utf-8")).hexdigest()
+
+
 def build_log_record(
     *,
     hook_input: Mapping[str, Any],
@@ -405,14 +411,15 @@ def build_log_record(
     analyzer_invocation: AnalyzerInvocation | None = None,
 ) -> dict[str, Any]:
     cwd = safe_cwd(hook_input)
+    repo = infer_repo(cwd)
     features = classification.features if classification else None
     return {
         "schema_version": SCHEMA_VERSION,
         "timestamp": datetime.now().astimezone().replace(microsecond=0).isoformat(),
         "event": EVENT_NAME,
         "hook_source": hook_source(),
-        "cwd": cwd,
-        "repo": infer_repo(cwd),
+        "cwd": path_fingerprint(cwd),
+        "repo": path_fingerprint(repo),
         "threshold": config.threshold,
         "enabled": config.enabled,
         "mode": decision.mode if decision else (classification.mode if classification else "unavailable_allow"),

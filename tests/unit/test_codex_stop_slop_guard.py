@@ -194,8 +194,9 @@ def test_log_record_contains_schema_v2_and_no_raw_text() -> None:
     secret_message = "This message contains secret_like_fixture_value and must never be logged in durable hook records."
     classification = guard.classify_response(secret_message)
     decision = guard.pre_analyzer_decision(guard.parse_policy_config({}), classification)
+    raw_cwd = str(ROOT)
     record = guard.build_log_record(
-        hook_input={"cwd": str(ROOT)},
+        hook_input={"cwd": raw_cwd},
         config=guard.parse_policy_config({}),
         classification=classification,
         decision=decision,
@@ -211,7 +212,9 @@ def test_log_record_contains_schema_v2_and_no_raw_text() -> None:
     assert record["mode"] == "prose_blocking"
     assert record["threshold"] == 60
     assert len(record["message_sha256"]) == 64
+    assert str(record["cwd"]).startswith("sha256:")
     assert "secret_like_fixture_value" not in serialized
+    assert raw_cwd not in serialized
 
 
 def test_real_hook_operational_skip_writes_log_without_analyzer(tmp_path: Path) -> None:
