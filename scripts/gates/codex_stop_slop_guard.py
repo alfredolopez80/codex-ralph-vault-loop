@@ -376,20 +376,15 @@ def safe_cwd(hook_input: Mapping[str, Any]) -> str:
 
 def infer_repo(cwd: str) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=cwd,
-            text=True,
-            capture_output=True,
-            timeout=2,
-            check=False,
-        )
+        current = Path(cwd).expanduser().resolve(strict=False)
     except Exception:
         return None
-    if result.returncode != 0:
-        return None
-    repo = result.stdout.strip()
-    return repo or None
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return str(candidate)
+    return None
 
 
 def path_fingerprint(path: str | None) -> str | None:

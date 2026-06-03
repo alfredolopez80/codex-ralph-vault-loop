@@ -189,6 +189,21 @@ def test_analyzer_environment_excludes_secret_like_keys() -> None:
     assert env == {"PATH": "/bin", "HOME": "/tmp/home"}
 
 
+def test_infer_repo_does_not_spawn_git(monkeypatch, tmp_path: Path) -> None:
+    guard = load_module()
+    repo = tmp_path / "repo"
+    nested = repo / "nested"
+    (repo / ".git").mkdir(parents=True)
+    nested.mkdir()
+
+    def fail_subprocess_run(*_args, **_kwargs):
+        raise AssertionError("infer_repo must not spawn subprocesses")
+
+    monkeypatch.setattr(guard.subprocess, "run", fail_subprocess_run)
+
+    assert guard.infer_repo(str(nested)) == str(repo.resolve())
+
+
 def test_log_record_contains_schema_v2_and_no_raw_text() -> None:
     guard = load_module()
     secret_message = "This message contains secret_like_fixture_value and must never be logged in durable hook records."
