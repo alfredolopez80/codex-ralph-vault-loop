@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,12 +59,14 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
+    slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
     assert skill.is_symlink()
     assert codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
+    assert slop_guard.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
@@ -88,7 +93,11 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "report-only by default" in agents_text
     assert "Do not use `--yolo`" in agents_text
     assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
+    assert "codex_stop_slop_guard.py" in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
+    assert slop_guard.read_text(encoding="utf-8") == (
+        ROOT / "scripts" / "gates" / "codex_stop_slop_guard.py"
+    ).read_text(encoding="utf-8")
     assert not (tmp_path / ".codex" / "config.toml").exists()
 
     doctor = run_script(tmp_path, "doctor-global.sh")
@@ -116,6 +125,53 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Implementation Notes For Approved Plans" not in agents_text
     assert "SFW Package-Manager Protection" not in agents_text
     assert "Codex Productivity Patterns" not in agents_text
+
+
+def test_global_doctor_fails_when_installed_slop_guard_is_stale(tmp_path: Path) -> None:
+    install = run_script(tmp_path, "install-global.sh", "--install", "--with-agents", "--allow-worktree-source")
+    assert install.returncode == 0, install.stderr
+    slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
+    slop_guard.write_text("# stale slop guard\n", encoding="utf-8")
+
+    doctor = run_script(tmp_path, "doctor-global.sh")
+
+    assert doctor.returncode != 0
+    assert "global slop guard does not match source codex_stop_slop_guard.py" in (
+        doctor.stdout + doctor.stderr
+    )
+
+
+def test_pre_global_audit_reports_pending_slop_guard_activation_without_passing(tmp_path: Path) -> None:
+    install = run_script(tmp_path, "install-global.sh", "--install", "--with-agents", "--allow-worktree-source")
+    assert install.returncode == 0, install.stderr
+    slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
+    slop_guard.write_text("# stale slop guard\n", encoding="utf-8")
+    report_dir = tmp_path / "pre-global-audit"
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path)
+    env["PRE_GLOBAL_AUDIT_REPORT_DIR"] = str(report_dir)
+    pytest_site_packages = str(Path(pytest.__file__).resolve().parents[1])
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [pytest_site_packages, env.get("PYTHONPATH", "")]))
+
+    audit = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "setup" / "pre-global-audit.py")],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert audit.returncode != 0
+    assert "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL" in audit.stdout
+    latest = json.loads((report_dir / "latest.json").read_text(encoding="utf-8"))
+    assert latest["pass"] is False
+    assert latest["blockers"] == ["doctor-global"]
+    doctor = json.loads((report_dir / "doctor-global.json").read_text(encoding="utf-8"))
+    assert doctor["expected"] == "pending-slop-guard-install"
+    assert doctor["pending_activation"] is True
+    assert doctor["pass"] is False
 
 
 def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:

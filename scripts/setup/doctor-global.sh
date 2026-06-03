@@ -308,6 +308,20 @@ check_hook_file_matches_source() {
   fi
 }
 
+check_global_slop_guard_matches_source() {
+  local source="${REPO_ROOT}/scripts/gates/codex_stop_slop_guard.py"
+  local target="${GLOBAL_HOOK_ROOT}/codex_stop_slop_guard.py"
+  if [[ ! -f "$source" ]]; then
+    fail "source slop guard missing $source"
+  elif [[ ! -f "$target" ]]; then
+    fail "global slop guard missing $target"
+  elif cmp -s "$source" "$target"; then
+    ok "global slop guard matches source codex_stop_slop_guard.py"
+  else
+    fail "global slop guard does not match source codex_stop_slop_guard.py"
+  fi
+}
+
 check_global_hooks() {
   if [[ ! -f "$GLOBAL_HOOKS_JSON" ]]; then
     fail "global hooks.json missing at $GLOBAL_HOOKS_JSON"
@@ -315,7 +329,8 @@ check_global_hooks() {
   fi
   if grep -q "session_start_wakeup.py" "$GLOBAL_HOOKS_JSON" &&
     grep -q "user_prompt_capture.py" "$GLOBAL_HOOKS_JSON" &&
-    grep -q "pre_tool_guard.py" "$GLOBAL_HOOKS_JSON"; then
+    grep -q "pre_tool_guard.py" "$GLOBAL_HOOKS_JSON" &&
+    grep -q "codex_stop_slop_guard.py" "$GLOBAL_HOOKS_JSON"; then
     ok "global hooks.json includes Ralph lifecycle hooks"
   else
     fail "global hooks.json missing Ralph lifecycle hooks"
@@ -324,6 +339,7 @@ check_global_hooks() {
   check_hook_file_matches_source "session_start_wakeup.py"
   check_hook_file_matches_source "user_prompt_capture.py"
   check_hook_file_matches_source "pre_tool_guard.py"
+  check_global_slop_guard_matches_source
 
   if grep -q "STALE_WAKEUP_REASON" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null &&
     grep -q "stale_repo_local_wakeup_payload" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null; then
