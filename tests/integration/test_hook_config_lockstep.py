@@ -50,12 +50,16 @@ def generated_global_config(home: Path) -> dict:
     return json.loads(result.stdout[json_start:])
 
 
-def run_configured_hook(command: str, tmp_path: Path, payload: dict) -> subprocess.CompletedProcess[str]:
+def run_configured_hook(
+    command: str, tmp_path: Path, payload: dict, extra_env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["RALPH_HOME"] = str(tmp_path / "ralph")
     env["CODEX_MEMORY_HOME"] = str(tmp_path / "empty-codex-memory")
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
     env["CODEX_SLOP_GUARD_ENABLED"] = "0"
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         command,
         cwd=ROOT,
@@ -155,6 +159,105 @@ def test_configured_stop_hooks_emit_only_codex_supported_output(tmp_path: Path) 
         for payload in payloads:
             result = run_configured_hook(command, tmp_path, payload)
             assert_codex_hook_output_contract("Stop", command, result)
+
+
+def slop_guard_command(config: dict) -> str:
+    matches = [command for command in hook_commands(config, "Stop") if "codex_stop_slop_guard.py" in command]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def write_fake_uvx(bin_dir: Path, stdout: str, marker: Path | None = None, exit_code: int = 0) -> Path:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    uvx = bin_dir / "uvx"
+    marker_line = f"printf called > {marker}\n" if marker else ""
+    uvx.write_text(
+        "#!/bin/sh\n"
+        "cat >/dev/null\n"
+        f"{marker_line}"
+        f"printf '%s\\n' '{stdout}'\n"
+        f"exit {exit_code}\n",
+        encoding="utf-8",
+    )
+    uvx.chmod(0o755)
+    return uvx
+
+
+def latest_slop_log(home: Path) -> dict:
+    log_path = home / ".ralph-codex" / "logs" / "slop_guard_hooks.jsonl"
+    lines = [line for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert lines
+    return json.loads(lines[-1])
+
+
+def test_slop_guard_operational_and_structured_outputs_skip_analyzer(tmp_path: Path) -> None:
+    config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    command = slop_guard_command(config)
+    fake_bin = tmp_path / "bin"
+    marker = tmp_path / "uvx-called"
+    write_fake_uvx(fake_bin, '{"score":0,"band":"saturated"}', marker=marker, exit_code=99)
+    env = {
+        "CODEX_SLOP_GUARD_ENABLED": "1",
+        "HOME": str(tmp_path),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+    payloads = [
+        {
+            "hook_event_name": "Stop",
+            "session_id": "slop-operational",
+            "cwd": str(ROOT),
+            "last_assistant_message": "/goal Implement the approved hook plan and validate the result.",
+        },
+        {
+            "hook_event_name": "Stop",
+            "session_id": "slop-structured",
+            "cwd": str(ROOT),
+            "last_assistant_message": '{"mode":"structured_skip","blocked":false,"threshold":60}',
+        },
+    ]
+
+    for payload in payloads:
+        result = run_configured_hook(command, tmp_path, payload, extra_env=env)
+        assert_codex_hook_output_contract("Stop", command, result)
+        assert result.stdout == ""
+
+    assert not marker.exists()
+    row = latest_slop_log(tmp_path)
+    assert row["mode"] == "structured_skip"
+    assert row["policy_action"] == "skip"
+    assert row["blocked"] is False
+
+
+def test_slop_guard_blocks_low_score_prose_with_supported_json(tmp_path: Path) -> None:
+    config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    command = slop_guard_command(config)
+    fake_bin = tmp_path / "bin"
+    sentinel = "secret_like_advice_should_not_echo"
+    write_fake_uvx(fake_bin, '{"score":42,"band":"heavy","advice":["secret_like_advice_should_not_echo"]}')
+    env = {
+        "CODEX_SLOP_GUARD_ENABLED": "1",
+        "HOME": str(tmp_path),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "slop-block",
+        "cwd": str(ROOT),
+        "last_assistant_message": "This is narrative prose that should be analyzed and blocked when the score is low.",
+    }
+
+    result = run_configured_hook(command, tmp_path, payload, extra_env=env)
+
+    assert_codex_hook_output_contract("Stop", command, result)
+    output = json.loads(result.stdout)
+    assert output["decision"] == "block"
+    assert sentinel not in result.stdout
+    row = latest_slop_log(tmp_path)
+    assert row["mode"] == "prose_blocking"
+    assert row["policy_action"] == "block"
+    assert row["blocked"] is True
+    assert row["score"] == 42
+    assert sentinel not in json.dumps(row)
 
 
 def test_configured_post_tool_hooks_emit_only_codex_supported_output(tmp_path: Path) -> None:

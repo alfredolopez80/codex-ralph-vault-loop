@@ -10,6 +10,7 @@ FIXTURES="$ROOT/.codex/tests/fixtures"
 HOOKS="$ROOT/.codex/hooks"
 STATE="${CODEX_HOOK_TEST_STATE_ROOT:-${TMPDIR:-/tmp}/codex-hook-tests-$$}"
 export CODEX_HOOK_STATE_ROOT="$STATE"
+PYTHON_BIN="$(command -v python3)"
 
 fail() {
   printf 'FAIL %s\n' "$1" >&2
@@ -65,6 +66,7 @@ PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
   "$HOOKS/shared/context_budget.py" \
   "$HOOKS/shared/learning.py" \
   "$HOOKS/implementation_notes_guard.py" \
+  "$ROOT/scripts/gates/codex_stop_slop_guard.py" \
   "$ROOT/scripts/plans/implementation_index_lib.py" \
   "$ROOT/scripts/plans/implementation_notes_lib.py" \
   "$ROOT/scripts/plans/consolidated_notes_artifacts.py" \
@@ -227,5 +229,23 @@ current_plan="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", session_i
 assert_json "$current_plan"
 printf '%s' "$current_plan" | jq -e '.decision == "block"' > /dev/null || fail "current-session plan-state did not block"
 pass "plan-state session scope"
+
+SLOP_HOME="$STATE/slop-home"
+mkdir -p "$SLOP_HOME"
+slop_goal_payload="$(jq -n --arg cwd "$ROOT" '{hook_event_name:"Stop", session_id:"fixture-slop-goal", cwd:$cwd, last_assistant_message:"/goal Implement the approved hook policy and validate that operational prompts skip analyzer."}')"
+slop_goal="$(printf '%s' "$slop_goal_payload" | HOME="$SLOP_HOME" PATH="" CODEX_SLOP_GUARD_ENABLED=1 "$PYTHON_BIN" "$ROOT/scripts/gates/codex_stop_slop_guard.py")"
+assert_empty "$slop_goal" "slop operational skip"
+slop_log="$SLOP_HOME/.ralph-codex/logs/slop_guard_hooks.jsonl"
+[[ -f "$slop_log" ]] || fail "slop operational skip did not write log"
+tail -1 "$slop_log" | jq -e '.mode == "operational_skip" and .policy_action == "skip" and .blocked == false' > /dev/null ||
+  fail "slop operational skip log mismatch"
+grep -q "/goal Implement" "$slop_log" && fail "slop operational log leaked raw prompt"
+
+slop_structured_payload="$(jq -n --arg cwd "$ROOT" '{hook_event_name:"Stop", session_id:"fixture-slop-structured", cwd:$cwd, last_assistant_message:"{\"mode\":\"structured_skip\",\"blocked\":false,\"threshold\":60}" }')"
+slop_structured="$(printf '%s' "$slop_structured_payload" | HOME="$SLOP_HOME" PATH="" CODEX_SLOP_GUARD_ENABLED=1 "$PYTHON_BIN" "$ROOT/scripts/gates/codex_stop_slop_guard.py")"
+assert_empty "$slop_structured" "slop structured skip"
+tail -1 "$slop_log" | jq -e '.mode == "structured_skip" and .policy_action == "skip" and .blocked == false and .json_like == true' > /dev/null ||
+  fail "slop structured skip log mismatch"
+pass "slop guard operational and structured skips"
 
 printf 'ALL_HOOK_TESTS_PASS\n'

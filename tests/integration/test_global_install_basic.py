@@ -56,12 +56,14 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
+    slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
     assert skill.is_symlink()
     assert codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
+    assert slop_guard.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
@@ -88,7 +90,11 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "report-only by default" in agents_text
     assert "Do not use `--yolo`" in agents_text
     assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
+    assert "codex_stop_slop_guard.py" in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
+    assert slop_guard.read_text(encoding="utf-8") == (
+        ROOT / "scripts" / "gates" / "codex_stop_slop_guard.py"
+    ).read_text(encoding="utf-8")
     assert not (tmp_path / ".codex" / "config.toml").exists()
 
     doctor = run_script(tmp_path, "doctor-global.sh")
@@ -116,6 +122,20 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Implementation Notes For Approved Plans" not in agents_text
     assert "SFW Package-Manager Protection" not in agents_text
     assert "Codex Productivity Patterns" not in agents_text
+
+
+def test_global_doctor_fails_when_installed_slop_guard_is_stale(tmp_path: Path) -> None:
+    install = run_script(tmp_path, "install-global.sh", "--install", "--with-agents", "--allow-worktree-source")
+    assert install.returncode == 0, install.stderr
+    slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
+    slop_guard.write_text("# stale slop guard\n", encoding="utf-8")
+
+    doctor = run_script(tmp_path, "doctor-global.sh")
+
+    assert doctor.returncode != 0
+    assert "global slop guard does not match source codex_stop_slop_guard.py" in (
+        doctor.stdout + doctor.stderr
+    )
 
 
 def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:
