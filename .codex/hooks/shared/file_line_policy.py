@@ -101,13 +101,13 @@ DOCUMENT_SUFFIXES = {
     ".mdx",
 }
 
-PLAN_OR_NOTE_NAME_RE = re.compile(
-    r"(?i)(implementation[-_ ]?notes?|plan|handoff|future[-_ ].*|notes?)"
-)
-PLAN_OR_NOTE_DIRS = {
-    ".local-notes",
-    ".ralph",
-    "plans",
+PLAN_OR_NOTE_NAME_RE = re.compile(r"(?i)(implementation[-_ ]?notes?|handoff|future[-_ ].*|notes?)")
+PLAN_OR_NOTE_SUFFIXES = DOCUMENT_SUFFIXES | {
+    ".json",
+    ".jsonl",
+    ".txt",
+    ".yaml",
+    ".yml",
 }
 
 
@@ -167,9 +167,13 @@ def relative_parts(path: Path, root: Path) -> tuple[str, ...]:
 
 def is_plan_or_note(path: Path, root: Path) -> bool:
     parts = relative_parts(path, root)
-    lower_parts = {part.lower() for part in parts}
-    if lower_parts & PLAN_OR_NOTE_DIRS:
+    lower_parts = [part.lower() for part in parts]
+    if ".local-notes" in lower_parts:
         return True
+    if ".ralph" in lower_parts and "plans" in lower_parts:
+        return True
+    if path.suffix.lower() not in PLAN_OR_NOTE_SUFFIXES:
+        return False
     return any(PLAN_OR_NOTE_NAME_RE.search(part) for part in parts)
 
 

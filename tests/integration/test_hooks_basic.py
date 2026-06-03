@@ -662,6 +662,34 @@ def test_file_line_guard_allows_plan_json_but_blocks_large_ordinary_json(tmp_pat
     assert "structured JSON" in payload["reason"]
 
 
+def test_file_line_guard_does_not_treat_source_in_plans_dir_as_document(tmp_path: Path) -> None:
+    source_dir = tmp_path / "src" / "plans"
+    source_dir.mkdir(parents=True)
+    source = source_dir / "new_service.py"
+    source.write_text("\n".join(f"value_{i} = {i}" for i in range(351)) + "\n", encoding="utf-8")
+
+    result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(source), "cwd": str(tmp_path)}})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "new_service.py" in payload["reason"]
+    assert "new source/test file" in payload["reason"]
+
+
+def test_file_line_guard_does_not_treat_plan_named_source_as_document(tmp_path: Path) -> None:
+    source = tmp_path / "plan_executor.py"
+    source.write_text("\n".join(f"value_{i} = {i}" for i in range(351)) + "\n", encoding="utf-8")
+
+    result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(source), "cwd": str(tmp_path)}})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "plan_executor.py" in payload["reason"]
+    assert "new source/test file" in payload["reason"]
+
+
 def test_file_line_guard_uses_existing_source_limit_for_tracked_files(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
     existing = tmp_path / "existing_service.py"
