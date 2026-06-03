@@ -23,6 +23,10 @@ export function decideTelegramTextContentSafety(
     return { allowed: false, reason: "chat_not_authorized" };
   }
 
+  if (draft.text.trim().length === 0) {
+    return { allowed: false, reason: "message_empty" };
+  }
+
   if (draft.text.length > 4096) {
     return { allowed: false, reason: "message_too_long" };
   }

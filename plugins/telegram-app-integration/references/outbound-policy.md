@@ -7,7 +7,7 @@ See `../snippets/outbound-policy.ts` for an illustrative content/destination saf
 ## Required Checks
 
 - RED hard-block before send.
-- Message length bounds.
+- Non-empty message text and Telegram length bounds.
 - Allowed parse mode or plain text fallback.
 - Destination chat id must match the authorized event context or an app-owned explicit route.
 - Rate limit per chat, user, and command where relevant.
