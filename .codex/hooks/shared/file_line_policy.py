@@ -177,14 +177,14 @@ def is_plan_or_note(path: Path, root: Path) -> bool:
     return any(PLAN_OR_NOTE_NAME_RE.search(part) for part in parts)
 
 
-def is_git_tracked(path: Path, root: Path) -> bool:
+def exists_in_git_head(path: Path, root: Path) -> bool:
     try:
         git_path = str(path.relative_to(root))
     except ValueError:
         return False
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--error-unmatch", "--", git_path],
+            ["git", "cat-file", "-e", f"HEAD:{git_path}"],
             cwd=root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -206,7 +206,7 @@ def file_policy(path: Path, root: Path) -> FileLinePolicy:
     if suffix == ".json":
         return FileLinePolicy(line_limit(), "structured JSON")
 
-    if suffix in SOURCE_SUFFIXES and is_git_tracked(path, root):
+    if suffix in SOURCE_SUFFIXES and exists_in_git_head(path, root):
         return FileLinePolicy(EXISTING_SOURCE_LINE_LIMIT, "existing source/test file refactor threshold", blocks=False)
 
     return FileLinePolicy(line_limit(), "new source/test file")

@@ -695,6 +695,13 @@ def test_file_line_guard_uses_existing_source_limit_for_tracked_files(tmp_path: 
     existing = tmp_path / "existing_service.py"
     existing.write_text("\n".join(f"value_{i} = {i}" for i in range(800)) + "\n", encoding="utf-8")
     subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "add existing"],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
 
     result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(existing), "cwd": str(tmp_path)}})
 
@@ -707,11 +714,33 @@ def test_file_line_guard_allows_tracked_source_over_existing_refactor_threshold(
     existing = tmp_path / "existing_service.py"
     existing.write_text("\n".join(f"value_{i} = {i}" for i in range(1001)) + "\n", encoding="utf-8")
     subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "add existing"],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
 
     result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(existing), "cwd": str(tmp_path)}})
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
+
+
+def test_file_line_guard_blocks_staged_new_source_over_base_limit(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    staged_new = tmp_path / "staged_new_service.py"
+    staged_new.write_text("\n".join(f"value_{i} = {i}" for i in range(351)) + "\n", encoding="utf-8")
+    subprocess.run(["git", "add", "staged_new_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(staged_new), "cwd": str(tmp_path)}})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "staged_new_service.py" in payload["reason"]
+    assert "new source/test file" in payload["reason"]
 
 
 def test_file_line_guard_allows_generated_large_file(tmp_path: Path) -> None:
