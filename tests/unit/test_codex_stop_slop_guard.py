@@ -70,6 +70,16 @@ Done when: operational prompts do not block."""
     assert guard.classify_response(text).mode == "operational_skip"
 
 
+def test_explanatory_prose_that_mentions_goal_stays_prose_blocking() -> None:
+    guard = load_module()
+    text = (
+        "Codex can use /goal for bounded objectives, but this answer is explanatory prose about the "
+        "routing tradeoff and should still be checked as prose when it is long enough."
+    )
+
+    assert guard.classify_response(text).mode == "prose_blocking"
+
+
 def test_copy_prompt_into_codex_is_operational_skip() -> None:
     guard = load_module()
     text = "Copy this prompt into Codex and execute the listed validation steps after reading the approved plan."

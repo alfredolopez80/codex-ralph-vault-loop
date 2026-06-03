@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -136,6 +139,35 @@ def test_global_doctor_fails_when_installed_slop_guard_is_stale(tmp_path: Path) 
     assert "global slop guard does not match source codex_stop_slop_guard.py" in (
         doctor.stdout + doctor.stderr
     )
+
+
+def test_pre_global_audit_allows_pending_slop_guard_activation(tmp_path: Path) -> None:
+    install = run_script(tmp_path, "install-global.sh", "--install", "--with-agents", "--allow-worktree-source")
+    assert install.returncode == 0, install.stderr
+    slop_guard = tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py"
+    slop_guard.write_text("# stale slop guard\n", encoding="utf-8")
+    report_dir = tmp_path / "pre-global-audit"
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path)
+    env["PRE_GLOBAL_AUDIT_REPORT_DIR"] = str(report_dir)
+    pytest_site_packages = str(Path(pytest.__file__).resolve().parents[1])
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [pytest_site_packages, env.get("PYTHONPATH", "")]))
+
+    audit = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "setup" / "pre-global-audit.py")],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert audit.returncode == 0, audit.stderr + audit.stdout
+    assert "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS" in audit.stdout
+    doctor = json.loads((report_dir / "doctor-global.json").read_text(encoding="utf-8"))
+    assert doctor["expected"] == "pending-slop-guard-install"
+    assert doctor["pending_activation"] is True
 
 
 def test_global_install_backs_up_conflicting_skill(tmp_path: Path) -> None:

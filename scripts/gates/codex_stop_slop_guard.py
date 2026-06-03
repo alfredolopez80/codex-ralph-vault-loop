@@ -52,7 +52,6 @@ YAML_KEY_RE = re.compile(r"^\s*[A-Za-z0-9_.-]+:\s*.*$")
 TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 TASK_PACKET_LABELS = ("objective", "constraints", "commands", "validation", "done when", "criterios", "validacion")
 OPERATIONAL_PHRASES = (
-    "/goal",
     "goal prompt",
     "copy this prompt",
     "paste this prompt",
@@ -228,7 +227,8 @@ def classify_response(text: str, features: TextFeatures | None = None) -> Respon
         return ResponseClassification("oversize", "oversize_skip", "above_max_bytes", features)
 
     lower = text.lower()
-    operational_explicit = any(phrase in lower for phrase in OPERATIONAL_PHRASES)
+    goal_directive = bool(re.match(r"^\s*/goal\b", lower))
+    operational_explicit = goal_directive or any(phrase in lower for phrase in OPERATIONAL_PHRASES)
     operational_packet = task_packet_score(lower) >= 3 and (
         features.bullet_line_count + features.numbered_line_count + features.command_like_line_count >= 3
     )
