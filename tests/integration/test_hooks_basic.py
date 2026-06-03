@@ -614,6 +614,76 @@ def test_file_line_guard_blocks_touched_large_file(tmp_path: Path) -> None:
     assert "large_component.tsx" in payload["reason"]
     assert "351 lines" in payload["reason"]
     assert "Split the file before continuing" in payload["reason"]
+    assert "execute it only with explicit user approval" in payload["reason"]
+    assert ".local-notes/ follow-up" in payload["reason"]
+
+
+def test_file_line_guard_allows_markdown_and_html_documents_up_to_document_limit(tmp_path: Path) -> None:
+    docs = [tmp_path / "long-plan.md", tmp_path / "implementation-notes.html"]
+    for doc in docs:
+        doc.write_text("\n".join(f"line {i}" for i in range(4000)) + "\n", encoding="utf-8")
+
+        result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(doc)}})
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+
+
+def test_file_line_guard_blocks_documents_over_document_limit(tmp_path: Path) -> None:
+    doc = tmp_path / "too-long-plan.md"
+    doc.write_text("\n".join(f"line {i}" for i in range(5001)) + "\n", encoding="utf-8")
+
+    result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(doc)}})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "too-long-plan.md" in payload["reason"]
+    assert "limit 5000" in payload["reason"]
+
+
+def test_file_line_guard_allows_plan_json_but_blocks_large_ordinary_json(tmp_path: Path) -> None:
+    plan_dir = tmp_path / ".ralph" / "plans"
+    plan_dir.mkdir(parents=True)
+    plan_json = plan_dir / "2026-06-03-rollout-plan.json"
+    plan_json.write_text("\n".join(f'{{"line": {i}}}' for i in range(4000)) + "\n", encoding="utf-8")
+    ordinary_json = tmp_path / "large-config.json"
+    ordinary_json.write_text("\n".join(f'{{"line": {i}}}' for i in range(351)) + "\n", encoding="utf-8")
+
+    plan_result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(plan_json)}})
+    json_result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(ordinary_json)}})
+
+    assert plan_result.returncode == 0, plan_result.stderr
+    assert plan_result.stdout == ""
+    assert json_result.returncode == 0, json_result.stderr
+    payload = json.loads(json_result.stdout)
+    assert payload["decision"] == "block"
+    assert "large-config.json" in payload["reason"]
+    assert "structured JSON" in payload["reason"]
+
+
+def test_file_line_guard_uses_existing_source_limit_for_tracked_files(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    existing = tmp_path / "existing_service.py"
+    existing.write_text("\n".join(f"value_{i} = {i}" for i in range(800)) + "\n", encoding="utf-8")
+    subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(existing), "cwd": str(tmp_path)}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_file_line_guard_allows_tracked_source_over_existing_refactor_threshold(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    existing = tmp_path / "existing_service.py"
+    existing.write_text("\n".join(f"value_{i} = {i}" for i in range(1001)) + "\n", encoding="utf-8")
+    subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(existing), "cwd": str(tmp_path)}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
 
 
 def test_file_line_guard_allows_generated_large_file(tmp_path: Path) -> None:
