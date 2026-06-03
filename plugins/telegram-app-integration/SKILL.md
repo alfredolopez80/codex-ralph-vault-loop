@@ -27,6 +27,7 @@ Use this skill when a target application needs to receive or send Telegram Bot A
 6. Enforce outbound policy from `references/outbound-policy.md`.
 7. Keep attachments denied unless `references/attachment-policy.md` is satisfied.
 8. Require real and negative gates from `references/e2e-gates.md`.
+9. Use `snippets/event-contract.ts` and `snippets/outbound-policy.ts` only as illustrative starting points after adapting them to the target app's validation, rate-limit, audit, and delivery stack.
 
 ## Expected Output
 

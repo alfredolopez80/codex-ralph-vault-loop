@@ -78,6 +78,7 @@ The repo is organized around a few explicit surfaces:
 | [`AGENTS.md`](./AGENTS.md)                   | Project instruction surface loaded by Codex App and Codex CLI.                                                                  |
 | [`.codex/config.toml`](./.codex/config.toml) | Codex project config. OpenAI is the only orchestrator provider.                                                                 |
 | [`.agents/skills`](./.agents/skills)         | Codex-native workflows for orchestration, routing, vault, gates, evals, research, design, objective preparation, and hardening. |
+| [`plugins`](./plugins)                       | Guidance-only plugin skill packages that can be installed globally without becoming application runtimes.                       |
 | [`.codex/agents`](./.codex/agents)           | Narrow TOML subagents such as coder, reviewer, tester, security, evaluator, vision analyst, and model counterparts.             |
 | [`.codex/hooks`](./.codex/hooks)             | Session, prompt, tool, and stop lifecycle hooks with RED guards and local ledgers.                                              |
 | [`scripts`](./scripts)                       | Deterministic setup, memory, vault, gate, eval, cost, and security utilities.                                                   |

@@ -1,9 +1,12 @@
-// Illustrative only. This is a contract sketch, not a runtime package.
+// Illustrative only. This checks destination and text safety, not the full
+// outbound policy. Target apps must wrap it with rate limits, audit writes,
+// and exception-safe reply handling.
 
 export interface TelegramOutboundDraft {
   chatId: string;
+  authorizedChatId: string;
   text: string;
-  parseMode?: "plain" | "markdown" | "html";
+  parseMode?: "plain" | "markdown-v2" | "html";
 }
 
 export interface TelegramOutboundDecision {
@@ -12,10 +15,14 @@ export interface TelegramOutboundDecision {
   safeText?: string;
 }
 
-export function decideTelegramTextSend(
+export function decideTelegramTextContentSafety(
   draft: TelegramOutboundDraft,
   hasRedContent: (text: string) => boolean,
 ): TelegramOutboundDecision {
+  if (draft.chatId !== draft.authorizedChatId) {
+    return { allowed: false, reason: "chat_not_authorized" };
+  }
+
   if (draft.text.length > 4096) {
     return { allowed: false, reason: "message_too_long" };
   }
@@ -27,13 +34,24 @@ export function decideTelegramTextSend(
   return {
     allowed: true,
     reason: "ok",
-    safeText:
-      draft.parseMode && draft.parseMode !== "plain"
-        ? escapeFormattedText(draft.text)
-        : draft.text,
+    safeText: formatSafeText(draft.text, draft.parseMode ?? "plain"),
   };
 }
 
-function escapeFormattedText(text: string): string {
-  return text.replace(/[<>&*_`[\]()]/g, "\\$&");
+function formatSafeText(
+  text: string,
+  parseMode: "plain" | "markdown-v2" | "html",
+): string {
+  if (parseMode === "html") {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  if (parseMode === "markdown-v2") {
+    return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
+  }
+
+  return text;
 }

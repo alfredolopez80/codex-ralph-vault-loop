@@ -17,11 +17,9 @@ export interface TelegramAppEvent {
   chat: {
     id: string;
     type: "private" | "group" | "supergroup" | "channel";
-    allowed: boolean;
   };
   actor?: {
     id: string;
-    allowed: boolean;
   };
   command?: {
     name: string;
@@ -32,8 +30,28 @@ export interface TelegramAppEvent {
     scope: string;
   };
   text?: string;
-  policy: {
-    allowed: boolean;
-    reason: string;
-  };
+  policy: TelegramAccessPolicyDecision;
 }
+
+export type TelegramAccessPolicyDecision =
+  | {
+      allowed: true;
+      reason: "allowed_dm" | "allowed_group_mention" | "allowed_explicit_route";
+      subjects: {
+        chat: "allowed";
+        actor?: "allowed";
+      };
+    }
+  | {
+      allowed: false;
+      reason:
+        | "chat_not_allowed"
+        | "actor_not_allowed"
+        | "group_disabled"
+        | "mention_required"
+        | "rate_limited";
+      subjects: {
+        chat?: "blocked" | "unknown";
+        actor?: "blocked" | "unknown";
+      };
+    };

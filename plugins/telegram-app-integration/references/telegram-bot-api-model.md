@@ -28,7 +28,9 @@ The app should treat these Telegram fields as untrusted input:
 
 ## Inbound Verification
 
-Webhook integrations need app-owned verification for the inbound request, usually through a webhook secret or equivalent platform control. Polling integrations need app-owned update offset handling, replay handling, and rate controls.
+Webhook integrations need app-owned verification for the inbound request. Acceptable controls are Telegram webhook secret-token validation at the app boundary, or an authenticated gateway that verifies Telegram and passes a trusted internal assertion. Plain HTTPS, endpoint obscurity, or generic route protection is not enough.
+
+Polling integrations need app-owned update offset handling, replay handling, and rate controls.
 
 The Bot API token is app-owned protected material. This plugin may name the required source, but it must not include token values or commands that provision Telegram resources.
 

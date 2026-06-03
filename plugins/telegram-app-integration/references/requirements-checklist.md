@@ -6,7 +6,7 @@ Use this checklist before approving an app-level Telegram integration.
 
 - The target app owns webhook or polling runtime.
 - The integration names the app-owned Bot API token source without embedding values in source, tests, docs, logs, or snippets.
-- Webhook mode has inbound verification, including an app-owned webhook secret or equivalent platform control.
+- Webhook mode validates Telegram's webhook secret token at the app boundary, or uses an authenticated gateway that verifies Telegram and passes a trusted internal assertion.
 - Polling mode has offset, retry, and backoff behavior.
 - Webhook and polling share the same normalized event contract if both exist.
 
@@ -31,7 +31,7 @@ Use this checklist before approving an app-level Telegram integration.
 - Outbound text is scanned for RED content before sending.
 - Replies are bounded in length and formatting.
 - Audit logs are structured and sanitized.
-- Audit records include event ids and decisions, not raw private text.
+- Audit records include event ids, decisions, and pseudonymized chat/user identifiers, not raw private text.
 
 ## Phase 1 Boundary
 
