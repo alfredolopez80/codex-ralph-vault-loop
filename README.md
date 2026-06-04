@@ -8,10 +8,11 @@
 
 <h1 align="center">Codex Ralph Vault Loop</h1>
 
-Codex Ralph Vault Loop is a Codex App and Codex CLI operating layer for
-multi-agent engineering work. It keeps Codex main responsible for decisions and
-edits, sends only eligible context to MCP advisors, verifies work through gates,
-and stores durable memory outside the public repository.
+Codex Ralph Vault Loop is a safety and memory layer for serious Codex App and
+Codex CLI work. It gives Codex a reusable operating system for multi-agent
+engineering: clear instructions, scoped skills, review subagents, lifecycle
+hooks, security gates, model-routing policy, and durable memory that stays
+outside the public repo.
 
 ```text
 Codex main decides.
@@ -20,9 +21,68 @@ Gates verify.
 Vault remembers.
 ```
 
-This is not an app template. It is a reusable control plane for Codex sessions:
-instructions, skills, subagents, hooks, model-routing helpers, security guards,
-evals, memory tools, and global installation scripts.
+Use it when a single prompt is no longer enough: you need repeatable reviews,
+bounded external-model help, RED/YELLOW/GREEN sensitivity rules, and a way for
+Codex sessions to remember verified work without leaking private context.
+
+## <img src="./docs/assets/branding/heading-capabilities.svg" width="22" alt=""> Who It Is For
+
+| You are...                         | This repo helps you...                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| Building with Codex every day      | Keep instructions, hooks, skills, and review agents consistent across sessions.         |
+| Reviewing sensitive local work     | Block RED content from MCP tools, public handoffs, and durable memory.                  |
+| Using multiple model/tool advisors | Route sanitized work to MCP advisors while keeping Codex main responsible for the call. |
+| Maintaining open source workflows  | Publish docs, diagrams, gates, and security policy without private path leakage.        |
+
+What you get from a fresh checkout:
+
+- A Codex-native instruction surface in [`AGENTS.md`](./AGENTS.md).
+- 33 repo-local skills and 13 subagents wired for review, security, memory,
+  research, design, testing, and eval work.
+- Hook, gate, security, memory, vault, and model-router scripts that can be run
+  locally before installing anything globally.
+- Editable architecture diagrams with PNG/SVG outputs for public documentation.
+
+## <img src="./docs/assets/branding/heading-install.svg" width="22" alt=""> Quick Start
+
+Run the local doctor first:
+
+```bash
+bash scripts/setup/doctor.sh
+```
+
+Preview the global install:
+
+```bash
+bash scripts/setup/install-global.sh --dry-run
+```
+
+Install project skills globally:
+
+```bash
+bash scripts/setup/install-global.sh --install
+```
+
+Add Codex subagents too:
+
+```bash
+bash scripts/setup/install-global.sh --install --with-agents
+```
+
+Validate the install:
+
+```bash
+bash scripts/setup/doctor-global.sh
+```
+
+To remove symlinks created by this repo:
+
+```bash
+bash scripts/setup/uninstall-global.sh --uninstall --with-agents
+```
+
+The installer creates symlinks into the user's Codex and agent directories. It
+does not copy vault data and does not edit the user's global Codex config.
 
 ## <img src="./docs/assets/branding/heading-capabilities.svg" width="22" alt=""> What It Provides
 
@@ -173,42 +233,6 @@ For visual assets and article imagery:
 There are no blog posts or locale folders in this repo today. The content rules
 above apply to new public articles, plugin pages, translated docs, and future
 website material created from this repository.
-
-## <img src="./docs/assets/branding/heading-install.svg" width="22" alt=""> Global Installation
-
-The installer creates symlinks from this checkout into the user's Codex and
-agent directories. It does not copy vault data and does not edit the user's
-global Codex config.
-
-Preview the changes:
-
-```bash
-bash scripts/setup/install-global.sh --dry-run
-```
-
-Install project skills globally:
-
-```bash
-bash scripts/setup/install-global.sh --install
-```
-
-Install skills plus Codex subagents:
-
-```bash
-bash scripts/setup/install-global.sh --install --with-agents
-```
-
-Check the global install:
-
-```bash
-bash scripts/setup/doctor-global.sh
-```
-
-Remove symlinks created by this repo:
-
-```bash
-bash scripts/setup/uninstall-global.sh --uninstall --with-agents
-```
 
 ## <img src="./docs/assets/branding/heading-status.svg" width="22" alt=""> Validation
 

@@ -59,7 +59,7 @@ tool_timeout_sec = 180.0
 enabled_tools = ["search_doc", "get_repo_structure", "read_file"]
 
 [mcp_servers.zai_vision]
-command = "sfw"
+command = "scripts/setup/sfw"
 args = ["npx", "-y", "@z_ai/mcp-server@latest"]
 env_vars = ["Z_AI_API_KEY", "Z_AI_MODE"]
 startup_timeout_sec = 30.0
@@ -76,7 +76,7 @@ enabled_tools = [
 ]
 
 [mcp_servers.minimax_coding_tools]
-command = "sfw"
+command = "scripts/setup/sfw"
 args = ["uvx", "minimax-coding-plan-mcp", "-y"]
 env_vars = ["MINIMAX_API_KEY", "MINIMAX_API_HOST"]
 startup_timeout_sec = 30.0

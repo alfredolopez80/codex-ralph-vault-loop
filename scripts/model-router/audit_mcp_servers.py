@@ -129,14 +129,14 @@ def servers() -> list[McpServer]:
         McpServer(
             name="zai_vision",
             kind="stdio",
-            target="sfw",
+            target=str(REPO / "scripts/setup/sfw"),
             args=["npx", "-y", "@z_ai/mcp-server@latest"],
             env_names=["Z_AI_API_KEY", "Z_AI_MODE"],
         ),
         McpServer(
             name="minimax_coding_tools",
             kind="stdio",
-            target="sfw",
+            target=str(REPO / "scripts/setup/sfw"),
             args=["uvx", "minimax-coding-plan-mcp", "-y"],
             env_names=["MINIMAX_API_KEY", "MINIMAX_API_HOST"],
         ),
