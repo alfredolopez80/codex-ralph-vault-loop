@@ -3,29 +3,14 @@
   "title": "Sensitivity, Cost Routing, and Safety Flow",
   "template": "flowchart",
   "style": "openai",
-  "description": "Decision flow from user prompt through sensitivity classification, RED blocking, cost router, local/subagent/MCP routes, gates, evals, vault save, and handoff.",
+  "description": "Prompt classification, RED local-only block, cost routing, Codex synthesis, gates, and vault handoff.",
   "steps": [
     "Intake",
-    "Classify GREEN/YELLOW/RED",
-    "Scan for secrets and customer-sensitive markers",
-    "Block RED from MCP and vault",
-    "Estimate complexity 1-10",
-    "Route through cost-router",
-    "Codex local, Codex subagent, or sanitized MCP advisor",
-    "Codex synthesizes and verifies",
-    "Gates and evals",
-    "Vault save GREEN/YELLOW",
-    "Handoff"
-  ],
-  "blocked_categories": [
-    "API keys",
-    "JWT",
-    "private keys",
-    "seed phrases",
-    "wallet material",
-    "OAuth tokens",
-    "database URLs",
-    ".env",
-    "customer-sensitive markers"
+    "Sensitivity",
+    "RED decision",
+    "Complexity",
+    "Route",
+    "Verify",
+    "Persist safe result"
   ]
 }

@@ -3,38 +3,15 @@
   "title": "Codex Ralph Vault Loop Architecture",
   "template": "agent-architecture",
   "style": "openai",
-  "description": "Full Codex App/CLI overlay showing Codex main ownership, project/global instructions, skills, agents, hooks, deterministic scripts, MCP model tools, gates, evals, runtime memory, and MiVault.",
-  "layers": [
-    {
-      "name": "entry",
-      "nodes": ["User", "Codex App / CLI"]
-    },
-    {
-      "name": "instruction_surface",
-      "nodes": ["AGENTS.md", ".codex/config.toml", "Global install"]
-    },
-    {
-      "name": "codex_core",
-      "nodes": ["Codex main", "16 skills", "12 subagents", "Hooks"]
-    },
-    {
-      "name": "local_control",
-      "nodes": ["Cost router", "Security RED guard", "Gates", "Evaluation spine"]
-    },
-    {
-      "name": "external_advisors",
-      "nodes": ["ralph_coding_models", "Z.ai MCPs", "MiniMax MCPs"]
-    },
-    {
-      "name": "memory",
-      "nodes": ["~/.ralph-codex", "MiVault / Obsidian"]
-    }
-  ],
-  "principles": [
-    "Codex main decides",
-    "External models advise",
-    "Gates verify",
-    "Vault remembers",
-    "RED never externalizes or persists"
+  "description": "Public architecture view of Codex main, local controls, MCP advisors, gates, evals, and external memory.",
+  "counts": {
+    "skills": 33,
+    "subagents": 13
+  },
+  "lanes": ["Entry", "Codex core", "Local policy", "MCP advisors", "Memory"],
+  "invariants": [
+    "Codex main owns decisions and edits",
+    "MCP tools advise only after routing checks",
+    "Runtime memory stays outside the public repo"
   ]
 }

@@ -167,7 +167,7 @@ def validate_source_repo(allow_worktree_source: bool) -> None:
     if is_codex_worktree(REPO) and not allow_worktree_source:
         raise SystemExit(
             "GLOBAL_HOOKS_REFUSED_WORKTREE_SOURCE "
-            f"repo={REPO} stable_repo=/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop"
+            f"repo={REPO} stable_repo_hint=primary checkout outside ~/.codex/worktrees"
         )
 
 

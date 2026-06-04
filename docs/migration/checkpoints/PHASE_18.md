@@ -1,6 +1,6 @@
 # PHASE 18 Checkpoint - Optional Global Installation
 
-`docs/migration/checkpoints/PHASE_17.md` was reviewed first. It is marked PASS, so FASE 18 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_17.md` was reviewed first. It is marked PASS, so Phase 18 was allowed to proceed.
 
 This phase adds a safe optional global installer for Codex Ralph Vault Loop:
 

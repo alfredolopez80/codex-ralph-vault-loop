@@ -1,6 +1,6 @@
 # PHASE 16 Checkpoint - E2E Smoke Test
 
-`docs/migration/checkpoints/PHASE_15.md` was reviewed first. It is marked PASS, so FASE 16 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_15.md` was reviewed first. It is marked PASS, so Phase 16 was allowed to proceed.
 
 Orchestrator intake classified this task as GREEN and complexity 2/10. The work was local repo validation. Cost-router and external MCP calls were not used because no external advice was needed.
 

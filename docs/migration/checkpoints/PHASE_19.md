@@ -1,6 +1,6 @@
 # PHASE 19 Checkpoint - Security Hardening
 
-`docs/migration/checkpoints/PHASE_18.md` was reviewed first. It is marked PASS, so FASE 19 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_18.md` was reviewed first. It is marked PASS, so Phase 19 was allowed to proceed.
 
 This phase adds a shared RED-sensitive content detector and connects it to the external routing, vault, memory, hook, MCP, and eval paths.
 

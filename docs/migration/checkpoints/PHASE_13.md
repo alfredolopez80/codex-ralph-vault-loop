@@ -1,6 +1,6 @@
 # PHASE 13 Checkpoint - MCP Eval Coverage
 
-`docs/migration/checkpoints/PHASE_12.md` was reviewed first. It is marked PASS, so FASE 13 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_12.md` was reviewed first. It is marked PASS, so Phase 13 was allowed to proceed.
 
 This phase adds three MCP-focused eval scripts. `scripts/evals/research_eval.py` scores citation quality for Z.ai and MiniMax research routes. `scripts/evals/vision_eval.py` scores analysis-only vision output for OCR, diagram reading, UI diffs, and generation avoidance. `scripts/evals/coding_model_eval.py` scores `ralph_coding_models` routing outcomes against the deterministic cost-router policy.
 
