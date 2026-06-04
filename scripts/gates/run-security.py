@@ -26,7 +26,14 @@ def main() -> int:
         else:
             results.append(result("security.gitleaks", "failed" if strict else "skipped", reason="gitleaks not installed"))
         if security["semgrep"]:
-            results.append(run_command("security.semgrep", ["semgrep", "--config", "auto", "."], timeout=240))
+            results.append(
+                run_command(
+                    "security.semgrep",
+                    ["semgrep", "--config", ".semgrep.yml", "."],
+                    timeout=240,
+                    env={"SEMGREP_SEND_METRICS": "off", "SEMGREP_ENABLE_VERSION_CHECK": "0"},
+                )
+            )
         else:
             results.append(result("security.semgrep", "failed" if strict else "skipped", reason="semgrep not installed"))
 

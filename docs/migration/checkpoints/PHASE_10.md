@@ -1,7 +1,7 @@
 # PHASE 10 - Quality Gates
 
 Date: 2026-04-27
-Repository: `/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop`
+Repository: `<repo-root>`
 
 ## Previous Checkpoint
 

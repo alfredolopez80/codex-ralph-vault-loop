@@ -292,7 +292,7 @@ memory_core_policy_block() {
 
 Use Ralph Memory Core through global hooks by default. Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root` while deriving the active project from the hook payload `cwd`/workdir.
 
-Do not require the active repository to contain `scripts/memory/*`. Repositories such as Clerum can use Ralph Memory Core through the global hook layer even when their own checkout has no `scripts/memory/wakeup.py`.
+Do not require the active repository to contain `scripts/memory/*`. Other repositories can use Ralph Memory Core through the global hook layer even when their own checkout has no `scripts/memory/wakeup.py`.
 
 Manual diagnostics must resolve the stable Ralph root first:
 

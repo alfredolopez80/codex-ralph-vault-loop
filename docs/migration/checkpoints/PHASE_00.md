@@ -1,7 +1,7 @@
 # PHASE 00 - Base Environment and MCP Validation
 
 Date: 2026-04-26
-Repository checked: `/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop`
+Repository checked: `<repo-root>`
 Requested phase scope: validate Codex environment readiness for a Codex-native migration.
 
 ## Previous Checkpoint
@@ -10,7 +10,7 @@ No previous checkpoint is required for PHASE 00.
 
 ## Active Codex Configuration
 
-- Active config inspected: `/Users/alfredolopez/.codex/config.toml`
+- Active config inspected: `<codex-config>`
 - Local repo config expected by the target tree was not present at `.codex/config.toml`.
 - Native orchestrator provider: `model_provider = "openai"`
 - Native orchestrator model: `gpt-5.5`
@@ -22,17 +22,17 @@ No previous checkpoint is required for PHASE 00.
 
 Detected in active Codex config:
 
-| Expected MCP | Config status | Runtime/tool status observed |
-|---|---:|---|
-| `ralph_coding_models` | Present | Available as `mcp__ralph_coding_models__` |
-| `zai_web_search` | Present | Remote endpoint responds; legacy-compatible alias retained |
-| `web-search-prime` | Present | Added canonical alias for Z.ai search MCP; `codex mcp get web-search-prime` reports `streamable_http` + bearer token auth |
-| `zai_web_reader` | Present | Remote endpoint responds; legacy-compatible alias retained |
-| `web-reader` | Present | Added canonical alias for Z.ai reader MCP; `codex mcp get web-reader` reports `streamable_http` + bearer token auth |
-| `zai_zread` | Present | Remote endpoint responds; legacy-compatible alias retained |
-| `zread` | Present | Added canonical alias for Z.ai repo-reader MCP; `codex mcp get zread` reports `streamable_http` + bearer token auth |
-| `zai_vision` | Present | Available as `mcp__zai_vision__` |
-| `minimax_coding_tools` | Present | Available as `mcp__minimax_coding_tools__`; smoke call to `web_search` succeeded |
+| Expected MCP           | Config status | Runtime/tool status observed                                                                                              |
+| ---------------------- | ------------: | ------------------------------------------------------------------------------------------------------------------------- |
+| `ralph_coding_models`  |       Present | Available as `mcp__ralph_coding_models__`                                                                                 |
+| `zai_web_search`       |       Present | Remote endpoint responds; legacy-compatible alias retained                                                                |
+| `web-search-prime`     |       Present | Added canonical alias for Z.ai search MCP; `codex mcp get web-search-prime` reports `streamable_http` + bearer token auth |
+| `zai_web_reader`       |       Present | Remote endpoint responds; legacy-compatible alias retained                                                                |
+| `web-reader`           |       Present | Added canonical alias for Z.ai reader MCP; `codex mcp get web-reader` reports `streamable_http` + bearer token auth       |
+| `zai_zread`            |       Present | Remote endpoint responds; legacy-compatible alias retained                                                                |
+| `zread`                |       Present | Added canonical alias for Z.ai repo-reader MCP; `codex mcp get zread` reports `streamable_http` + bearer token auth       |
+| `zai_vision`           |       Present | Available as `mcp__zai_vision__`                                                                                          |
+| `minimax_coding_tools` |       Present | Available as `mcp__minimax_coding_tools__`; smoke call to `web_search` succeeded                                          |
 
 Additional MCPs/plugins observed in active config include `context7`, `filesystem`, `playwright`, `web-search`, `chrome_devtools`, `mermaid`, `nanobanana`, and several Codex app plugins.
 
@@ -83,11 +83,11 @@ Z.ai canonical aliases added to active Codex config:
 
 Result: all required coding model routes passed.
 
-| Route | Provider | Model | Status |
-|---|---|---|---|
-| `zai_deep` | Z.ai | `glm-5.1` | OK |
-| `zai_fast` | Z.ai | `glm-5-turbo` | OK |
-| `minimax_fast` | MiniMax | `MiniMax-M2.7-highspeed` | OK |
+| Route          | Provider | Model                    | Status |
+| -------------- | -------- | ------------------------ | ------ |
+| `zai_deep`     | Z.ai     | `glm-5.1`                | OK     |
+| `zai_fast`     | Z.ai     | `glm-5-turbo`            | OK     |
+| `minimax_fast` | MiniMax  | `MiniMax-M2.7-highspeed` | OK     |
 
 Summary flags:
 
@@ -116,7 +116,7 @@ Required Z.ai and MiniMax environment variables were checked for presence only; 
 ## Risks
 
 - The user request said "repo actual multi-agent-ralph-loop", while the active writable repository is `codex-ralph-vault-loop`. This checkpoint was created in the active target repo.
-- `.codex/config.toml` is absent in this repo; validation used the active global Codex config at `/Users/alfredolopez/.codex/config.toml`.
+- `.codex/config.toml` is absent in this repo; validation used the active global Codex config at `<codex-config>`.
 - This running Codex conversation was initialized before the canonical aliases were added, so tool discovery in this same session may not show the new namespaces until Codex App/CLI reloads MCP configuration.
 
 ## Decision

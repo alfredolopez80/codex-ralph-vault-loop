@@ -139,7 +139,7 @@ mutation in a separate step.
 
 ```text
 Every Friday at 10:00 AM, run a report-only AutoResearch validation from:
-/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop
+<repo-root>
 
 Do not edit files, install packages, change global AGENTS, change hooks, mutate
 ~/.codex/config.toml, commit, push, open PRs, archive sessions, or schedule
@@ -149,8 +149,8 @@ Run:
 - git status --short
 - git rev-parse --abbrev-ref HEAD
 - git rev-parse HEAD
-- PYTHONDONTWRITEBYTECODE=1 python3 scripts/autoresearch/doctor.py --cwd /Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop
-- PYTHONDONTWRITEBYTECODE=1 python3 scripts/autoresearch/state.py --cwd /Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop --compact
+- PYTHONDONTWRITEBYTECODE=1 python3 scripts/autoresearch/doctor.py --cwd <repo-root>
+- PYTHONDONTWRITEBYTECODE=1 python3 scripts/autoresearch/state.py --cwd <repo-root> --compact
 - PYTHONDONTWRITEBYTECODE=1 python3 scripts/evals/autoresearch_dry_run.py --output .ralph-codex/reports/evals/autoresearch_weekly_latest.json --jsonl .ralph-codex/reports/evals/autoresearch_weekly_runs.jsonl
 - PYTHONDONTWRITEBYTECODE=1 python3 scripts/evals/context_guard_autoresearch_benchmark.py --output .ralph-codex/reports/evals/context_guard_weekly_latest.json
 - git status --short

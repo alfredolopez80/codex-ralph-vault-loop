@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -83,3 +84,14 @@ def test_external_agents_use_mcp_policy_language() -> None:
         assert "RED" in text
         lowered = text.lower()
         assert "direct" in lowered and ("provider" in lowered or "profile" in lowered)
+
+
+def test_codex_config_uses_repo_local_sfw_wrapper_for_stdio_mcp() -> None:
+    config = tomllib.loads((ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"))
+    servers = config["mcp_servers"]
+    for name in ["zai_vision", "minimax_coding_tools"]:
+        command = servers[name]["command"]
+        assert command == "scripts/setup/sfw"
+        wrapper = ROOT / command
+        assert wrapper.is_file()
+        assert os.access(wrapper, os.X_OK)

@@ -18,7 +18,9 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 
-REPO = Path("/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop")
+# Resolve from this script so the audit can run from a cloned public checkout
+# without embedding the maintainer's local filesystem layout.
+REPO = Path(__file__).resolve().parents[2]
 SECURITY_DIR = REPO / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
@@ -127,15 +129,15 @@ def servers() -> list[McpServer]:
         McpServer(
             name="zai_vision",
             kind="stdio",
-            target="npx",
-            args=["-y", "@z_ai/mcp-server@latest"],
+            target=str(REPO / "scripts/setup/sfw"),
+            args=["npx", "-y", "@z_ai/mcp-server@latest"],
             env_names=["Z_AI_API_KEY", "Z_AI_MODE"],
         ),
         McpServer(
             name="minimax_coding_tools",
             kind="stdio",
-            target="/Users/alfredolopez/.local/bin/uvx",
-            args=["minimax-coding-plan-mcp", "-y"],
+            target=str(REPO / "scripts/setup/sfw"),
+            args=["uvx", "minimax-coding-plan-mcp", "-y"],
             env_names=["MINIMAX_API_KEY", "MINIMAX_API_HOST"],
         ),
         McpServer(

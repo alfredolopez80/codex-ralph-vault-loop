@@ -1,6 +1,6 @@
 # PHASE 15 Checkpoint - Orchestrator Complete
 
-`docs/migration/checkpoints/PHASE_14.md` was reviewed first. It is marked PASS, so FASE 15 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_14.md` was reviewed first. It is marked PASS, so Phase 15 was allowed to proceed.
 
 This phase rewrites `.agents/skills/orchestrator/SKILL.md` as the full Codex-native coordination contract. It now covers intake, sensitivity classification, complexity scoring, vault search, cost routing, narrow delegation, local implementation ownership, review depth, gates, evals, vault save rules, RED discard, and handoff.
 
@@ -8,7 +8,7 @@ The orchestrator states that Codex main decides. It integrates `cost-router` thr
 
 Delegation is bounded. The skill explicitly says not to launch all subagents by default. It requires a reason for each delegation and keeps Codex main in control of synthesis, file edits, and final completion. GLM-5.1 is documented as a counterpart, not a final decision maker. GLM-5-Turbo and MiniMax-M2.7-highspeed are documented as fast routes for lightweight work.
 
-Global activation was applied with `scripts/setup/install-global-orchestrator-skill.py`. The installed global skill at `/Users/alfredolopez/.codex/skills/orchestrator/SKILL.md` matches the repo copy.
+Global activation was applied with `scripts/setup/install-global-orchestrator-skill.py`. The installed global skill at `<codex-skill-root>/orchestrator/SKILL.md` matches the repo copy.
 
 Manual validation:
 

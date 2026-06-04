@@ -182,9 +182,9 @@ def raise_for_rpc_error(resp: JsonRpcResponse) -> None:
 from eth_account import Account
 from eth_account.messages import encode_structured_data
 
-def sign_typed_data(*, private_key: str, typed_data: dict) -> str:
+def sign_typed_data(*, signing_key: str, typed_data: dict) -> str:
     msg = encode_structured_data(typed_data)
-    sig = Account.sign_message(msg, private_key=private_key)
+    sig = Account.sign_message(msg, signing_key)
     return sig.signature.hex()
 ```
 

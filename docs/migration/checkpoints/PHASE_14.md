@@ -1,6 +1,6 @@
 # PHASE 14 Checkpoint - Obsidian Spec Capture
 
-`docs/migration/checkpoints/PHASE_13.md` was reviewed first. It is marked PASS, so FASE 14 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_13.md` was reviewed first. It is marked PASS, so Phase 14 was allowed to proceed.
 
 This phase adds two Codex-native vault skills. `obsidian-capture` records safe decisions, bugs, fixes, and lessons in MiVault. `obsidian-spec` turns a vault spec note into a dry-run implementation plan before any repository code is edited.
 
@@ -8,7 +8,7 @@ The new vault templates live in `templates/vault`. `vault-init.py` now copies th
 
 The new script `scripts/vault/obsidian-spec-plan.py` reads a Markdown spec note, blocks RED specs, extracts objective, scope, and acceptance criteria, then writes a plan into the vault handoffs folder. The script is dry-run by default and records that no repository code was modified.
 
-Global activation was applied through `scripts/setup/install-global-obsidian-skills.py`. The installed global skills match the repo copies at `/Users/alfredolopez/.codex/skills/obsidian-capture` and `/Users/alfredolopez/.codex/skills/obsidian-spec`.
+Global activation was applied through `scripts/setup/install-global-obsidian-skills.py`. The installed global skills match the repo copies at `<codex-skill-root>/obsidian-capture` and `<codex-skill-root>/obsidian-spec`.
 
 Global execution was also tested from `/tmp` with absolute paths to this repo, not from the repository working directory. The global test initialized a temporary vault, copied templates, saved a YELLOW note, found it with vault search, and generated `projects/global-phase14/handoffs/demo-global-spec-plan.md` from a vault spec.
 

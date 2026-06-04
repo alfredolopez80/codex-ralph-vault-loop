@@ -59,8 +59,8 @@ tool_timeout_sec = 180.0
 enabled_tools = ["search_doc", "get_repo_structure", "read_file"]
 
 [mcp_servers.zai_vision]
-command = "npx"
-args = ["-y", "@z_ai/mcp-server@latest"]
+command = "scripts/setup/sfw"
+args = ["npx", "-y", "@z_ai/mcp-server@latest"]
 env_vars = ["Z_AI_API_KEY", "Z_AI_MODE"]
 startup_timeout_sec = 30.0
 tool_timeout_sec = 300.0
@@ -76,17 +76,17 @@ enabled_tools = [
 ]
 
 [mcp_servers.minimax_coding_tools]
-command = "/Users/alfredolopez/.local/bin/uvx"
-args = ["minimax-coding-plan-mcp", "-y"]
+command = "scripts/setup/sfw"
+args = ["uvx", "minimax-coding-plan-mcp", "-y"]
 env_vars = ["MINIMAX_API_KEY", "MINIMAX_API_HOST"]
 startup_timeout_sec = 30.0
 tool_timeout_sec = 180.0
 enabled_tools = ["web_search", "understand_image"]
 
 [mcp_servers.ralph_coding_models]
-command = "/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop/.venv-model-router/bin/python"
-args = ["/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop/scripts/model-router/ralph_coding_models_mcp.py"]
-cwd = "/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop"
+command = "python3"
+args = ["scripts/model-router/ralph_coding_models_mcp.py"]
+cwd = "."
 env_vars = [
   "Z_AI_API_KEY",
   "Z_AI_CODING_BASE_URL",
