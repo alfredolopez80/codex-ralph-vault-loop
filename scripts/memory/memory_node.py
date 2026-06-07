@@ -67,7 +67,7 @@ def contains_red_material(value: object) -> bool:
         return True
     for term in _red_terms():
         label = term.replace("_", r"[_-]?")
-        pattern = re.compile(rf"\b{label}\b\s*[:=]", re.IGNORECASE)
+        pattern = re.compile(rf"(?<![A-Za-z0-9_])['\"]?{label}['\"]?\s*[:=]", re.IGNORECASE)
         if pattern.search(text):
             return True
     if re.search(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b", text):

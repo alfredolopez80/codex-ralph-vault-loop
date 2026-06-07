@@ -250,6 +250,7 @@ class TreeStore:
                 source = root / name
                 target = temp / name
                 if source.exists():
+                    self._reject_symlink_tree(source)
                     shutil.copytree(source, target, symlinks=False)
                 else:
                     target.mkdir()
@@ -267,6 +268,14 @@ class TreeStore:
             if temp.exists():
                 shutil.rmtree(temp)
         return snapshot_name
+
+    @staticmethod
+    def _reject_symlink_tree(root: Path) -> None:
+        if root.is_symlink():
+            raise TreeStoreError("memory tree snapshot source contains a symlink")
+        for item in root.rglob("*"):
+            if item.is_symlink():
+                raise TreeStoreError("memory tree snapshot source contains a symlink")
 
     def restore_snapshot(self, project_id: str, snapshot_id: str) -> None:
         root = self.ensure_layout(project_id)

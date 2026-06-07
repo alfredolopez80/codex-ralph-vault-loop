@@ -155,8 +155,9 @@ def hard_reject_reason(node: Any, context: Context, include_deprecated: bool, an
     visibility_reason = visibility_reject_reason(node, context, analysis)
     if visibility_reason:
         return visibility_reason
+    visibility = str(node.get("visibility") or "branch_local")
     node_workspace = compact_space(node.get("workspace_instance_id"))
-    if node_workspace and context.workspace_instance_id and node_workspace != context.workspace_instance_id:
+    if visibility != "main_promoted" and node_workspace and context.workspace_instance_id and node_workspace != context.workspace_instance_id:
         return "wrong_worktree"
     if deprecated(node) and not include_deprecated:
         return "deprecated"
@@ -178,9 +179,12 @@ def text_score(query_terms: list[str], text: object, weight: int) -> int:
 
 def parse_time(value: object) -> datetime | None:
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def score_node(node: dict[str, Any], analysis: dict[str, Any]) -> tuple[float, dict[str, float]]:

@@ -55,7 +55,19 @@ def raw_payloads(store: TreeStore, project_id: str) -> list[tuple[Path, Any]]:
     return output
 
 
-def safe_nodes(store: TreeStore, project_id: str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def visible_for_consolidation(node: dict[str, Any], branch: str | None) -> bool:
+    if branch is None:
+        return True
+    visibility = str(node.get("visibility") or "branch_local")
+    if visibility == "main_promoted":
+        return True
+    if visibility in {"conflict", "deprecated_on_merge"}:
+        return False
+    anchor = str(node.get("created_on_branch") or node.get("branch") or "")
+    return anchor == branch or str(node.get("branch") or "") == branch
+
+
+def safe_nodes(store: TreeStore, project_id: str, branch: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     nodes: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     for path, payload in raw_payloads(store, project_id):
@@ -65,6 +77,9 @@ def safe_nodes(store: TreeStore, project_id: str) -> tuple[list[dict[str, Any]],
             continue
         if payload.get("sensitivity") == "RED" or contains_red_material(payload):
             skipped.append({"node_id": nid, "reason": "red"})
+            continue
+        if not visible_for_consolidation(payload, branch):
+            skipped.append({"node_id": nid, "reason": "wrong_branch_scope"})
             continue
         try:
             nodes.append(MemoryNode.from_dict(payload).to_dict())
@@ -188,7 +203,7 @@ def hub_nodes(nodes: list[dict[str, Any]], project_id: str, branch: str) -> list
 
 
 def build_plan(store: TreeStore, project_id: str, branch: str, explain: bool = False) -> dict[str, Any]:
-    nodes, skipped = safe_nodes(store, project_id)
+    nodes, skipped = safe_nodes(store, project_id, branch)
     links = dedupe_ops([*hinted_links(nodes), *same_topic_links(nodes)], ("source", "target", "relation"))
     supersessions = [item for item in links if item["relation"] == "supersedes"]
     duplicates = duplicate_ops(nodes)

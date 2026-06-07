@@ -66,7 +66,9 @@ def discover_sources(
         for path in sorted(item for item in base.rglob("*") if item.is_file()):
             if len(sources) >= max_items:
                 return sources, skipped
-            if any(part.lower() in FORBIDDEN_PARTS for part in path.parts):
+            if path.is_symlink():
+                skipped.append(skip(path, root, "symlink_source", kind))
+            elif any(part.lower() in FORBIDDEN_PARTS for part in path.parts):
                 skipped.append(skip(path, root, "forbidden_source", kind))
             elif path.suffix.lower() not in suffixes:
                 skipped.append(skip(path, root, "unsupported_suffix", kind))
@@ -81,7 +83,9 @@ def discover_sources(
                 if len(sources) >= max_items:
                     return sources, skipped
                 relative = "vault/" + str(path.relative_to(expanded_vault))
-                if any(part.lower() in FORBIDDEN_PARTS for part in path.parts):
+                if path.is_symlink():
+                    skipped.append({"source_path": relative, "source_kind": "vault_curated", "reason": "symlink_source"})
+                elif any(part.lower() in FORBIDDEN_PARTS for part in path.parts):
                     skipped.append({"source_path": relative, "source_kind": "vault_curated", "reason": "forbidden_source"})
                 else:
                     sources.append(Source(path, relative, "vault_curated"))
@@ -90,6 +94,8 @@ def discover_sources(
 
 def read_source(source: Source) -> tuple[str | None, dict[str, object] | None]:
     try:
+        if source.path.is_symlink():
+            return None, skip_source(source, "symlink_source")
         if source.path.stat().st_size > MAX_SOURCE_BYTES:
             return None, skip_source(source, "too_large")
         return source.path.read_text(encoding="utf-8"), None

@@ -160,6 +160,20 @@ def test_missing_provenance_is_skipped(tmp_path: Path) -> None:
     assert report["skip_reasons"]["missing_provenance"] == 1
 
 
+def test_symlinked_runtime_source_is_skipped(tmp_path: Path) -> None:
+    root = runtime(tmp_path)
+    external = tmp_path / "external.md"
+    external.write_text(frontmatter(classification="YELLOW", project_id=PROJECT) + "\nDecision: symlink target should not compact.\n", encoding="utf-8")
+    ledger = root / "ledgers" / "linked.md"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.symlink_to(external)
+
+    report = run_compact(tmp_path, tmp_path)
+
+    assert report["candidates"] == []
+    assert report["skip_reasons"]["symlink_source"] == 1
+
+
 def test_dry_run_does_not_mutate_memory_tree(tmp_path: Path) -> None:
     root = runtime(tmp_path)
     write_md(root, "handoffs/latest.md", "Validated dry-run marker.", classification="YELLOW", project_id=PROJECT)

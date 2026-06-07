@@ -25,6 +25,7 @@ metrics:
     - stale_rejected
     - provenance_complete
     - deterministic_replay
+    - trace_expectations_pass
   memory_research_quality:
     - raw_needed_detection
     - exact_fact_accuracy
@@ -43,3 +44,4 @@ hard_gates:
   - no_raw_leak_in_hook_output
   - wrong_scope_rejected
   - deterministic_replay
+  - trace_expectations_pass
