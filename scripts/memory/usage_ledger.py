@@ -136,6 +136,8 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     with os.fdopen(fd, "a", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
+            if os.fstat(handle.fileno()).st_nlink != 1:
+                raise OSError("usage ledger path must not be hard-linked")
             os.fchmod(handle.fileno(), 0o600)
             handle.write(line)
             handle.flush()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -204,6 +205,19 @@ def test_existing_ledger_permissions_are_restricted(tmp_path: Path) -> None:
     assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is True
 
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_ledger_path_hardlink_fails_open_without_write_through(tmp_path: Path) -> None:
+    path = ledger_path(tmp_path)
+    external = tmp_path / "outside-hardlink.jsonl"
+    external.write_text("", encoding="utf-8")
+    external.chmod(0o644)
+    path.unlink()
+    os.link(external, path)
+
+    assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is False
+    assert external.read_text(encoding="utf-8") == ""
+    assert external.stat().st_mode & 0o777 == 0o644
 
 
 def test_query_hash_deterministic() -> None:
