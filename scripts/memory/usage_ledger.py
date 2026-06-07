@@ -136,6 +136,7 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     with os.fdopen(fd, "a", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
+            os.fchmod(handle.fileno(), 0o600)
             handle.write(line)
             handle.flush()
             os.fsync(handle.fileno())

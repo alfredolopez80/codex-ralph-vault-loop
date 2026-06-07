@@ -197,6 +197,15 @@ def test_ledger_path_symlink_fails_open_without_write_through(tmp_path: Path) ->
     assert external.read_text(encoding="utf-8") == ""
 
 
+def test_existing_ledger_permissions_are_restricted(tmp_path: Path) -> None:
+    path = ledger_path(tmp_path)
+    path.chmod(0o644)
+
+    assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is True
+
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 def test_query_hash_deterministic() -> None:
     assert usage_ledger.query_hash("alpha   beta") == usage_ledger.query_hash("alpha beta")
     assert usage_ledger.query_hash("alpha beta") != usage_ledger.query_hash("alpha gamma")
