@@ -2,6 +2,7 @@
 name: obsidian-capture
 description: Capture sanitized decisions and lessons into the local Obsidian vault.
 ---
+
 # Obsidian Capture
 
 ## Purpose
@@ -14,7 +15,7 @@ Classify before writing. GREEN can go to global notes. YELLOW belongs to the pro
 
 ## Workflow
 
-Find the Ralph repo at `RALPH_CODEX_REPO` or `~/Documents/GitHub/codex-ralph-vault-loop`. Initialize the vault with `scripts/vault/vault-init.py` when needed. Save notes through `scripts/vault/vault-save.py` with `--classification GREEN` or `--classification YELLOW`.
+Find the Ralph repo at `RALPH_CODEX_REPO` or the current checkout root. Initialize the vault with `scripts/vault/vault-init.py` when needed. Save notes through `scripts/vault/vault-save.py` with `--classification GREEN` or `--classification YELLOW`.
 
 Use templates from `templates/vault` for concepts, decisions, sessions, handoffs, autoresearch results, and specs. `vault-init.py` copies those templates into the vault `_templates` folder.
 

@@ -1,6 +1,6 @@
 # PHASE 20 Checkpoint - Full Acceptance Run
 
-`docs/migration/checkpoints/PHASE_19.md` was reviewed first. It is marked PASS, so FASE 20 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_19.md` was reviewed first. It is marked PASS, so Phase 20 was allowed to proceed.
 
 ## Acceptance Summary
 
@@ -27,7 +27,7 @@
 | AutoResearch                    |   PASS | Toy dry-run decision `keep`, holdout delta `0.2143`, hard gates passed, no harness/fixture mutation.                                                         |
 | E2E orchestrator dry-run        |   PASS | Temporary Obsidian spec generated an implementation plan and cost-route decision without repo code edits.                                                    |
 | RED policy                      |   PASS | RED content blocks external routing, redaction reports `allowed_external=false`, and vault save skips persistence.                                           |
-| Visual generation policy        |   PASS | `GPT Imágenes 2` remains the only approved visual generation route; Z.ai/MiniMax generation is prohibited.                                                   |
+| Visual generation policy        |   PASS | `GPT Images 2` remains the only approved visual generation route; Z.ai/MiniMax generation is prohibited.                                                     |
 | Codex final ownership           |   PASS | `Codex main decides` / `Codex main owns` is present in root and routing docs.                                                                                |
 | No direct Z.ai/MiniMax provider |   PASS | Grep found only historical checkpoint text documenting absence of direct providers.                                                                          |
 | MCP availability                |   PASS | `mcp__ralph_coding_models__.validate_coding_models` returned `all_ok=true`; Z.ai and MiniMax tool namespaces are exposed in the current Codex tool registry. |
@@ -88,7 +88,7 @@ python3 scripts/evals/autoresearch_dry_run.py --output .ralph-codex/reports/eval
 mcp__ralph_coding_models__.validate_coding_models
 python3 scripts/cost/route-task.py --task-type code_review --complexity 4 --sensitivity green --text 'redaction fixture value'
 python3 scripts/cost/redact-for-external.py --json --text 'redaction fixture value'
-grep -R "GPT Imágenes 2" AGENTS.md docs/architecture .agents/skills/model-router/SKILL.md
+grep -R "GPT Images 2" AGENTS.md docs/architecture .agents/skills/model-router/SKILL.md
 grep -R "Codex main decides\|Codex main owns" AGENTS.md .agents/skills/orchestrator/SKILL.md .agents/skills/model-router/SKILL.md
 grep -R "model_provider.*zai\|model_provider.*minimax\|\[model_providers\.zai\]\|\[model_providers\.minimax\]" .codex .agents scripts docs --exclude-dir=__pycache__ || true
 git diff --check
@@ -112,7 +112,7 @@ The current Codex tool registry also exposes Z.ai and MiniMax MCP-backed namespa
 - The RED detector is intentionally conservative. It can block benign text that references `.env`, customer markers, or credential-shaped examples. That is acceptable for external routing and durable memory paths.
 - The acceptance run validated the real Obsidian vault read-only. It did not write to the real vault to avoid creating production memory during acceptance.
 - Live Z.ai/MiniMax model validation was performed through `ralph_coding_models`; research, vision, and coding evals used deterministic mock fixtures for repeatable scoring.
-- FASE 18, FASE 19, and FASE 20 changes are present in the working tree and still need a final commit/push when approved.
+- Phase 18, Phase 19, and Phase 20 changes are present in the working tree and still need a final commit/push when approved.
 
 ## Next Steps
 

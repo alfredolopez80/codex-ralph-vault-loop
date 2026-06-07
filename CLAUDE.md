@@ -144,7 +144,7 @@ Full rule files: `.claude/rules/*.md`.
 ## Repository State
 
 Branch: `main`
-Remote: `https://github.com/alfredolopez80/codex-ralph-vault-loop` (private)
+Remote: `https://github.com/alfredolopez80/codex-ralph-vault-loop`
 
 The `.claude/` directory was inherited from a Claude Code template and is intentionally
 preserved for parity. The active runtime is Codex.

@@ -1,7 +1,7 @@
 # PHASE 09 - Cost Router And MCP Model Routing
 
 Date: 2026-04-27
-Repository: `/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop`
+Repository: `<repo-root>`
 
 ## Previous Checkpoint
 

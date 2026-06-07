@@ -1,7 +1,7 @@
 # PHASE 01 - Codex-Native Repository Scaffold
 
 Date: 2026-04-27
-Repository: `/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop`
+Repository: `<repo-root>`
 
 ## Previous Checkpoint
 
@@ -41,7 +41,7 @@ Empty scaffold directories are tracked with `.gitkeep` files.
 
 ## Configuration Notes
 
-- Global runtime config inspected: `/Users/alfredolopez/.codex/config.toml`.
+- Global runtime config inspected: `<codex-config>`.
 - Global runtime uses `model_provider = "openai"`.
 - Global runtime has no direct Z.ai or MiniMax model-provider blocks.
 - Global runtime includes the required MCP dependencies: `ralph_coding_models`, `web-search-prime`, `web-reader`, `zread`, `zai_vision`, and `minimax_coding_tools`.
@@ -77,8 +77,8 @@ Additional checks:
 - Required directories check returned `PHASE_01_DIRS_OK`.
 - Required files check returned `PHASE_01_FILES_OK`.
 - `.codex/hooks.json` parsed as valid JSON.
-- Global `/Users/alfredolopez/.codex/config.toml` contains no direct Z.ai or MiniMax provider selection and no direct Z.ai or MiniMax model-provider blocks.
-- Global `/Users/alfredolopez/.codex/config.toml` exposes all required MCPs through `codex mcp list`.
+- Global `<codex-config>` contains no direct Z.ai or MiniMax provider selection and no direct Z.ai or MiniMax model-provider blocks.
+- Global `<codex-config>` exposes all required MCPs through `codex mcp list`.
 - Repo-local `.codex/config.toml` parses as TOML and declares `web-search-prime`, `web-reader`, `zread`, `zai_vision`, `minimax_coding_tools`, and `ralph_coding_models` without embedding secret values.
 - `.gitignore` blocks common secret files, `.env*`, private keys, wallet/keystore material, cookies, and local vault/memory data directories.
 - Existing repository history was preserved; this was not recreated destructively.

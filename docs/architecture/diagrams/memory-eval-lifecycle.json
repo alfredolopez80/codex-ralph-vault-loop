@@ -3,43 +3,13 @@
   "title": "Memory, Evaluation, and Handoff Lifecycle",
   "template": "data-flow",
   "style": "openai",
-  "description": "Lifecycle flow for SessionStart wakeup, prompt capture, tool ledgers, learning extraction, gates, eval reports, vault persistence, and Stop handoff.",
+  "description": "Hook lifecycle from wakeup and prompt capture through tool ledgers, gates, reports, vault review, and stop handoff.",
   "flows": [
-    {
-      "from": "SessionStart",
-      "to": "wakeup.py",
-      "data": "compact L0-L3 context"
-    },
-    {
-      "from": "UserPromptSubmit",
-      "to": "user-prompts.jsonl",
-      "data": "safe preview"
-    },
-    {
-      "from": "PostToolUse",
-      "to": "learning ledger",
-      "data": "sanitized candidate learning"
-    },
-    {
-      "from": "PostToolUse",
-      "to": "cost ledger",
-      "data": "tool and cost metadata"
-    },
-    {
-      "from": "Gates / Evals",
-      "to": "reports",
-      "data": "latest json and markdown"
-    },
-    {
-      "from": "Stop",
-      "to": "handoff.py",
-      "data": "sanitized summary"
-    },
-    {
-      "from": "Vault save",
-      "to": "MiVault",
-      "data": "GREEN global or YELLOW project notes"
-    }
-  ],
-  "red_policy": "RED is skipped and remains local to the active Codex session."
+    "SessionStart",
+    "UserPromptSubmit",
+    "PostToolUse",
+    "Gates/Evals",
+    "Vault review",
+    "Stop"
+  ]
 }

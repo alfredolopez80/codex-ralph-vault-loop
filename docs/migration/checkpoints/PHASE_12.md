@@ -1,12 +1,12 @@
 # PHASE 12 Checkpoint - AutoResearch Codex-native
 
-`docs/migration/checkpoints/PHASE_11.md` was reviewed first. It is marked PASS, so FASE 12 was allowed to proceed.
+`docs/migration/checkpoints/PHASE_11.md` was reviewed first. It is marked PASS, so Phase 12 was allowed to proceed.
 
 This phase adds the Codex-native AutoResearch surface. The new skills are `autoresearch`, `evaluate`, and `scorecard` under `.agents/skills`. The runtime additions are `scripts/evals/autoresearch_dry_run.py`, `tests/evals/fixtures/autoresearch_toy_speed`, and an update to `scripts/evals/collect_baseline.py` so `--suite toy` is a valid baseline command. `scripts/setup/install-global-eval-skills.py` installs the three skills into `~/.codex/skills`.
 
 AutoResearch now uses `ralph_autoresearch_v1` as a versioned scorecard. The dry-run records before/after digests for scorecards, eval scripts, and fixture files. Train and holdout splits are loaded when the fixture manifest provides them. For the toy suite, holdout drives the keep/discard decision. Reports are written under `.ralph-codex/reports/evals`, and each run appends one JSONL record. MiVault persistence is available only with explicit `--persist-vault`, and only for PASS results.
 
-The global activation step installed `/Users/alfredolopez/.codex/skills/autoresearch`, `/Users/alfredolopez/.codex/skills/evaluate`, and `/Users/alfredolopez/.codex/skills/scorecard`. The installer handles existing directories and symlinks by creating a backup before replacement.
+The global activation step installed `<codex-skill-root>/autoresearch`, `<codex-skill-root>/evaluate`, and `<codex-skill-root>/scorecard`. The installer handles existing directories and symlinks by creating a backup before replacement.
 
 The validation commands below were run with `PYTHONDONTWRITEBYTECODE=1`.
 

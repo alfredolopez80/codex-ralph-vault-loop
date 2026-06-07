@@ -12,9 +12,9 @@ Runtime surfaces:
 - `scripts/*` provide deterministic local tools for vault, memory, gates, cost, setup, and evals.
 - `~/Documents/Obsidian/MiVault` stores durable memory outside the repo.
 
-No `model_provider directo` is used for Z.ai or MiniMax. Those systems enter only through MCP routes, and RED content never leaves Codex/local tools.
+No direct `model_provider` entry is used for Z.ai or MiniMax. Those systems enter only through MCP routes, and RED content never leaves Codex/local tools.
 
-Visual generation rule: Z.ai and MiniMax are analysis-only. GPT Imágenes 2 is the approved route for image generation.
+Visual generation rule: Z.ai and MiniMax are analysis-only. GPT Images 2 is the approved route for image generation.
 
 ## Diagrams
 

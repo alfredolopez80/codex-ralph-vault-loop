@@ -2,20 +2,37 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+This repository is pre-1.0. Security fixes are applied to the default branch.
+Older snapshots are unsupported unless a maintainer tags a release and states
+support for it.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Reporting A Vulnerability
 
-## Reporting a Vulnerability
+Please report vulnerabilities through GitHub Security Advisories for this
+repository. If advisories are unavailable, open a minimal issue that describes
+the affected component and impact using sanitized evidence only.
 
-Use this section to tell people how to report a vulnerability.
+Useful reports include:
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- affected file or component;
+- reproduction steps using sanitized inputs;
+- expected and actual behavior;
+- impact assessment;
+- suggested mitigation, if known.
+
+Do not post live access material, vault data, raw local memory content, or
+unsanitized logs in public issues or pull requests.
+
+## Security Boundaries
+
+Codex remains the orchestrator. External models and remote MCP tools are
+advisors only, and RED content must stay local. This repo should not contain
+private vault data, personal local paths, raw transcripts, or unsanitized logs.
+
+Before publishing or merging security-sensitive changes, run:
+
+```bash
+gitleaks detect --no-banner --redact
+semgrep --config .semgrep.yml .
+python3 scripts/gates/run-security.py --mode standard
+```

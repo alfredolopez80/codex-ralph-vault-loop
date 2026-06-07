@@ -1,65 +1,71 @@
 ---
 name: oracle-pro-debugger
-description: Skill para usar Oracle CLI como segunda opinion con ChatGPT Pro/GPT Pro en depuracion, fallas dificiles, revision de arquitectura y validacion de hipotesis, siempre con dry-run, minima seleccion de archivos y aprobacion explicita antes de enviar contexto externo.
+description: Use when a difficult debugging, architecture, migration, or hypothesis-validation problem needs an external ChatGPT Pro or Oracle CLI second opinion after local inspection, always with dry-run first, minimal file selection, local safety scan, and explicit user approval before any real external run.
 ---
 
 # Oracle Pro Debugger
 
-Usa esta skill cuando necesites una segunda opinion externa mediante Oracle CLI para:
+Use this skill when a local investigation leaves a hard question that benefits
+from a second opinion through the Oracle CLI:
 
-- fallas dificiles o intermitentes
-- bugs no reproducibles
-- debugging profundo despues de inspeccion local
-- revision de arquitectura
-- validacion cruzada de hipotesis
-- analisis de logs previamente sanitizados
-- solicitudes explicitas de consultar ChatGPT Pro, GPT Pro u Oracle
+- difficult or intermittent failures;
+- non-reproducible bugs;
+- deep debugging after local inspection;
+- architecture review;
+- cross-checking competing hypotheses;
+- analysis of sanitized logs;
+- explicit user requests to consult ChatGPT Pro, GPT Pro, or Oracle.
 
-No uses esta skill para:
+Do not use it for:
 
-- tareas triviales
-- sustituir la inspeccion local inicial
-- contexto con secretos no sanitizados
-- enviar repos completos
-- enviar `.env`, certificados, claves, wallets, cookies, configs privadas o produccion sensible
+- trivial work;
+- replacing the initial local investigation;
+- unsanitized sensitive context;
+- full repository uploads;
+- broad globs, local runtime state, certificates, wallets, cookies, local-only
+  configs, or production-sensitive material.
 
-## Flujo obligatorio
+## Required Flow
 
-1. Inspecciona localmente el problema, reproduce si es posible y reduce la pregunta.
-2. Selecciona el minimo conjunto de archivos necesario con `--file`.
-3. Para validar sin tocar `npx` ni Oracle, usa `--print-command` o `ORACLE_NO_EXEC=1`.
-4. Ejecuta primero un dry-run con resumen y `files-report`.
-5. Revisa el escaneo local de contenido y el reporte de archivos excluidos/incluidos.
-6. Pide aprobacion explicita al usuario antes de cualquier consulta real externa.
-7. Ejecuta real-run solo con `ORACLE_APPROVED=1` y `--real-run`.
-8. Trata la respuesta de Oracle como asesoria, no como verdad.
-9. Verifica cualquier recomendacion con tests, lint, typecheck o reproduccion local.
+1. Inspect locally, reproduce when possible, and reduce the question.
+2. Select the smallest useful file set with `--file`.
+3. Use `--print-command` or `ORACLE_NO_EXEC=1` to validate without touching the
+   package executor or Oracle.
+4. Run a dry-run first and review the summary plus files report.
+5. Review the local content scan and included/excluded file list.
+6. Ask the user for explicit approval before any real external consultation.
+7. Run the real consultation only with `ORACLE_APPROVED=1` and `--real-run`.
+8. Treat Oracle output as advice, not truth.
+9. Verify recommendations with tests, lint, typecheck, or local reproduction.
 
-Lee `references/oracle-security-policy.md` antes de cualquier real-run. Usa `references/oracle-usage.md` para ejemplos.
+Read `references/oracle-security-policy.md` before any real run. Use
+`references/oracle-usage.md` for examples.
 
-## Wrapper obligatorio
+## Required Wrapper
 
-No llames Oracle directamente. Usa siempre:
+Do not call Oracle directly. Always use:
 
 ```bash
 .agents/skills/oracle-pro-debugger/scripts/oracle_safe_consult.sh \
   --print-command \
   --dry-run \
-  --prompt "Diagnostica esta falla TypeScript y sugiere hipotesis verificables." \
+  --prompt "Diagnose this TypeScript failure and suggest locally testable hypotheses." \
   --file "src/**/*.ts" \
   --file "tsconfig.json"
 ```
 
-Ejemplo de real-run aprobado:
+Approved real-run example:
 
 ```bash
 ORACLE_APPROVED=1 .agents/skills/oracle-pro-debugger/scripts/oracle_safe_consult.sh \
   --real-run \
   --engine browser \
   --model "gpt-5-pro" \
-  --prompt "Revisa estas hipotesis y senala la mas probable con pruebas locales sugeridas." \
+  --prompt "Review these hypotheses and identify the most likely one with local verification steps." \
   --file "src/**/*.ts" \
   --file "tests/**/*.ts"
 ```
 
-El wrapper fuerza denies de secretos y dependencias, rechaza globs demasiado amplios, escanea contenido local antes de llamar Oracle, usa dry-run por defecto, imprime el comando sanitizado y requiere aprobacion para cualquier envio externo.
+The wrapper rejects broad file sets, scans local content before external use,
+runs in dry-run mode by default, prints the sanitized command, and requires
+approval for any external send.
