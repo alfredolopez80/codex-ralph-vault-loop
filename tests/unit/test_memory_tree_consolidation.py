@@ -112,6 +112,21 @@ def test_consolidation_ignores_other_branch_local_nodes(tmp_path: Path) -> None:
     assert store.load_node(PROJECT, "node_other_branch")["quality"].get("duplicate_of") is None
 
 
+def test_consolidation_normalizes_before_branch_scope(tmp_path: Path) -> None:
+    store = TreeStore(tmp_path)
+    legacy_normalizable = node("node_legacy_normalizable", summary="Legacy normalized duplicate.", source_paths=["docs/legacy.md"])
+    legacy_normalizable.pop("created_on_branch")
+    legacy_normalizable.pop("visibility")
+    atomic_write_json(store.node_path(PROJECT, "node_legacy_normalizable"), legacy_normalizable)
+    store.create_node(node("node_current_duplicate", summary="Legacy normalized duplicate.", source_paths=["docs/current.md"]))
+
+    report = consolidate_tree(store, PROJECT, BRANCH)
+
+    assert report["duplicates"] == [
+        {"canonical": "node_current_duplicate", "duplicate": "node_legacy_normalizable", "reason": "duplicate_overlap"}
+    ]
+
+
 def test_write_creates_snapshot_and_virtual_hub_is_raw_free(tmp_path: Path) -> None:
     store = TreeStore(tmp_path)
     store.create_node(node("node_hub_a", topic_tags=["cluster"], summary="Cluster alpha marker."))

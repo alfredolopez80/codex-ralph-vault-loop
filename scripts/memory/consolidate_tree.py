@@ -78,13 +78,15 @@ def safe_nodes(store: TreeStore, project_id: str, branch: str | None = None) -> 
         if payload.get("sensitivity") == "RED" or contains_red_material(payload):
             skipped.append({"node_id": nid, "reason": "red"})
             continue
-        if not visible_for_consolidation(payload, branch):
-            skipped.append({"node_id": nid, "reason": "wrong_branch_scope"})
-            continue
         try:
-            nodes.append(MemoryNode.from_dict(payload).to_dict())
+            node = MemoryNode.from_dict(payload).to_dict()
         except MemoryNodeValidationError:
             skipped.append({"node_id": nid, "reason": "invalid_node"})
+            continue
+        if not visible_for_consolidation(node, branch):
+            skipped.append({"node_id": nid, "reason": "wrong_branch_scope"})
+            continue
+        nodes.append(node)
     return nodes, skipped
 
 
