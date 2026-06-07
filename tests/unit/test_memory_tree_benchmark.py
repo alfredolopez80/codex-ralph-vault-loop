@@ -83,3 +83,21 @@ def test_benchmark_fails_on_raw_leak_in_hook_like_output(tmp_path: Path) -> None
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["metrics"]["no_raw_leak_in_hook_output"] == 0.0
     assert report["hard_gates"]["no_raw_leak_in_hook_output"] is False
+
+
+def test_benchmark_fails_on_trace_expectation_mismatch(tmp_path: Path) -> None:
+    copied = tmp_path / "fixture"
+    shutil.copytree(FIXTURE, copied)
+    expected_traces_path = copied / "expected" / "expected_traces.json"
+    expected_traces = json.loads(expected_traces_path.read_text(encoding="utf-8"))
+    first_query_id = next(iter(expected_traces))
+    expected_traces[first_query_id]["raw_included"] = True
+    expected_traces_path.write_text(json.dumps(expected_traces, sort_keys=True), encoding="utf-8")
+
+    output = tmp_path / "benchmark.json"
+    result = run_benchmark(copied, output)
+
+    assert result.returncode == 1
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["metrics"]["trace_expectations_pass"] == 0.0
+    assert report["hard_gates"]["trace_expectations_pass"] is False

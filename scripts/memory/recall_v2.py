@@ -178,9 +178,12 @@ def text_score(query_terms: list[str], text: object, weight: int) -> int:
 
 def parse_time(value: object) -> datetime | None:
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def score_node(node: dict[str, Any], analysis: dict[str, Any]) -> tuple[float, dict[str, float]]:

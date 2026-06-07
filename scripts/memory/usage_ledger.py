@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
 import sys
-import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -128,23 +128,23 @@ def usage_path(ralph_home: Path, project_id: str) -> Path:
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     ensure_within(path.parent, path)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if path.is_symlink():
+        raise OSError("usage ledger path must not be a symlink")
     line = json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n"
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(existing)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            if os.fstat(handle.fileno()).st_nlink != 1:
+                raise OSError("usage ledger path must not be hard-linked")
+            os.fchmod(handle.fileno(), 0o600)
             handle.write(line)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
-        fsync_dir(path.parent)
-    finally:
-        try:
-            tmp_path.unlink()
-        except FileNotFoundError:
-            pass
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    fsync_dir(path.parent)
 
 
 def write_event(ralph_home: Path, project_id: str, event: dict[str, Any]) -> bool:

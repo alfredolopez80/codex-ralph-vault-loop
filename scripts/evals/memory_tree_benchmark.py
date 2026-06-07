@@ -183,6 +183,7 @@ def compute_metrics(results: dict[str, Any], ingest_result: dict[str, Any], mani
         "graph_hop_recall": float(by_case["graph"]["selection_pass"]),
         "token_budget_observed": float(budget["used"] <= budget["limit"] and "budget_exceeded" in set(by_case["budget"]["rejected"].values())),
         "provenance_complete": float(by_case["provenance"]["rejected"].get("node_missing_provenance") == "missing_provenance"),
+        "trace_expectations_pass": float(all(item["trace_pass"] for item in results.values())),
     }
     selection_pass_rate = mean([item["selection_pass"] for item in results.values()])
     metrics["memory_tree_score"] = mean([*metrics.values(), selection_pass_rate])
@@ -211,6 +212,7 @@ def finalize(first: dict[str, Any], second: dict[str, Any], fixture_unchanged: b
         "no_raw_leak_in_hook_output": metrics["no_raw_leak_in_hook_output"] == 1.0,
         "wrong_scope_rejected": metrics["wrong_scope_rejected"] == 1.0,
         "deterministic_replay": deterministic,
+        "trace_expectations_pass": metrics["trace_expectations_pass"] == 1.0,
     }
     report["hard_gates"] = hard_gates
     return report
@@ -241,6 +243,7 @@ def main() -> int:
         "graph_hop_recall",
         "token_budget_observed",
         "provenance_complete",
+        "trace_expectations_pass",
         "deterministic_replay",
     ):
         print(f"METRIC {key}={report['metrics'][key]:.4f}")

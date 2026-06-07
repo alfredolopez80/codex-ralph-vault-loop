@@ -153,6 +153,33 @@ def test_wrong_project_branch_worktree_are_rejected(tmp_path: Path) -> None:
     assert reasons(report)["node_wrong_worktree"] == "wrong_worktree"
 
 
+def test_main_promoted_from_other_worktree_is_rejected(tmp_path: Path) -> None:
+    write_raw_node(
+        tmp_path,
+        node(
+            "node_main_promoted_other_worktree",
+            workspace_instance_id="other-workspace",
+            visibility="main_promoted",
+            branch="main",
+            created_on_branch="main",
+            summary="promoted cross worktree marker",
+        ),
+    )
+
+    report, _stdout = run_recall(tmp_path, "promoted cross worktree marker")
+
+    assert report["MEMORY_TRACE_JSON"]["selected_memory_ids"] == []
+    assert reasons(report)["node_main_promoted_other_worktree"] == "wrong_worktree"
+
+
+def test_naive_timestamp_does_not_abort_recall(tmp_path: Path) -> None:
+    store_node(tmp_path, node("node_naive_time", summary="naive timestamp marker", updated_at="2026-06-07T00:00:00"))
+
+    report, _stdout = run_recall(tmp_path, "naive timestamp marker")
+
+    assert report["MEMORY_TRACE_JSON"]["selected_memory_ids"] == ["node_naive_time"]
+
+
 def test_deprecated_rejected_current_selected(tmp_path: Path) -> None:
     store_node(tmp_path, node("node_current", summary="current marker"))
     write_raw_node(tmp_path, node("node_deprecated", summary="current marker deprecated marker marker", quality={"confidence": 1.0, "provenance_complete": True, "deprecated": True}))

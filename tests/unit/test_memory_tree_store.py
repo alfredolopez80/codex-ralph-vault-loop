@@ -14,7 +14,7 @@ if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
 from memory_node import MemoryNode, MemoryNodeValidationError, deterministic_node_id  # noqa: E402
-from tree_store import TreeStore, TreeStorePathError  # noqa: E402
+from tree_store import TreeStore, TreeStoreError, TreeStorePathError  # noqa: E402
 
 
 PROJECT = "p-test-project"
@@ -23,6 +23,10 @@ OTHER_PROJECT = "p-other-project"
 
 def red_text() -> str:
     return "tok" + "en=abcd1234"
+
+
+def red_json_text() -> str:
+    return '{"tok' + 'en":"abcd1234"}'
 
 
 def base_node(**overrides):
@@ -107,8 +111,19 @@ def test_red_raw_rejected(tmp_path: Path) -> None:
         store.save_raw(PROJECT, red_text(), sensitivity="YELLOW")
     with pytest.raises(MemoryNodeValidationError):
         store.save_raw(PROJECT, "safe text", sensitivity="YELLOW", safe=False)
+    with pytest.raises(MemoryNodeValidationError):
+        store.save_raw(PROJECT, red_json_text(), sensitivity="YELLOW")
 
     assert not list(store.raw_dir(PROJECT).glob("*.txt")) if store.raw_dir(PROJECT).exists() else True
+
+
+def test_quoted_sensitive_node_fields_rejected(tmp_path: Path) -> None:
+    store = TreeStore(tmp_path)
+
+    with pytest.raises(MemoryNodeValidationError):
+        store.create_node(base_node(trigger={"tok" + "en": "abcd1234"}))
+    with pytest.raises(MemoryNodeValidationError):
+        store.create_node(base_node(summary="`tok" + "en`: abcd1234"))
 
 
 def test_missing_provenance_rejected(tmp_path: Path) -> None:
@@ -160,6 +175,17 @@ def test_snapshot_and_restore(tmp_path: Path) -> None:
 
     assert store.load_node(PROJECT, "node_valid_001")["summary"] == base_node()["summary"]
     assert store.read_raw(PROJECT, raw["sha256"]) == "safe restore payload"
+
+
+def test_snapshot_rejects_source_symlink(tmp_path: Path) -> None:
+    store = TreeStore(tmp_path)
+    store.create_node(base_node())
+    outside = tmp_path / "outside.txt"
+    outside.write_text("safe outside file", encoding="utf-8")
+    (store.raw_dir(PROJECT) / "link.txt").symlink_to(outside)
+
+    with pytest.raises(TreeStoreError):
+        store.snapshot_tree(PROJECT, "snapshot_symlink")
 
 
 def test_wrong_project_path_isolation(tmp_path: Path) -> None:

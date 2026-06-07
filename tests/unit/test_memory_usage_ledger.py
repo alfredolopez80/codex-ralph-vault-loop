@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,6 +61,37 @@ def test_write_valid_jsonl(tmp_path: Path) -> None:
     assert event["selected_memory_ids"] == ["node_alpha"]
     assert event["rejected_reason_counts"] == {"wrong_project": 1}
     assert event["raw_included"] is False
+
+
+def test_concurrent_writes_preserve_events(tmp_path: Path) -> None:
+    failures: list[BaseException] = []
+
+    def worker(index: int) -> None:
+        try:
+            ok = usage_ledger.record_usage(
+                tmp_path,
+                PROJECT,
+                query=f"query {index}",
+                selected_memory_ids=[f"node_{index}"],
+                rejected=[],
+            )
+            assert ok
+        except BaseException as exc:  # pragma: no cover - re-raised below
+            failures.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(12)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if failures:
+        raise failures[0]
+
+    events = [json.loads(line) for line in ledger_path(tmp_path).read_text(encoding="utf-8").splitlines()]
+    selected = {event["selected_memory_ids"][0] for event in events}
+
+    assert len(events) == 12
+    assert selected == {f"node_{index}" for index in range(12)}
 
 
 def test_no_raw_prompt_text_or_raw_memory_stored(tmp_path: Path) -> None:
@@ -152,6 +185,39 @@ def test_ledger_write_failure_fails_open(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(usage_ledger, "append_jsonl", fail_append)
 
     assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is False
+
+
+def test_ledger_path_symlink_fails_open_without_write_through(tmp_path: Path) -> None:
+    path = ledger_path(tmp_path)
+    external = tmp_path / "outside.jsonl"
+    external.write_text("", encoding="utf-8")
+    path.unlink()
+    path.symlink_to(external)
+
+    assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is False
+    assert external.read_text(encoding="utf-8") == ""
+
+
+def test_existing_ledger_permissions_are_restricted(tmp_path: Path) -> None:
+    path = ledger_path(tmp_path)
+    path.chmod(0o644)
+
+    assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is True
+
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_ledger_path_hardlink_fails_open_without_write_through(tmp_path: Path) -> None:
+    path = ledger_path(tmp_path)
+    external = tmp_path / "outside-hardlink.jsonl"
+    external.write_text("", encoding="utf-8")
+    external.chmod(0o644)
+    path.unlink()
+    os.link(external, path)
+
+    assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is False
+    assert external.read_text(encoding="utf-8") == ""
+    assert external.stat().st_mode & 0o777 == 0o644
 
 
 def test_query_hash_deterministic() -> None:
