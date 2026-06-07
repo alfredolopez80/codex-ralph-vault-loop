@@ -128,8 +128,12 @@ def usage_path(ralph_home: Path, project_id: str) -> Path:
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     ensure_within(path.parent, path)
+    if path.is_symlink():
+        raise OSError("usage ledger path must not be a symlink")
     line = json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n"
-    with path.open("a", encoding="utf-8") as handle:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             handle.write(line)

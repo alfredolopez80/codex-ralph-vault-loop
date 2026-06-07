@@ -186,6 +186,17 @@ def test_ledger_write_failure_fails_open(monkeypatch, tmp_path: Path) -> None:
     assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is False
 
 
+def test_ledger_path_symlink_fails_open_without_write_through(tmp_path: Path) -> None:
+    path = ledger_path(tmp_path)
+    external = tmp_path / "outside.jsonl"
+    external.write_text("", encoding="utf-8")
+    path.unlink()
+    path.symlink_to(external)
+
+    assert usage_ledger.record_usage(tmp_path, PROJECT, query="safe query") is False
+    assert external.read_text(encoding="utf-8") == ""
+
+
 def test_query_hash_deterministic() -> None:
     assert usage_ledger.query_hash("alpha   beta") == usage_ledger.query_hash("alpha beta")
     assert usage_ledger.query_hash("alpha beta") != usage_ledger.query_hash("alpha gamma")
