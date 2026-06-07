@@ -122,6 +122,8 @@ def test_quoted_sensitive_node_fields_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(MemoryNodeValidationError):
         store.create_node(base_node(trigger={"tok" + "en": "abcd1234"}))
+    with pytest.raises(MemoryNodeValidationError):
+        store.create_node(base_node(summary="`tok" + "en`: abcd1234"))
 
 
 def test_missing_provenance_rejected(tmp_path: Path) -> None:

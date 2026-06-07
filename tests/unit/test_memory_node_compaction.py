@@ -174,6 +174,20 @@ def test_symlinked_runtime_source_is_skipped(tmp_path: Path) -> None:
     assert report["skip_reasons"]["symlink_source"] == 1
 
 
+def test_symlinked_runtime_source_directory_is_skipped(tmp_path: Path) -> None:
+    root = runtime(tmp_path)
+    external = tmp_path / "external-ledgers"
+    write_md(external, "linked.md", "Decision: symlinked directory should not compact.", classification="YELLOW", project_id=PROJECT)
+    ledgers = root / "ledgers"
+    ledgers.parent.mkdir(parents=True, exist_ok=True)
+    ledgers.symlink_to(external, target_is_directory=True)
+
+    report = run_compact(tmp_path, tmp_path)
+
+    assert report["candidates"] == []
+    assert report["skip_reasons"]["symlink_source"] == 1
+
+
 def test_dry_run_does_not_mutate_memory_tree(tmp_path: Path) -> None:
     root = runtime(tmp_path)
     write_md(root, "handoffs/latest.md", "Validated dry-run marker.", classification="YELLOW", project_id=PROJECT)

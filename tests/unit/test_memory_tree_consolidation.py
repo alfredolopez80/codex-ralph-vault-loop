@@ -112,6 +112,26 @@ def test_consolidation_ignores_other_branch_local_nodes(tmp_path: Path) -> None:
     assert store.load_node(PROJECT, "node_other_branch")["quality"].get("duplicate_of") is None
 
 
+def test_consolidation_honors_created_on_branch_over_branch_field(tmp_path: Path) -> None:
+    store = TreeStore(tmp_path)
+    store.create_node(node("node_main_branch", summary="Created branch scoped duplicate.", source_paths=["docs/main.md"]))
+    store.create_node(
+        node(
+            "node_created_elsewhere",
+            branch=BRANCH,
+            created_on_branch="feature-other",
+            summary="Created branch scoped duplicate.",
+            source_paths=["docs/elsewhere.md"],
+        )
+    )
+
+    report = consolidate_tree(store, PROJECT, BRANCH, write=True)
+
+    assert {"node_id": "node_created_elsewhere", "reason": "wrong_branch_scope"} in report["skipped"]
+    assert report["duplicates"] == []
+    assert store.load_node(PROJECT, "node_created_elsewhere")["quality"].get("duplicate_of") is None
+
+
 def test_consolidation_normalizes_before_branch_scope(tmp_path: Path) -> None:
     store = TreeStore(tmp_path)
     legacy_normalizable = node("node_legacy_normalizable", summary="Legacy normalized duplicate.", source_paths=["docs/legacy.md"])

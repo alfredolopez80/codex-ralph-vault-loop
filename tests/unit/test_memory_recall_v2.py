@@ -153,7 +153,7 @@ def test_wrong_project_branch_worktree_are_rejected(tmp_path: Path) -> None:
     assert reasons(report)["node_wrong_worktree"] == "wrong_worktree"
 
 
-def test_main_promoted_visible_from_other_worktree(tmp_path: Path) -> None:
+def test_main_promoted_from_other_worktree_is_rejected(tmp_path: Path) -> None:
     write_raw_node(
         tmp_path,
         node(
@@ -168,7 +168,8 @@ def test_main_promoted_visible_from_other_worktree(tmp_path: Path) -> None:
 
     report, _stdout = run_recall(tmp_path, "promoted cross worktree marker")
 
-    assert report["MEMORY_TRACE_JSON"]["selected_memory_ids"] == ["node_main_promoted_other_worktree"]
+    assert report["MEMORY_TRACE_JSON"]["selected_memory_ids"] == []
+    assert reasons(report)["node_main_promoted_other_worktree"] == "wrong_worktree"
 
 
 def test_naive_timestamp_does_not_abort_recall(tmp_path: Path) -> None:

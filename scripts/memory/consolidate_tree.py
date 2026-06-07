@@ -64,7 +64,7 @@ def visible_for_consolidation(node: dict[str, Any], branch: str | None) -> bool:
     if visibility in {"conflict", "deprecated_on_merge"}:
         return False
     anchor = str(node.get("created_on_branch") or node.get("branch") or "")
-    return anchor == branch or str(node.get("branch") or "") == branch
+    return anchor == branch
 
 
 def safe_nodes(store: TreeStore, project_id: str, branch: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:

@@ -155,9 +155,8 @@ def hard_reject_reason(node: Any, context: Context, include_deprecated: bool, an
     visibility_reason = visibility_reject_reason(node, context, analysis)
     if visibility_reason:
         return visibility_reason
-    visibility = str(node.get("visibility") or "branch_local")
     node_workspace = compact_space(node.get("workspace_instance_id"))
-    if visibility != "main_promoted" and node_workspace and context.workspace_instance_id and node_workspace != context.workspace_instance_id:
+    if node_workspace and context.workspace_instance_id and node_workspace != context.workspace_instance_id:
         return "wrong_worktree"
     if deprecated(node) and not include_deprecated:
         return "deprecated"
