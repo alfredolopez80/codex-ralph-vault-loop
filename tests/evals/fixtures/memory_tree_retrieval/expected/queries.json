@@ -1,0 +1,79 @@
+[
+  {
+    "id": "q_exact_raw",
+    "case": "exact",
+    "query": "What is the exact buried value alpha?",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_adjacent_distractor",
+    "case": "adjacent",
+    "query": "exact buried value alpha adjacent distractor",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_wrong_scope",
+    "case": "wrong_scope",
+    "query": "scope reject marker",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_stale",
+    "case": "stale",
+    "query": "retention threshold current",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_red",
+    "case": "red",
+    "query": "red fixture placeholder",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_graph",
+    "case": "graph",
+    "query": "graph-hop linked evidence",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_trigger",
+    "case": "trigger",
+    "query": "trigger-only-delta",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_summary",
+    "case": "summary",
+    "query": "summary-only alpha",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_high_raw",
+    "case": "raw_required",
+    "query": "quote exact buried value alpha",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_provenance",
+    "case": "provenance",
+    "query": "provenance missing marker",
+    "limit": 3,
+    "budget": 1200
+  },
+  {
+    "id": "q_budget",
+    "case": "budget",
+    "query": "budget pressure marker",
+    "limit": 3,
+    "budget": 18
+  }
+]

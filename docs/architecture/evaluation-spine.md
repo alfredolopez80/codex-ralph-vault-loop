@@ -10,9 +10,13 @@ RASS v1 weights:
 - Memory and research quality: 15%.
 - Maintainability and simplicity: 10%.
 
-Hard gates include tests pass, no secret leak, eval files unchanged, no scope violation, and no eval gaming. A failed hard gate makes the result fail even when metric scores look strong.
+Hard gates include tests pass, no secret leak, eval files unchanged, no scope violation, and no eval gaming. A failed hard gate makes the result fail even when metric scores look strong. Scorecards may add stricter scorecard-specific hard gates; these are additive to the global gates and cannot replace or weaken the global set.
 
 Current eval surfaces cover AutoResearch, research citation quality, vision analysis, coding model routing, memory retrieval, and cost routing.
+
+Memory Retrieval v2 adds `config/scorecards/memory_retrieval_v2.yaml` and `scripts/evals/memory_tree_benchmark.py`. The benchmark runs only against synthetic fixtures in an isolated temporary Ralph home, emits `METRIC name=value` lines, and hard-fails on RED indexing, raw leakage in hook-like output, wrong project/branch/worktree acceptance, or non-deterministic replay.
+
+The Memory Retrieval v2 scorecard adds benchmark-specific hard gates for `red_not_indexed`, `no_raw_leak_in_hook_output`, `wrong_scope_rejected`, and `deterministic_replay`. Phase 14 final validation records the current benchmark JSON, scorecard result, and command outputs in `docs/reports/memory-tree-v2/14-final-validation.md`. Benchmark claims in user-facing docs should cite that report or a newer JSON output rather than relying on stale console history.
 
 Memory quality checks now include the deterministic dream/consolidation flow. The expected behavior is that RED inputs are skipped without leaking raw content, repeated candidates are deduplicated, dry-run mode does not mutate L1-L3 or MiVault, and candidate layer targeting separates L1 essentials, L2 project rules, L3 vault index pointers, and report-only observations. The auto-use path must update only L4 dream state, and the MiVault path must write only reviewable inbox digests until candidates are explicitly promoted.
 

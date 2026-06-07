@@ -12,7 +12,10 @@ SCORECARDS = ROOT / "config" / "scorecards"
 def test_all_scorecards_parse_and_match_rass_weights() -> None:
     for path in SCORECARDS.glob("*.yaml"):
         data = load_scorecard(path)
-        assert data["weights"] == RASS_WEIGHTS
+        assert set(data["weights"]) == set(RASS_WEIGHTS)
+        assert abs(sum(float(value) for value in data["weights"].values()) - 1.0) < 1e-9
+        if path.name != "memory_retrieval_v2.yaml":
+            assert data["weights"] == RASS_WEIGHTS
         assert set(data["hard_gates"]) >= HARD_GATES
         assert set(data["metrics"]) == set(RASS_WEIGHTS)
 

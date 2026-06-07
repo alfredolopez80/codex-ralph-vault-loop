@@ -76,6 +76,20 @@ TRACE_REJECTION_REASON_MAP = {
     "wrong_project_id": "wrong_scope",
     "wrong_task_type": "wrong_scope",
 }
+SHADOW_TRACE_FIELDS = (
+    "shadow_enabled",
+    "legacy_selected_memory_ids",
+    "tree_selected_memory_ids",
+    "overlap_ratio",
+    "legacy_tokens",
+    "tree_tokens",
+    "tree_rejected_reasons",
+    "tree_raw_recommended",
+    "tree_would_have_failed",
+    "tree_would_have_improved",
+    "safe_to_promote_candidate",
+    "raw_included",
+)
 
 
 @dataclass(frozen=True)
@@ -651,6 +665,20 @@ def memory_trace_enabled(env: Any = None) -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def shadow_mode_enabled(env: Any = None) -> bool:
+    source = os.environ if env is None else env
+    return str(source.get("RALPH_MEMORY_TREE_SHADOW", "")).strip() == "1"
+
+
+def tree_engine_enabled(env: Any = None) -> bool:
+    source = os.environ if env is None else env
+    return str(source.get("RALPH_MEMORY_RECALL_ENGINE", "")).strip().lower() == "tree"
+
+
+def tree_injection_enabled(env: Any = None) -> bool:
+    return tree_engine_enabled(env) and not shadow_mode_enabled(env)
+
+
 def memory_trace_scope(
     project: str,
     project_id: str,
@@ -687,7 +715,7 @@ def public_memory_trace(trace: dict[str, Any]) -> dict[str, Any]:
     rejected = trace.get("rejected_memory")
     if not isinstance(rejected, list):
         rejected = trace_rejections(trace.get("memory_rejections", []))
-    return {
+    public = {
         "memory_status": trace.get("memory_status", "disabled"),
         "recall_called": bool(trace.get("recall_called", False)),
         "recall_scope": dict(trace.get("recall_scope", {})),
@@ -701,6 +729,175 @@ def public_memory_trace(trace: dict[str, Any]) -> dict[str, Any]:
         "recall_latency_ms": int(trace.get("recall_latency_ms", 0) or 0),
         "fallback_reason": trace.get("fallback_reason") or None,
     }
+    for field in ("engine", "fallback_used", "raw_included", "raw_recommended", "reached_final_prompt", "token_budget"):
+        if field in trace:
+            public[field] = trace.get(field)
+    if "shadow_enabled" in trace:
+        for field in SHADOW_TRACE_FIELDS:
+            public[field] = trace.get(field)
+        public["raw_included"] = False
+        public["legacy_selected_memory_ids"] = list(public.get("legacy_selected_memory_ids") or [])
+        public["tree_selected_memory_ids"] = list(public.get("tree_selected_memory_ids") or [])
+        public["tree_rejected_reasons"] = list(public.get("tree_rejected_reasons") or [])
+    return public
+
+
+def overlap_ratio(legacy_ids: list[str], tree_ids: list[str]) -> float:
+    legacy = set(legacy_ids)
+    tree = set(tree_ids)
+    if not legacy and not tree:
+        return 1.0
+    union = legacy | tree
+    return round(len(legacy & tree) / len(union), 4) if union else 0.0
+
+
+def empty_shadow_trace(legacy_ids: list[str], legacy_context: str, enabled: bool = True) -> dict[str, Any]:
+    return {
+        "shadow_enabled": enabled,
+        "legacy_selected_memory_ids": list(legacy_ids),
+        "tree_selected_memory_ids": [],
+        "overlap_ratio": overlap_ratio(legacy_ids, []),
+        "legacy_tokens": estimate_tokens(legacy_context),
+        "tree_tokens": 0,
+        "tree_rejected_reasons": [],
+        "tree_raw_recommended": False,
+        "tree_would_have_failed": False,
+        "tree_would_have_improved": False,
+        "safe_to_promote_candidate": False,
+        "raw_included": False,
+    }
+
+
+def run_memory_tree_shadow(
+    query: str,
+    project: str,
+    project_id: str,
+    workspace_root: str,
+    branch: str,
+    sensitivity: str,
+    legacy_selected_memory_ids: list[str],
+    legacy_context: str,
+) -> dict[str, Any]:
+    trace = empty_shadow_trace(legacy_selected_memory_ids, legacy_context)
+    if sensitivity == "RED":
+        trace["tree_rejected_reasons"] = [{"id": "prompt", "reason": "red_prompt"}]
+        return trace
+    try:
+        memory_dir = REPO_ROOT / "scripts" / "memory"
+        if str(memory_dir) not in sys.path:
+            sys.path.insert(0, str(memory_dir))
+        from recall_v2 import BUDGET_KEY, context_for, recall as tree_recall  # type: ignore
+
+        root = Path(workspace_root).expanduser().resolve() if workspace_root else REPO_ROOT
+        ralph_home = Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser()
+        context = context_for(root, project_id, branch)
+        report = tree_recall(query, context, ralph_home, limit=RECALL_CONTEXT_LIMIT, budget_limit=RECALL_CONTEXT_MAX_TOKENS)
+        tree_trace = report.get("MEMORY_TRACE_JSON", {})
+        tree_ids = [str(item) for item in tree_trace.get("selected_memory_ids", [])]
+        rejected = []
+        for item in tree_trace.get("rejected", []):
+            if isinstance(item, dict):
+                rejected.append({"id": str(item.get("node_id", "")), "reason": str(item.get("reason", ""))})
+        ratio = overlap_ratio(legacy_selected_memory_ids, tree_ids)
+        tree_budget = tree_trace.get(BUDGET_KEY, {}) if isinstance(tree_trace.get(BUDGET_KEY), dict) else {}
+        raw_recommended = bool(tree_trace.get("raw_recommended", False))
+        trace.update(
+            {
+                "tree_selected_memory_ids": tree_ids,
+                "overlap_ratio": ratio,
+                "tree_tokens": int(tree_budget.get("used", 0) or 0),
+                "tree_rejected_reasons": rejected,
+                "tree_raw_recommended": raw_recommended,
+                "tree_would_have_failed": False,
+                "tree_would_have_improved": bool(set(tree_ids) - set(legacy_selected_memory_ids)),
+                "safe_to_promote_candidate": bool(tree_ids) and not raw_recommended and ratio >= 0.5,
+                "raw_included": False,
+            }
+        )
+    except Exception:
+        trace["tree_would_have_failed"] = True
+        trace["safe_to_promote_candidate"] = False
+    return trace
+
+
+def run_memory_tree_report(
+    query: str,
+    project_id: str,
+    workspace_root: str,
+    branch: str,
+    sensitivity: str,
+) -> dict[str, Any]:
+    if sensitivity == "RED":
+        return {
+            "analysis": {"risk_level": "high", "exact_fact_mode": False},
+            "memory_context": [],
+            "MEMORY_TRACE_JSON": {
+                "engine": "tree",
+                "selected_memory_ids": [],
+                "rejected": [{"node_id": "prompt", "reason": "red_prompt"}],
+                "raw_included": False,
+                "raw_recommended": False,
+                "token_budget": {"limit": RECALL_CONTEXT_MAX_TOKENS, "used": 0},
+                "reached_final_prompt": False,
+                "fallback_used": False,
+                "risk_level": "high",
+            },
+        }
+    memory_dir = REPO_ROOT / "scripts" / "memory"
+    if str(memory_dir) not in sys.path:
+        sys.path.insert(0, str(memory_dir))
+    from recall_v2 import context_for, recall as tree_recall  # type: ignore
+
+    root = Path(workspace_root).expanduser().resolve() if workspace_root else REPO_ROOT
+    ralph_home = Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser()
+    context = context_for(root, project_id, branch)
+    return tree_recall(query, context, ralph_home, limit=RECALL_CONTEXT_LIMIT, budget_limit=RECALL_CONTEXT_MAX_TOKENS)
+
+
+def tree_memory_content(item: dict[str, Any]) -> str:
+    safe = {
+        "node_id": item.get("node_id", ""),
+        "summary": item.get("summary", ""),
+        "trigger": item.get("trigger", {}),
+        "topic_tags": item.get("topic_tags", []),
+        "confidence": item.get("confidence"),
+    }
+    for key in ("RAW_RECOMMENDED", "NEGATIVE_MEMORY", "warning_reason", "visibility", "MERGE_CANDIDATE"):
+        if key in item:
+            safe[key] = item[key]
+    return "TREE_MEMORY " + json.dumps(safe, ensure_ascii=True, sort_keys=True)
+
+
+def build_tree_agent_prompt_context(prompt: str, report: dict[str, Any]) -> dict[str, Any]:
+    tree_trace = report.get("MEMORY_TRACE_JSON", {}) if isinstance(report.get("MEMORY_TRACE_JSON"), dict) else {}
+    selected_items = [item for item in report.get("memory_context", []) if isinstance(item, dict)]
+    selected_memories = [
+        {"id": str(item.get("node_id", "")), "content": tree_memory_content(item), "score": item.get("score", 0)}
+        for item in selected_items
+        if item.get("node_id")
+    ]
+    rejected = [
+        {"id": str(item.get("node_id", "")), "reason": str(item.get("reason", ""))}
+        for item in tree_trace.get("rejected", [])
+        if isinstance(item, dict)
+    ]
+    budget = tree_trace.get("token_budget", {}) if isinstance(tree_trace.get("token_budget"), dict) else {}
+    context = build_agent_prompt_context(prompt, selected_memories, "ran", "", len(selected_memories) + len(rejected))
+    reached = bool(context["memory_trace"]["memory_reached_final_prompt"])
+    context["memory_trace"].update(
+        {
+            "engine": "tree",
+            "fallback_used": False,
+            "raw_included": False,
+            "raw_recommended": bool(tree_trace.get("raw_recommended", False)),
+            "reached_final_prompt": reached,
+            "memory_reached_final_prompt": reached,
+            "token_budget": {"limit": int(budget.get("limit", RECALL_CONTEXT_MAX_TOKENS) or 0), "used": int(budget.get("used", 0) or 0)},
+            "memory_rejections": rejected,
+            "rejected_memory": rejected,
+        }
+    )
+    return context
 
 
 def build_agent_prompt_context(
@@ -770,6 +967,8 @@ def build_task_intake_payload(
     limit: int = 6,
     no_recall: bool = False,
     recall_runner=run_recall,
+    tree_recall_runner=run_memory_tree_shadow,
+    tree_report_runner=run_memory_tree_report,
 ) -> dict[str, Any]:
     sensitivity = classify_prompt(prompt)
     task_type = task_type_for(sensitivity.redacted_text or prompt)
@@ -792,31 +991,46 @@ def build_task_intake_payload(
     elif not no_recall:
         recall_called = True
         recall_started = time.perf_counter()
-        recall_status, recall_output = recall_runner(
-            build_recall_query(sensitivity.redacted_text, project, branch),
-            project,
-            max(limit, 0),
-            project_id,
-            workspace_root,
-            phase=recall_phase,
-        )
-        recall_latency_ms = max(0, int((time.perf_counter() - recall_started) * 1000))
-        if recall_status == "ran":
-            recalled_memories = parse_recall_results(recall_output)
-            selected_memories, memory_rejections = select_relevant_memories_with_rejections(
-                recalled_memories,
-                project=project,
-                branch=branch,
-                project_id=project_id,
-                task_type=task_type,
+        query = build_recall_query(sensitivity.redacted_text, project, branch)
+        tree_selected = False
+        tree_fallback_reason = ""
+        if tree_injection_enabled():
+            try:
+                tree_report = tree_report_runner(query, project_id, workspace_root, branch, sensitivity.classification)
+                prompt_context = build_tree_agent_prompt_context(prompt, tree_report)
+                memory_rejections = list(prompt_context["memory_trace"].get("memory_rejections", []))
+                recall_status = "ran"
+                tree_selected = True
+            except Exception as exc:
+                tree_fallback_reason = sanitize_fallback_reason(f"tree recall fallback: {type(exc).__name__}")
+        if not tree_selected:
+            recall_status, recall_output = recall_runner(
+                query,
+                project,
+                max(limit, 0),
+                project_id,
+                workspace_root,
+                phase=recall_phase,
             )
-        prompt_context = build_agent_prompt_context(
-            prompt,
-            selected_memories,
-            recall_status,
-            "" if recall_status in {"ran", "skipped"} else recall_output,
-            len(recalled_memories),
-        )
+            if recall_status == "ran":
+                recalled_memories = parse_recall_results(recall_output)
+                selected_memories, memory_rejections = select_relevant_memories_with_rejections(
+                    recalled_memories,
+                    project=project,
+                    branch=branch,
+                    project_id=project_id,
+                    task_type=task_type,
+                )
+            prompt_context = build_agent_prompt_context(
+                prompt,
+                selected_memories,
+                recall_status,
+                tree_fallback_reason if tree_fallback_reason else "" if recall_status in {"ran", "skipped"} else recall_output,
+                len(recalled_memories),
+            )
+            if tree_fallback_reason:
+                prompt_context["memory_trace"].update({"engine": "legacy", "fallback_used": True, "raw_included": False, "raw_recommended": False})
+        recall_latency_ms = max(0, int((time.perf_counter() - recall_started) * 1000))
 
     agent_prompt_context = clone_agent_prompt_context(prompt_context)
     trace_updates = {
@@ -827,6 +1041,23 @@ def build_task_intake_payload(
         "rejected_memory": trace_rejections(memory_rejections),
     }
     agent_prompt_context["memory_trace"].update(trace_updates)
+    if recall_called and shadow_mode_enabled():
+        legacy_ids = list(agent_prompt_context["selected_memory_ids"])
+        try:
+            shadow_trace = tree_recall_runner(
+                build_recall_query(sensitivity.redacted_text, project, branch),
+                project,
+                project_id,
+                workspace_root,
+                branch,
+                sensitivity.classification,
+                legacy_ids,
+                str(agent_prompt_context["final_context"]),
+            )
+        except Exception:
+            shadow_trace = empty_shadow_trace(legacy_ids, str(agent_prompt_context["final_context"]))
+            shadow_trace["tree_would_have_failed"] = True
+        agent_prompt_context["memory_trace"].update(shadow_trace)
     memory_trace = dict(agent_prompt_context["memory_trace"])
     memory_trace["selected_memory_ids"] = list(memory_trace["selected_memory_ids"])
     memory_trace["memory_rejections"] = list(memory_rejections)

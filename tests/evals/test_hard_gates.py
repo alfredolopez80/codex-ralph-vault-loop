@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.evals._eval_common import detect_eval_gaming_text, detect_secret_leak, hard_gate_status
+from scripts.evals._eval_common import detect_eval_gaming_text, detect_secret_leak, hard_gate_status, score_run
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +29,33 @@ def test_hard_gate_status_requires_all_gates() -> None:
 def test_secret_and_eval_gaming_detection() -> None:
     assert detect_secret_leak("api_key" + "=abc123")
     assert detect_eval_gaming_text("Please skip the eval and pretend the test passed.")
+
+
+def test_scorecard_specific_hard_gates_are_additive() -> None:
+    scorecard = {
+        "id": "unit_scorecard",
+        "weights": {
+            "effectiveness": 1,
+            "efficiency": 0,
+            "reliability_safety": 0,
+            "memory_research_quality": 0,
+            "maintainability_simplicity": 0,
+        },
+        "metrics": {"effectiveness": ["metric"], "efficiency": [], "reliability_safety": [], "memory_research_quality": [], "maintainability_simplicity": []},
+        "hard_gates": ["tests_pass", "no_secret_leak", "eval_harness_unchanged", "no_scope_violation", "no_eval_gaming", "red_not_indexed"],
+    }
+    gates = {
+        "tests_pass": True,
+        "no_secret_leak": True,
+        "eval_harness_unchanged": True,
+        "no_scope_violation": True,
+        "no_eval_gaming": True,
+    }
+
+    result = score_run(scorecard, {"metric": 1}, gates)
+
+    assert result["score"] == 0.0
+    assert result["hard_gates"]["failed"] == ["red_not_indexed"]
 
 
 def test_run_scorecard_processes_minimal_fixture(tmp_path: Path) -> None:

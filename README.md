@@ -33,6 +33,7 @@ The overlay supports several working modes:
 | Model routing       | Sends only eligible GREEN or sanitized YELLOW work to external MCP advisors; RED content stays local.                                                                        |
 | Security boundaries | Detects secrets, credentials, wallet material, `.env` references, and sensitive markers before externalization or persistence.                                               |
 | Vault memory        | Loads compact wakeup context and saves durable GREEN/YELLOW learnings outside the repo.                                                                                      |
+| Memory Tree v2     | Adds deterministic MemoryNode storage, safe compaction, branch-aware recall, shadow comparison, usage ledgering, benchmark scoring, and feature-flagged hook injection with legacy fallback. |
 | Quality gates       | Runs deterministic checks, scorecards, mutation guards, and eval suites before claiming completion.                                                                          |
 | Global skills       | Installs reusable Codex workflows into `~/.agents/skills` and `~/.codex/skills` so they can be used from any repo or Codex App thread.                                       |
 | Goal preparation    | Adds `ralph-objective-prep`, a Codex App standard skill for pre-execution intake before broad or risky native `/goal` work.                                                  |
@@ -65,6 +66,7 @@ Current acceptance evidence:
 - `ralph_coding_models.validate_coding_models` validates GLM-5.1, GLM-5-Turbo, and MiniMax-M2.7-highspeed.
 - Package-manager network commands are protected by the PreTool guard with `sfw` guidance and simple protected retry suggestions.
 - Plan and implementation-note enforcement is repo-aware, so non-repo chats are treated as general work and do not require `.ralph/plans` artifacts.
+- Ralph Cognitive Memory Tree v2 is implemented, benchmarked, and validated for experimental feature-flagged use. The global hook path can run tree recall with `RALPH_MEMORY_RECALL_ENGINE=tree`; legacy fallback remains available, raw is never auto-injected, and operator steps are documented in [`docs/guides/memory-tree-v2-operator-guide.md`](./docs/guides/memory-tree-v2-operator-guide.md).
 - RED content does not externalize and does not persist.
 
 ## <img src="./docs/assets/branding/heading-architecture.svg" width="22" alt=""> Architecture
@@ -111,6 +113,12 @@ Z.ai and MiniMax are never used for image, video, audio, voice, music, or visual
 ![Memory and eval lifecycle](./docs/architecture/diagrams/memory-eval-lifecycle.png)
 
 The memory stack is intentionally outside the repo. Global hooks execute Ralph code from the stable checkout recorded in `~/.codex/hooks/.ralph-repo-root`, then derive the active project from the hook payload `cwd`/workdir. Runtime checkpoints, handoffs, ledgers, reports, and L2-L4 layers are scoped under `~/.ralph-codex/projects/<project_id>/`; L0/L1 remain global only when explicitly marked as global policy. RED is skipped by vault save, memory extraction, and stop handoff hooks.
+
+![Ralph Cognitive Memory Tree v2 model](./docs/architecture/diagrams/memory-tree-v2-model.png)
+
+Memory Tree v2 sits beside the legacy recall path. It stores sanitized `MemoryNode` JSON under `~/.ralph-codex/projects/<project_id>/memory_tree/`, scores summary, trigger, tag, entity, source-path, graph, recency, salience, and stale signals deterministically, then injects only delimited non-authoritative context. Raw memory is available only through the explicit reader command with `--depth 2 --redact`; hook output and default recall never include raw.
+
+The model is designed for exact operational recall without turning memory into authority. It rejects RED, incomplete provenance, wrong project, wrong branch, wrong worktree, deprecated memory, conflicts, and unsafe promotion candidates. Shadow mode with `RALPH_MEMORY_TREE_SHADOW=1` compares v2 against legacy without changing final prompt content. If v2 errors in hook flow, the system falls open to legacy and records the fallback in `MEMORY_TRACE_JSON`.
 
 ![Ralph memory worktree-aware architecture](./docs/architecture/diagrams/ralph-memory-worktree-architecture.png)
 
@@ -246,6 +254,14 @@ and post-hook persistence checks:
 bash scripts/validate-ralph-memory-flow.sh
 ```
 
+For Memory Tree v2 hook flow, deterministic benchmark, and scorecard:
+
+```bash
+RALPH_MEMORY_RECALL_ENGINE=tree PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_memory_tree_hook_flow_e2e.py tests/unit/test_memory_recall_v2.py -q
+python3 scripts/evals/memory_tree_benchmark.py --fixture tests/evals/fixtures/memory_tree_retrieval --output /tmp/ralph-memory-tree-benchmark.json
+python3 scripts/evals/run_scorecard.py --scorecard config/scorecards/memory_retrieval_v2.yaml --input /tmp/ralph-memory-tree-benchmark.json
+```
+
 Validate MCP coding models from a Codex session when the MCP is available:
 
 ```text
@@ -293,6 +309,8 @@ codex-ralph-vault-loop/
 | [Architecture overview](./docs/architecture/overview.md)                | System-level architecture and responsibilities.  |
 | [MCP model router](./docs/architecture/mcp-model-router.md)             | External model routing policy and constraints.   |
 | [Memory stack](./docs/architecture/memory-stack.md)                     | Worktree-aware wakeup, handoff, vault, graduation, and recall model. |
+| [Memory Tree v2](./docs/architecture/memory-tree-v2.md)                 | Experimental deterministic recall tree, node schema, progressive retrieval, shadow mode, migration, and rollback. |
+| [Memory Tree v2 operator guide](./docs/guides/memory-tree-v2-operator-guide.md) | Commands for enabling, disabling, compacting, recalling, benchmarking, observing, consolidating, and promoting memory. |
 | [Codex productivity patterns](./docs/codex-productivity-patterns.md)     | Safe prompt, goal, worktree, continuity, notification, and report-only automation patterns. |
 | [Memory visual explainer](./docs/architecture/ralph-memory-architecture-explainer.html) | Browser-readable visual guide for the Ralph memory architecture. |
 | [Hooks](./docs/architecture/hooks.md)                                   | Codex lifecycle hooks and safety behavior.       |

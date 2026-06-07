@@ -98,6 +98,26 @@ Use `--vault-inbox` to write a reviewable digest under `~/Documents/Obsidian/MiV
 
 `scripts/memory/dream-scheduler.py --catch-up` is the non-blocking automation wrapper. The `SessionStart` hook runs it before `wakeup.py` with a default target time of 11:30 local. If the machine was asleep or off, the next Codex session after the target time performs the catch-up; if L4 is fresh, the scheduler is a no-op. Failures are recorded under `~/.ralph-codex/reports/memory/dream-scheduler.json` and do not block session startup.
 
+## Memory Tree v2 Experimental Path
+
+Ralph Cognitive Memory Tree v2 is an experimental, opt-in retrieval path that lives beside the legacy recall stack. It uses the same active project identity and stores tree data under:
+
+```text
+~/.ralph-codex/projects/<project_id>/memory_tree/
+```
+
+The tree path keeps memory non-authoritative. Legacy recall remains available and remains the default when `RALPH_MEMORY_RECALL_ENGINE` is unset or set to `legacy`.
+
+Operator controls:
+
+- `RALPH_MEMORY_RECALL_ENGINE=tree` enables tree recall for hook injection.
+- `RALPH_MEMORY_RECALL_ENGINE=legacy` returns to legacy recall.
+- `RALPH_MEMORY_TREE_SHADOW=1` runs tree recall for comparison only; legacy remains injected.
+
+Tree recall never auto-injects raw content. Normal recall returns depth 0 context only in hooks. Depth 2 raw access requires an explicit CLI read with `--redact`, matching project/worktree/branch scope, and safety checks. Usage ledger entries record query hashes, ids, counts, budget use, and rejection reasons rather than raw prompt text or raw memory bodies.
+
+Safe operators can compact existing safe runtime summaries, run deterministic recall, inspect the privacy-safe usage ledger, consolidate safe nodes, and promote branch memory through dry-run-default CLIs. The current command surface and rollback steps are in [Memory Tree v2 Operator Guide](../guides/memory-tree-v2-operator-guide.md).
+
 ## MiVault Graduation
 
 MiVault has two trust zones:
@@ -139,4 +159,4 @@ Use `--include-raw` only for explicit diagnostics. It may include inbox/raw cand
 
 Spec execution starts in MiVault with `obsidian-spec`. `scripts/vault/obsidian-spec-plan.py` creates a dry-run plan and handoff path before implementation.
 
-Related phases: [PHASE_05](../migration/checkpoints/PHASE_05.md), [PHASE_06](../migration/checkpoints/PHASE_06.md), [PHASE_14](../migration/checkpoints/PHASE_14.md), [PHASE_21](../migration/checkpoints/PHASE_21.md).
+Related phases: [PHASE_05](../migration/checkpoints/PHASE_05.md), [PHASE_06](../migration/checkpoints/PHASE_06.md), [PHASE_14](../migration/checkpoints/PHASE_14.md), [PHASE_21](../migration/checkpoints/PHASE_21.md), and [PHASE_MEMORY_TREE_V2](../migration/checkpoints/PHASE_MEMORY_TREE_V2.md).
