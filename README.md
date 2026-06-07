@@ -41,6 +41,8 @@ What you get from a fresh checkout:
   research, design, testing, and eval work.
 - Hook, gate, security, memory, vault, and model-router scripts that can be run
   locally before installing anything globally.
+- Ralph Cognitive Memory Tree v2 for experimental deterministic recall,
+  benchmarked retrieval, shadow comparison, and feature-flagged hook injection.
 - Editable architecture diagrams with PNG/SVG outputs for public documentation.
 
 ## <img src="./docs/assets/branding/heading-install.svg" width="22" alt=""> Quick Start
@@ -205,6 +207,20 @@ Memory has three trust zones:
 | Inbox/raw vault material | Quarantine. Not read by default.                                          |
 | Curated vault memory     | Reviewed project knowledge that recall can use when scope matches.        |
 
+![Ralph Cognitive Memory Tree v2 model](./docs/architecture/diagrams/memory-tree-v2-model.png)
+
+Memory Tree v2 sits beside legacy recall. It stores sanitized `MemoryNode` JSON
+under `~/.ralph-codex/projects/<project_id>/memory_tree/`, scores recall
+deterministically, and injects only delimited non-authoritative context. Raw
+memory stays behind the explicit reader command with `--depth 2 --redact`; hook
+output and default recall never include raw bodies.
+
+The v2 path rejects RED, incomplete provenance, wrong project, wrong branch,
+wrong worktree, deprecated memory, conflicts, and unsafe promotion candidates.
+Shadow mode with `RALPH_MEMORY_TREE_SHADOW=1` compares v2 with legacy without
+changing final prompt content. If v2 errors in hook flow, the system falls open
+to legacy and records the fallback in `MEMORY_TRACE_JSON`.
+
 ![Ralph memory worktree-aware architecture](./docs/architecture/diagrams/ralph-memory-worktree-architecture.png)
 
 ![Ralph memory graduation and recall flow](./docs/architecture/diagrams/ralph-memory-graduation-recall-flow.png)
@@ -267,21 +283,31 @@ persistence checks:
 bash scripts/validate-ralph-memory-flow.sh
 ```
 
+For Memory Tree v2 hook flow, deterministic benchmark, and scorecard:
+
+```bash
+RALPH_MEMORY_RECALL_ENGINE=tree PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_memory_tree_hook_flow_e2e.py tests/unit/test_memory_recall_v2.py -q
+python3 scripts/evals/memory_tree_benchmark.py --fixture tests/evals/fixtures/memory_tree_retrieval --output /tmp/ralph-memory-tree-benchmark.json
+python3 scripts/evals/run_scorecard.py --scorecard config/scorecards/memory_retrieval_v2.yaml --input /tmp/ralph-memory-tree-benchmark.json
+```
+
 ## <img src="./docs/assets/branding/heading-docs.svg" width="22" alt=""> Documentation Map
 
-| Document                                                                | Purpose                                                              |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| [Architecture overview](./docs/architecture/overview.md)                | System-level architecture and responsibilities.                      |
-| [MCP model router](./docs/architecture/mcp-model-router.md)             | External model routing policy and constraints.                       |
-| [Memory stack](./docs/architecture/memory-stack.md)                     | Worktree-aware wakeup, handoff, vault, graduation, and recall model. |
-| [Hooks](./docs/architecture/hooks.md)                                   | Codex lifecycle hooks and safety behavior.                           |
-| [Subagents](./docs/architecture/subagents.md)                           | Codex subagent definitions and roles.                                |
-| [Evaluation spine](./docs/architecture/evaluation-spine.md)             | Gates, evals, scorecards, and acceptance checks.                     |
-| [Threat model](./docs/architecture/threat-model.md)                     | Repository threat model and mitigations.                             |
-| [Global skills](./docs/codex-global-skills.md)                          | Installable skills and workflow guidance.                            |
-| [Productivity patterns](./docs/codex-productivity-patterns.md)          | Safe prompt, goal, worktree, continuity, and automation patterns.    |
-| [Migration phase plan](./docs/migration/phase-plan.md)                  | Phase-by-phase migration structure.                                  |
-| [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_21.md) | Latest acceptance checkpoint.                                        |
+| Document                                                                        | Purpose                                                                                                                |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [Architecture overview](./docs/architecture/overview.md)                        | System-level architecture and responsibilities.                                                                        |
+| [MCP model router](./docs/architecture/mcp-model-router.md)                     | External model routing policy and constraints.                                                                         |
+| [Memory stack](./docs/architecture/memory-stack.md)                             | Worktree-aware wakeup, handoff, vault, graduation, and recall model.                                                   |
+| [Memory Tree v2](./docs/architecture/memory-tree-v2.md)                         | Experimental deterministic recall tree, node schema, progressive retrieval, shadow mode, migration, and rollback.      |
+| [Memory Tree v2 operator guide](./docs/guides/memory-tree-v2-operator-guide.md) | Commands for enabling, disabling, compacting, recalling, benchmarking, observing, consolidating, and promoting memory. |
+| [Hooks](./docs/architecture/hooks.md)                                           | Codex lifecycle hooks and safety behavior.                                                                             |
+| [Subagents](./docs/architecture/subagents.md)                                   | Codex subagent definitions and roles.                                                                                  |
+| [Evaluation spine](./docs/architecture/evaluation-spine.md)                     | Gates, evals, scorecards, and acceptance checks.                                                                       |
+| [Threat model](./docs/architecture/threat-model.md)                             | Repository threat model and mitigations.                                                                               |
+| [Global skills](./docs/codex-global-skills.md)                                  | Installable skills and workflow guidance.                                                                              |
+| [Productivity patterns](./docs/codex-productivity-patterns.md)                  | Safe prompt, goal, worktree, continuity, and automation patterns.                                                      |
+| [Migration phase plan](./docs/migration/phase-plan.md)                          | Phase-by-phase migration structure.                                                                                    |
+| [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_21.md)         | Latest acceptance checkpoint.                                                                                          |
 
 ## <img src="./docs/assets/branding/heading-lineage.svg" width="22" alt=""> Source Lineage
 

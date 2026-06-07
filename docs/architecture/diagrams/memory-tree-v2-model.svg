@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 720" width="1700" height="720">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica Neue, 'PingFang SC', 'Microsoft YaHei', 'Microsoft JhengHei', 'SimHei', sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#71717a"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10a37f"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f97316"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#1d4ed8"/>
+    </marker>
+  </defs>
+  <rect width="1700" height="720" fill="#ffffff"/>
+  <text x="850" y="44" text-anchor="middle" fill="#0d0d0d" font-size="24" font-weight="650">Ralph Cognitive Memory Tree v2</text>
+  <text x="850" y="72" text-anchor="middle" fill="#6e6e80" font-size="14">Feature-flagged recall with deterministic selection, progressive retrieval, privacy-safe tracing, and legacy fallback</text>
+  <rect x="32" y="112" width="1644" height="170" rx="10" ry="10" fill="none" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="5,4"/>
+  <text x="52" y="132" fill="#6e6e80" font-size="12" font-weight="600">Main hook and tree recall path</text>
+  <rect x="32" y="326" width="1644" height="300" rx="10" ry="10" fill="none" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="5,4"/>
+  <text x="52" y="346" fill="#6e6e80" font-size="12" font-weight="600">Explicit raw, fallback, and observability paths</text>
+  <rect x="54" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="54" y="148" width="4" height="90" rx="2" ry="2" fill="#1d4ed8"/>
+  <text x="139" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Codex Prompt</text>
+  <text x="139" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">UserPromptSubmit</text>
+  <rect x="260" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="260" y="148" width="4" height="90" rx="2" ry="2" fill="#71717a"/>
+  <text x="345" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Task Intake</text>
+  <text x="345" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">classify + route</text>
+  <rect x="466" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="466" y="148" width="4" height="90" rx="2" ry="2" fill="#10a37f"/>
+  <text x="551" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Engine Flag</text>
+  <text x="551" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">legacy, tree, shadow</text>
+  <rect x="672" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="672" y="148" width="4" height="90" rx="2" ry="2" fill="#10a37f"/>
+  <text x="757" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">recall_v2.py</text>
+  <text x="757" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">deterministic score</text>
+  <rect x="878" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="878" y="148" width="4" height="90" rx="2" ry="2" fill="#10a37f"/>
+  <text x="963" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Tree Store</text>
+  <text x="963" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">nodes, links, raw</text>
+  <rect x="1084" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="1084" y="148" width="4" height="90" rx="2" ry="2" fill="#f97316"/>
+  <text x="1169" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Safety Filters</text>
+  <text x="1169" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">scope, RED, stale</text>
+  <rect x="1290" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="1290" y="148" width="4" height="90" rx="2" ry="2" fill="#10a37f"/>
+  <text x="1375" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Retrieval</text>
+  <text x="1375" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">summary -&gt; detail</text>
+  <rect x="1496" y="148" width="170" height="90" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="1496" y="148" width="4" height="90" rx="2" ry="2" fill="#10a37f"/>
+  <text x="1581" y="182" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Prompt Block</text>
+  <text x="1581" y="206" text-anchor="middle" fill="#6e6e80" font-size="12.5">no raw, non-authority</text>
+  <rect x="878" y="372" width="170" height="82" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="878" y="372" width="4" height="82" rx="2" ry="2" fill="#f97316"/>
+  <text x="963" y="406" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Raw Read CLI</text>
+  <text x="963" y="430" text-anchor="middle" fill="#6e6e80" font-size="12.5">depth 2 + --redact</text>
+  <rect x="672" y="506" width="200" height="82" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="672" y="506" width="4" height="82" rx="2" ry="2" fill="#f97316"/>
+  <text x="772" y="540" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Legacy Fallback</text>
+  <text x="772" y="564" text-anchor="middle" fill="#6e6e80" font-size="12.5">fail-open recovery</text>
+  <rect x="1496" y="372" width="170" height="82" rx="8" ry="8" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+  <rect x="1496" y="372" width="4" height="82" rx="2" ry="2" fill="#71717a"/>
+  <text x="1581" y="406" text-anchor="middle" fill="#0d0d0d" font-size="15" font-weight="650">Trace + Ledger</text>
+  <text x="1581" y="430" text-anchor="middle" fill="#6e6e80" font-size="12.5">ids, hashes, counts</text>
+  <path d="M 224,193 L 260,193" fill="none" stroke="#1d4ed8" stroke-width="1.8" marker-end="url(#arrow-blue)"/>
+  <rect x="200" y="167" width="84" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="242" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">hook event</text>
+  <path d="M 430,193 L 466,193" fill="none" stroke="#71717a" stroke-width="1.8" marker-end="url(#arrow-gray)"/>
+  <rect x="399" y="167" width="98" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="448" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">feature flag</text>
+  <path d="M 636,193 L 672,193" fill="none" stroke="#10a37f" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="630" y="167" width="48" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="654" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">tree</text>
+  <path d="M 842,193 L 878,193" fill="none" stroke="#10a37f" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="818" y="167" width="84" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="860" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">read index</text>
+  <path d="M 1048,193 L 1084,193" fill="none" stroke="#10a37f" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="1024" y="167" width="84" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="1066" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">candidates</text>
+  <path d="M 1254,193 L 1290,193" fill="none" stroke="#10a37f" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="1223" y="167" width="98" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="1272" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">selected ids</text>
+  <path d="M 1460,193 L 1496,193" fill="none" stroke="#10a37f" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="1429" y="167" width="98" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="1478" y="181" text-anchor="middle" fill="#6e6e80" font-size="12">safe context</text>
+  <path d="M 963,238 L 963,372" fill="none" stroke="#f97316" stroke-width="1.8" marker-end="url(#arrow-orange)" stroke-dasharray="6,5"/>
+  <rect x="960" y="311" width="133" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="1027" y="325" text-anchor="middle" fill="#6e6e80" font-size="12">explicit CLI only</text>
+  <path d="M 1581,238 L 1581,372" fill="none" stroke="#71717a" stroke-width="1.8" marker-end="url(#arrow-gray)" stroke-dasharray="6,5"/>
+  <rect x="1593" y="311" width="126" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="1656" y="325" text-anchor="middle" fill="#6e6e80" font-size="12">trace ids/counts</text>
+  <path d="M 757,238 L 757,474 L 772,474 L 772,506" fill="none" stroke="#f97316" stroke-width="1.8" marker-end="url(#arrow-orange)" stroke-dasharray="6,5"/>
+  <rect x="778" y="311" width="70" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="813" y="325" text-anchor="middle" fill="#6e6e80" font-size="12">v2 error</text>
+  <path d="M 872,547 L 1440,547 L 1440,282 L 1561,282 L 1561,238" fill="none" stroke="#f97316" stroke-width="1.8" marker-end="url(#arrow-orange)" stroke-dasharray="6,5"/>
+  <rect x="1114" y="520" width="112" height="20" rx="4" ry="4" fill="#ffffff" opacity="0.98"/>
+  <text x="1170" y="534" text-anchor="middle" fill="#6e6e80" font-size="12">legacy context</text>
+  <rect x="54" y="652" width="1612" height="42" rx="8" ry="8" fill="#f9fafb" stroke="#e5e5e5" stroke-width="1"/>
+  <text x="850" y="679" text-anchor="middle" fill="#0d0d0d" font-size="14" font-weight="600">Memory is context, not authority · RED is never indexed · raw is never auto-injected · tree errors fall back to legacy</text>
+  <text x="850" y="716" text-anchor="middle" fill="#6e6e80" font-size="12">Wrong project, branch, worktree, stale, deprecated, and incomplete-provenance memory are rejected before prompt injection.</text>
+</svg>

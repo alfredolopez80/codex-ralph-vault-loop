@@ -1,0 +1,36 @@
+{
+  "q_budget": {
+    "rejected": {
+      "node_budget_0": "budget_exceeded",
+      "node_budget_1": "budget_exceeded",
+      "node_budget_2": "budget_exceeded"
+    }
+  },
+  "q_exact_raw": {
+    "raw_included": false,
+    "raw_recommended": true,
+    "risk_level": "high"
+  },
+  "q_high_raw": {
+    "raw_included": false,
+    "raw_recommended": true,
+    "risk_level": "high"
+  },
+  "q_provenance": {
+    "rejected": {
+      "node_missing_provenance": "missing_provenance"
+    }
+  },
+  "q_stale": {
+    "rejected": {
+      "node_stale_rule": "deprecated"
+    }
+  },
+  "q_wrong_scope": {
+    "rejected": {
+      "node_wrong_branch": "wrong_branch",
+      "node_wrong_project": "wrong_project",
+      "node_wrong_worktree": "wrong_worktree"
+    }
+  }
+}

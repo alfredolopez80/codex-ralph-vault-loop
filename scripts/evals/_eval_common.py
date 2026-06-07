@@ -37,6 +37,15 @@ HARD_GATES = {
     "no_scope_violation",
     "no_eval_gaming",
 }
+
+
+def required_hard_gates(scorecard: dict[str, Any] | None = None) -> set[str]:
+    gates = set(HARD_GATES)
+    if scorecard is not None:
+        gates.update(str(gate) for gate in scorecard.get("hard_gates", []))
+    return gates
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -141,14 +150,14 @@ def normalize_metrics(raw: dict[str, Any]) -> dict[str, float]:
     return {key: clamp_score(value) for key, value in raw.items()}
 
 
-def hard_gate_status(gates: dict[str, Any]) -> dict[str, Any]:
-    normalized = {gate: bool(gates.get(gate, False)) for gate in sorted(HARD_GATES)}
+def hard_gate_status(gates: dict[str, Any], required: set[str] | None = None) -> dict[str, Any]:
+    normalized = {gate: bool(gates.get(gate, False)) for gate in sorted(required or HARD_GATES)}
     failed = [gate for gate, passed in normalized.items() if not passed]
     return {"passed": not failed, "failed": failed, "gates": normalized}
 
 
 def score_run(scorecard: dict[str, Any], metrics: dict[str, Any], hard_gates: dict[str, Any]) -> dict[str, Any]:
-    gate_status = hard_gate_status(hard_gates)
+    gate_status = hard_gate_status(hard_gates, required_hard_gates(scorecard))
     normalized = normalize_metrics(metrics)
     category_scores: dict[str, float] = {}
     for category, metric_names in scorecard["metrics"].items():

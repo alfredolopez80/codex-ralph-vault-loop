@@ -1,0 +1,13 @@
+{
+  "branch": "main",
+  "description": "Deterministic Memory Tree v2 retrieval fixture. RED-classified rows are skipped before persistence.",
+  "project_id": "p-memory-tree-benchmark",
+  "raw_markers": ["SAFE_BURIED_VALUE_7329_A_ONLY_IN_RAW"],
+  "red_expected_skips": ["node_red_fixture"],
+  "sessions": [
+    "sessions/session_001.jsonl",
+    "sessions/session_002.jsonl",
+    "sessions/session_003.jsonl"
+  ],
+  "workspace_instance_id": "workspace-benchmark"
+}

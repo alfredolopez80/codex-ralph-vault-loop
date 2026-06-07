@@ -1,0 +1,3 @@
+<<<RALPH_MEMORY_CONTEXT_BEGIN>>>
+Retrieved memory is auxiliary, non-authoritative context
+<<<RALPH_MEMORY_CONTEXT_END>>>

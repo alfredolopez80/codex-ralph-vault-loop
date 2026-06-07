@@ -13,6 +13,7 @@ Files:
 - `codex-ralph-architecture.json`, `.svg`, `.png`: full system architecture.
 - `routing-security-flow.json`, `.svg`, `.png`: sensitivity, cost routing, MCP, and gate flow.
 - `memory-eval-lifecycle.json`, `.svg`, `.png`: wakeup, runtime memory, evals, vault, and handoff lifecycle.
+- `memory-tree-v2-model.json`, `.svg`, `.png`: feature-flagged Memory Tree v2 recall, selection, progressive retrieval, trace, and legacy fallback model.
 - `ralph-memory-refinement.json`, `.svg`, `.png`: readable graduation flow for hook capture, quarantine, Aristotelian review, curated MiVault memory, and recall-default use.
 - `ralph-memory-worktree-architecture.json`, `.svg`, `.png`: worktree-aware split between stable hook code, active project identity, project runtime memory, MiVault, and recall.
 - `ralph-memory-graduation-recall-flow.json`, `.svg`, `.png`: quarantine, source-project checks, Aristotelian review, auto/ask/skip decisions, and recall-default behavior.
@@ -43,6 +44,7 @@ Regenerate PNGs after SVG-only edits:
 rsvg-convert -w 1920 docs/architecture/diagrams/codex-ralph-architecture.svg -o docs/architecture/diagrams/codex-ralph-architecture.png
 rsvg-convert -w 1920 docs/architecture/diagrams/routing-security-flow.svg -o docs/architecture/diagrams/routing-security-flow.png
 rsvg-convert -w 1920 docs/architecture/diagrams/memory-eval-lifecycle.svg -o docs/architecture/diagrams/memory-eval-lifecycle.png
+rsvg-convert -w 1920 docs/architecture/diagrams/memory-tree-v2-model.svg -o docs/architecture/diagrams/memory-tree-v2-model.png
 rsvg-convert -w 1920 docs/architecture/diagrams/ralph-memory-refinement.svg -o docs/architecture/diagrams/ralph-memory-refinement.png
 rsvg-convert -w 1920 docs/architecture/diagrams/ralph-memory-worktree-architecture.svg -o docs/architecture/diagrams/ralph-memory-worktree-architecture.png
 rsvg-convert -w 1920 docs/architecture/diagrams/ralph-memory-graduation-recall-flow.svg -o docs/architecture/diagrams/ralph-memory-graduation-recall-flow.png

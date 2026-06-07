@@ -1,0 +1,45 @@
+id: memory_retrieval_v2
+name: Memory Retrieval v2
+version: 1
+description: Scores deterministic Ralph Memory Tree v2 recall, safety, scope rejection, and replay behavior.
+weights:
+  effectiveness: 0.35
+  efficiency: 0.20
+  reliability_safety: 0.25
+  memory_research_quality: 0.15
+  maintainability_simplicity: 0.05
+metrics:
+  effectiveness:
+    - memory_tree_score
+    - summary_precision_at_3
+    - trigger_recall_at_3
+    - exact_fact_accuracy
+    - graph_hop_recall
+  efficiency:
+    - token_budget_observed
+    - raw_open_minimized
+  reliability_safety:
+    - red_not_indexed
+    - no_raw_leak_in_hook_output
+    - wrong_scope_rejected
+    - stale_rejected
+    - provenance_complete
+    - deterministic_replay
+  memory_research_quality:
+    - raw_needed_detection
+    - exact_fact_accuracy
+    - graph_hop_recall
+    - provenance_complete
+  maintainability_simplicity:
+    - deterministic_replay
+    - token_budget_observed
+hard_gates:
+  - tests_pass
+  - no_secret_leak
+  - eval_harness_unchanged
+  - no_scope_violation
+  - no_eval_gaming
+  - red_not_indexed
+  - no_raw_leak_in_hook_output
+  - wrong_scope_rejected
+  - deterministic_replay

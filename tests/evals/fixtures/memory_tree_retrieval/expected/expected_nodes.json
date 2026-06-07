@@ -1,0 +1,13 @@
+{
+  "q_adjacent_distractor": ["node_exact_raw", "node_adjacent_distractor"],
+  "q_budget": [],
+  "q_exact_raw": ["node_exact_raw"],
+  "q_graph": ["node_graph_related", "node_graph_root"],
+  "q_high_raw": ["node_exact_raw"],
+  "q_provenance": [],
+  "q_red": [],
+  "q_stale": ["node_current_rule"],
+  "q_summary": ["node_summary_only"],
+  "q_trigger": ["node_trigger_only"],
+  "q_wrong_scope": []
+}

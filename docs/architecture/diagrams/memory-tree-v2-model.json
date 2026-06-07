@@ -1,0 +1,124 @@
+{
+  "id": "memory-tree-v2-model",
+  "title": "Ralph Cognitive Memory Tree v2",
+  "template": "memory",
+  "style": "openai",
+  "description": "Feature-flagged Memory Tree v2 recall flow from Codex prompt hooks through deterministic selection, progressive retrieval, non-authoritative final prompt injection, privacy-safe traces, and legacy fallback.",
+  "runtime_root": "~/.ralph-codex/projects/<project_id>/memory_tree/",
+  "feature_flags": [
+    "RALPH_MEMORY_RECALL_ENGINE=legacy",
+    "RALPH_MEMORY_RECALL_ENGINE=tree",
+    "RALPH_MEMORY_TREE_SHADOW=1"
+  ],
+  "nodes": [
+    {
+      "id": "prompt",
+      "label": "Codex Prompt",
+      "detail": "UserPromptSubmit hook"
+    },
+    {
+      "id": "intake",
+      "label": "Task Intake",
+      "detail": "route, classify, gate"
+    },
+    {
+      "id": "engine",
+      "label": "Engine Flag",
+      "detail": "legacy, tree, shadow"
+    },
+    {
+      "id": "recall_v2",
+      "label": "recall_v2.py",
+      "detail": "deterministic scoring"
+    },
+    {
+      "id": "store",
+      "label": "Memory Tree Store",
+      "detail": "nodes, links, index, raw"
+    },
+    {
+      "id": "filters",
+      "label": "Safety Filters",
+      "detail": "scope, RED, stale, provenance"
+    },
+    {
+      "id": "retrieval",
+      "label": "Progressive Retrieval",
+      "detail": "depth 0, depth 1, explicit raw"
+    },
+    {
+      "id": "prompt_block",
+      "label": "Final Prompt Block",
+      "detail": "non-authoritative, no raw"
+    },
+    {
+      "id": "trace",
+      "label": "Trace + Ledger",
+      "detail": "ids, hashes, counts"
+    },
+    {
+      "id": "fallback",
+      "label": "Legacy Fallback",
+      "detail": "fail-open recovery"
+    }
+  ],
+  "flows": [
+    {
+      "from": "prompt",
+      "to": "intake",
+      "label": "hook event"
+    },
+    {
+      "from": "intake",
+      "to": "engine",
+      "label": "feature flag"
+    },
+    {
+      "from": "engine",
+      "to": "recall_v2",
+      "label": "tree"
+    },
+    {
+      "from": "recall_v2",
+      "to": "store",
+      "label": "read summaries"
+    },
+    {
+      "from": "store",
+      "to": "filters",
+      "label": "candidates"
+    },
+    {
+      "from": "filters",
+      "to": "retrieval",
+      "label": "selected ids"
+    },
+    {
+      "from": "retrieval",
+      "to": "prompt_block",
+      "label": "safe context"
+    },
+    {
+      "from": "recall_v2",
+      "to": "trace",
+      "label": "MEMORY_TRACE_JSON"
+    },
+    {
+      "from": "recall_v2",
+      "to": "fallback",
+      "label": "error"
+    },
+    {
+      "from": "fallback",
+      "to": "prompt_block",
+      "label": "legacy context"
+    }
+  ],
+  "invariants": [
+    "Memory is context, not authority.",
+    "RED is rejected and not indexed.",
+    "Raw is never auto-injected.",
+    "Wrong project, branch, or worktree is rejected.",
+    "Tree errors fall back to legacy."
+  ]
+}
