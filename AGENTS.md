@@ -32,6 +32,7 @@ Use productivity patterns only when they preserve the existing safety model:
 - Use native `/goal` for bounded objectives. Use `$ralph-objective-prep` before broad, risky, vague, recovery-oriented, audit-oriented, or plan-driven goals.
 - Use `$handoff`, `.local-notes` where applicable, hook-driven wakeup/recall, scoped memory trace, and approved-plan implementation notes for continuity. Do not adopt `/resume` or `/compact` as Ralph continuity workflows.
 - Use explicit skill names and `@file` references when they improve scope precision.
+- Before starting any multi-file audit, repo-wide sweep, migration, recurring chore, or vague keep-going mission, consult `$ralph-opportunity-scout` and propose the best Ralph-native tool path when useful.
 - Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
 - Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
 - Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.

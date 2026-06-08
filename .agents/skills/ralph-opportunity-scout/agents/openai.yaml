@@ -1,0 +1,7 @@
+interface:
+  display_name: "Ralph Opportunity Scout"
+  short_description: "Propose Ralph-native paths for audits, vague goals, recurring chores, hooks, skills, decisions, effort, and AutoResearch."
+  default_prompt: "Use $ralph-opportunity-scout to detect whether this task should use a Ralph-native tool path before inline work. Propose only; do not create hooks, skills, goals, automations, memories, subagents, or AutoResearch sessions without explicit approval."
+
+policy:
+  allow_implicit_invocation: true
