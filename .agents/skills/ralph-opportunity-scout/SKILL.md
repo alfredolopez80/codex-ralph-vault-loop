@@ -71,16 +71,16 @@ making the proposal:
 Use the first strong match. When several match, choose the one that most reduces
 wrong-work risk.
 
-| Signal                                                                                                                                            | Proposal                                                                                    | Reference                          |
-| ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------- |
-| Repo-wide audit, sweep, migration, repeated checks, many independent files, or broad validation matrix                                            | Propose subagent fan-out through `codex-dynamic-workflows` plus explicit gates.             | `references/subagents.md`          |
-| Vague multi-turn mission, broad autonomy request, unclear success proof, recovery work, or "keep going" objective                                 | Propose `$ralph-objective-prep` and then native `/goal` once the objective is concrete.     | `references/goal.md`               |
-| Recurring task, babysitting, polling, reminders, monitors, repeated status checks, or scheduled reports                                           | Propose report-only automation, codex exec cron, or another approved scheduler path.        | `references/automations.md`        |
-| Repeated manual ritual around a lifecycle event, tool call, stop condition, formatting check, or safety check                                     | Propose a lifecycle hook, with fail-open or fail-closed behavior matched to risk.           | `references/hooks.md`              |
-| Reusable procedure discovered while doing the work, repeated prompt recipe, or domain-specific checklist                                          | Propose a new skill or custom agent, but only after the current procedure is proven useful. | `references/skill-creation.md`     |
-| Durable technical decision, architecture tradeoff, migration choice, safety exception, or policy interpretation                                   | Propose a decision-log entry through the project-approved notes or vault path.              | `references/decision-log.md`       |
-| Task complexity mismatch, tool overkill, under-scoped validation, model-depth mismatch, or review depth mismatch                                  | Propose recalibrating effort, model lane, or review depth before spending more work.        | `references/effort.md`             |
-| Measurable improvement loop, benchmarkable optimization, keep/discard experiment, metric-driven prompt/code tuning, or repeated candidate packets | Propose an AutoResearch packet using the Ralph AutoResearch flow.                           | `references/autoresearch-scout.md` |
+| Signal                                                                                                                                            | Proposal                                                                                                                    | Reference                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Repo-wide audit, sweep, migration, repeated checks, many independent files, or broad validation matrix                                            | Propose subagent fan-out first; use `codex-dynamic-workflows` when the work needs structured packets, gates, and artifacts. | `references/subagents.md`          |
+| Vague multi-turn mission, broad autonomy request, unclear success proof, recovery work, or "keep going" objective                                 | Propose `$ralph-objective-prep` and then native `/goal` once the objective is concrete.                                     | `references/goal.md`               |
+| Recurring task, babysitting, polling, reminders, monitors, repeated status checks, or scheduled reports                                           | Propose report-only automation, codex exec cron, or another approved scheduler path.                                        | `references/automations.md`        |
+| Repeated manual ritual around a lifecycle event, tool call, stop condition, formatting check, or safety check                                     | Propose a lifecycle hook, with fail-open or fail-closed behavior matched to risk.                                           | `references/hooks.md`              |
+| Reusable procedure discovered while doing the work, repeated prompt recipe, or domain-specific checklist                                          | Propose a new skill or custom agent, but only after the current procedure is proven useful.                                 | `references/skill-creation.md`     |
+| Durable technical decision, architecture tradeoff, migration choice, safety exception, or policy interpretation                                   | Propose a decision-log entry through the project-approved notes or vault path.                                              | `references/decision-log.md`       |
+| Task complexity mismatch, tool overkill, under-scoped validation, model-depth mismatch, or review depth mismatch                                  | Propose recalibrating effort, model lane, or review depth before spending more work.                                        | `references/effort.md`             |
+| Measurable improvement loop, benchmarkable optimization, keep/discard experiment, metric-driven prompt/code tuning, or repeated candidate packets | Propose an AutoResearch packet using the Ralph AutoResearch flow.                                                           | `references/autoresearch-scout.md` |
 
 ## Proposal Shape
 
@@ -113,7 +113,7 @@ menu. If the right answer is "no scout path needed", do not force a proposal.
 
 ```text
 Opportunity: This is a repo-wide audit with independent review tracks.
-Best Ralph path: Use `codex-dynamic-workflows` to fan out discovery, risk review, and gate validation.
+Best Ralph path: Start with subagent fan-out; use `codex-dynamic-workflows` when discovery, risk review, and gate validation need a structured artifact.
 Why now: The request touches multiple subsystems and repeated checks.
 Approval needed: Yes, before spawning subagents or writing workflow artifacts.
 Inline fallback: I will inspect the highest-risk files myself and report narrower findings.

@@ -41,6 +41,7 @@ DEFAULT_SKILLS=(
   obsidian-spec
   oracle-pro-debugger
   codex-design-studio
+  codex-dynamic-workflows
   ralph-objective-prep
   ralph-memory-dream
   keep-codex-fast
@@ -364,7 +365,8 @@ POLICY
 }
 
 productivity_patterns_policy_block() {
-  cat << 'POLICY'
+  local include_opportunity_scout="${1:-0}"
+  cat << 'POLICY_HEAD'
 <!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->
 ## Codex Productivity Patterns
 
@@ -375,13 +377,19 @@ Use productivity patterns only when they preserve the existing safety model:
 - Use native `/goal` for bounded objectives. Use `$ralph-objective-prep` before broad, risky, vague, recovery-oriented, audit-oriented, or plan-driven goals.
 - Use `$handoff`, `.local-notes` where applicable, hook-driven wakeup/recall, scoped memory trace, and approved-plan implementation notes for continuity. Do not adopt `/resume` or `/compact` as Ralph continuity workflows.
 - Use explicit skill names and `@file` references when they improve scope precision.
+POLICY_HEAD
+  if [[ "$include_opportunity_scout" == "1" ]]; then
+    cat << 'POLICY_SCOUT'
 - Before starting any multi-file audit, repo-wide sweep, migration, recurring chore, or vague keep-going mission, consult `$ralph-opportunity-scout` and propose the best Ralph-native tool path when useful.
+POLICY_SCOUT
+  fi
+  cat << 'POLICY_TAIL'
 - Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
 - Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
 - Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.
 - Do not use `--yolo` for production, shared, or sensitive local work.
 <!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->
-POLICY
+POLICY_TAIL
 }
 
 install_agents_policy() {
@@ -606,7 +614,11 @@ PY
   start="<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->"
   end="<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->"
   policy_file="$(mktemp)"
-  productivity_patterns_policy_block > "$policy_file"
+  if selected_skill ralph-opportunity-scout; then
+    productivity_patterns_policy_block 1 > "$policy_file"
+  else
+    productivity_patterns_policy_block 0 > "$policy_file"
+  fi
   python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
 from __future__ import annotations
 

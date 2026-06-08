@@ -57,6 +57,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     codex_skill = tmp_path / ".codex" / "skills" / "orchestrator"
     plugin_skill = tmp_path / ".agents" / "skills" / "telegram-app-integration"
     plugin_codex_skill = tmp_path / ".codex" / "skills" / "telegram-app-integration"
+    workflow_skill = tmp_path / ".agents" / "skills" / "codex-dynamic-workflows"
+    workflow_codex_skill = tmp_path / ".codex" / "skills" / "codex-dynamic-workflows"
     scout_skill = tmp_path / ".agents" / "skills" / "ralph-opportunity-scout"
     scout_codex_skill = tmp_path / ".codex" / "skills" / "ralph-opportunity-scout"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
@@ -68,6 +70,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert codex_skill.is_symlink()
     assert plugin_skill.is_symlink()
     assert plugin_codex_skill.is_symlink()
+    assert workflow_skill.is_symlink()
+    assert workflow_codex_skill.is_symlink()
     assert scout_skill.is_symlink()
     assert scout_codex_skill.is_symlink()
     assert agent.is_symlink()
@@ -80,6 +84,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(plugin_skill) == str(ROOT / "plugins" / "telegram-app-integration")
     assert os.readlink(plugin_codex_skill) == str(ROOT / "plugins" / "telegram-app-integration")
+    assert os.readlink(workflow_skill) == str(ROOT / ".agents" / "skills" / "codex-dynamic-workflows")
+    assert os.readlink(workflow_codex_skill) == str(ROOT / ".agents" / "skills" / "codex-dynamic-workflows")
     assert os.readlink(scout_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(scout_codex_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
@@ -131,6 +137,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not plugin_skill.is_symlink()
     assert not plugin_codex_skill.exists()
     assert not plugin_codex_skill.is_symlink()
+    assert not workflow_skill.exists()
+    assert not workflow_skill.is_symlink()
+    assert not workflow_codex_skill.exists()
+    assert not workflow_codex_skill.is_symlink()
     assert not scout_skill.exists()
     assert not scout_skill.is_symlink()
     assert not scout_codex_skill.exists()
@@ -283,6 +293,24 @@ def test_global_install_refuses_worktree_source_by_default(tmp_path: Path) -> No
         assert "refusing worktree source" in result.stderr
     else:
         assert result.returncode == 0, result.stderr
+
+
+def test_limited_global_install_omits_scout_policy_when_scout_not_selected(tmp_path: Path) -> None:
+    result = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "ralph-objective-prep",
+        "--allow-worktree-source",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / ".agents" / "skills" / "ralph-objective-prep").is_symlink()
+    assert not (tmp_path / ".agents" / "skills" / "ralph-opportunity-scout").exists()
+    agents_text = (tmp_path / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Codex Productivity Patterns" in agents_text
+    assert "$ralph-opportunity-scout" not in agents_text
 
 
 def test_global_install_rejects_symlinked_agents_md_and_unbalanced_markers(tmp_path: Path) -> None:

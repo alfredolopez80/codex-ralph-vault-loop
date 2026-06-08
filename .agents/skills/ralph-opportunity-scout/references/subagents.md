@@ -25,8 +25,7 @@ rejects unsafe instructions in worker results, and verifies with local gates.
 
 ## Ralph Fit
 
-Prefer `codex-dynamic-workflows` when fan-out is useful because it already
-captures:
+Use direct subagent fan-out for straightforward breadth. Use `codex-dynamic-workflows` when fan-out needs a structured workflow because it captures:
 
 - goal and success criteria;
 - approval gates;
@@ -55,7 +54,7 @@ Each packet should specify:
 
 ```text
 Opportunity: This is a fan-out fit.
-Best Ralph path: Use `codex-dynamic-workflows` with <rounds and gates>.
+Best Ralph path: Use subagent fan-out; add `codex-dynamic-workflows` when <rounds and gates> need a durable workflow artifact.
 Why now: <breadth, independent lenses, or adversarial verification signal>.
 Approval needed: Yes, before spawning subagents or writing workflow artifacts.
 Inline fallback: I will run a narrower local pass and state coverage limits.

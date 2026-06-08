@@ -38,6 +38,7 @@ DEFAULT_SKILLS=(
   obsidian-spec
   oracle-pro-debugger
   codex-design-studio
+  codex-dynamic-workflows
   ralph-objective-prep
   ralph-memory-dream
   keep-codex-fast
