@@ -68,6 +68,7 @@ DEFAULT_SKILLS=(
   make-requirements-great
   framing-doc
   kickoff-doc
+  ralph-opportunity-scout
   thermo-nuclear-code-quality-review
   telegram-app-integration
 )
@@ -258,6 +259,7 @@ check_agents_policy() {
     grep -q "Done when:" "$GLOBAL_AGENTS_MD" &&
     grep -q "CONTEXT_ONLY" "$GLOBAL_AGENTS_MD" &&
     grep -q "NO_PREAMBLE" "$GLOBAL_AGENTS_MD" &&
+    grep -q 'ralph-opportunity-scout' "$GLOBAL_AGENTS_MD" &&
     grep -q "report-only by default" "$GLOBAL_AGENTS_MD" &&
     grep -q "Do not use \`--yolo\`" "$GLOBAL_AGENTS_MD"; then
     ok "global AGENTS.md productivity patterns policy present"
