@@ -98,7 +98,9 @@ case "$BLOCK_COUNT" in
   '' | *[!0-9]*) BLOCK_COUNT=0 ;;
 esac
 
-MAX_BLOCKS=3
+# Keep enough retries to survive several Stop/compaction passes without making
+# an unrecoverable hook loop.
+MAX_BLOCKS=5
 if [[ "$BLOCK_COUNT" -ge "$MAX_BLOCKS" ]]; then
   if [[ -d "$STATE_DIR" ]]; then
     printf '{"blocks":0}\n' 2> /dev/null > "$STATE_FILE" || true

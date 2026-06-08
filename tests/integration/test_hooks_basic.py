@@ -986,6 +986,24 @@ def test_stop_shell_hooks_emit_only_blocks(tmp_path: Path) -> None:
     assert payload["decision"] == "block"
     assert payload["reason"]
 
+    for attempt in range(2, 6):
+        repeated_block = run_bash_hook(
+            "anti-rationalization-stop.sh",
+            tmp_path,
+            {"session_id": "anti-block", "last_assistant_message": "This should work."},
+        )
+        assert repeated_block.returncode == 0, repeated_block.stderr
+        repeated_payload = json.loads(repeated_block.stdout)
+        assert repeated_payload["decision"] == "block", attempt
+
+    anti_escape = run_bash_hook(
+        "anti-rationalization-stop.sh",
+        tmp_path,
+        {"session_id": "anti-block", "last_assistant_message": "This should work."},
+    )
+    assert anti_escape.returncode == 0, anti_escape.stderr
+    assert anti_escape.stdout == ""
+
     quality_allow = run_bash_hook(
         "ralph-stop-quality-gate.sh",
         tmp_path,
@@ -993,3 +1011,24 @@ def test_stop_shell_hooks_emit_only_blocks(tmp_path: Path) -> None:
     )
     assert quality_allow.returncode == 0, quality_allow.stderr
     assert quality_allow.stdout == ""
+
+    plan_repo = tmp_path / "plan-repo"
+    (plan_repo / ".codex").mkdir(parents=True)
+    subprocess.run(["git", "init", str(plan_repo)], check=True, capture_output=True, text=True)
+    (plan_repo / ".codex" / "plan-state.json").write_text(
+        '{"session_id":"quality-pending-plan","pending_tasks":1}\n',
+        encoding="utf-8",
+    )
+    quality_pending = run_bash_hook(
+        "ralph-stop-quality-gate.sh",
+        tmp_path,
+        {
+            "session_id": "quality-pending-plan",
+            "cwd": str(plan_repo),
+            "last_assistant_message": "VERIFIED_DONE: tests passed.",
+        },
+    )
+    assert quality_pending.returncode == 0, quality_pending.stderr
+    pending_payload = json.loads(quality_pending.stdout)
+    assert pending_payload["decision"] == "block"
+    assert "pending tasks remain" in pending_payload["reason"]

@@ -194,6 +194,15 @@ assert_json "$excuse"
 printf '%s' "$excuse" | jq -e '.decision == "block"' > /dev/null || fail "stop excuse did not block"
 pass "stop excuse blocks"
 
+for attempt in 2 3 4 5; do
+  repeated_excuse="$(run_hook anti-rationalization-stop.sh stop-excuse.json)"
+  assert_json "$repeated_excuse"
+  printf '%s' "$repeated_excuse" | jq -e '.decision == "block"' > /dev/null || fail "stop excuse attempt $attempt did not block"
+done
+sixth_excuse="$(run_hook anti-rationalization-stop.sh stop-excuse.json)"
+assert_empty "$sixth_excuse" "stop excuse sixth attempt allow"
+pass "stop excuse blocks five attempts"
+
 active="$(printf '{"hook_event_name":"Stop","session_id":"fixture-active","stop_hook_active":true,"last_assistant_message":"should work"}' | bash "$HOOKS/anti-rationalization-stop.sh")"
 assert_empty "$active" "stop_hook_active allow"
 pass "stop_hook_active allows"
@@ -229,6 +238,12 @@ current_plan="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", session_i
 assert_json "$current_plan"
 printf '%s' "$current_plan" | jq -e '.decision == "block"' > /dev/null || fail "current-session plan-state did not block"
 pass "plan-state session scope"
+
+printf '{"session_id":"fixture-plan-tests-passed","pending_tasks":1}\n' > "$PLAN_REPO/.codex/plan-state.json"
+tests_not_plan_done="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", session_id:"fixture-plan-tests-passed", cwd:$cwd, last_assistant_message:"VERIFIED_DONE: tests passed."}' | bash "$HOOKS/ralph-stop-quality-gate.sh")"
+assert_json "$tests_not_plan_done"
+printf '%s' "$tests_not_plan_done" | jq -e '.decision == "block"' > /dev/null || fail "tests passed incorrectly closed pending plan"
+pass "tests passed does not close pending plan"
 
 SLOP_HOME="$STATE/slop-home"
 mkdir -p "$SLOP_HOME"
