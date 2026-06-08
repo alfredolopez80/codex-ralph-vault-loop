@@ -47,6 +47,7 @@ DEFAULT_SKILLS=(
   make-requirements-great
   framing-doc
   kickoff-doc
+  ralph-opportunity-scout
   thermo-nuclear-code-quality-review
   telegram-app-integration
 )

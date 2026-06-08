@@ -57,6 +57,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     codex_skill = tmp_path / ".codex" / "skills" / "orchestrator"
     plugin_skill = tmp_path / ".agents" / "skills" / "telegram-app-integration"
     plugin_codex_skill = tmp_path / ".codex" / "skills" / "telegram-app-integration"
+    scout_skill = tmp_path / ".agents" / "skills" / "ralph-opportunity-scout"
+    scout_codex_skill = tmp_path / ".codex" / "skills" / "ralph-opportunity-scout"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
@@ -66,6 +68,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert codex_skill.is_symlink()
     assert plugin_skill.is_symlink()
     assert plugin_codex_skill.is_symlink()
+    assert scout_skill.is_symlink()
+    assert scout_codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
     assert hooks_json.is_file()
@@ -76,6 +80,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(plugin_skill) == str(ROOT / "plugins" / "telegram-app-integration")
     assert os.readlink(plugin_codex_skill) == str(ROOT / "plugins" / "telegram-app-integration")
+    assert os.readlink(scout_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
+    assert os.readlink(scout_codex_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     agents_text = agents_md.read_text(encoding="utf-8")
@@ -96,6 +102,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Done when:" in agents_text
     assert "CONTEXT_ONLY" in agents_text
     assert "NO_PREAMBLE" in agents_text
+    assert "$ralph-opportunity-scout" in agents_text
     assert "report-only by default" in agents_text
     assert "Do not use `--yolo`" in agents_text
     assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
@@ -124,6 +131,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not plugin_skill.is_symlink()
     assert not plugin_codex_skill.exists()
     assert not plugin_codex_skill.is_symlink()
+    assert not scout_skill.exists()
+    assert not scout_skill.is_symlink()
+    assert not scout_codex_skill.exists()
+    assert not scout_codex_skill.is_symlink()
     assert not agent.exists()
     assert not agent.is_symlink()
     assert not helper.exists()
