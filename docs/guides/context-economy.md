@@ -6,7 +6,7 @@ files worth reading while keeping repo state out of the transcript.
 ## Repo Map
 
 ```bash
-python3 scripts/context/repo_map.py --root . --max-files 120 --max-depth 4
+python3 scripts/context/repo_map.py --root . --max-files 120 --max-depth 4 2>&1 | head -c 6000
 ```
 
 For a narrower surface:
@@ -18,7 +18,7 @@ rg --files AGENTS.md .codex/hooks scripts tests 2>&1 | head -c 6000
 ## Logs And Text Needles
 
 ```bash
-python3 scripts/context/compact_logs.py ~/.ralph-codex/projects/example/log.txt --keyword fallback_used --limit 30
+python3 scripts/context/compact_logs.py ~/.ralph-codex/projects/example/log.txt --keyword fallback_used --limit 30 2>&1 | head -c 6000
 ```
 
 The tool skips generated output, media files, and runtime-heavy directories. It
@@ -27,8 +27,8 @@ reads bounded prefixes only.
 ## JSON And CSV
 
 ```bash
-python3 scripts/context/summarize_json.py report.json
-python3 scripts/context/summarize_data.py metrics.csv
+python3 scripts/context/summarize_json.py report.json 2>&1 | head -c 6000
+python3 scripts/context/summarize_data.py metrics.csv 2>&1 | head -c 6000
 ```
 
 These commands return shape, columns, sampled rows, and short matching lines.

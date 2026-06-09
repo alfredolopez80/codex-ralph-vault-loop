@@ -29,12 +29,12 @@ Never feed raw data when a compact map is enough. During broad audits, summarize
 before opening new files and inspect only files needed for the exact task. Before
 reading large artifacts, use the context helpers:
 
-- `python3 scripts/context/repo_map.py --root .`
-- `python3 scripts/context/summarize_json.py <path>`
-- `python3 scripts/context/summarize_data.py <path>`
-- `python3 scripts/context/compact_logs.py <path>`
-- `python3 scripts/context/scan_errors.py <path>`
-- `python3 scripts/maintenance/needle-map.py --mode repo --root .`
+- `python3 scripts/context/repo_map.py --root . 2>&1 | head -c 6000`
+- `python3 scripts/context/summarize_json.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/context/summarize_data.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/context/compact_logs.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/context/scan_errors.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/maintenance/needle-map.py --mode repo --root . 2>&1 | head -c 6000`
 
 Unknown or potentially large command output must be byte-capped:
 

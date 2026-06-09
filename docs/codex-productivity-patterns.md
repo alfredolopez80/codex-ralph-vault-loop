@@ -93,14 +93,14 @@ an entire JSON file into the chat. These helpers give Codex enough shape to pick
 the next file without pulling private runtime material or generated noise into
 the transcript.
 
-| Need                         | Use                                                              |
-| ---------------------------- | ---------------------------------------------------------------- |
-| Compact repo overview        | `python3 scripts/context/repo_map.py --root .`                   |
-| Legacy needle-map view       | `python3 scripts/maintenance/needle-map.py --mode repo --root .` |
-| JSON shape without full dump | `python3 scripts/context/summarize_json.py <path>`               |
-| CSV, TSV, or JSONL summary   | `python3 scripts/context/summarize_data.py <path>`               |
-| Recent log highlights        | `python3 scripts/context/compact_logs.py <path>`                 |
-| Error or warning counts      | `python3 scripts/context/scan_errors.py <path>`                  |
+| Need                         | Use                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------- |
+| Compact repo overview        | `python3 scripts/context/repo_map.py --root . 2>&1 \| head -c 6000`                   |
+| Legacy needle-map view       | `python3 scripts/maintenance/needle-map.py --mode repo --root . 2>&1 \| head -c 6000` |
+| JSON shape without full dump | `python3 scripts/context/summarize_json.py <path> 2>&1 \| head -c 6000`               |
+| CSV, TSV, or JSONL summary   | `python3 scripts/context/summarize_data.py <path> 2>&1 \| head -c 6000`               |
+| Recent log highlights        | `python3 scripts/context/compact_logs.py <path> 2>&1 \| head -c 6000`                 |
+| Error or warning counts      | `python3 scripts/context/scan_errors.py <path> 2>&1 \| head -c 6000`                  |
 
 If a command might print more than one screen, cap it before running it:
 
