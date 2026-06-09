@@ -1,11 +1,12 @@
 # Context Economy Operator Guide
 
-Use these commands when the next step is inspection, not implementation.
+Use this page when the next step is inspection. The goal is to find the few
+files worth reading while keeping repo state out of the transcript.
 
 ## Repo Map
 
 ```bash
-python3 scripts/maintenance/needle-map.py --mode repo --root .
+python3 scripts/context/repo_map.py --root . --max-files 120 --max-depth 4
 ```
 
 For a narrower surface:
@@ -17,21 +18,21 @@ rg --files AGENTS.md .codex/hooks scripts tests 2>&1 | head -c 6000
 ## Logs And Text Needles
 
 ```bash
-python3 scripts/maintenance/needle-map.py --mode logs --root ~/.ralph-codex --needle "fallback_used"
+python3 scripts/context/compact_logs.py ~/.ralph-codex/projects/example/log.txt --keyword fallback_used --limit 30
 ```
 
-The tool skips noisy, generated, binary, and runtime-heavy paths by default and
-reads only bounded prefixes of candidate files.
+The tool skips generated output, media files, and runtime-heavy directories. It
+reads bounded prefixes only.
 
 ## JSON And CSV
 
 ```bash
-python3 scripts/maintenance/needle-map.py --mode json --path report.json --needle "selected_memory_ids"
-python3 scripts/maintenance/needle-map.py --mode csv --path metrics.csv --needle "latency"
+python3 scripts/context/summarize_json.py report.json
+python3 scripts/context/summarize_data.py metrics.csv
 ```
 
-These commands report shape, columns, sampled rows, and compact matching lines
-instead of dumping the full file into the transcript.
+These commands return shape, columns, sampled rows, and short matching lines.
+Open the raw file only after the summary names the exact area to inspect.
 
 ## Command Output Bounds
 
@@ -52,7 +53,7 @@ sessions, runtime memory dumps, and binary/media artifacts.
 
 ## Continuity
 
-Runtime continuity belongs under Ralph runtime paths, for example:
+Runtime continuity belongs under Ralph runtime paths:
 
 ```text
 ~/.ralph-codex/projects/<project_id>/handoffs/latest.md

@@ -1,25 +1,26 @@
 # Codex Productivity Patterns
 
-These patterns are operator shortcuts for Ralph/Codex work. They do not replace
-the existing sandbox, approvals, hooks, SFW package-manager guard, RED policy,
-Context Budget Guard, Ralph memory validation, or production-integrity rules.
+These patterns are operator shortcuts for Ralph/Codex work. The existing
+sandbox, approvals, hook layer, SFW package-manager guard, RED policy, Context
+Budget Guard, Ralph memory validation, and production-integrity rules still
+govern the session.
 
 ## Adoption Matrix
 
-| Pattern                     | Ralph decision                   | Use                                                                                                 |
-| --------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `Done when:`                | Adopt                            | Add concrete stop criteria to non-trivial prompts.                                                  |
-| Native `/goal`              | Adopt thinly                     | Use for bounded objectives; use `$ralph-objective-prep` first for broad or risky goals.             |
-| `/explore` style prompts    | Adopt as read-only               | Inspect unfamiliar repos without edits.                                                             |
-| `[NO_PREAMBLE]`             | Request-local only               | Ask for terse output, but do not hide risk, validation, or blockers.                                |
-| `[CONTEXT_ONLY]`            | Request-local only               | Read and acknowledge; do not persist unless normal RED and memory rules allow it.                   |
-| Skills and `@file`          | Adopt                            | Use explicit skills and file references to narrow scope.                                            |
-| Worktrees                   | Adopt with proof                 | Verify branch, HEAD, dirty state, process ownership, and runtime ownership first.                   |
-| Automations                 | Report-only by default           | Use recurring jobs for checks and recommendations, not mutation.                                    |
-| Self-improvement automation | Proposal-only                    | It may suggest AGENTS or skill changes; it must not edit files.                                     |
-| `/resume` and `/compact`    | Do not adopt as Ralph continuity | Use `$handoff`, `.local-notes`, wakeup/recall, scoped memory trace, and implementation notes.       |
-| `/permissions`              | Do not adopt                     | The existing sandbox, approval, hook, SFW, RED, and production-integrity model governs permissions. |
-| `--yolo`                    | Do not adopt                     | It conflicts with shared, production, and sensitive local workflows.                                |
+| Pattern                     | Ralph decision                   | Use                                                                                           |
+| --------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `Done when:`                | Adopt                            | Add concrete stop criteria to non-trivial prompts.                                            |
+| Native `/goal`              | Adopt thinly                     | Use for bounded objectives; use `$ralph-objective-prep` first for broad or risky goals.       |
+| `/explore` style prompts    | Adopt as read-only               | Inspect unfamiliar repos without edits.                                                       |
+| `[NO_PREAMBLE]`             | Request-local only               | Ask for terse output, but do not hide risk, validation, or blockers.                          |
+| `[CONTEXT_ONLY]`            | Request-local only               | Read and acknowledge; do not persist unless normal RED and memory rules allow it.             |
+| Skills and `@file`          | Adopt                            | Use explicit skills and file references to narrow scope.                                      |
+| Worktrees                   | Adopt with proof                 | Verify branch, HEAD, dirty state, process ownership, and runtime ownership first.             |
+| Automations                 | Report-only by default           | Use recurring jobs to check state and propose follow-up work.                                 |
+| Self-improvement automation | Proposal-only                    | It may suggest AGENTS or skill changes; it must not edit files.                               |
+| `/resume` and `/compact`    | Do not adopt as Ralph continuity | Use `$handoff`, `.local-notes`, wakeup/recall, scoped memory trace, and implementation notes. |
+| `/permissions`              | Do not adopt                     | Existing sandbox and Ralph guardrails govern permissions.                                     |
+| `--yolo`                    | Do not adopt                     | It conflicts with shared work and production or private local workflows.                      |
 
 ## Prompt Templates
 
@@ -87,9 +88,10 @@ of pasting raw base64, binary data, generated replacement history, or huge logs.
 
 ## Context Economy Tools
 
-Use compact helper scripts before opening large artifacts or walking broad repo
-surfaces. They reduce token use and keep raw logs, data, and memory bodies out of
-the transcript unless targeted inspection is necessary.
+Before a broad audit, make a map. Do not start by dumping a tree, a raw log, or
+an entire JSON file into the chat. These helpers give Codex enough shape to pick
+the next file without pulling private runtime material or generated noise into
+the transcript.
 
 | Need                         | Use                                                              |
 | ---------------------------- | ---------------------------------------------------------------- |
@@ -100,41 +102,35 @@ the transcript unless targeted inspection is necessary.
 | Recent log highlights        | `python3 scripts/context/compact_logs.py <path>`                 |
 | Error or warning counts      | `python3 scripts/context/scan_errors.py <path>`                  |
 
-Use byte caps for unknown command output:
+If a command might print more than one screen, cap it before running it:
 
 ```bash
 COMMAND 2>&1 | head -c 6000
 ```
 
-Use ranged reads when file inspection is required:
+When the target is a file, read a range:
 
 ```bash
 sed -n '1,160p' path
 sed -n '160,320p' path
 ```
 
-Skip noisy, generated, vendor, runtime, and binary/media paths by default,
-including `node_modules`, `.venv`, `dist`, `build`, `.next`, `.cache`,
-`__pycache__`, `.git`, `coverage`, archived sessions, raw vault inbox, and raw
-memory bodies. For broad audits, summarize first, then open only the files that
-are needed for the exact task.
+Skip `node_modules`, `.venv`, `dist`, `build`, `.next`, `.cache`,
+`__pycache__`, `.git`, `coverage`, archived sessions, raw vault inbox, raw
+memory bodies, generated assets, and binary/media files unless the user names
+one of those paths directly.
 
 ## Token-efficient Operating Loop
 
-Use this loop for broad audits, hook changes, eval work, and any task likely to
-touch many files or large artifacts:
-
-1. Start with a compact repo map instead of a raw tree or broad file dump.
-2. Summarize JSON, CSV/TSV/JSONL, and logs before inspecting raw contents.
-3. Byte-cap unknown command output and prefer focused git commands.
-4. Let `pre_tool_guard.py` block unbounded firehose commands; rewrite the
-   command with the suggested bounded form.
-5. Keep the runtime handoff compact under
-   `~/.ralph-codex/projects/<project_id>/handoffs/latest.md`.
-6. Run the context guard benchmark before changing hooks or guard policy.
-7. Use `keep_codex_fast.py --context-health` periodically to check handoff,
-   session, helper, and benchmark health.
-8. Do not create public handoff files containing private/session data.
+For broad audits, hook changes, eval work, and large artifact inspection, start
+with `repo_map.py`. Use `summarize_json.py`, `summarize_data.py`, or
+`compact_logs.py` before opening raw data. Keep git and shell output bounded; if
+`pre_tool_guard.py` blocks a firehose command, rerun the suggested bounded
+command. Runtime handoff data belongs under
+`~/.ralph-codex/projects/<project_id>/handoffs/latest.md`. Before editing hooks
+or guard policy, run the context guard benchmark. During cleanup, check
+`keep_codex_fast.py --context-health`. Do not create a public handoff file with
+private or session-derived data.
 
 Copy-paste examples:
 
@@ -185,23 +181,21 @@ continuity stack is:
 - Scoped memory trace showing selected memory ids or explicit fallback.
 - Approved-plan implementation notes beside `.ralph/plans`.
 
-Runtime handoffs are the compact project brain for Codex sessions. They are
-non-authoritative context, not instructions, and current user prompts plus repo
-files always win. The Stop hook writes the latest compact handoff under:
+Runtime handoffs are the compact project brain for Codex sessions. They provide
+non-authoritative context. Current user prompts and repo files always win. The
+Stop hook writes the latest compact handoff under:
 
 ```text
 ~/.ralph-codex/projects/<project_id>/handoffs/latest.md
 ```
 
 Do not create repo-root `HANDOFF.md` as durable memory unless a project-specific
-contract explicitly supports that public path. Runtime handoffs must stay
-structured, redacted, and concise, with sections for the current goal, success
-criteria, key files, decisions, commands run, known blockers, do-not-re-read
-guidance, and next actions.
+contract explicitly supports that public path. Runtime handoffs should use the
+standard section order for goal, criteria, key files, decisions, commands,
+blockers, do-not-re-read guidance, and next actions.
 
-`/resume` and `/compact` may still exist as app-native utilities, but they are
-not durable memory, not implementation notes, and not a substitute for handoff
-or scoped recall.
+`/resume` and `/compact` may still exist as app-native utilities. Ralph does not
+treat them as durable memory, implementation notes, handoff, or scoped recall.
 
 ## Notifications
 
@@ -244,8 +238,8 @@ agent flow.
 
 ## Self-Improvement Automation Template
 
-This automation is optional and must be created only after a separate explicit
-request defining cadence, scope, and privacy expectations.
+This automation is optional. Create it only after a separate request that names
+the cadence and scope, including privacy expectations.
 
 ```text
 Analyze recent Codex work and find recurring problems: misunderstandings,
@@ -266,6 +260,6 @@ Return:
 ## Why `--yolo` Is Excluded
 
 `--yolo` removes approval friction by allowing autonomous installs, commands,
-and mutations. That is not compatible with Ralph's production-integrity, RED,
-SFW, hook, approval, and global-install safety model. Use targeted approval
-rules and report-only automation instead.
+and mutations. That conflicts with Ralph's production-integrity policy, RED
+handling, SFW, hooks, approval flow, and global-install controls. Use targeted
+approval rules and report-only automation instead.
