@@ -163,6 +163,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt": "head -c 6000",
         "git diff; head -c 1 /dev/null": "git diff --name-only | head -n 50",
         "git diff & printf x | head -c 1": "git diff --name-only | head -n 50",
+        "echo ok | head -c 6000; jq . huge.json": "head -c 6000",
         "kubectl logs deploy/control-api; head -c 1 /dev/null": "head -c 6000",
         "python3 -m pytest tests -vv": "head -c 6000",
     }
