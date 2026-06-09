@@ -41,24 +41,29 @@ def walk(value: Any, path: str, depth: int, max_depth: int, max_items: int, rows
                 return
 
 
-def parse_json_or_jsonl(path: Path) -> tuple[Any, bool]:
+def parse_json_or_jsonl(path: Path) -> tuple[Any, bool, str]:
     text, truncated = read_text_bounded(path)
     try:
-        return json.loads(text), truncated
+        return json.loads(text), truncated, "parsed_json"
     except json.JSONDecodeError:
+        if path.suffix.lower() != ".jsonl":
+            return {"parse_error": "json_decode_error"}, truncated, "json_decode_error"
         rows = []
+        skipped = 0
         for line in text.splitlines():
             if not line.strip():
                 continue
             try:
                 rows.append(json.loads(line))
             except json.JSONDecodeError:
+                skipped += 1
                 continue
-        return rows, truncated
+        status = "parsed_jsonl" if skipped == 0 else "parsed_jsonl_with_skipped_lines"
+        return rows, truncated, status
 
 
 def summarize(path: Path, max_items: int, max_depth: int, include_samples: bool) -> dict[str, Any]:
-    value, truncated = parse_json_or_jsonl(path)
+    value, truncated, parse_status = parse_json_or_jsonl(path)
     rows: list[dict[str, Any]] = []
     walk(value, "$", 0, max_depth, max_items, rows)
     top_keys = sorted(value.keys(), key=str)[:max_items] if isinstance(value, dict) else []
@@ -66,6 +71,7 @@ def summarize(path: Path, max_items: int, max_depth: int, include_samples: bool)
         "path": str(path),
         "file_size_bytes": path.stat().st_size,
         "input_truncated": truncated,
+        "parse_status": parse_status,
         "root_type": type_name(value),
         "root_size": value_size(value),
         "top_level_keys": [str(key) for key in top_keys],
@@ -89,6 +95,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Path: `{report['path']}`",
         f"- File size bytes: `{report['file_size_bytes']}`",
         f"- Input truncated: `{'yes' if report['input_truncated'] else 'no'}`",
+        f"- Parse status: `{report['parse_status']}`",
         f"- Root type: `{report['root_type']}`",
         f"- Root size: `{report['root_size']}`",
         "",

@@ -30,7 +30,16 @@ TEMP_PROJECT_RE = re.compile(
     r"(\\AppData\\Local\\Temp\\|/AppData/Local/Temp/|\\Temp\\codex-|/Temp/codex-|\\Temp\\spark-|/Temp/spark-)",
     re.I,
 )
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def discover_repo_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "AGENTS.md").is_file() and (parent / "scripts").is_dir():
+            return parent
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = discover_repo_root()
 CONTEXT_HELPERS = [
     "scripts/context/repo_map.py",
     "scripts/context/summarize_json.py",

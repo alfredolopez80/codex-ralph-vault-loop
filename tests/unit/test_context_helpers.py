@@ -99,9 +99,23 @@ def test_summarize_json_reports_shape_without_full_dump() -> None:
     rendered = summarize_json.render_markdown(report)
 
     assert report["root_type"] == "object"
+    assert report["parse_status"] == "parsed_json"
     assert "meta" in report["top_level_keys"]
     assert "$.results[0].id" in rendered
     assert "Top-Level Samples" in rendered
+
+
+def test_summarize_json_reports_decode_error_for_malformed_json(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.json"
+    broken.write_text('{"items": [', encoding="utf-8")
+
+    report = summarize_json.summarize(broken, max_items=10, max_depth=3, include_samples=False)
+    rendered = summarize_json.render_markdown(report)
+
+    assert report["parse_status"] == "json_decode_error"
+    assert report["root_type"] == "object"
+    assert "parse_error" in report["top_level_keys"]
+    assert "Parse status: `json_decode_error`" in rendered
 
 
 def test_summarize_data_handles_csv_tsv_and_jsonl() -> None:
