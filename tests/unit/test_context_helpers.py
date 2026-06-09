@@ -118,6 +118,19 @@ def test_summarize_json_reports_decode_error_for_malformed_json(tmp_path: Path) 
     assert "Parse status: `json_decode_error`" in rendered
 
 
+def test_summarize_json_marks_truncated_json_prefix(tmp_path: Path) -> None:
+    large = tmp_path / "large.json"
+    large.write_text('{"items":"' + ("x" * 2_000_000) + '"}', encoding="utf-8")
+
+    report = summarize_json.summarize(large, max_items=10, max_depth=3, include_samples=False)
+    rendered = summarize_json.render_markdown(report)
+
+    assert report["input_truncated"] is True
+    assert report["parse_status"] == "truncated_json_prefix"
+    assert "items" in report["top_level_keys"]
+    assert "Parse status: `truncated_json_prefix`" in rendered
+
+
 def test_summarize_data_handles_csv_tsv_and_jsonl() -> None:
     csv_report = summarize_data.summarize(FIXTURES / "sample.csv", limit_rows=1000, sample=2)
     tsv_report = summarize_data.summarize(FIXTURES / "sample.tsv", limit_rows=1000, sample=2)

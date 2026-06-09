@@ -151,8 +151,10 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "git diff -- .": "git diff --name-only | head -n 50",
         "git diff -- :/": "git diff --name-only | head -n 50",
         "find . -type f": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
+        "find . -print0": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
         "ls -la /": "head -c 6000",
         "grep -R error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
+        "grep -R --include='*.py' error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
         "python3 scripts/context/repo_map.py --root .": "/tmp/ralph-command-output.txt",
         "python3 scripts/context/repo_map.py scripts/gates/run-gates.py": "/tmp/ralph-command-output.txt",
     }

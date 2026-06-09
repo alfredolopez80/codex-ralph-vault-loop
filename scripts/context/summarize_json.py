@@ -23,6 +23,47 @@ def value_size(value: Any) -> int | None:
     return None
 
 
+def sampled_top_level_object(text: str, max_items: int) -> dict[str, str]:
+    decoder = json.JSONDecoder()
+    index = 0
+    length = len(text)
+    while index < length and text[index].isspace():
+        index += 1
+    if index >= length or text[index] != "{":
+        return {"_truncated_json": "prefix"}
+    index += 1
+    keys: dict[str, str] = {}
+    while index < length and len(keys) < max_items:
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length or text[index] == "}":
+            break
+        if text[index] == ",":
+            index += 1
+            continue
+        try:
+            key, index = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(key, str):
+            break
+        keys[key] = "[sampled from truncated prefix]"
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length or text[index] != ":":
+            break
+        index += 1
+        try:
+            _value, index = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            break
+        while index < length and text[index].isspace():
+            index += 1
+        if index < length and text[index] == ",":
+            index += 1
+    return keys or {"_truncated_json": "prefix"}
+
+
 def walk(value: Any, path: str, depth: int, max_depth: int, max_items: int, rows: list[dict[str, Any]]) -> None:
     if len(rows) >= max_items:
         return
@@ -41,11 +82,13 @@ def walk(value: Any, path: str, depth: int, max_depth: int, max_items: int, rows
                 return
 
 
-def parse_json_or_jsonl(path: Path) -> tuple[Any, bool, str]:
+def parse_json_or_jsonl(path: Path, max_items: int) -> tuple[Any, bool, str]:
     text, truncated = read_text_bounded(path)
     try:
         return json.loads(text), truncated, "parsed_json"
     except json.JSONDecodeError:
+        if truncated and path.suffix.lower() != ".jsonl":
+            return sampled_top_level_object(text, max_items), truncated, "truncated_json_prefix"
         if path.suffix.lower() != ".jsonl":
             return {"parse_error": "json_decode_error"}, truncated, "json_decode_error"
         rows = []
@@ -63,7 +106,7 @@ def parse_json_or_jsonl(path: Path) -> tuple[Any, bool, str]:
 
 
 def summarize(path: Path, max_items: int, max_depth: int, include_samples: bool) -> dict[str, Any]:
-    value, truncated, parse_status = parse_json_or_jsonl(path)
+    value, truncated, parse_status = parse_json_or_jsonl(path, max_items)
     rows: list[dict[str, Any]] = []
     walk(value, "$", 0, max_depth, max_items, rows)
     top_keys = sorted(value.keys(), key=str)[:max_items] if isinstance(value, dict) else []

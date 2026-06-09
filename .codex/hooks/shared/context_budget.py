@@ -489,7 +489,7 @@ def _is_broad_diff_scope(raw_path: str, cwd: Path) -> bool:
 def _find_has_bound(argv: list[str], command: str) -> bool:
     return (
         _has_any_bound(command)
-        or any(arg in {"-maxdepth", "-mindepth", "-prune", "-quit", "-print0"} or arg.startswith("-maxdepth") for arg in argv[1:])
+        or any(arg in {"-maxdepth", "-mindepth", "-prune", "-quit"} or arg.startswith("-maxdepth") for arg in argv[1:])
         or _limited_numeric_option(argv, {"--limit"})
     )
 
@@ -539,7 +539,7 @@ def _classify_recursive_listing(argv: list[str], cwd: Path, command: str) -> Gua
 def _classify_grep_command(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
     if not argv or _executable_name(argv[0]) not in {"grep", "egrep", "fgrep"} or _has_any_bound(command):
         return None
-    if _limited_numeric_option(argv, {"-m", "--max-count"}) or _option_present(argv, {"--include", "--exclude", "--exclude-dir"}):
+    if _limited_numeric_option(argv, {"-m", "--max-count"}):
         return None
     operands: list[str] = []
     index = 1
