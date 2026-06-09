@@ -162,6 +162,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "python3 scripts/context/repo_map.py scripts/gates/run-gates.py": "head -c 6000",
         "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt": "head -c 6000",
         "git diff; head -c 1 /dev/null": "git diff --name-only | head -n 50",
+        "git diff & printf x | head -c 1": "git diff --name-only | head -n 50",
         "kubectl logs deploy/control-api; head -c 1 /dev/null": "head -c 6000",
         "python3 -m pytest tests -vv": "head -c 6000",
     }
@@ -215,13 +216,21 @@ def test_pre_tool_guard_allows_validation_commands(tmp_path: Path) -> None:
 def test_pre_tool_guard_does_not_trust_validation_basenames_outside_repo(tmp_path: Path) -> None:
     fake_python = tmp_path / "run-gates.py"
     fake_python.write_text("print('too much')\n", encoding="utf-8")
+    fake_repo_python = tmp_path / "scripts" / "gates" / "run-gates.py"
+    fake_repo_python.parent.mkdir(parents=True)
+    fake_repo_python.write_text("print('too much')\n", encoding="utf-8")
     fake_shell = tmp_path / "doctor.sh"
     fake_shell.write_text("echo too much\n", encoding="utf-8")
     fake_wakeup = tmp_path / "wakeup.py"
     fake_wakeup.write_text("print('too much')\n", encoding="utf-8")
 
-    for command in [f"python3 {fake_python}", f"bash {fake_shell}", f"python3 {fake_wakeup}"]:
-        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+    for command, cwd in [
+        (f"python3 {fake_python}", ROOT),
+        (f"python3 {fake_repo_python}", tmp_path),
+        (f"bash {fake_shell}", ROOT),
+        (f"python3 {fake_wakeup}", ROOT),
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(cwd)}})
         assert result.returncode == 0
         payload = json.loads(result.stdout)
         assert payload["decision"] == "block"

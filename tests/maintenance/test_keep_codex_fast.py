@@ -203,6 +203,34 @@ def assert_context_health_mode(module) -> None:
         assert "old_session_candidates" not in text
 
 
+def assert_context_health_overrides_apply(module) -> None:
+    with tempfile.TemporaryDirectory() as td:
+        paths = make_fake_home(Path(td))
+        backup = Path(td) / "backup-context-apply"
+        args = argparse.Namespace(
+            apply=True,
+            backup_only=False,
+            details=False,
+            wait_for_codex_exit=False,
+            codex_home=str(paths["codex_home"]),
+            backup_root=str(backup),
+            archive_older_than_days=10,
+            worktree_older_than_days=7,
+            rotate_logs_above_mb=0,
+            context_health=True,
+        )
+        output = io.StringIO()
+        ralph_home = make_fake_ralph_home(Path(td))
+        with temporary_env(RALPH_HOME=str(ralph_home)), contextlib.redirect_stdout(output):
+            assert module.run(args) == 0
+        text = output.getvalue()
+        assert paths["rollout"].exists(), "--context-health must not move sessions even with --apply"
+        assert paths["worktree"].exists(), "--context-health must not move worktrees even with --apply"
+        assert not backup.exists(), "--context-health must not create backup artifacts even with --apply"
+        assert "context_health" in text
+        assert "old_session_candidates" not in text
+
+
 def assert_session_alias_detection(module) -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -270,6 +298,7 @@ def main() -> int:
     assert_report_mode(module)
     assert_backup_only_mode(module)
     assert_context_health_mode(module)
+    assert_context_health_overrides_apply(module)
     assert_session_alias_detection(module)
     assert_apply_mode(module)
     print("smoke tests passed")

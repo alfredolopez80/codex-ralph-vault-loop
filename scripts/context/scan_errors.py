@@ -7,7 +7,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from context_common import preview, read_tail_text, write_output
+try:
+    from .context_common import preview, read_tail_text, write_output
+except ImportError:  # pragma: no cover - direct script execution
+    from context_common import preview, read_tail_text, write_output
 
 
 DEFAULT_PATTERN = r"(?i)\b(error|warning|warn|failed|failure|exception|traceback|panic)\b"

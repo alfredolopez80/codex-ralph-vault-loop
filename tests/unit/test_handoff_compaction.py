@@ -111,3 +111,17 @@ def test_write_handoff_compaction_error_uses_bounded_fallback(tmp_path: Path, mo
     assert "Original summary omitted" in text
     assert "raw1999" not in text
     assert word_count(text) < 220
+
+
+def test_write_handoff_bounds_appended_next_step(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph-home"))
+    monkeypatch.setenv("RALPH_HANDOFF_MAX_WORDS", "80")
+    next_step = " ".join(f"nextword{i}" for i in range(500))
+
+    path = vault_io.write_handoff("Task: compact next step.", next_step=next_step)
+
+    assert path is not None
+    text = path.read_text(encoding="utf-8")
+    assert "nextword499" not in text
+    assert "...[truncated]" in text
+    assert word_count(text) < 260

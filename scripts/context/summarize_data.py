@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from context_common import preview, write_output
+try:
+    from .context_common import preview, write_output
+except ImportError:  # pragma: no cover - direct script execution
+    from context_common import preview, write_output
 
 
 def detect_kind(path: Path) -> str:

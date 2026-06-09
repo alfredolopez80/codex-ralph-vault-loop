@@ -6,7 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from context_common import preview, read_text_bounded, redact_structure, safe_key, write_output
+try:
+    from .context_common import preview, read_text_bounded, redact_structure, safe_key, write_output
+except ImportError:  # pragma: no cover - direct script execution
+    from context_common import preview, read_text_bounded, redact_structure, safe_key, write_output
 
 
 def type_name(value: Any) -> str:

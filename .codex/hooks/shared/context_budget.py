@@ -88,6 +88,15 @@ VALIDATION_SCRIPT_NAMES = {
     "smoke-global-hooks.py",
     "validate-ralph-memory-flow.sh",
 }
+VALIDATION_SCRIPT_PATHS = {
+    "coding_model_eval.py": ("scripts", "evals", "coding_model_eval.py"),
+    "context_guard_autoresearch_benchmark.py": ("scripts", "evals", "context_guard_autoresearch_benchmark.py"),
+    "doctor-global.sh": ("scripts", "setup", "doctor-global.sh"),
+    "doctor.sh": ("scripts", "setup", "doctor.sh"),
+    "run-gates.py": ("scripts", "gates", "run-gates.py"),
+    "smoke-global-hooks.py": ("scripts", "setup", "smoke-global-hooks.py"),
+    "validate-ralph-memory-flow.sh": ("scripts", "validate-ralph-memory-flow.sh"),
+}
 VALIDATION_COMMAND_NAMES = {"mypy", "pytest", "ruff", "shellcheck"}
 
 
@@ -225,7 +234,8 @@ def _has_any_bound(command: str) -> bool:
 def _segment_bound_text(segment_command: str, full_command: str) -> str:
     if _has_any_bound(segment_command):
         return segment_command
-    if _has_output_cap(full_command) and "|" in full_command and not any(separator in full_command for separator in (";", "&&", "||")):
+    separator_text = re.sub(r"(?:[12]?>&[12]|&>)", "", full_command)
+    if _has_output_cap(full_command) and "|" in full_command and not any(separator in separator_text for separator in (";", "&&", "||", "&")):
         return full_command
     return segment_command
 
@@ -369,10 +379,12 @@ def _limited_numeric_option(tokens: list[str], names: set[str]) -> bool:
 
 
 def _is_repo_validation_script(raw_path: str, cwd: Path) -> bool:
-    if Path(raw_path).name not in VALIDATION_SCRIPT_NAMES:
+    expected_parts = VALIDATION_SCRIPT_PATHS.get(Path(raw_path).name)
+    if expected_parts is None:
         return False
     resolved = _resolve_path(raw_path, cwd)
-    return _is_relative_to(resolved, cwd.resolve(strict=False))
+    trusted = (Path(__file__).resolve().parents[3] / Path(*expected_parts)).resolve(strict=False)
+    return resolved == trusted
 
 
 def _is_wakeup_script_path(raw_path: str) -> bool:

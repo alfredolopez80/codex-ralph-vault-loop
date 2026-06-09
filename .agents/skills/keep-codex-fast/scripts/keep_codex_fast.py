@@ -712,7 +712,7 @@ def run(args: argparse.Namespace) -> int:
                 report(f"blocking_process codex_process_{index:03d}")
 
     report_context_health(codex_home, args.details, args.context_health)
-    if args.context_health and effective_mode == "report":
+    if args.context_health:
         report("done")
         return 0
 

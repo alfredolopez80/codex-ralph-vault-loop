@@ -27,10 +27,9 @@ def digest(text: str) -> str:
 
 
 def compact_handoff_error_summary(next_step: str = "", *, max_words: int = DEFAULT_HANDOFF_MAX_WORDS) -> str:
-    next_text = redact_text(next_step.strip()) if next_step.strip() else "Re-run handoff compaction or inspect stop hook logs."
-    words = next_text.split()
-    if len(words) > max(20, max_words // 4):
-        next_text = " ".join(words[: max(20, max_words // 4)]) + " ...[truncated]"
+    next_text = bounded_handoff_next_step(next_step, max_words=max_words)
+    if not next_text:
+        next_text = "Re-run handoff compaction or inspect stop hook logs."
     return "\n".join(
         [
             "# Latest Handoff",
@@ -55,6 +54,17 @@ def compact_handoff_error_summary(next_step: str = "", *, max_words: int = DEFAU
             f"- {next_text}",
         ]
     )
+
+
+def bounded_handoff_next_step(next_step: str, *, max_words: int = DEFAULT_HANDOFF_MAX_WORDS) -> str:
+    clean = redact_text(next_step.strip())
+    if not clean:
+        return ""
+    limit = max(20, min(120, max_words // 4))
+    words = clean.split()
+    if len(words) <= limit:
+        return clean
+    return " ".join(words[:limit]) + " ...[truncated]"
 
 
 def runtime_root(context: ActiveContext | None = None) -> Path:
@@ -135,7 +145,7 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
         clean = redact_text(compact_handoff_summary(summary.strip(), next_step=next_step, max_words=handoff_max_words()))
     except Exception:
         clean = compact_handoff_error_summary(next_step=next_step, max_words=handoff_max_words())
-    clean_next = redact_text(next_step.strip())
+    clean_next = bounded_handoff_next_step(next_step, max_words=handoff_max_words())
     body = [
         "---",
         f'created_at: "{now_iso()}"',

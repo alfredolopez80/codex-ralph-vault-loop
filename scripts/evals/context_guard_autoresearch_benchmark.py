@@ -153,6 +153,7 @@ def outcome_for_case(case: dict[str, Any], replacements: dict[str, str], ralph_h
         )
         env = hook_env(ralph_home)
         env["RALPH_HANDOFF_MAX_WORDS"] = str(max_words)
+        before_handoffs = set(ralph_home.glob("projects/*/handoffs/latest.md"))
         result = subprocess.run(
             [sys.executable, str(REPO_ROOT / ".codex" / "hooks" / "stop_persist_memory.py")],
             cwd=REPO_ROOT,
@@ -162,7 +163,11 @@ def outcome_for_case(case: dict[str, Any], replacements: dict[str, str], ralph_h
             env=env,
             check=False,
         )
-        handoffs = sorted(ralph_home.glob("projects/*/handoffs/latest.md"))
+        handoffs = sorted(
+            ralph_home.glob("projects/*/handoffs/latest.md"),
+            key=lambda path: (path not in before_handoffs, path.stat().st_mtime),
+            reverse=True,
+        )
         handoff_text = handoffs[0].read_text(encoding="utf-8") if handoffs else ""
         body = handoff_text.split("---", 2)[-1]
         body_words = len(body.split())

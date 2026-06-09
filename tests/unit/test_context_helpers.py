@@ -39,7 +39,19 @@ def test_context_scripts_have_help() -> None:
 
 def test_context_common_importable_as_package() -> None:
     result = subprocess.run(
-        [sys.executable, "-c", "import scripts.context.common as common; assert common.preview('ok') == 'ok'"],
+        [
+            sys.executable,
+            "-c",
+            (
+                "import scripts.context.common as common;"
+                "import scripts.context.repo_map;"
+                "import scripts.context.scan_errors;"
+                "import scripts.context.summarize_json;"
+                "import scripts.context.summarize_data;"
+                "import scripts.context.compact_logs;"
+                "assert common.preview('ok') == 'ok'"
+            ),
+        ],
         cwd=ROOT,
         check=False,
         text=True,

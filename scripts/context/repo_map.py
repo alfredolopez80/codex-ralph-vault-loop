@@ -7,7 +7,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from context_common import iter_repo_files, markdown_list, relative, write_json, write_output
+try:
+    from .context_common import iter_repo_files, markdown_list, relative, write_json, write_output
+except ImportError:  # pragma: no cover - direct script execution
+    from context_common import iter_repo_files, markdown_list, relative, write_json, write_output
 
 
 SURFACE_LIMIT = 20
