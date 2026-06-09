@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "suite": "context",
+    "version": 1
+  },
+  "results": [
+    {
+      "id": "alpha",
+      "status": "passed"
+    },
+    {
+      "id": "beta",
+      "status": "warning"
+    }
+  ]
+}

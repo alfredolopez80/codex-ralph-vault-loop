@@ -10,6 +10,7 @@ from shared.vault_io import save_learning, write_handoff
 
 
 CHECKPOINT_HANDOFF_WORDS = 350
+MEMORY_TRACE_KEYS = ("selected_memory_ids", "memory_rejected", "recall_status", "fallback_used")
 
 
 def checkpoint_for_handoff(context: ActiveContext) -> tuple[str, str]:
@@ -29,6 +30,20 @@ def checkpoint_for_handoff(context: ActiveContext) -> tuple[str, str]:
     return f"## Rolling Checkpoint\n\n{rendered}", next_step
 
 
+def memory_trace_for_handoff(payload: dict) -> str:
+    lines: list[str] = []
+    for key in MEMORY_TRACE_KEYS:
+        value = payload.get(key)
+        if value in (None, "", [], {}):
+            continue
+        candidate = f"{key}={safe_preview(value, limit=500)}"
+        if not is_red(candidate):
+            lines.append(candidate)
+    if not lines:
+        return ""
+    return "## Memory Trace\n\n" + "\n".join(lines)
+
+
 def main() -> int:
     try:
         payload = read_hook_input()
@@ -40,9 +55,11 @@ def main() -> int:
             return 0
         if is_red(message):
             return 0
-        text = safe_preview(message, limit=2_000)
+        text = safe_preview(message, limit=6_000)
         checkpoint_section, next_step = checkpoint_for_handoff(context)
-        summary = f"{checkpoint_section}\n\n## Final Assistant Message\n\n{text}" if checkpoint_section else text
+        memory_trace = memory_trace_for_handoff(payload)
+        sections = [section for section in (checkpoint_section, memory_trace, f"## Final Assistant Message\n\n{text}") if section]
+        summary = "\n\n".join(sections)
         write_handoff(summary, status="stop-hook", next_step=next_step, context=context)
         if not payload_indicates_failure(payload):
             learning = extract_validated_learning(text)

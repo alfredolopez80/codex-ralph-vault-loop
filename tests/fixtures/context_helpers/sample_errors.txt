@@ -1,0 +1,5 @@
+2026-06-09T08:00:00Z info service starting
+2026-06-09T08:01:00Z warning cache lookup slow
+detail line before retry
+2026-06-09T09:30:00Z error worker failed to process item
+2026-06-09T09:31:00Z info service recovered

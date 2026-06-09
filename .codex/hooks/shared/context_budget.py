@@ -41,6 +41,12 @@ DISPLAY_COMMANDS = {"cat", "bat", "less", "more"}
 HIGH_RISK_ROOT_NAMES = {".codex", ".agents", ".ralph-codex"}
 NOISY_DIR_NAMES = {".git", "node_modules", "dist", "build", ".next", ".cache", "__pycache__"}
 SHELL_SEGMENT_PUNCTUATION = ";&|()`"
+BYTE_CAP_RE = re.compile(r"\|\s*(?:head\s+-c\s+\d+|dd\s+bs=\d+\s+count=\d+)\b")
+LINE_CAP_RE = re.compile(r"\|\s*head\s+-(?:n\s+)?\d+\b")
+SED_RANGE_RE = re.compile(r"\bsed\s+-n\s+['\"]?\d+,\d+p['\"]?")
+TAIL_LINES_RE = re.compile(r"\btail\s+-(?:n\s+)?\d+\b")
+OUTPUT_REDIRECT_RE = re.compile(r"(?:^|\s)(?:>\s*|1>\s*|2>\s*|&>\s*|2>&1\s*>)\S+")
+BOUNDED_INSPECTION_RE = re.compile(r"(?:\|\s*head\s+-(?:c\s+\d+|(?:n\s+)?\d+)\b|\|\s*sed\s+-n\s+['\"]?\d+,\d+p['\"]?|\|\s*tail\s+-(?:n\s+)?\d+\b)")
 ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "-P", "-a", "--argv0"}
 ENV_OPTIONS_WITHOUT_VALUE = {"-0", "-i", "-v", "--ignore-environment", "--null"}
 RG_OPTIONS_WITH_VALUE = {
@@ -71,6 +77,27 @@ RG_OPTIONS_WITH_VALUE = {
     "--type-not",
 }
 RG_BOUNDS = {"-g", "-m", "--glob", "--max-count", "--max-filesize", "--files-with-matches", "-l"}
+GREP_OPTIONS_WITH_VALUE = {"-A", "-B", "-C", "-e", "-f", "-m", "--after-context", "--before-context", "--context", "--file", "--max-count", "--regexp"}
+GIT_GLOBAL_OPTIONS_WITH_VALUE = {"-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"}
+VALIDATION_SCRIPT_NAMES = {
+    "coding_model_eval.py",
+    "context_guard_autoresearch_benchmark.py",
+    "doctor-global.sh",
+    "doctor.sh",
+    "run-gates.py",
+    "smoke-global-hooks.py",
+    "validate-ralph-memory-flow.sh",
+}
+VALIDATION_SCRIPT_PATHS = {
+    "coding_model_eval.py": ("scripts", "evals", "coding_model_eval.py"),
+    "context_guard_autoresearch_benchmark.py": ("scripts", "evals", "context_guard_autoresearch_benchmark.py"),
+    "doctor-global.sh": ("scripts", "setup", "doctor-global.sh"),
+    "doctor.sh": ("scripts", "setup", "doctor.sh"),
+    "run-gates.py": ("scripts", "gates", "run-gates.py"),
+    "smoke-global-hooks.py": ("scripts", "setup", "smoke-global-hooks.py"),
+    "validate-ralph-memory-flow.sh": ("scripts", "validate-ralph-memory-flow.sh"),
+}
+VALIDATION_COMMAND_NAMES = {"mypy", "pytest", "ruff", "shellcheck"}
 
 
 @dataclass(frozen=True)
@@ -176,6 +203,41 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 def _safe_range_command(path: Path) -> str:
     return shlex.join(["sed", "-n", "1,160p", str(path)])
+
+
+def _safe_byte_cap_command(command: str) -> str:
+    return f"{command.rstrip()} 2>&1 | head -c 6000"
+
+
+def _has_output_cap(command: str) -> bool:
+    return bool(
+        BYTE_CAP_RE.search(command)
+        or LINE_CAP_RE.search(command)
+        or SED_RANGE_RE.search(command)
+        or TAIL_LINES_RE.search(command)
+        or BOUNDED_INSPECTION_RE.search(command)
+    )
+
+
+def _has_output_redirect(command: str) -> bool:
+    return bool(OUTPUT_REDIRECT_RE.search(command))
+
+
+def _has_redirected_bounded_inspection(command: str) -> bool:
+    return _has_output_redirect(command) and bool(re.search(r"\bhead\s+-c\s+\d+\b|\bhead\s+-(?:n\s+)?\d+\b|\bsed\s+-n\s+['\"]?\d+,\d+p['\"]?|\btail\s+-(?:n\s+)?\d+\b", command))
+
+
+def _has_any_bound(command: str) -> bool:
+    return _has_output_cap(command)
+
+
+def _segment_bound_text(segment_command: str, full_command: str) -> str:
+    if _has_any_bound(segment_command):
+        return segment_command
+    separator_text = re.sub(r"(?:[12]?>&[12]|&>)", "", full_command)
+    if _has_output_cap(full_command) and "|" in full_command and not any(separator in separator_text for separator in (";", "&&", "||", "&")):
+        return full_command
+    return segment_command
 
 
 def toxic_text_reasons(text: str, *, line_limit: int = DEFAULT_LONG_LINE_LIMIT) -> list[str]:
@@ -300,6 +362,100 @@ def _rg_operands(tokens: list[str]) -> list[str]:
     return operands
 
 
+def _option_present(tokens: list[str], names: set[str]) -> bool:
+    return any(token in names or any(token.startswith(name + "=") for name in names if name.startswith("--")) for token in tokens)
+
+
+def _limited_numeric_option(tokens: list[str], names: set[str]) -> bool:
+    for index, token in enumerate(tokens):
+        option_name = token.split("=", 1)[0]
+        if option_name in names:
+            if "=" in token:
+                return bool(token.split("=", 1)[1])
+            return index + 1 < len(tokens)
+        if token.startswith("-n") and len(token) > 2 and token[2:].isdigit():
+            return True
+    return False
+
+
+def _is_repo_validation_script(raw_path: str, cwd: Path) -> bool:
+    expected_parts = VALIDATION_SCRIPT_PATHS.get(Path(raw_path).name)
+    if expected_parts is None:
+        return False
+    resolved = _resolve_path(raw_path, cwd)
+    trusted = (Path(__file__).resolve().parents[3] / Path(*expected_parts)).resolve(strict=False)
+    return resolved == trusted
+
+
+def _is_wakeup_script_path(raw_path: str) -> bool:
+    normalized = raw_path.replace("\\", "/")
+    return normalized == "scripts/memory/wakeup.py" or normalized.endswith("/scripts/memory/wakeup.py")
+
+
+def _is_trusted_wakeup_script(raw_path: str, cwd: Path) -> bool:
+    if not _is_wakeup_script_path(raw_path):
+        return False
+    resolved = _resolve_path(raw_path, cwd)
+    trusted = (Path(__file__).resolve().parents[3] / "scripts" / "memory" / "wakeup.py").resolve(strict=False)
+    return resolved == trusted
+
+
+def _is_validation_command(tokens: list[str], cwd: Path) -> bool:
+    if not tokens:
+        return False
+    executable = _executable_name(tokens[0])
+    if executable in VALIDATION_COMMAND_NAMES:
+        return True
+    if executable in VALIDATION_SCRIPT_NAMES and _is_repo_validation_script(tokens[0], cwd):
+        return True
+    if executable in {"bash", "sh", "zsh"} and len(tokens) > 1:
+        return _is_repo_validation_script(tokens[1], cwd)
+    if executable in {"python", "python3"}:
+        if "-m" in tokens:
+            module_index = tokens.index("-m")
+            if module_index + 1 < len(tokens) and tokens[module_index + 1] in {"pytest", "mypy"}:
+                return True
+        index = 1
+        while index < len(tokens):
+            word = tokens[index]
+            if word == "--":
+                index += 1
+                break
+            if not word.startswith("-"):
+                break
+            index += 1
+        return index < len(tokens) and _is_repo_validation_script(tokens[index], cwd)
+    return False
+
+
+def _validation_invocation(argv: list[str]) -> tuple[str, list[str]] | None:
+    if not argv:
+        return None
+    executable = _executable_name(argv[0])
+    if executable in VALIDATION_COMMAND_NAMES:
+        return executable, argv[1:]
+    if executable in {"python", "python3"} and "-m" in argv:
+        module_index = argv.index("-m")
+        if module_index + 1 < len(argv) and argv[module_index + 1] in {"pytest", "mypy"}:
+            return argv[module_index + 1], argv[module_index + 2 :]
+    return None
+
+
+def _classify_validation_command(argv: list[str], command: str) -> GuardFinding | None:
+    invocation = _validation_invocation(argv)
+    if invocation is None or _has_any_bound(command):
+        return None
+    name, args = invocation
+    if name == "pytest" and any(arg in {"-vv", "--verbose"} or (arg.startswith("-") and "vv" in arg) for arg in args):
+        return GuardFinding(
+            risk="block",
+            reason_code="pytest_verbose_unbounded",
+            reason="Context budget guard blocked verbose pytest output without a transcript cap. Keep normal quiet validation or add a byte cap.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    return None
+
+
 def _is_high_risk_rg_target(path: Path, cwd: Path) -> bool:
     home = Path.home().resolve()
     if path == Path("/"):
@@ -335,6 +491,261 @@ def _classify_rg_command(tokens: list[str], cwd: Path) -> GuardFinding | None:
     return None
 
 
+def _classify_git_command(tokens: list[str], cwd: Path, command: str) -> GuardFinding | None:
+    if not tokens or _executable_name(tokens[0]) != "git" or _has_any_bound(command):
+        return None
+    subcommand_index = 1
+    while subcommand_index < len(tokens) and tokens[subcommand_index].startswith("-"):
+        option_name = tokens[subcommand_index].split("=", 1)[0]
+        subcommand_index += 1 if "=" in tokens[subcommand_index] else (2 if option_name in GIT_GLOBAL_OPTIONS_WITH_VALUE else 1)
+    if subcommand_index >= len(tokens):
+        return None
+    subcommand = tokens[subcommand_index]
+    args = tokens[subcommand_index + 1 :]
+    if subcommand == "status":
+        if _option_present(args, {"--short", "--porcelain"}) or any(arg in {"-s", "-sb", "-bs"} for arg in args):
+            return None
+        return GuardFinding(
+            risk="block",
+            reason_code="git_status_unbounded",
+            reason="Context budget guard blocked verbose git status. Use porcelain or short output.",
+            suggested_command="git status --porcelain | head -n 30",
+        )
+    if subcommand == "log":
+        if _limited_numeric_option(args, {"-n", "--max-count"}) or any(re.fullmatch(r"-\d+", arg) for arg in args):
+            return None
+        return GuardFinding(
+            risk="block",
+            reason_code="git_log_unbounded",
+            reason="Context budget guard blocked unbounded git log output. Use --oneline and an explicit limit.",
+            suggested_command="git log --oneline -15",
+        )
+    if subcommand == "diff":
+        if _option_present(args, {"--name-only", "--stat", "--name-status", "--summary", "--check"}):
+            return None
+        if "--" in args:
+            scoped_args = [item for item in args[args.index("--") + 1 :] if not item.startswith("-")]
+            if scoped_args and not any(_is_broad_diff_scope(item, cwd) for item in scoped_args):
+                return None
+        path_like_args = [
+            arg
+            for arg in args
+            if not arg.startswith("-")
+            and not _is_broad_diff_scope(arg, cwd)
+            and (_resolve_path(arg, cwd).exists() or "/" in arg or Path(arg).suffix)
+        ]
+        if path_like_args:
+            return None
+        return GuardFinding(
+            risk="block",
+            reason_code="git_diff_unbounded",
+            reason="Context budget guard blocked broad git diff output. Use --name-only, --stat, a path scope, or a byte cap.",
+            suggested_command="git diff --name-only | head -n 50",
+        )
+    return None
+
+
+def _is_broad_diff_scope(raw_path: str, cwd: Path) -> bool:
+    normalized = raw_path.strip()
+    if normalized in {".", "./", ":/", "/", "~", "$HOME"}:
+        return True
+    if normalized.startswith(":/"):
+        return normalized == ":/"
+    resolved = _resolve_path(normalized, cwd)
+    home = Path.home().resolve()
+    return resolved == cwd.resolve(strict=False) or resolved == home
+
+
+def _find_has_bound(argv: list[str], command: str) -> bool:
+    return (
+        _has_any_bound(command)
+        or any(arg in {"-maxdepth", "-prune", "-quit"} or arg.startswith("-maxdepth") for arg in argv[1:])
+        or _limited_numeric_option(argv, {"--limit"})
+    )
+
+
+def _classify_recursive_listing(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
+    if not argv:
+        return None
+    executable = _executable_name(argv[0])
+    if executable == "ls" and any(arg.startswith("-") and "R" in arg for arg in argv[1:]):
+        if _has_any_bound(command):
+            return None
+        return GuardFinding(
+            risk="block",
+            reason_code="recursive_listing",
+            reason="Context budget guard blocked an unbounded recursive listing. Use a scoped repo map or byte-capped command.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    if executable == "ls":
+        paths = [arg for arg in argv[1:] if not arg.startswith("-")]
+        broad_listing = any(arg.startswith("-") and ("a" in arg or "l" in arg) for arg in argv[1:])
+        targets = paths or ["."]
+        risky = any(target == "/" or target in {".", "~", "$HOME"} or any(part in NOISY_DIR_NAMES for part in _resolve_path(target, cwd).parts) for target in targets)
+        if broad_listing and risky and not _has_any_bound(command):
+            return GuardFinding(
+                risk="block",
+                reason_code="broad_ls",
+                reason="Context budget guard blocked broad ls output over a risky or noisy root. Use a scoped path or byte cap.",
+                suggested_command=_safe_byte_cap_command(command),
+            )
+    if executable != "find":
+        return None
+    if _find_has_bound(argv, command):
+        return None
+    raw_targets = [arg for arg in argv[1:] if not arg.startswith("-")]
+    targets = raw_targets[:1] if raw_targets else ["."]
+    broad_default = any(target in {".", "./", "/", "~", "$HOME"} for target in targets)
+    if broad_default or any(_is_high_risk_rg_target(_resolve_path(target, cwd), cwd) for target in targets):
+        return GuardFinding(
+            risk="block",
+            reason_code="broad_find",
+            reason="Context budget guard blocked a broad find over a high-risk or noisy root. Use -maxdepth, a scoped path, or a byte cap.",
+            suggested_command="find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
+        )
+    return None
+
+
+def _classify_grep_command(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
+    if not argv or _executable_name(argv[0]) not in {"grep", "egrep", "fgrep"} or _has_any_bound(command):
+        return None
+    if _limited_numeric_option(argv, {"-m", "--max-count"}):
+        return None
+    operands: list[str] = []
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        option_name = arg.split("=", 1)[0]
+        if arg == "--":
+            operands.extend(argv[index + 1 :])
+            break
+        if arg.startswith("-"):
+            index += 2 if option_name in GREP_OPTIONS_WITH_VALUE and "=" not in arg else 1
+            continue
+        operands.append(arg)
+        index += 1
+    targets = operands[1:] if len(operands) > 1 else []
+    broad_recursive = any("R" in arg or "r" in arg for arg in argv if arg.startswith("-"))
+    broad_targets = not targets or any(target in {".", "./", "/", "~", "$HOME"} for target in targets)
+    risky_target = any(_is_high_risk_rg_target(_resolve_path(target, cwd), cwd) for target in targets)
+    if broad_recursive and (broad_targets or risky_target):
+        return GuardFinding(
+            risk="block",
+            reason_code="broad_grep",
+            reason="Context budget guard blocked broad grep output. Use -m, a scoped path, or a byte cap.",
+            suggested_command="grep -RIn -m 50 '<pattern>' <scoped-path>",
+        )
+    return None
+
+
+def _classify_log_stream(argv: list[str], command: str) -> GuardFinding | None:
+    if not argv or _has_any_bound(command):
+        return None
+    executable = _executable_name(argv[0])
+    if executable in {"docker", "kubectl"} and "logs" in argv[1:]:
+        return GuardFinding(
+            risk="block",
+            reason_code="unbounded_logs",
+            reason="Context budget guard blocked unbounded logs. Re-run with a byte cap or a small tail.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    if executable == "tail" and any(arg == "-f" or arg.startswith("-f") for arg in argv[1:]):
+        return GuardFinding(
+            risk="block",
+            reason_code="streaming_tail",
+            reason="Context budget guard blocked streaming tail output. Use a bounded tail or byte-capped command.",
+            suggested_command=_safe_byte_cap_command(command.replace(" -f", "")),
+        )
+    return None
+
+
+def _classify_structured_dump(argv: list[str], command: str) -> GuardFinding | None:
+    if not argv or _has_any_bound(command):
+        return None
+    executable = _executable_name(argv[0])
+    if executable == "jq" and len(argv) >= 3:
+        return GuardFinding(
+            risk="block",
+            reason_code="unbounded_json_dump",
+            reason="Context budget guard blocked a potentially large JSON dump. Use a targeted jq expression or byte cap.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    if executable in {"python", "python3"} and "json.tool" in argv:
+        return GuardFinding(
+            risk="block",
+            reason_code="unbounded_json_dump",
+            reason="Context budget guard blocked a potentially large JSON pretty-print. Use a targeted extractor or byte cap.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    return None
+
+
+def _classify_python_script_output(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
+    if not argv or _has_any_bound(command):
+        return None
+    executable = _executable_name(argv[0])
+    if executable not in {"python", "python3"}:
+        return None
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            index += 1
+            break
+        if arg in {"-c", "-m"}:
+            return None
+        if not arg.startswith("-"):
+            break
+        index += 1
+    if index >= len(argv):
+        return None
+    script = argv[index]
+    script_name = Path(script).name
+    if _is_repo_validation_script(script, cwd) or _is_trusted_wakeup_script(script, cwd):
+        return None
+    script_parts = Path(script.replace("\\", "/")).parts
+    if script_name in VALIDATION_SCRIPT_NAMES or script_name == "wakeup.py" or (script.endswith(".py") and "scripts" in script_parts):
+        return GuardFinding(
+            risk="block",
+            reason_code="python_script_unbounded",
+            reason="Context budget guard blocked an unbounded Python helper script. Redirect or cap output before putting it in the transcript.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    return None
+
+
+def _classify_shell_script_output(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
+    if not argv or _has_any_bound(command):
+        return None
+    executable = _executable_name(argv[0])
+    if executable not in {"bash", "sh", "zsh"}:
+        return None
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            index += 1
+            break
+        if not arg.startswith("-"):
+            break
+        index += 1
+    if index >= len(argv):
+        return None
+    script = argv[index]
+    if _is_repo_validation_script(script, cwd):
+        return None
+    script_name = Path(script).name
+    script_parts = Path(script.replace("\\", "/")).parts
+    if script_name in VALIDATION_SCRIPT_NAMES or (script.endswith(".sh") and "scripts" in script_parts):
+        return GuardFinding(
+            risk="block",
+            reason_code="shell_script_unbounded",
+            reason="Context budget guard blocked an unbounded shell helper script. Redirect or cap output before putting it in the transcript.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    return None
+
+
 def _classify_python_full_read(command: str) -> GuardFinding | None:
     lowered = command.lower()
     if "print(open(" in lowered and ".read()" in lowered:
@@ -359,15 +770,47 @@ def classify_command(command: str, cwd: Path) -> GuardFinding | None:
         tokens = _strip_environment_prefix(words)
         if not tokens:
             continue
+        segment_command = shlex.join(words)
+        bounded_command = _segment_bound_text(segment_command, command)
+        validation_finding = _classify_validation_command(tokens, bounded_command)
+        if validation_finding:
+            return validation_finding
+        if _is_validation_command(tokens, cwd):
+            continue
         for classifier in (_classify_base64,):
             finding = classifier(tokens)
+            if finding:
+                return finding
+        for classifier in (_classify_git_command,):
+            finding = classifier(tokens, cwd, bounded_command)
             if finding:
                 return finding
         for classifier in (_classify_display_command, _classify_rg_command):
             finding = classifier(tokens, cwd)
             if finding:
                 return finding
-    return _classify_python_full_read(command)
+        for classifier in (_classify_recursive_listing,):
+            finding = classifier(tokens, cwd, bounded_command)
+            if finding:
+                return finding
+        for classifier in (_classify_grep_command,):
+            finding = classifier(tokens, cwd, bounded_command)
+            if finding:
+                return finding
+        for classifier in (_classify_log_stream, _classify_structured_dump):
+            finding = classifier(tokens, bounded_command)
+            if finding:
+                return finding
+        finding = _classify_python_script_output(tokens, cwd, bounded_command)
+        if finding:
+            return finding
+        finding = _classify_shell_script_output(tokens, cwd, bounded_command)
+        if finding:
+            return finding
+        finding = _classify_python_full_read(segment_command)
+        if finding:
+            return finding
+    return None
 
 
 def payload_patch_text(payload: dict[str, Any]) -> str:

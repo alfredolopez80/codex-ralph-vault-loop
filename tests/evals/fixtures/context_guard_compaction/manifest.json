@@ -68,6 +68,161 @@
       "metric": "safe_command_allow_rate"
     },
     {
+      "id": "command_kubectl_logs_unbounded",
+      "kind": "command",
+      "command": "kubectl logs deploy/control-api",
+      "expect": "block_with_suggestion",
+      "metric": "bulk_command_block_rate"
+    },
+    {
+      "id": "command_docker_logs_capped",
+      "kind": "command",
+      "command": "docker logs control-api 2>&1 | head -c 6000",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_jq_unbounded",
+      "kind": "command",
+      "command": "jq . report.json",
+      "expect": "block_with_suggestion",
+      "metric": "suggested_command_quality"
+    },
+    {
+      "id": "command_ls_recursive_capped",
+      "kind": "command",
+      "command": "ls -R . 2>&1 | head -c 6000",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_git_status_verbose",
+      "kind": "command",
+      "command": "git status",
+      "expect": "block_with_suggestion",
+      "metric": "firehose_command_block_rate"
+    },
+    {
+      "id": "command_git_status_porcelain",
+      "kind": "command",
+      "command": "git status --porcelain | head -n 30",
+      "expect": "allow",
+      "metric": "bounded_command_allow_rate"
+    },
+    {
+      "id": "command_git_log_unbounded",
+      "kind": "command",
+      "command": "git log",
+      "expect": "block_with_suggestion",
+      "metric": "suggested_command_quality"
+    },
+    {
+      "id": "command_git_log_bounded",
+      "kind": "command",
+      "command": "git log --oneline -15",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_git_diff_unbounded",
+      "kind": "command",
+      "command": "git diff",
+      "expect": "block_with_suggestion",
+      "metric": "firehose_command_block_rate"
+    },
+    {
+      "id": "command_git_diff_stat",
+      "kind": "command",
+      "command": "git diff --stat",
+      "expect": "allow",
+      "metric": "bounded_command_allow_rate"
+    },
+    {
+      "id": "command_find_dot_unbounded",
+      "kind": "command",
+      "command": "find . -type f",
+      "expect": "block_with_suggestion",
+      "metric": "firehose_command_block_rate"
+    },
+    {
+      "id": "command_find_dot_bounded",
+      "kind": "command",
+      "command": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
+      "expect": "allow",
+      "metric": "bounded_command_allow_rate"
+    },
+    {
+      "id": "command_grep_broad",
+      "kind": "command",
+      "command": "grep -R error .",
+      "expect": "block_with_suggestion",
+      "metric": "suggested_command_quality"
+    },
+    {
+      "id": "command_grep_bounded",
+      "kind": "command",
+      "command": "grep -R -m 50 error .",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_validation_pytest",
+      "kind": "command",
+      "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hooks_basic.py -q",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "command_validation_gates",
+      "kind": "command",
+      "command": "python3 scripts/gates/run-gates.py --minimal",
+      "expect": "allow",
+      "metric": "safe_command_allow_rate"
+    },
+    {
+      "id": "script_repo_map_smoke",
+      "kind": "script_smoke",
+      "script": "scripts/context/repo_map.py",
+      "args": ["--root", ".", "--max-files", "80", "--max-depth", "3"],
+      "stdout_contains": [
+        "# Compact Repo Map",
+        "## Entry Points",
+        "## Likely Validation Commands"
+      ],
+      "max_stdout_bytes": 6000,
+      "expect": "smoke_pass",
+      "metric": "needle_map_script_smoke_rate"
+    },
+    {
+      "id": "script_summarize_json_smoke",
+      "kind": "script_smoke",
+      "script": "scripts/context/summarize_json.py",
+      "args": ["__MANIFEST_JSON__"],
+      "stdout_contains": ["# JSON Summary", "Top-Level Keys", "cases"],
+      "max_stdout_bytes": 6000,
+      "expect": "smoke_pass",
+      "metric": "needle_map_script_smoke_rate"
+    },
+    {
+      "id": "handoff_compaction_budget_smoke",
+      "kind": "handoff_budget",
+      "word_count": 900,
+      "max_words": 120,
+      "max_body_words": 190,
+      "required_sections": [
+        "Current goal",
+        "Success criteria",
+        "Key files",
+        "Decisions",
+        "Commands run",
+        "Known blockers",
+        "Do not re-read",
+        "Next actions"
+      ],
+      "expect": "budget_pass",
+      "metric": "compact_handoff_budget_rate"
+    },
+    {
       "id": "post_tool_large_output",
       "kind": "post_tool",
       "payload": "generated_large_output",

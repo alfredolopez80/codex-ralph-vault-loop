@@ -23,6 +23,45 @@ This default never overrides system, developer, project, or explicit user instru
 
 Before running package-manager commands that install, fetch, execute, or update remote packages, prefix the command with `sfw`. Examples: `sfw npm ci`, `sfw pnpm install`, `sfw pnpm dlx ...`, `sfw npx ...`, `sfw uvx ...`, `sfw python3 -m pip install ...`, and `sfw cargo install ...`. Local test/build scripts such as `npm test`, `pnpm test`, or `cargo test` do not need `sfw` unless they fetch remote code.
 
+## Context Economy And Command Output Protection
+
+Never feed raw data when a compact map is enough. During broad audits, summarize
+before opening new files and inspect only files needed for the exact task. Before
+reading large artifacts, use the context helpers:
+
+- `python3 scripts/context/repo_map.py --root . 2>&1 | head -c 6000`
+- `python3 scripts/context/summarize_json.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/context/summarize_data.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/context/compact_logs.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/context/scan_errors.py <path> 2>&1 | head -c 6000`
+- `python3 scripts/maintenance/needle-map.py --mode repo --root . 2>&1 | head -c 6000`
+
+Unknown or potentially large command output must be byte-capped:
+
+```bash
+COMMAND 2>&1 | head -c 6000
+```
+
+Prefer range reads for files:
+
+```bash
+sed -n '1,160p' path
+sed -n '160,320p' path
+```
+
+Avoid full-source dumps unless the user explicitly asks for them. Skip
+`node_modules`, `.venv`, `dist`, `build`, `.next`, `.cache`, `__pycache__`,
+`.git`, `coverage`, generated assets, archived sessions, binary/media files,
+raw vault inbox, and raw memory bodies.
+
+End non-trivial sessions with compact runtime handoff under
+`~/.ralph-codex/projects/<project_id>/handoffs/`, not repo-root `HANDOFF.md`,
+unless an explicit project contract supports that public path. Durable memory
+still belongs only in approved Ralph/Codex paths.
+
+Final output should be concise by default: patch summary, changed files,
+validation, and remaining risks. Do not restate plans unless the plan changed.
+
 ## Codex Productivity Patterns
 
 Use productivity patterns only when they preserve the existing safety model:

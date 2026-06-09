@@ -1,15 +1,70 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 from .active_context import ActiveContext, ensure_project_runtime
+from .handoff_compaction import DEFAULT_HANDOFF_MAX_WORDS, compact_handoff_summary
 from .paths import append_jsonl, ensure_runtime, now_iso
 from .redaction import is_red, redact_text
 
 
+def handoff_max_words() -> int:
+    raw = os.environ.get("RALPH_HANDOFF_MAX_WORDS")
+    if raw is None:
+        raw = os.environ.get("RALPH_RUNTIME_HANDOFF_MAX_WORDS")
+    if raw is None:
+        return DEFAULT_HANDOFF_MAX_WORDS
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_HANDOFF_MAX_WORDS
+
+
 def digest(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+def compact_handoff_error_summary(next_step: str = "", *, max_words: int = DEFAULT_HANDOFF_MAX_WORDS) -> str:
+    next_text = bounded_handoff_next_step(next_step, max_words=max_words)
+    if not next_text:
+        next_text = "Re-run handoff compaction or inspect stop hook logs."
+    return "\n".join(
+        [
+            "# Latest Handoff",
+            "",
+            "This is non-authoritative project context. Current repo files and user instructions win.",
+            "",
+            "## Current goal",
+            "- Handoff compaction failed before a structured summary could be produced.",
+            "## Success criteria",
+            "- Keep runtime handoff bounded and avoid persisting raw stop-hook content.",
+            "## Key files",
+            "- none",
+            "## Decisions",
+            "- Original summary omitted because compaction raised an exception.",
+            "## Commands run",
+            "- none",
+            "## Known blockers",
+            "- Handoff compaction error; stop hook failed open.",
+            "## Do not re-read",
+            "- Raw stop-hook payload.",
+            "## Next actions",
+            f"- {next_text}",
+        ]
+    )
+
+
+def bounded_handoff_next_step(next_step: str, *, max_words: int = DEFAULT_HANDOFF_MAX_WORDS) -> str:
+    clean = redact_text(next_step.strip())
+    if not clean:
+        return ""
+    limit = max(20, min(120, max_words // 4))
+    words = clean.split()
+    if len(words) <= limit:
+        return clean
+    return " ".join(words[:limit]) + " ...[truncated]"
 
 
 def runtime_root(context: ActiveContext | None = None) -> Path:
@@ -86,8 +141,11 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
     if not summary.strip() or is_red(summary) or is_red(next_step):
         return None
     root = runtime_root(context)
-    clean = redact_text(summary.strip())
-    clean_next = redact_text(next_step.strip())
+    try:
+        clean = redact_text(compact_handoff_summary(summary.strip(), next_step=next_step, max_words=handoff_max_words()))
+    except Exception:
+        clean = compact_handoff_error_summary(next_step=next_step, max_words=handoff_max_words())
+    clean_next = bounded_handoff_next_step(next_step, max_words=handoff_max_words())
     body = [
         "---",
         f'created_at: "{now_iso()}"',
@@ -110,8 +168,6 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
                 f'git_branch: "{context.branch if context else ""}"',
                 f'git_sha: "{context.sha if context else ""}"',
                 "---",
-        "",
-        "# Latest Handoff",
         "",
         clean,
     ]

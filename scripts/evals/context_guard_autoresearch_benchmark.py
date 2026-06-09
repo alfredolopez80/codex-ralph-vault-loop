@@ -22,6 +22,13 @@ PROTECTED_HARNESS_PATHS = (
     REPO_ROOT / "config" / "scorecards",
     DEFAULT_FIXTURE,
 )
+TOKEN_EFFICIENCY_METRICS = (
+    "firehose_command_block_rate",
+    "bounded_command_allow_rate",
+    "suggested_command_quality",
+    "needle_map_script_smoke_rate",
+    "compact_handoff_budget_rate",
+)
 
 
 def iter_digest_files(paths: tuple[Path, ...]) -> list[Path]:
@@ -96,6 +103,7 @@ def prepare_workspace(root: Path) -> dict[str, str]:
         "__HUGE_JSON__": str(huge),
         "__SMALL_TXT__": str(small),
         "__IMAGE_PNG__": str(image),
+        "__MANIFEST_JSON__": str(DEFAULT_FIXTURE / "manifest.json"),
     }
 
 
@@ -118,6 +126,8 @@ def parse_hook_json(stdout: str) -> dict[str, Any] | None:
 
 def outcome_for_case(case: dict[str, Any], replacements: dict[str, str], ralph_home: Path) -> dict[str, Any]:
     kind = case["kind"]
+    result: subprocess.CompletedProcess[str] | None = None
+    details: dict[str, Any] = {}
     if kind == "prompt":
         prompt = generated_payload(case["payload"])
         result = run_hook("user_prompt_capture.py", {"hook_event_name": "UserPromptSubmit", "prompt": prompt}, ralph_home)
@@ -127,9 +137,49 @@ def outcome_for_case(case: dict[str, Any], replacements: dict[str, str], ralph_h
     elif kind == "post_tool":
         output = generated_payload(case["payload"])
         result = run_hook("post_tool_checkpoint.py", {"hook_event_name": "PostToolUse", "output": output}, ralph_home)
+    elif kind == "script_smoke":
+        command = [sys.executable, str(REPO_ROOT / case["script"]), *[expand_command(str(arg), replacements) for arg in case.get("args", [])]]
+        result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
+        stdout = result.stdout
+        required = case.get("stdout_contains", [])
+        details["stdout_bytes"] = len(stdout.encode("utf-8"))
+        details["stdout_ok"] = all(str(item) in stdout for item in required)
+        details["bounded_output"] = len(stdout.encode("utf-8")) <= int(case.get("max_stdout_bytes", 6000))
+    elif kind == "handoff_budget":
+        word_count = int(case.get("word_count", 900))
+        max_words = int(case.get("max_words", 120))
+        message = "Task: Handoff budget smoke. Decision: Keep compact runtime handoff. " + " ".join(
+            f"handoffword{i:03d}" for i in range(word_count)
+        )
+        env = hook_env(ralph_home)
+        env["RALPH_HANDOFF_MAX_WORDS"] = str(max_words)
+        before_handoffs = set(ralph_home.glob("projects/*/handoffs/latest.md"))
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / ".codex" / "hooks" / "stop_persist_memory.py")],
+            cwd=REPO_ROOT,
+            input=json.dumps({"last_assistant_message": message}),
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+        handoffs = sorted(
+            ralph_home.glob("projects/*/handoffs/latest.md"),
+            key=lambda path: (path not in before_handoffs, path.stat().st_mtime),
+            reverse=True,
+        )
+        handoff_text = handoffs[0].read_text(encoding="utf-8") if handoffs else ""
+        body = handoff_text.split("---", 2)[-1]
+        body_words = len(body.split())
+        details["handoff_written"] = bool(handoffs)
+        details["body_words"] = body_words
+        details["budget_words"] = max_words
+        details["structured"] = all(f"## {name}" in handoff_text for name in case.get("required_sections", []))
+        details["over_budget"] = body_words > int(case.get("max_body_words", max_words + 80))
     else:
         raise ValueError(f"unknown case kind: {kind}")
 
+    assert result is not None
     hook_payload = parse_hook_json(result.stdout)
     blocked = bool(hook_payload and hook_payload.get("decision") == "block")
     has_suggestion = bool(hook_payload and hook_payload.get("suggested_command"))
@@ -143,6 +193,10 @@ def outcome_for_case(case: dict[str, Any], replacements: dict[str, str], ralph_h
         passed = result.returncode == 0 and not blocked
     elif expected == "skip_checkpoint":
         passed = result.returncode == 0 and not checkpoint_written
+    elif expected == "smoke_pass":
+        passed = result.returncode == 0 and bool(details.get("stdout_ok")) and bool(details.get("bounded_output"))
+    elif expected == "budget_pass":
+        passed = result.returncode == 0 and bool(details.get("handoff_written")) and bool(details.get("structured")) and not bool(details.get("over_budget"))
     else:
         raise ValueError(f"unknown expectation: {expected}")
 
@@ -155,6 +209,7 @@ def outcome_for_case(case: dict[str, Any], replacements: dict[str, str], ralph_h
         "blocked": blocked,
         "has_suggestion": has_suggestion,
         "checkpoint_written": checkpoint_written,
+        "details": details,
     }
 
 
@@ -163,6 +218,19 @@ def metric_rates(outcomes: list[dict[str, Any]]) -> dict[str, float]:
     for outcome in outcomes:
         metrics.setdefault(outcome["metric"], []).append(bool(outcome["passed"]))
     return {key: round(sum(values) / len(values), 6) for key, values in metrics.items()}
+
+
+def derived_metrics(rates: dict[str, float]) -> dict[str, float]:
+    token_values = [rates.get(name, 0.0) for name in TOKEN_EFFICIENCY_METRICS]
+    compact_context = round(sum(token_values) / len(token_values), 6)
+    bounded_tool_calls = round(
+        (rates.get("firehose_command_block_rate", 0.0) + rates.get("bounded_command_allow_rate", 0.0)) / 2,
+        6,
+    )
+    return {
+        "compact_context": compact_context,
+        "bounded_tool_calls": bounded_tool_calls,
+    }
 
 
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
@@ -185,12 +253,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     after = digest_paths(protected_paths)
     changed = changed_digest_paths(before, after)
     rates = metric_rates(outcomes)
+    rates.update(derived_metrics(rates))
     acceptance = round(sum(1.0 if outcome["passed"] else 0.0 for outcome in outcomes) / len(outcomes), 6)
     if args.simulate_missing_metric:
         acceptance_metric: float | None = None
     else:
         acceptance_metric = acceptance
 
+    token_metrics_pass = all(rates.get(name) == 1.0 for name in TOKEN_EFFICIENCY_METRICS)
     report = {
         "created_at": now_iso(),
         "suite": manifest["suite"],
@@ -201,7 +271,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "primary_metric_present": acceptance_metric is not None,
         "context_guard_acceptance_score": acceptance_metric,
         "hard_gates": {
-            "tests_pass": acceptance_metric is not None and acceptance_metric >= float(manifest.get("decision_threshold", 0.95)),
+            "tests_pass": acceptance_metric is not None
+            and acceptance_metric >= float(manifest.get("decision_threshold", 0.95))
+            and token_metrics_pass,
             "no_secret_leak": True,
             "eval_harness_unchanged": not changed,
             "no_scope_violation": True,

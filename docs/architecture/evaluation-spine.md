@@ -14,6 +14,18 @@ Hard gates include tests pass, no secret leak, eval files unchanged, no scope vi
 
 Current eval surfaces cover AutoResearch, research citation quality, vision analysis, coding model routing, memory retrieval, and cost routing.
 
+Context discipline is measured by
+`scripts/evals/context_guard_autoresearch_benchmark.py`. The benchmark is
+deterministic and offline: it runs hook-policy cases, context helper smoke
+checks, and runtime handoff budget checks without mutating protected fixtures
+during normal runs. It emits `METRIC` lines for
+`firehose_command_block_rate`, `bounded_command_allow_rate`,
+`suggested_command_quality`, `needle_map_script_smoke_rate`, and
+`compact_handoff_budget_rate`, then derives `compact_context` and
+`bounded_tool_calls` for the RASS v1 scorecard. Any failed token-efficiency
+metric fails the benchmark hard gate even if the aggregate acceptance score
+would otherwise pass.
+
 Memory Retrieval v2 adds `config/scorecards/memory_retrieval_v2.yaml` and `scripts/evals/memory_tree_benchmark.py`. The benchmark runs only against synthetic fixtures in an isolated temporary Ralph home, emits `METRIC name=value` lines, and hard-fails on RED indexing, raw leakage in hook-like output, wrong project/branch/worktree acceptance, or non-deterministic replay.
 
 The Memory Retrieval v2 scorecard adds benchmark-specific hard gates for `red_not_indexed`, `no_raw_leak_in_hook_output`, `wrong_scope_rejected`, and `deterministic_replay`. Phase 14 final validation records the current benchmark JSON, scorecard result, and command outputs in `docs/reports/memory-tree-v2/14-final-validation.md`. Benchmark claims in user-facing docs should cite that report or a newer JSON output rather than relying on stale console history.

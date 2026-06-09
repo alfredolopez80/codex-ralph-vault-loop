@@ -46,6 +46,16 @@ def test_context_guard_benchmark_emits_metric_and_preserves_fixture(tmp_path: Pa
     assert report["primary_metric_present"] is True
     assert report["context_guard_acceptance_score"] >= report["decision_threshold"]
     assert report["hard_gates"]["eval_harness_unchanged"] is True
+    for metric in [
+        "firehose_command_block_rate",
+        "bounded_command_allow_rate",
+        "suggested_command_quality",
+        "needle_map_script_smoke_rate",
+        "compact_handoff_budget_rate",
+        "compact_context",
+    ]:
+        assert f"METRIC {metric}=" in result.stdout
+        assert report["metrics"][metric] == 1.0
     assert "data:image" not in output.read_text()
 
 

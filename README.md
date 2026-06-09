@@ -300,12 +300,13 @@ python3 scripts/evals/run_scorecard.py --scorecard config/scorecards/memory_retr
 | [Memory stack](./docs/architecture/memory-stack.md)                             | Worktree-aware wakeup, handoff, vault, graduation, and recall model.                                                   |
 | [Memory Tree v2](./docs/architecture/memory-tree-v2.md)                         | Experimental deterministic recall tree, node schema, progressive retrieval, shadow mode, migration, and rollback.      |
 | [Memory Tree v2 operator guide](./docs/guides/memory-tree-v2-operator-guide.md) | Commands for enabling, disabling, compacting, recalling, benchmarking, observing, consolidating, and promoting memory. |
+| [Context economy operator guide](./docs/guides/context-economy.md)              | Bounded repo maps, log needles, JSON/CSV inspection, safe command output caps, and runtime handoff guidance.            |
 | [Hooks](./docs/architecture/hooks.md)                                           | Codex lifecycle hooks and safety behavior.                                                                             |
 | [Subagents](./docs/architecture/subagents.md)                                   | Codex subagent definitions and roles.                                                                                  |
 | [Evaluation spine](./docs/architecture/evaluation-spine.md)                     | Gates, evals, scorecards, and acceptance checks.                                                                       |
 | [Threat model](./docs/architecture/threat-model.md)                             | Repository threat model and mitigations.                                                                               |
 | [Global skills](./docs/codex-global-skills.md)                                  | Installable skills and workflow guidance.                                                                              |
-| [Productivity patterns](./docs/codex-productivity-patterns.md)                  | Safe prompt, goal, worktree, continuity, and automation patterns.                                                      |
+| [Productivity patterns](./docs/codex-productivity-patterns.md)                  | Safe prompt, goal, token-efficient operating loop, worktree, continuity, and automation patterns.                      |
 | [Migration phase plan](./docs/migration/phase-plan.md)                          | Phase-by-phase migration structure.                                                                                    |
 | [Final acceptance checkpoint](./docs/migration/checkpoints/PHASE_21.md)         | Latest acceptance checkpoint.                                                                                          |
 
