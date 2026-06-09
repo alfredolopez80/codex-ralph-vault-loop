@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -71,12 +72,16 @@ def should_skip(path: Path) -> bool:
 
 def iter_files(root: Path, max_files: int = DEFAULT_MAX_FILES) -> list[Path]:
     files: list[Path] = []
-    for path in sorted(root.rglob("*")):
-        if len(files) >= max_files:
-            break
-        if should_skip(path):
-            continue
-        if path.is_file():
+    root = root.resolve()
+    for current, dir_names, file_names in os.walk(root):
+        current_path = Path(current)
+        dir_names[:] = sorted(name for name in dir_names if not should_skip(current_path / name))
+        for name in sorted(file_names):
+            if len(files) >= max_files:
+                return files
+            path = current_path / name
+            if should_skip(path):
+                continue
             files.append(path)
     return files
 
