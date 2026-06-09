@@ -30,6 +30,13 @@ SKIP_DIRS = {
     "dist",
     "node_modules",
 }
+SKIP_PART_SEQUENCES = {
+    (".codex", "sessions"),
+    (".codex", "state"),
+    (".codex", "logs"),
+    ("vault", "raw"),
+    ("vault", "inbox"),
+}
 BINARY_SUFFIXES = {
     ".7z",
     ".avif",
@@ -79,7 +86,11 @@ def should_skip(path: Path) -> bool:
     parts = path.parts
     if any(part in SKIP_DIRS for part in parts) or is_binary_like(path):
         return True
-    return any(parts[index : index + 2] == (".codex", "state") for index in range(len(parts) - 1))
+    return any(
+        tuple(parts[index : index + len(sequence)]) == sequence
+        for sequence in SKIP_PART_SEQUENCES
+        for index in range(len(parts) - len(sequence) + 1)
+    )
 
 
 def relative(path: Path, root: Path) -> str:
@@ -144,9 +155,13 @@ def preview(value: object, limit: int = 240) -> str:
     return text[:limit].rstrip() + "...[truncated]"
 
 
+def safe_key(value: object, limit: int = 120) -> str:
+    return preview(value, limit=limit)
+
+
 def redact_structure(value: Any, *, limit: int = 240) -> Any:
     if isinstance(value, dict):
-        return {str(key): redact_structure(item, limit=limit) for key, item in sorted(value.items(), key=lambda item: str(item[0]))}
+        return {safe_key(key): redact_structure(item, limit=limit) for key, item in sorted(value.items(), key=lambda item: str(item[0]))}
     if isinstance(value, list):
         return [redact_structure(item, limit=limit) for item in value]
     if isinstance(value, str):

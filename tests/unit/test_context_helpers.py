@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,15 @@ def test_common_preview_redacts_sensitive_values() -> None:
     assert "[REDACTED:" in rendered
 
 
+def test_common_redact_structure_redacts_sensitive_keys() -> None:
+    sensitive_key = "api_" + "key=fixturevalue"
+
+    rendered = context_common.redact_structure({sensitive_key: "ok"})
+
+    assert "fixturevalue" not in rendered
+    assert next(iter(rendered)).startswith("[REDACTED:")
+
+
 def test_common_read_text_bounded_reads_only_requested_prefix(tmp_path: Path) -> None:
     large = tmp_path / "large.json"
     large.write_text("a" * 100 + "tail-marker", encoding="utf-8")
@@ -59,6 +69,8 @@ def test_common_read_text_bounded_reads_only_requested_prefix(tmp_path: Path) ->
 def test_repo_map_is_concise_and_skips_noisy_paths(tmp_path: Path) -> None:
     (tmp_path / ".codex" / "hooks").mkdir(parents=True)
     (tmp_path / ".codex" / "hooks" / "pre_tool_guard.py").write_text("print('ok')\n", encoding="utf-8")
+    (tmp_path / ".codex" / "sessions").mkdir(parents=True)
+    (tmp_path / ".codex" / "sessions" / "session.jsonl").write_text("raw transcript\n", encoding="utf-8")
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "run.py").write_text("print('ok')\n", encoding="utf-8")
     (tmp_path / "tests").mkdir()
@@ -75,6 +87,8 @@ def test_repo_map_is_concise_and_skips_noisy_paths(tmp_path: Path) -> None:
     assert ".codex/hooks/pre_tool_guard.py" in report["surfaces"]["hook_surfaces"]
     assert "scripts/run.py" in report["surfaces"]["entry_points"]
     assert "tests/test_run.py" in report["surfaces"]["test_surfaces"]
+    assert ".codex/sessions/session.jsonl" not in rendered
+    assert "raw transcript" not in rendered
     assert "node_modules" not in rendered
     assert "image.png" not in rendered
 
@@ -103,6 +117,19 @@ def test_summarize_json_reports_shape_without_full_dump() -> None:
     assert "meta" in report["top_level_keys"]
     assert "$.results[0].id" in rendered
     assert "Top-Level Samples" in rendered
+
+
+def test_summarize_json_redacts_sensitive_keys(tmp_path: Path) -> None:
+    sensitive_key = "api_" + "key=fixturevalue"
+    path = tmp_path / "sensitive-keys.json"
+    path.write_text(json.dumps({sensitive_key: {"nested": "ok"}}), encoding="utf-8")
+
+    report = summarize_json.summarize(path, max_items=10, max_depth=3, include_samples=False)
+    rendered = summarize_json.render_markdown(report)
+
+    assert "fixturevalue" not in rendered
+    assert "[REDACTED:" in rendered
+    assert all("fixturevalue" not in key for key in report["top_level_keys"])
 
 
 def test_summarize_json_reports_decode_error_for_malformed_json(tmp_path: Path) -> None:

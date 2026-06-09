@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
 from shared.handoff_compaction import SECTION_ORDER, compact_handoff_summary, word_count  # noqa: E402
+from shared import vault_io  # noqa: E402
 
 
 def test_compact_handoff_summary_removes_repeated_dead_ends_and_raw_output() -> None:
@@ -91,3 +92,22 @@ def test_stop_hook_fails_open_with_invalid_handoff_max_words(tmp_path: Path) -> 
     assert result.returncode == 0
     assert result.stdout == ""
     assert result.stderr == ""
+
+
+def test_write_handoff_compaction_error_uses_bounded_fallback(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph-home"))
+
+    def fail_compaction(*_args, **_kwargs):
+        raise RuntimeError("fixture compaction failure")
+
+    monkeypatch.setattr(vault_io, "compact_handoff_summary", fail_compaction)
+    raw_summary = "Decision: " + " ".join(f"raw{i}" for i in range(2_000))
+
+    path = vault_io.write_handoff(raw_summary, next_step="retry compact handoff")
+
+    assert path is not None
+    text = path.read_text(encoding="utf-8")
+    assert "# Latest Handoff" in text
+    assert "Original summary omitted" in text
+    assert "raw1999" not in text
+    assert word_count(text) < 220

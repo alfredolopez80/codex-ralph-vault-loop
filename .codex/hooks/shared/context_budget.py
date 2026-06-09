@@ -78,6 +78,7 @@ RG_OPTIONS_WITH_VALUE = {
 }
 RG_BOUNDS = {"-g", "-m", "--glob", "--max-count", "--max-filesize", "--files-with-matches", "-l"}
 GREP_OPTIONS_WITH_VALUE = {"-A", "-B", "-C", "-e", "-f", "-m", "--after-context", "--before-context", "--context", "--file", "--max-count", "--regexp"}
+GIT_GLOBAL_OPTIONS_WITH_VALUE = {"-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"}
 VALIDATION_SCRIPT_NAMES = {
     "coding_model_eval.py",
     "context_guard_autoresearch_benchmark.py",
@@ -218,17 +219,13 @@ def _has_redirected_bounded_inspection(command: str) -> bool:
 
 
 def _has_any_bound(command: str) -> bool:
-    return _has_output_cap(command) or _has_redirected_bounded_inspection(command)
+    return _has_output_cap(command)
 
 
 def _segment_bound_text(segment_command: str, full_command: str) -> str:
     if _has_any_bound(segment_command):
         return segment_command
     if _has_output_cap(full_command) and "|" in full_command and not any(separator in full_command for separator in (";", "&&", "||")):
-        return full_command
-    if _has_redirected_bounded_inspection(full_command) and re.search(r"(?:^|\s)'?(?:&?>|[12]>)'?(?:\s|$)", segment_command):
-        return full_command
-    if _has_output_redirect(segment_command) and _has_redirected_bounded_inspection(full_command):
         return full_command
     return segment_command
 
@@ -383,6 +380,14 @@ def _is_wakeup_script_path(raw_path: str) -> bool:
     return normalized == "scripts/memory/wakeup.py" or normalized.endswith("/scripts/memory/wakeup.py")
 
 
+def _is_trusted_wakeup_script(raw_path: str, cwd: Path) -> bool:
+    if not _is_wakeup_script_path(raw_path):
+        return False
+    resolved = _resolve_path(raw_path, cwd)
+    trusted = (Path(__file__).resolve().parents[3] / "scripts" / "memory" / "wakeup.py").resolve(strict=False)
+    return resolved == trusted
+
+
 def _is_validation_command(tokens: list[str], cwd: Path) -> bool:
     if not tokens:
         return False
@@ -451,7 +456,8 @@ def _classify_git_command(tokens: list[str], cwd: Path, command: str) -> GuardFi
         return None
     subcommand_index = 1
     while subcommand_index < len(tokens) and tokens[subcommand_index].startswith("-"):
-        subcommand_index += 2 if tokens[subcommand_index] in {"-C", "--git-dir", "--work-tree"} else 1
+        option_name = tokens[subcommand_index].split("=", 1)[0]
+        subcommand_index += 1 if "=" in tokens[subcommand_index] else (2 if option_name in GIT_GLOBAL_OPTIONS_WITH_VALUE else 1)
     if subcommand_index >= len(tokens):
         return None
     subcommand = tokens[subcommand_index]
@@ -655,7 +661,7 @@ def _classify_python_script_output(argv: list[str], cwd: Path, command: str) -> 
         return None
     script = argv[index]
     script_name = Path(script).name
-    if _is_repo_validation_script(script, cwd) or _is_wakeup_script_path(script):
+    if _is_repo_validation_script(script, cwd) or _is_trusted_wakeup_script(script, cwd):
         return None
     script_parts = Path(script.replace("\\", "/")).parts
     if script_name in VALIDATION_SCRIPT_NAMES or script_name == "wakeup.py" or (script.endswith(".py") and "scripts" in script_parts):

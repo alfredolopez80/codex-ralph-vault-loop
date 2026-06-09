@@ -606,13 +606,13 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
             return 0
-    context_finding = classify_command(command, cwd_from_payload(payload))
-    if context_finding:
-        write_json(context_finding.hook_payload())
-        return 0
     wakeup_payload = stale_repo_local_wakeup_payload(command, payload)
     if wakeup_payload:
         write_json({"decision": "block", **wakeup_payload})
+        return 0
+    context_finding = classify_command(command, cwd_from_payload(payload))
+    if context_finding:
+        write_json(context_finding.hook_payload())
         return 0
     sfw_payload = sfw_protection_payload(command)
     if sfw_payload:

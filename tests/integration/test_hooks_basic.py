@@ -147,6 +147,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
     cases = {
         "git status": "git status --porcelain | head -n 30",
         "git log": "git log --oneline -15",
+        "git -c core.pager=cat log": "git log --oneline -15",
         "git diff": "git diff --name-only | head -n 50",
         "git diff -- .": "git diff --name-only | head -n 50",
         "git diff -- :/": "git diff --name-only | head -n 50",
@@ -158,6 +159,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "grep -R --include='*.py' error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
         "python3 scripts/context/repo_map.py --root .": "head -c 6000",
         "python3 scripts/context/repo_map.py scripts/gates/run-gates.py": "head -c 6000",
+        "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt": "head -c 6000",
         "git diff; head -c 1 /dev/null": "git diff --name-only | head -n 50",
         "kubectl logs deploy/control-api; head -c 1 /dev/null": "head -c 6000",
     }
@@ -186,7 +188,6 @@ def test_pre_tool_guard_allows_bounded_firehose_equivalents(tmp_path: Path) -> N
         "grep -R -m 50 error .",
         "grep -R error scripts/context 2>&1 | head -c 6000",
         "python3 scripts/context/repo_map.py --root . 2>&1 | head -c 6000",
-        "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt",
     ]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
         assert result.returncode == 0
@@ -346,6 +347,19 @@ def test_pre_tool_guard_blocks_stale_repo_local_wakeup_commands(tmp_path: Path) 
         assert "scripts/memory/wakeup.py" in payload["suggested_command"]
         assert str(workspace) in payload["suggested_command"]
         assert command not in payload["reason"]
+
+
+def test_pre_tool_guard_blocks_external_memory_wakeup_before_context_guard(tmp_path: Path) -> None:
+    external_wakeup = tmp_path / "scripts" / "memory" / "wakeup.py"
+    external_wakeup.parent.mkdir(parents=True)
+    external_wakeup.write_text("print('too much')\n", encoding="utf-8")
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": f"python3 {external_wakeup}", "workdir": str(ROOT)}})
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "repo-local Ralph wakeup" in payload["reason"]
 
 
 def test_pre_tool_guard_allows_global_wakeup_command(tmp_path: Path) -> None:

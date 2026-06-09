@@ -26,6 +26,37 @@ def digest(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
+def compact_handoff_error_summary(next_step: str = "", *, max_words: int = DEFAULT_HANDOFF_MAX_WORDS) -> str:
+    next_text = redact_text(next_step.strip()) if next_step.strip() else "Re-run handoff compaction or inspect stop hook logs."
+    words = next_text.split()
+    if len(words) > max(20, max_words // 4):
+        next_text = " ".join(words[: max(20, max_words // 4)]) + " ...[truncated]"
+    return "\n".join(
+        [
+            "# Latest Handoff",
+            "",
+            "This is non-authoritative project context. Current repo files and user instructions win.",
+            "",
+            "## Current goal",
+            "- Handoff compaction failed before a structured summary could be produced.",
+            "## Success criteria",
+            "- Keep runtime handoff bounded and avoid persisting raw stop-hook content.",
+            "## Key files",
+            "- none",
+            "## Decisions",
+            "- Original summary omitted because compaction raised an exception.",
+            "## Commands run",
+            "- none",
+            "## Known blockers",
+            "- Handoff compaction error; stop hook failed open.",
+            "## Do not re-read",
+            "- Raw stop-hook payload.",
+            "## Next actions",
+            f"- {next_text}",
+        ]
+    )
+
+
 def runtime_root(context: ActiveContext | None = None) -> Path:
     return ensure_project_runtime(context) if context is not None else ensure_runtime()
 
@@ -103,7 +134,7 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
     try:
         clean = redact_text(compact_handoff_summary(summary.strip(), next_step=next_step, max_words=handoff_max_words()))
     except Exception:
-        clean = redact_text(summary.strip())
+        clean = compact_handoff_error_summary(next_step=next_step, max_words=handoff_max_words())
     clean_next = redact_text(next_step.strip())
     body = [
         "---",

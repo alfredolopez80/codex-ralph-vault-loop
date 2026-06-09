@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from context_common import preview, read_text_bounded, redact_structure, write_output
+from context_common import preview, read_text_bounded, redact_structure, safe_key, write_output
 
 
 def type_name(value: Any) -> str:
@@ -47,7 +47,7 @@ def sampled_top_level_object(text: str, max_items: int) -> dict[str, str]:
             break
         if not isinstance(key, str):
             break
-        keys[key] = "[sampled from truncated prefix]"
+        keys[safe_key(key)] = "[sampled from truncated prefix]"
         while index < length and text[index].isspace():
             index += 1
         if index >= length or text[index] != ":":
@@ -72,7 +72,7 @@ def walk(value: Any, path: str, depth: int, max_depth: int, max_items: int, rows
         return
     if isinstance(value, dict):
         for key in sorted(value.keys(), key=str)[:max_items]:
-            walk(value[key], f"{path}.{key}", depth + 1, max_depth, max_items, rows)
+            walk(value[key], f"{path}.{safe_key(key)}", depth + 1, max_depth, max_items, rows)
             if len(rows) >= max_items:
                 return
     elif isinstance(value, list):
@@ -117,12 +117,12 @@ def summarize(path: Path, max_items: int, max_depth: int, include_samples: bool)
         "parse_status": parse_status,
         "root_type": type_name(value),
         "root_size": value_size(value),
-        "top_level_keys": [str(key) for key in top_keys],
+        "top_level_keys": [safe_key(key) for key in top_keys],
         "sample_paths": rows,
     }
     if include_samples and isinstance(value, dict):
         report["top_level_samples"] = {
-            str(key): preview(value[key], limit=160)
+            safe_key(key): preview(value[key], limit=160)
             for key in top_keys
             if not isinstance(value[key], (dict, list))
         }
