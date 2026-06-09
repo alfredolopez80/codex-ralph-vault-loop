@@ -639,7 +639,7 @@ def _classify_python_script_output(argv: list[str], command: str) -> GuardFindin
             risk="block",
             reason_code="python_script_unbounded",
             reason="Context budget guard blocked an unbounded Python helper script. Redirect or cap output before putting it in the transcript.",
-            suggested_command=f"{command.rstrip()} > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt",
+            suggested_command=_safe_byte_cap_command(command),
         )
     return None
 
