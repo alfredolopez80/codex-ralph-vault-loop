@@ -442,12 +442,16 @@ def _classify_git_command(tokens: list[str], cwd: Path, command: str) -> GuardFi
     if subcommand == "diff":
         if _option_present(args, {"--name-only", "--stat", "--name-status", "--summary", "--check"}):
             return None
-        if "--" in args and any(not item.startswith("-") for item in args[args.index("--") + 1 :]):
-            return None
+        if "--" in args:
+            scoped_args = [item for item in args[args.index("--") + 1 :] if not item.startswith("-")]
+            if scoped_args and not any(_is_broad_diff_scope(item, cwd) for item in scoped_args):
+                return None
         path_like_args = [
             arg
             for arg in args
-            if not arg.startswith("-") and (_resolve_path(arg, cwd).exists() or "/" in arg or Path(arg).suffix)
+            if not arg.startswith("-")
+            and not _is_broad_diff_scope(arg, cwd)
+            and (_resolve_path(arg, cwd).exists() or "/" in arg or Path(arg).suffix)
         ]
         if path_like_args:
             return None
@@ -458,6 +462,17 @@ def _classify_git_command(tokens: list[str], cwd: Path, command: str) -> GuardFi
             suggested_command="git diff --name-only | head -n 50",
         )
     return None
+
+
+def _is_broad_diff_scope(raw_path: str, cwd: Path) -> bool:
+    normalized = raw_path.strip()
+    if normalized in {".", "./", ":/", "/", "~", "$HOME"}:
+        return True
+    if normalized.startswith(":/"):
+        return normalized == ":/"
+    resolved = _resolve_path(normalized, cwd)
+    home = Path.home().resolve()
+    return resolved == cwd.resolve(strict=False) or resolved == home
 
 
 def _find_has_bound(argv: list[str], command: str) -> bool:

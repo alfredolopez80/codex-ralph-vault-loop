@@ -46,6 +46,18 @@ def test_log_map_returns_compact_matching_lines(tmp_path: Path) -> None:
     assert report["results"][0]["matches"][0]["line"] == 2
 
 
+def test_log_map_redacts_sensitive_matching_lines(tmp_path: Path) -> None:
+    module = load_module()
+    log = tmp_path / "run.txt"
+    log.write_text("ignore\napi_key=fixture-secret-value\n", encoding="utf-8")
+
+    report = module.log_map(tmp_path, "api_key", max_files=10, max_bytes=500, max_matches=5)
+
+    preview = report["results"][0]["matches"][0]["preview"]
+    assert "fixture-secret-value" not in preview
+    assert "[REDACTED:" in preview
+
+
 def test_json_and_csv_modes_report_shape_without_full_dump(tmp_path: Path) -> None:
     module = load_module()
     json_path = tmp_path / "report.json"

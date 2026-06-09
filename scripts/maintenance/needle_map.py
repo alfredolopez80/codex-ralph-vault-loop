@@ -13,6 +13,14 @@ from pathlib import Path
 from typing import Any
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SECURITY_DIR = REPO_ROOT / "scripts" / "security"
+if str(SECURITY_DIR) not in sys.path:
+    sys.path.insert(0, str(SECURITY_DIR))
+
+from sensitive_content import redact_text as redact_sensitive_text  # noqa: E402
+
+
 SKIP_DIRS = {
     ".cache",
     ".git",
@@ -81,11 +89,17 @@ def rel(path: Path, root: Path) -> str:
 
 
 def read_limited(path: Path, max_bytes: int = DEFAULT_MAX_BYTES) -> tuple[str, bool]:
-    data = path.read_bytes()[: max(0, max_bytes + 1)]
+    with path.open("rb") as handle:
+        data = handle.read(max(0, max_bytes + 1))
     truncated = len(data) > max_bytes
     if truncated:
         data = data[:max_bytes]
     return data.decode("utf-8", errors="replace"), truncated
+
+
+def safe_preview(text: str, limit: int = 240) -> str:
+    redacted, _changed = redact_sensitive_text(text)
+    return redacted.strip()[:limit]
 
 
 def repo_map(root: Path, max_files: int = DEFAULT_MAX_FILES) -> dict[str, Any]:
@@ -111,7 +125,7 @@ def line_matches(text: str, pattern: re.Pattern[str], max_matches: int) -> list[
     matches: list[dict[str, Any]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if pattern.search(line):
-            matches.append({"line": number, "preview": line.strip()[:240]})
+            matches.append({"line": number, "preview": safe_preview(line)})
         if len(matches) >= max_matches:
             break
     return matches
