@@ -114,7 +114,8 @@ def iter_repo_files(root: Path, *, max_files: int, max_depth: int) -> list[Path]
 
 
 def read_text_bounded(path: Path, max_bytes: int = DEFAULT_TAIL_BYTES) -> tuple[str, bool]:
-    data = path.read_bytes()
+    with path.open("rb") as handle:
+        data = handle.read(max_bytes + 1)
     truncated = len(data) > max_bytes
     if truncated:
         data = data[:max_bytes]

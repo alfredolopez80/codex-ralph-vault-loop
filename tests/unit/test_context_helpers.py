@@ -45,6 +45,17 @@ def test_common_preview_redacts_sensitive_values() -> None:
     assert "[REDACTED:" in rendered
 
 
+def test_common_read_text_bounded_reads_only_requested_prefix(tmp_path: Path) -> None:
+    large = tmp_path / "large.json"
+    large.write_text("a" * 100 + "tail-marker", encoding="utf-8")
+
+    text, truncated = context_common.read_text_bounded(large, max_bytes=20)
+
+    assert text == "a" * 20
+    assert truncated is True
+    assert "tail-marker" not in text
+
+
 def test_repo_map_is_concise_and_skips_noisy_paths(tmp_path: Path) -> None:
     (tmp_path / ".codex" / "hooks").mkdir(parents=True)
     (tmp_path / ".codex" / "hooks" / "pre_tool_guard.py").write_text("print('ok')\n", encoding="utf-8")
