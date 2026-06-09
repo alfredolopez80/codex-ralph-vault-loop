@@ -37,6 +37,18 @@ def test_context_scripts_have_help() -> None:
         assert "usage:" in result.stdout
 
 
+def test_context_common_importable_as_package() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "import scripts.context.common as common; assert common.preview('ok') == 'ok'"],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_common_preview_redacts_sensitive_values() -> None:
     sensitive = "api_" + "key=fixturevalue"
 
@@ -184,3 +196,15 @@ def test_compact_logs_uses_timestamp_window_and_keyword_filter() -> None:
     assert len(report["selected"]) == 1
     assert "error retry failed" in rendered
     assert "info heartbeat" not in rendered
+
+
+def test_compact_logs_marks_truncated_tail_line_references(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "large-log.txt"
+    path.write_text("prefix\n", encoding="utf-8")
+    monkeypatch.setattr(compact_logs, "read_tail_text", lambda _path: ("ERROR tail failure\n", True))
+
+    report = compact_logs.compact([path], hours=None, keywords=["ERROR"], regex_text=None, limit=5)
+    rendered = compact_logs.render_markdown(report)
+
+    assert report["selected"][0]["line_scope"] == "tail-relative"
+    assert f"{path}:tail+1" in rendered

@@ -15,7 +15,7 @@ TIME_KEYS = ("timestamp", "time", "created_at", "date", "ts")
 MESSAGE_KEYS = ("message", "msg", "error", "event", "text")
 
 
-def line_record(path: Path, number: int, line: str) -> dict[str, Any]:
+def line_record(path: Path, number: int, line: str, *, line_scope: str = "file") -> dict[str, Any]:
     parsed = compact_json_loads(line)
     if parsed:
         timestamp = next((parse_timestamp(parsed.get(key)) for key in TIME_KEYS if parsed.get(key) is not None), None)
@@ -26,6 +26,7 @@ def line_record(path: Path, number: int, line: str) -> dict[str, Any]:
     return {
         "path": str(path),
         "line": number,
+        "line_scope": line_scope,
         "timestamp": timestamp,
         "message": preview(message, limit=320),
         "raw": preview(line, limit=320),
@@ -38,7 +39,8 @@ def load_records(paths: list[Path]) -> tuple[list[dict[str, Any]], bool]:
     for path in paths:
         text, was_truncated = read_tail_text(path)
         truncated = truncated or was_truncated
-        records.extend(line_record(path, index, line) for index, line in enumerate(text.splitlines(), start=1))
+        line_scope = "tail-relative" if was_truncated else "file"
+        records.extend(line_record(path, index, line, line_scope=line_scope) for index, line in enumerate(text.splitlines(), start=1))
     return records, truncated
 
 
@@ -91,7 +93,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append("- none")
     for item in report["selected"]:
         timestamp = item["timestamp"].isoformat() if item["timestamp"] else "none"
-        lines.append(f"- `{item['path']}:{item['line']}` `{timestamp}` {item['message']}")
+        line_ref = f"tail+{item['line']}" if item.get("line_scope") == "tail-relative" else str(item["line"])
+        lines.append(f"- `{item['path']}:{line_ref}` `{timestamp}` {item['message']}")
     return "\n".join(lines) + "\n"
 
 
