@@ -365,6 +365,8 @@ def _is_validation_command(tokens: list[str]) -> bool:
     executable = _executable_name(tokens[0])
     if executable in VALIDATION_COMMAND_NAMES:
         return True
+    if executable in VALIDATION_SCRIPT_NAMES:
+        return True
     if executable in {"bash", "sh", "zsh"} and len(tokens) > 1:
         return Path(tokens[1]).name in VALIDATION_SCRIPT_NAMES
     if executable in {"python", "python3"}:
@@ -372,8 +374,17 @@ def _is_validation_command(tokens: list[str]) -> bool:
             module_index = tokens.index("-m")
             if module_index + 1 < len(tokens) and tokens[module_index + 1] in {"pytest", "mypy"}:
                 return True
-        return any(Path(token).name in VALIDATION_SCRIPT_NAMES for token in tokens[1:])
-    return any(Path(token).name in VALIDATION_SCRIPT_NAMES for token in tokens)
+        index = 1
+        while index < len(tokens):
+            word = tokens[index]
+            if word == "--":
+                index += 1
+                break
+            if not word.startswith("-"):
+                break
+            index += 1
+        return index < len(tokens) and Path(tokens[index]).name in VALIDATION_SCRIPT_NAMES
+    return False
 
 
 def _is_high_risk_rg_target(path: Path, cwd: Path) -> bool:
