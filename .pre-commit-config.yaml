@@ -47,7 +47,7 @@ repos:
         entry: prettier --check --ignore-unknown
         language: system
         files: '\.(md|ya?ml|json)$'
-        exclude: '^(\.claude/.*|\.agents/skills/(cost-router|model-router)/.*|docs/diagrams/.*|AGENTS\.md|CLAUDE\.md|README\.md|docs/codex-global-skills\.md)$'
+        exclude: '^(\.claude/.*|\.agents/skills/(cost-router|model-router|text-to-lottie)/.*|docs/diagrams/.*|AGENTS\.md|CLAUDE\.md|README\.md|docs/codex-global-skills\.md)$'
 
       - id: gitleaks-staged
         name: gitleaks staged secret scan
