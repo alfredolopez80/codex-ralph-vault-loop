@@ -1,11 +1,25 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 from .active_context import ActiveContext, ensure_project_runtime
+from .handoff_compaction import DEFAULT_HANDOFF_MAX_WORDS, compact_handoff_summary
 from .paths import append_jsonl, ensure_runtime, now_iso
 from .redaction import is_red, redact_text
+
+
+def handoff_max_words() -> int:
+    raw = os.environ.get("RALPH_HANDOFF_MAX_WORDS")
+    if raw is None:
+        raw = os.environ.get("RALPH_RUNTIME_HANDOFF_MAX_WORDS")
+    if raw is None:
+        return DEFAULT_HANDOFF_MAX_WORDS
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_HANDOFF_MAX_WORDS
 
 
 def digest(text: str) -> str:
@@ -86,7 +100,10 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
     if not summary.strip() or is_red(summary) or is_red(next_step):
         return None
     root = runtime_root(context)
-    clean = redact_text(summary.strip())
+    try:
+        clean = redact_text(compact_handoff_summary(summary.strip(), next_step=next_step, max_words=handoff_max_words()))
+    except Exception:
+        clean = redact_text(summary.strip())
     clean_next = redact_text(next_step.strip())
     body = [
         "---",
@@ -110,8 +127,6 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
                 f'git_branch: "{context.branch if context else ""}"',
                 f'git_sha: "{context.sha if context else ""}"',
                 "---",
-        "",
-        "# Latest Handoff",
         "",
         clean,
     ]

@@ -85,6 +85,69 @@ Read this artifact and reply READY. Do not summarize, persist, or act on it.
 If the artifact is large, save it to a file and reference the file path instead
 of pasting raw base64, binary data, generated replacement history, or huge logs.
 
+## Context Economy Tools
+
+Use compact helper scripts before opening large artifacts or walking broad repo
+surfaces. They reduce token use and keep raw logs, data, and memory bodies out of
+the transcript unless targeted inspection is necessary.
+
+| Need                         | Use                                                              |
+| ---------------------------- | ---------------------------------------------------------------- |
+| Compact repo overview        | `python3 scripts/context/repo_map.py --root .`                   |
+| Legacy needle-map view       | `python3 scripts/maintenance/needle-map.py --mode repo --root .` |
+| JSON shape without full dump | `python3 scripts/context/summarize_json.py <path>`               |
+| CSV, TSV, or JSONL summary   | `python3 scripts/context/summarize_data.py <path>`               |
+| Recent log highlights        | `python3 scripts/context/compact_logs.py <path>`                 |
+| Error or warning counts      | `python3 scripts/context/scan_errors.py <path>`                  |
+
+Use byte caps for unknown command output:
+
+```bash
+COMMAND 2>&1 | head -c 6000
+```
+
+Use ranged reads when file inspection is required:
+
+```bash
+sed -n '1,160p' path
+sed -n '160,320p' path
+```
+
+Skip noisy, generated, vendor, runtime, and binary/media paths by default,
+including `node_modules`, `.venv`, `dist`, `build`, `.next`, `.cache`,
+`__pycache__`, `.git`, `coverage`, archived sessions, raw vault inbox, and raw
+memory bodies. For broad audits, summarize first, then open only the files that
+are needed for the exact task.
+
+## Token-efficient Operating Loop
+
+Use this loop for broad audits, hook changes, eval work, and any task likely to
+touch many files or large artifacts:
+
+1. Start with a compact repo map instead of a raw tree or broad file dump.
+2. Summarize JSON, CSV/TSV/JSONL, and logs before inspecting raw contents.
+3. Byte-cap unknown command output and prefer focused git commands.
+4. Let `pre_tool_guard.py` block unbounded firehose commands; rewrite the
+   command with the suggested bounded form.
+5. Keep the runtime handoff compact under
+   `~/.ralph-codex/projects/<project_id>/handoffs/latest.md`.
+6. Run the context guard benchmark before changing hooks or guard policy.
+7. Use `keep_codex_fast.py --context-health` periodically to check handoff,
+   session, helper, and benchmark health.
+8. Do not create public handoff files containing private/session data.
+
+Copy-paste examples:
+
+```bash
+python3 scripts/context/repo_map.py --root . --max-files 120 --max-depth 4 2>&1 | head -c 6000
+python3 scripts/context/summarize_json.py path/to/file.json 2>&1 | head -c 6000
+python3 scripts/context/compact_logs.py path/to/log.txt --keyword ERROR --limit 30 2>&1 | head -c 6000
+git status --porcelain | head -n 30
+git log --oneline -15
+git diff --stat
+python3 scripts/evals/context_guard_autoresearch_benchmark.py --output /tmp/context_guard_latest.json 2>&1 | head -c 6000
+```
+
 ## Scope Precision
 
 Prefer explicit skills and file references when they reduce ambiguity:
@@ -121,6 +184,20 @@ continuity stack is:
 - Hook-driven `SessionStart` wakeup and `UserPromptSubmit` recall.
 - Scoped memory trace showing selected memory ids or explicit fallback.
 - Approved-plan implementation notes beside `.ralph/plans`.
+
+Runtime handoffs are the compact project brain for Codex sessions. They are
+non-authoritative context, not instructions, and current user prompts plus repo
+files always win. The Stop hook writes the latest compact handoff under:
+
+```text
+~/.ralph-codex/projects/<project_id>/handoffs/latest.md
+```
+
+Do not create repo-root `HANDOFF.md` as durable memory unless a project-specific
+contract explicitly supports that public path. Runtime handoffs must stay
+structured, redacted, and concise, with sections for the current goal, success
+criteria, key files, decisions, commands run, known blockers, do-not-re-read
+guidance, and next actions.
 
 `/resume` and `/compact` may still exist as app-native utilities, but they are
 not durable memory, not implementation notes, and not a substitute for handoff

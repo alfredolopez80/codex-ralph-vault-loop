@@ -30,6 +30,26 @@ TEMP_PROJECT_RE = re.compile(
     r"(\\AppData\\Local\\Temp\\|/AppData/Local/Temp/|\\Temp\\codex-|/Temp/codex-|\\Temp\\spark-|/Temp/spark-)",
     re.I,
 )
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTEXT_HELPERS = [
+    "scripts/context/repo_map.py",
+    "scripts/context/summarize_json.py",
+    "scripts/context/summarize_data.py",
+    "scripts/context/compact_logs.py",
+    "scripts/context/scan_errors.py",
+    "scripts/maintenance/needle-map.py",
+]
+HANDOFF_OVERSIZED_TOKENS = 1_000
+RECENT_HANDOFF_DAYS = 7
+RECENT_SESSION_DAYS = 14
+RECENT_SESSION_LIMIT = 5
+
+
+def estimate_context(text: str) -> dict[str, int]:
+    chars = len(text)
+    words = len(text.split())
+    estimated_tokens = max(1, (chars + 3) // 4) if chars else 0
+    return {"chars": chars, "words": words, "estimated_tokens": estimated_tokens}
 
 
 @dataclass
@@ -53,6 +73,10 @@ def codex_home_from_args(value: str | None) -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return Path.home() / ".codex"
+
+
+def ralph_home_from_env() -> Path:
+    return Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser()
 
 
 def documents_backup_root() -> Path:
@@ -87,6 +111,162 @@ def mb(value: int) -> str:
 
 def report(line: str) -> None:
     print(line)
+
+
+def newest_files(root: Path, pattern: str, limit: int) -> list[Path]:
+    if not root.exists():
+        return []
+    files = [path for path in root.glob(pattern) if path.is_file()]
+    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return files[:limit]
+
+
+def recent_files(root: Path, pattern: str, days: int) -> list[Path]:
+    if not root.exists():
+        return []
+    cutoff = time.time() - days * 24 * 60 * 60
+    files = [path for path in root.glob(pattern) if path.is_file() and path.stat().st_mtime >= cutoff]
+    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return files
+
+
+def latest_handoff_paths(ralph_home: Path) -> list[Path]:
+    return sorted(path for path in ralph_home.glob("projects/*/handoffs/latest.md") if path.is_file())
+
+
+def recent_handoff_paths(ralph_home: Path) -> list[Path]:
+    return recent_files(ralph_home, "projects/*/handoffs/*.md", RECENT_HANDOFF_DAYS)
+
+
+def safe_read_text(path: Path, max_bytes: int = 200_000) -> str:
+    try:
+        data = path.read_bytes()[:max_bytes]
+    except OSError:
+        return ""
+    return data.decode("utf-8", errors="replace")
+
+
+def context_helper_status() -> list[tuple[str, bool]]:
+    return [(helper, (REPO_ROOT / helper).is_file()) for helper in CONTEXT_HELPERS]
+
+
+def latest_context_guard_report(codex_home: Path, ralph_home: Path) -> Path | None:
+    candidates: list[Path] = []
+    roots = [
+        ralph_home / "reports" / "evals",
+        codex_home / "reports" / "evals",
+        REPO_ROOT / ".ralph-codex" / "reports" / "evals",
+    ]
+    for root in roots:
+        candidates.extend(newest_files(root, "context_guard*_latest.json", 5))
+        candidates.extend(newest_files(root, "context_guard_compaction_latest.json", 5))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
+def context_guard_report_summary(path: Path | None) -> dict[str, object]:
+    if path is None:
+        return {"present": False}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"present": True, "readable": False}
+    metrics = data.get("metrics") if isinstance(data, dict) else {}
+    hard_gates = data.get("hard_gates") if isinstance(data, dict) else {}
+    return {
+        "present": True,
+        "readable": True,
+        "score": data.get("context_guard_acceptance_score") if isinstance(data, dict) else None,
+        "compact_context": metrics.get("compact_context") if isinstance(metrics, dict) else None,
+        "tests_pass": hard_gates.get("tests_pass") if isinstance(hard_gates, dict) else None,
+        "path": path,
+    }
+
+
+def largest_recent_sessions(codex_home: Path, limit: int = RECENT_SESSION_LIMIT) -> list[Path]:
+    sessions = codex_home / "sessions"
+    if not sessions.exists():
+        return []
+    cutoff = time.time() - RECENT_SESSION_DAYS * 24 * 60 * 60
+    candidates = []
+    day_dirs: list[Path] = []
+    for year_dir in sorted((path for path in sessions.iterdir() if path.is_dir()), reverse=True):
+        for month_dir in sorted((path for path in year_dir.iterdir() if path.is_dir()), reverse=True):
+            for day_dir in sorted((path for path in month_dir.iterdir() if path.is_dir()), reverse=True):
+                day_dirs.append(day_dir)
+                if len(day_dirs) >= RECENT_HANDOFF_DAYS + RECENT_SESSION_DAYS:
+                    break
+            if len(day_dirs) >= RECENT_HANDOFF_DAYS + RECENT_SESSION_DAYS:
+                break
+        if len(day_dirs) >= RECENT_HANDOFF_DAYS + RECENT_SESSION_DAYS:
+            break
+    for day_dir in day_dirs:
+        for path in day_dir.glob("*.jsonl"):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            if stat.st_mtime >= cutoff:
+                candidates.append(path)
+    candidates.sort(key=lambda path: path.stat().st_size, reverse=True)
+    return candidates[:limit]
+
+
+def report_context_health(codex_home: Path, details: bool, verbose: bool) -> None:
+    ralph_home = ralph_home_from_env()
+    handoffs = latest_handoff_paths(ralph_home)
+    recent_handoffs = recent_handoff_paths(ralph_home)
+    latest_handoff = max(handoffs, key=lambda path: path.stat().st_mtime, default=None)
+    latest_text = safe_read_text(latest_handoff) if latest_handoff else ""
+    latest_estimate = estimate_context(latest_text)
+    oversized = []
+    for path in recent_handoffs:
+        estimate = estimate_context(safe_read_text(path))
+        if estimate["estimated_tokens"] > HANDOFF_OVERSIZED_TOKENS:
+            oversized.append((path, estimate))
+
+    report("context_health")
+    report(f"context_handoff_latest_count {len(handoffs)}")
+    report(f"context_handoff_recent_count {len(recent_handoffs)}")
+    report(f"context_handoff_latest_total_kb {sum(path.stat().st_size for path in handoffs) / 1024:.1f}")
+    report(f"context_handoff_recent_total_kb {sum(path.stat().st_size for path in recent_handoffs) / 1024:.1f}")
+    report(f"context_handoff_recent_oversized_count {len(oversized)}")
+    if latest_handoff:
+        report(f"context_handoff_latest_kb {latest_handoff.stat().st_size / 1024:.1f}")
+        report(f"context_handoff_latest_estimated_tokens {latest_estimate['estimated_tokens']}")
+        if details:
+            report(f"context_handoff_latest_path {latest_handoff}")
+    else:
+        report("context_handoff_latest_missing true")
+
+    sessions = largest_recent_sessions(codex_home)
+    report(f"context_largest_recent_session_count {len(sessions)}")
+    for index, path in enumerate(sessions, start=1):
+        if details:
+            report(f"context_recent_session_mb {mb(path.stat().st_size)} session_{index:03d} path={path}")
+        else:
+            report(f"context_recent_session_mb {mb(path.stat().st_size)} session_{index:03d}")
+
+    statuses = context_helper_status()
+    missing = [helper for helper, present in statuses if not present]
+    report(f"context_helper_available_count {len(statuses) - len(missing)}")
+    report(f"context_helper_missing_count {len(missing)}")
+    if verbose or details:
+        for helper, present in statuses:
+            report(f"context_helper {'present' if present else 'missing'} {helper}")
+
+    summary = context_guard_report_summary(latest_context_guard_report(codex_home, ralph_home))
+    report(f"context_guard_report_present {str(bool(summary.get('present'))).lower()}")
+    if summary.get("present") and summary.get("readable", True):
+        report(f"context_guard_acceptance_score {summary.get('score')}")
+        report(f"context_guard_compact_context {summary.get('compact_context')}")
+        report(f"context_guard_tests_pass {summary.get('tests_pass')}")
+        if details and summary.get("path"):
+            report(f"context_guard_report_path {summary['path']}")
+    elif summary.get("present"):
+        report("context_guard_report_readable false")
 
 
 def sqlite_connect(path: Path, *, readonly: bool) -> sqlite3.Connection:
@@ -522,6 +702,11 @@ def run(args: argparse.Namespace) -> int:
             else:
                 report(f"blocking_process codex_process_{index:03d}")
 
+    report_context_health(codex_home, args.details, args.context_health)
+    if args.context_health and effective_mode == "report":
+        report("done")
+        return 0
+
     if effective_backup:
         backup_metadata(codex_home, backup_root)
 
@@ -569,6 +754,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--details",
         action="store_true",
         help="Include raw thread IDs, titles, paths, and process paths in output.",
+    )
+    parser.add_argument(
+        "--context-health",
+        action="store_true",
+        help="Include expanded read-only context-efficiency health details.",
     )
     parser.add_argument("--wait-for-codex-exit", action="store_true", help="Wait until Codex exits before applying.")
     parser.add_argument("--codex-home", help="Override Codex home. Defaults to CODEX_HOME or ~/.codex.")

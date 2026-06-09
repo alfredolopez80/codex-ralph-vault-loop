@@ -116,6 +116,87 @@ def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
     assert ".env" not in payload["reason"]
 
 
+def test_pre_tool_guard_blocks_unbounded_large_output_commands(tmp_path: Path) -> None:
+    for command in [
+        "kubectl logs deploy/control-api",
+        "docker logs control-api",
+        "tail -f server.log",
+        "ls -R .",
+        "jq . report.json",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+        assert "head -c 6000" in payload["suggested_command"]
+
+
+def test_pre_tool_guard_allows_byte_capped_large_output_commands(tmp_path: Path) -> None:
+    for command in [
+        "kubectl logs deploy/control-api 2>&1 | head -c 6000",
+        "docker logs control-api 2>&1 | head -c 6000",
+        "ls -R . 2>&1 | head -c 6000",
+        "jq . report.json 2>&1 | head -c 6000",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> None:
+    cases = {
+        "git status": "git status --porcelain | head -n 30",
+        "git log": "git log --oneline -15",
+        "git diff": "git diff --name-only | head -n 50",
+        "find . -type f": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
+        "ls -la /": "head -c 6000",
+        "grep -R error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
+        "python3 scripts/context/repo_map.py --root .": "/tmp/ralph-command-output.txt",
+    }
+
+    for command, suggestion in cases.items():
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+        assert suggestion in payload["suggested_command"]
+
+
+def test_pre_tool_guard_allows_bounded_firehose_equivalents(tmp_path: Path) -> None:
+    for command in [
+        "git status --porcelain | head -n 30",
+        "git status --short",
+        "git log --oneline -15",
+        "git log --max-count=15",
+        "git diff --name-only | head -n 50",
+        "git diff --stat",
+        "git diff README.md",
+        "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
+        "ls -la / 2>&1 | head -c 6000",
+        "grep -R -m 50 error .",
+        "grep -R error scripts/context 2>&1 | head -c 6000",
+        "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
+def test_pre_tool_guard_allows_validation_commands(tmp_path: Path) -> None:
+    for command in [
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hooks_basic.py -q",
+        "python3 scripts/gates/run-gates.py --minimal",
+        "bash scripts/setup/doctor.sh",
+        "python3 scripts/setup/smoke-global-hooks.py",
+        "python3 scripts/evals/context_guard_autoresearch_benchmark.py --output /tmp/context_guard_latest.json",
+        "python3 scripts/evals/coding_model_eval.py --mode mock",
+        "ruff check .",
+    ]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+
 def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands(tmp_path: Path) -> None:
     cases = {
         "npm ci": "sfw npm ci",
@@ -920,16 +1001,56 @@ def test_stop_hook_creates_handoff_without_red(tmp_path: Path) -> None:
     result = run_hook(
         "stop_persist_memory.py",
         tmp_path,
-        {"last_assistant_message": "Implemented deterministic hook persistence."},
+        {
+            "last_assistant_message": "Task: Persist runtime handoff. Decision: Implemented deterministic hook persistence. Next action: validate memory flow.",
+            "selected_memory_ids": ["node-alpha"],
+            "recall_status": "ran",
+        },
     )
     assert result.returncode == 0, result.stderr
     latest = project_handoff(tmp_path)
     assert latest.is_file()
-    assert "deterministic hook persistence" in latest.read_text()
+    text = latest.read_text()
+    assert "# Latest Handoff" in text
+    for section in [
+        "## Current goal",
+        "## Success criteria",
+        "## Key files",
+        "## Decisions",
+        "## Commands run",
+        "## Known blockers",
+        "## Do not re-read",
+        "## Next actions",
+    ]:
+        assert section in text
+    assert "deterministic hook persistence" in text
+    assert "selected_memory_ids" in text
+    assert "node-alpha" in text
+    assert not (ROOT / "HANDOFF.md").exists()
 
     red_text = "secret" + "=abc123"
     run_hook("stop_persist_memory.py", tmp_path, {"last_assistant_message": red_text})
     assert red_text not in latest.read_text()
+
+
+def test_stop_hook_compacts_runtime_handoff(tmp_path: Path) -> None:
+    long_message = " ".join(f"handoff-word-{index}" for index in range(80))
+    result = run_hook(
+        "stop_persist_memory.py",
+        tmp_path,
+        {"last_assistant_message": long_message},
+        extra_env={"RALPH_HANDOFF_MAX_WORDS": "20"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    latest = project_handoff(tmp_path)
+    text = latest.read_text(encoding="utf-8")
+    assert "[handoff compacted:" in text
+    assert "# Latest Handoff" in text
+    assert "handoff-word-0" in text
+    assert "handoff-word-79" not in text
+    body = text.split("---", 2)[-1]
+    assert len(body.split()) <= 70
 
 
 def test_stop_hook_persists_learning_when_message_has_conclusion(tmp_path: Path) -> None:

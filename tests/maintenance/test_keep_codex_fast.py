@@ -83,6 +83,38 @@ def make_fake_home(root: Path) -> dict[str, Path]:
     }
 
 
+@contextlib.contextmanager
+def temporary_env(**values: str):
+    previous = {key: os.environ.get(key) for key in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def make_fake_ralph_home(root: Path) -> Path:
+    ralph_home = root / ".ralph-codex"
+    handoffs = ralph_home / "projects" / "p-test" / "handoffs"
+    handoffs.mkdir(parents=True)
+    latest = handoffs / "latest.md"
+    latest.write_text("# Latest Handoff\n\nCompact handoff marker.\n", encoding="utf-8")
+    archive = handoffs / "2026-01-01T000000Z.md"
+    archive.write_text(" ".join(f"handoff{i}" for i in range(1200)), encoding="utf-8")
+
+    report_dir = ralph_home / "reports" / "evals"
+    report_dir.mkdir(parents=True)
+    (report_dir / "context_guard_compaction_latest.json").write_text(
+        '{"context_guard_acceptance_score":1.0,"metrics":{"compact_context":1.0},"hard_gates":{"tests_pass":true}}\n',
+        encoding="utf-8",
+    )
+    return ralph_home
+
+
 def assert_report_mode(module) -> None:
     with tempfile.TemporaryDirectory() as td:
         paths = make_fake_home(Path(td))
@@ -97,9 +129,11 @@ def assert_report_mode(module) -> None:
             archive_older_than_days=10,
             worktree_older_than_days=7,
             rotate_logs_above_mb=0,
+            context_health=False,
         )
         output = io.StringIO()
-        with contextlib.redirect_stdout(output):
+        ralph_home = make_fake_ralph_home(Path(td))
+        with temporary_env(RALPH_HOME=str(ralph_home)), contextlib.redirect_stdout(output):
             assert module.run(args) == 0
         text = output.getvalue()
         assert paths["rollout"].exists(), "report mode must not move sessions"
@@ -109,6 +143,10 @@ def assert_report_mode(module) -> None:
         assert "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" not in text
         assert "Old test thread" not in text
         assert str(paths["codex_home"]) not in text
+        assert "context_health" in text
+        assert "context_handoff_latest_estimated_tokens" in text
+        assert "context_handoff_recent_oversized_count 1" in text
+        assert "context_guard_acceptance_score 1.0" in text
 
 
 def assert_backup_only_mode(module) -> None:
@@ -125,6 +163,7 @@ def assert_backup_only_mode(module) -> None:
             archive_older_than_days=10,
             worktree_older_than_days=7,
             rotate_logs_above_mb=0,
+            context_health=False,
         )
         assert module.run(args) == 0
         assert paths["rollout"].exists(), "backup-only mode must not move sessions"
@@ -133,6 +172,35 @@ def assert_backup_only_mode(module) -> None:
         assert (backup / "state_5.sqlite").exists()
         assert (backup / "config.toml").exists()
         assert not (backup / "moved-sessions.jsonl").exists()
+
+
+def assert_context_health_mode(module) -> None:
+    with tempfile.TemporaryDirectory() as td:
+        paths = make_fake_home(Path(td))
+        backup = Path(td) / "backup-context"
+        args = argparse.Namespace(
+            apply=False,
+            backup_only=False,
+            details=False,
+            wait_for_codex_exit=False,
+            codex_home=str(paths["codex_home"]),
+            backup_root=str(backup),
+            archive_older_than_days=10,
+            worktree_older_than_days=7,
+            rotate_logs_above_mb=0,
+            context_health=True,
+        )
+        output = io.StringIO()
+        ralph_home = make_fake_ralph_home(Path(td))
+        with temporary_env(RALPH_HOME=str(ralph_home)), contextlib.redirect_stdout(output):
+            assert module.run(args) == 0
+        text = output.getvalue()
+        assert paths["rollout"].exists(), "--context-health must not move sessions"
+        assert paths["worktree"].exists(), "--context-health must not move worktrees"
+        assert not backup.exists(), "--context-health must not create backup artifacts"
+        assert "context_helper present scripts/context/repo_map.py" in text
+        assert "context_handoff_recent_oversized_count 1" in text
+        assert "old_session_candidates" not in text
 
 
 def assert_session_alias_detection(module) -> None:
@@ -170,6 +238,7 @@ def assert_apply_mode(module) -> None:
             archive_older_than_days=10,
             worktree_older_than_days=7,
             rotate_logs_above_mb=0,
+            context_health=False,
         )
         assert module.run(args) == 0
 
@@ -200,10 +269,15 @@ def main() -> int:
     module = load_module()
     assert_report_mode(module)
     assert_backup_only_mode(module)
+    assert_context_health_mode(module)
     assert_session_alias_detection(module)
     assert_apply_mode(module)
     print("smoke tests passed")
     return 0
+
+
+def test_keep_codex_fast_smoke() -> None:
+    assert main() == 0
 
 
 if __name__ == "__main__":

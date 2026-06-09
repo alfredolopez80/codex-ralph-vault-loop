@@ -1,0 +1,3 @@
+{"timestamp":"2026-06-09T09:29:00Z","message":"info heartbeat","status":"ok"}
+{"timestamp":"2026-06-09T09:30:00Z","message":"warning queue depth high","status":"warn"}
+{"timestamp":"2026-06-09T09:31:00Z","message":"error retry failed","status":"error"}
