@@ -147,6 +147,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
     cases = {
         "git status": "git status --porcelain | head -n 30",
         "git log": "git log --oneline -15",
+        "git log --oneline": "git log --oneline -15",
         "git -c core.pager=cat log": "git log --oneline -15",
         "git diff": "git diff --name-only | head -n 50",
         "git diff -- .": "git diff --name-only | head -n 50",
@@ -162,6 +163,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt": "head -c 6000",
         "git diff; head -c 1 /dev/null": "git diff --name-only | head -n 50",
         "kubectl logs deploy/control-api; head -c 1 /dev/null": "head -c 6000",
+        "python3 -m pytest tests -vv": "head -c 6000",
     }
 
     for command, suggestion in cases.items():
@@ -177,6 +179,7 @@ def test_pre_tool_guard_allows_bounded_firehose_equivalents(tmp_path: Path) -> N
         "git status --porcelain | head -n 30",
         "git status --short",
         "git log --oneline -15",
+        "git log --oneline --max-count 15",
         "git log --max-count=15",
         "git diff --name-only | head -n 50",
         "git diff --stat",

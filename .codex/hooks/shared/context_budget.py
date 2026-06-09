@@ -416,6 +416,34 @@ def _is_validation_command(tokens: list[str], cwd: Path) -> bool:
     return False
 
 
+def _validation_invocation(argv: list[str]) -> tuple[str, list[str]] | None:
+    if not argv:
+        return None
+    executable = _executable_name(argv[0])
+    if executable in VALIDATION_COMMAND_NAMES:
+        return executable, argv[1:]
+    if executable in {"python", "python3"} and "-m" in argv:
+        module_index = argv.index("-m")
+        if module_index + 1 < len(argv) and argv[module_index + 1] in {"pytest", "mypy"}:
+            return argv[module_index + 1], argv[module_index + 2 :]
+    return None
+
+
+def _classify_validation_command(argv: list[str], command: str) -> GuardFinding | None:
+    invocation = _validation_invocation(argv)
+    if invocation is None or _has_any_bound(command):
+        return None
+    name, args = invocation
+    if name == "pytest" and any(arg in {"-vv", "--verbose"} or (arg.startswith("-") and "vv" in arg) for arg in args):
+        return GuardFinding(
+            risk="block",
+            reason_code="pytest_verbose_unbounded",
+            reason="Context budget guard blocked verbose pytest output without a transcript cap. Keep normal quiet validation or add a byte cap.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    return None
+
+
 def _is_high_risk_rg_target(path: Path, cwd: Path) -> bool:
     home = Path.home().resolve()
     if path == Path("/"):
@@ -472,7 +500,7 @@ def _classify_git_command(tokens: list[str], cwd: Path, command: str) -> GuardFi
             suggested_command="git status --porcelain | head -n 30",
         )
     if subcommand == "log":
-        if _option_present(args, {"--oneline", "--max-count"}) or _limited_numeric_option(args, {"-n", "--max-count"}):
+        if _limited_numeric_option(args, {"-n", "--max-count"}) or any(re.fullmatch(r"-\d+", arg) for arg in args):
             return None
         return GuardFinding(
             risk="block",
@@ -732,6 +760,9 @@ def classify_command(command: str, cwd: Path) -> GuardFinding | None:
             continue
         segment_command = shlex.join(words)
         bounded_command = _segment_bound_text(segment_command, command)
+        validation_finding = _classify_validation_command(tokens, bounded_command)
+        if validation_finding:
+            return validation_finding
         if _is_validation_command(tokens, cwd):
             continue
         for classifier in (_classify_base64,):
