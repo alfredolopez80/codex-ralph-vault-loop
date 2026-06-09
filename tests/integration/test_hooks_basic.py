@@ -152,6 +152,7 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "git diff -- :/": "git diff --name-only | head -n 50",
         "find . -type f": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
         "find . -print0": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
+        "find . -mindepth 1 -type f": "find . -maxdepth 3 -type f | sed 's#^\\./##' | sort | head -n 120",
         "ls -la /": "head -c 6000",
         "grep -R error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
         "grep -R --include='*.py' error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
@@ -212,8 +213,10 @@ def test_pre_tool_guard_does_not_trust_validation_basenames_outside_repo(tmp_pat
     fake_python.write_text("print('too much')\n", encoding="utf-8")
     fake_shell = tmp_path / "doctor.sh"
     fake_shell.write_text("echo too much\n", encoding="utf-8")
+    fake_wakeup = tmp_path / "wakeup.py"
+    fake_wakeup.write_text("print('too much')\n", encoding="utf-8")
 
-    for command in [f"python3 {fake_python}", f"bash {fake_shell}"]:
+    for command in [f"python3 {fake_python}", f"bash {fake_shell}", f"python3 {fake_wakeup}"]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
         assert result.returncode == 0
         payload = json.loads(result.stdout)

@@ -378,6 +378,11 @@ def _is_repo_validation_script(raw_path: str, cwd: Path) -> bool:
     return _is_relative_to(resolved, cwd.resolve(strict=False))
 
 
+def _is_wakeup_script_path(raw_path: str) -> bool:
+    normalized = raw_path.replace("\\", "/")
+    return normalized == "scripts/memory/wakeup.py" or normalized.endswith("/scripts/memory/wakeup.py")
+
+
 def _is_validation_command(tokens: list[str], cwd: Path) -> bool:
     if not tokens:
         return False
@@ -508,7 +513,7 @@ def _is_broad_diff_scope(raw_path: str, cwd: Path) -> bool:
 def _find_has_bound(argv: list[str], command: str) -> bool:
     return (
         _has_any_bound(command)
-        or any(arg in {"-maxdepth", "-mindepth", "-prune", "-quit"} or arg.startswith("-maxdepth") for arg in argv[1:])
+        or any(arg in {"-maxdepth", "-prune", "-quit"} or arg.startswith("-maxdepth") for arg in argv[1:])
         or _limited_numeric_option(argv, {"--limit"})
     )
 
@@ -650,10 +655,10 @@ def _classify_python_script_output(argv: list[str], cwd: Path, command: str) -> 
         return None
     script = argv[index]
     script_name = Path(script).name
-    if _is_repo_validation_script(script, cwd) or script_name == "wakeup.py":
+    if _is_repo_validation_script(script, cwd) or _is_wakeup_script_path(script):
         return None
     script_parts = Path(script.replace("\\", "/")).parts
-    if script_name in VALIDATION_SCRIPT_NAMES or (script.endswith(".py") and "scripts" in script_parts):
+    if script_name in VALIDATION_SCRIPT_NAMES or script_name == "wakeup.py" or (script.endswith(".py") and "scripts" in script_parts):
         return GuardFinding(
             risk="block",
             reason_code="python_script_unbounded",
