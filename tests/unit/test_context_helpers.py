@@ -80,7 +80,12 @@ def test_repo_map_is_concise_and_skips_noisy_paths(tmp_path: Path) -> None:
 
 
 def test_scan_errors_groups_findings_and_keeps_small_context() -> None:
-    report = scan_errors.summarize([FIXTURES / "sample.log"], limit=5, context_lines=1, pattern_text=scan_errors.DEFAULT_PATTERN)
+    report = scan_errors.summarize(
+        [FIXTURES / "sample_errors.txt"],
+        limit=5,
+        context_lines=1,
+        pattern_text=scan_errors.DEFAULT_PATTERN,
+    )
     rendered = scan_errors.render_markdown(report)
 
     assert report["match_count"] == 2
