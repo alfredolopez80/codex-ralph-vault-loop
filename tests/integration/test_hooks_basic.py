@@ -157,6 +157,8 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "grep -R --include='*.py' error .": "grep -RIn -m 50 '<pattern>' <scoped-path>",
         "python3 scripts/context/repo_map.py --root .": "head -c 6000",
         "python3 scripts/context/repo_map.py scripts/gates/run-gates.py": "head -c 6000",
+        "git diff; head -c 1 /dev/null": "git diff --name-only | head -n 50",
+        "kubectl logs deploy/control-api; head -c 1 /dev/null": "head -c 6000",
     }
 
     for command, suggestion in cases.items():
@@ -182,6 +184,7 @@ def test_pre_tool_guard_allows_bounded_firehose_equivalents(tmp_path: Path) -> N
         "ls -la / 2>&1 | head -c 6000",
         "grep -R -m 50 error .",
         "grep -R error scripts/context 2>&1 | head -c 6000",
+        "python3 scripts/context/repo_map.py --root . 2>&1 | head -c 6000",
         "python3 scripts/context/repo_map.py --root . > /tmp/ralph-command-output.txt 2>&1; head -c 6000 /tmp/ralph-command-output.txt",
     ]:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
@@ -202,6 +205,20 @@ def test_pre_tool_guard_allows_validation_commands(tmp_path: Path) -> None:
         result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
         assert result.returncode == 0
         assert result.stdout == ""
+
+
+def test_pre_tool_guard_does_not_trust_validation_basenames_outside_repo(tmp_path: Path) -> None:
+    fake_python = tmp_path / "run-gates.py"
+    fake_python.write_text("print('too much')\n", encoding="utf-8")
+    fake_shell = tmp_path / "doctor.sh"
+    fake_shell.write_text("echo too much\n", encoding="utf-8")
+
+    for command in [f"python3 {fake_python}", f"bash {fake_shell}"]:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command, "cwd": str(ROOT)}})
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+        assert "head -c 6000" in payload["suggested_command"]
 
 
 def test_pre_tool_guard_suggests_sfw_for_simple_package_manager_network_commands(tmp_path: Path) -> None:

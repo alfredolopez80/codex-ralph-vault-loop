@@ -221,6 +221,18 @@ def _has_any_bound(command: str) -> bool:
     return _has_output_cap(command) or _has_redirected_bounded_inspection(command)
 
 
+def _segment_bound_text(segment_command: str, full_command: str) -> str:
+    if _has_any_bound(segment_command):
+        return segment_command
+    if _has_output_cap(full_command) and "|" in full_command and not any(separator in full_command for separator in (";", "&&", "||")):
+        return full_command
+    if _has_redirected_bounded_inspection(full_command) and re.search(r"(?:^|\s)'?(?:&?>|[12]>)'?(?:\s|$)", segment_command):
+        return full_command
+    if _has_output_redirect(segment_command) and _has_redirected_bounded_inspection(full_command):
+        return full_command
+    return segment_command
+
+
 def toxic_text_reasons(text: str, *, line_limit: int = DEFAULT_LONG_LINE_LIMIT) -> list[str]:
     reasons: list[str] = []
     if not text:
@@ -359,16 +371,23 @@ def _limited_numeric_option(tokens: list[str], names: set[str]) -> bool:
     return False
 
 
-def _is_validation_command(tokens: list[str]) -> bool:
+def _is_repo_validation_script(raw_path: str, cwd: Path) -> bool:
+    if Path(raw_path).name not in VALIDATION_SCRIPT_NAMES:
+        return False
+    resolved = _resolve_path(raw_path, cwd)
+    return _is_relative_to(resolved, cwd.resolve(strict=False))
+
+
+def _is_validation_command(tokens: list[str], cwd: Path) -> bool:
     if not tokens:
         return False
     executable = _executable_name(tokens[0])
     if executable in VALIDATION_COMMAND_NAMES:
         return True
-    if executable in VALIDATION_SCRIPT_NAMES:
+    if executable in VALIDATION_SCRIPT_NAMES and _is_repo_validation_script(tokens[0], cwd):
         return True
     if executable in {"bash", "sh", "zsh"} and len(tokens) > 1:
-        return Path(tokens[1]).name in VALIDATION_SCRIPT_NAMES
+        return _is_repo_validation_script(tokens[1], cwd)
     if executable in {"python", "python3"}:
         if "-m" in tokens:
             module_index = tokens.index("-m")
@@ -383,7 +402,7 @@ def _is_validation_command(tokens: list[str]) -> bool:
             if not word.startswith("-"):
                 break
             index += 1
-        return index < len(tokens) and Path(tokens[index]).name in VALIDATION_SCRIPT_NAMES
+        return index < len(tokens) and _is_repo_validation_script(tokens[index], cwd)
     return False
 
 
@@ -610,7 +629,7 @@ def _classify_structured_dump(argv: list[str], command: str) -> GuardFinding | N
     return None
 
 
-def _classify_python_script_output(argv: list[str], command: str) -> GuardFinding | None:
+def _classify_python_script_output(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
     if not argv or _has_any_bound(command):
         return None
     executable = _executable_name(argv[0])
@@ -631,14 +650,46 @@ def _classify_python_script_output(argv: list[str], command: str) -> GuardFindin
         return None
     script = argv[index]
     script_name = Path(script).name
-    script_parts = Path(script.replace("\\", "/")).parts
-    if script_name in VALIDATION_SCRIPT_NAMES or script_name == "wakeup.py":
+    if _is_repo_validation_script(script, cwd) or script_name == "wakeup.py":
         return None
-    if script.endswith(".py") and "scripts" in script_parts:
+    script_parts = Path(script.replace("\\", "/")).parts
+    if script_name in VALIDATION_SCRIPT_NAMES or (script.endswith(".py") and "scripts" in script_parts):
         return GuardFinding(
             risk="block",
             reason_code="python_script_unbounded",
             reason="Context budget guard blocked an unbounded Python helper script. Redirect or cap output before putting it in the transcript.",
+            suggested_command=_safe_byte_cap_command(command),
+        )
+    return None
+
+
+def _classify_shell_script_output(argv: list[str], cwd: Path, command: str) -> GuardFinding | None:
+    if not argv or _has_any_bound(command):
+        return None
+    executable = _executable_name(argv[0])
+    if executable not in {"bash", "sh", "zsh"}:
+        return None
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            index += 1
+            break
+        if not arg.startswith("-"):
+            break
+        index += 1
+    if index >= len(argv):
+        return None
+    script = argv[index]
+    if _is_repo_validation_script(script, cwd):
+        return None
+    script_name = Path(script).name
+    script_parts = Path(script.replace("\\", "/")).parts
+    if script_name in VALIDATION_SCRIPT_NAMES or (script.endswith(".sh") and "scripts" in script_parts):
+        return GuardFinding(
+            risk="block",
+            reason_code="shell_script_unbounded",
+            reason="Context budget guard blocked an unbounded shell helper script. Redirect or cap output before putting it in the transcript.",
             suggested_command=_safe_byte_cap_command(command),
         )
     return None
@@ -668,14 +719,16 @@ def classify_command(command: str, cwd: Path) -> GuardFinding | None:
         tokens = _strip_environment_prefix(words)
         if not tokens:
             continue
-        if _is_validation_command(tokens):
+        segment_command = shlex.join(words)
+        bounded_command = _segment_bound_text(segment_command, command)
+        if _is_validation_command(tokens, cwd):
             continue
         for classifier in (_classify_base64,):
             finding = classifier(tokens)
             if finding:
                 return finding
         for classifier in (_classify_git_command,):
-            finding = classifier(tokens, cwd, command)
+            finding = classifier(tokens, cwd, bounded_command)
             if finding:
                 return finding
         for classifier in (_classify_display_command, _classify_rg_command):
@@ -683,21 +736,27 @@ def classify_command(command: str, cwd: Path) -> GuardFinding | None:
             if finding:
                 return finding
         for classifier in (_classify_recursive_listing,):
-            finding = classifier(tokens, cwd, command)
+            finding = classifier(tokens, cwd, bounded_command)
             if finding:
                 return finding
         for classifier in (_classify_grep_command,):
-            finding = classifier(tokens, cwd, command)
+            finding = classifier(tokens, cwd, bounded_command)
             if finding:
                 return finding
         for classifier in (_classify_log_stream, _classify_structured_dump):
-            finding = classifier(tokens, command)
+            finding = classifier(tokens, bounded_command)
             if finding:
                 return finding
-        finding = _classify_python_script_output(tokens, command)
+        finding = _classify_python_script_output(tokens, cwd, bounded_command)
         if finding:
             return finding
-    return _classify_python_full_read(command)
+        finding = _classify_shell_script_output(tokens, cwd, bounded_command)
+        if finding:
+            return finding
+        finding = _classify_python_full_read(segment_command)
+        if finding:
+            return finding
+    return None
 
 
 def payload_patch_text(payload: dict[str, Any]) -> str:
