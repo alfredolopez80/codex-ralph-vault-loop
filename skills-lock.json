@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "text-to-lottie": {
+      "source": "./skills/text-to-lottie",
+      "sourceType": "local",
+      "computedHash": "cf1ee2026e13d12a307cdc10fb34390281f9ffd46b5da130b5b01c8e19020f3c"
+    }
+  }
+}
