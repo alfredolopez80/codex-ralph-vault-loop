@@ -47,7 +47,7 @@ repos:
         entry: prettier --check --ignore-unknown
         language: system
         files: '\.(md|ya?ml|json)$'
-        exclude: '^(\.claude/.*|\.agents/skills/(cost-router|model-router|text-to-lottie)/.*|docs/diagrams/.*|AGENTS\.md|CLAUDE\.md|README\.md|docs/codex-global-skills\.md)$'
+        exclude: '^(\.claude/.*|\.agents/skills/(cost-router|model-router|text-to-lottie)/.*|skills/text-to-lottie/.*|docs/diagrams/.*|AGENTS\.md|CLAUDE\.md|README\.md|docs/codex-global-skills\.md)$'
 
       - id: gitleaks-staged
         name: gitleaks staged secret scan
@@ -57,7 +57,7 @@ repos:
 
       - id: semgrep-local-secrets
         name: semgrep local secret patterns
-        entry: env SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_SEND_METRICS=off semgrep scan --quiet --error --config .semgrep.yml
+        entry: env SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_SEND_METRICS=off scripts/gates/run-semgrep-local-scan.sh
         language: system
         pass_filenames: true
         types_or: [text, python, shell, yaml, json, markdown, toml]
