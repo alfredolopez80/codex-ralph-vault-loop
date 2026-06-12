@@ -40,9 +40,7 @@ gh pr checks <pr>
 Before relying on local files, verify the checkout matches the PR head:
 
 ```bash
-PR_HEAD_REF="$(gh pr view <pr> --json headRefName --jq '.headRefName')"
 PR_HEAD_OID="$(gh pr view <pr> --json headRefOid --jq '.headRefOid')"
-git fetch origin "$PR_HEAD_REF"
 if [[ "$(git rev-parse HEAD)" != "$PR_HEAD_OID" ]]; then
   gh pr checkout <pr>
 fi
