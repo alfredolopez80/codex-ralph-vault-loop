@@ -47,6 +47,8 @@ DEFAULT_SKILLS=(
   keep-codex-fast
   visual-explainer
   human-e2e-recorder
+  bug-hunt
+  bugbot-pr-review
   ultrathink
   make-requirements-great
   framing-doc
