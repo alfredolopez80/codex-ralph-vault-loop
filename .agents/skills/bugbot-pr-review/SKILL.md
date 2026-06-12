@@ -37,15 +37,18 @@ gh pr view <pr> --json number,title,headRefName,headRefOid,baseRefName,reviewDec
 gh pr checks <pr>
 ```
 
-Before relying on local files, verify the checkout matches the PR head:
+Before relying on local files, verify the local copy matches the PR head:
 
 ```bash
 PR_HEAD_OID="$(gh pr view <pr> --json headRefOid --jq '.headRefOid')"
 if [[ "$(git rev-parse HEAD)" != "$PR_HEAD_OID" ]]; then
-  gh pr checkout <pr>
+  echo "Local HEAD does not match PR head; stop and use a clean local copy at the PR head before local-code adjudication." >&2
+  exit 1
 fi
-test "$(git rev-parse HEAD)" = "$PR_HEAD_OID"
 ```
+
+Branch switching is a separate user-approved setup step, not part of the
+default read-only adjudication flow.
 
 If any relevant automated check is pending, say so before concluding:
 
