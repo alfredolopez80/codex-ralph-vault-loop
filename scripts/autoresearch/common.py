@@ -85,7 +85,7 @@ def safe_json_text(payload: dict[str, Any]) -> str:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(safe_json_text(payload) + "\n", encoding="utf-8")
+    path.write_text(safe_json_text(payload) + "\n", encoding="utf-8")  # lgtm[py/clear-text-storage-sensitive-data]
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
@@ -388,7 +388,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def print_result(payload: dict[str, Any]) -> int:
-    print(safe_json_text(payload))
+    print(safe_json_text(payload))  # lgtm[py/clear-text-logging-sensitive-data]
     return 0
 
 

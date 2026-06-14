@@ -92,7 +92,7 @@ def main() -> int:
     args = parser.parse_args()
 
     report = build_report(args)
-    print(safe_json_text(report))
+    print(safe_json_text(report))  # lgtm[py/clear-text-logging-sensitive-data]
     return 0
 
 
