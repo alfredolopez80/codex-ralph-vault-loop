@@ -19,6 +19,8 @@ SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
+from diagnostic_json import emit_json, safe_json_text  # noqa: E402
+from diagnostic_json import write_json as write_sanitized_json  # noqa: E402
 from sensitive_content import is_red  # noqa: E402
 
 SCORECARD_DIR = REPO_ROOT / "config" / "scorecards"
@@ -181,8 +183,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_sanitized_json(path, payload, create_parent=True)
 
 
 def detect_secret_leak(text: str) -> bool:

@@ -23,6 +23,7 @@ if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
 from _eval_common import load_scorecard  # noqa: E402
+from diagnostic_json import append_jsonl, emit_json, safe_json_text, write_json  # noqa: E402
 from sensitive_content import is_red  # noqa: E402
 
 
@@ -65,15 +66,6 @@ def session_paths(cwd: Path) -> dict[str, Path]:
         "ideas": cwd / IDEAS,
         "last_run": cwd / LAST_RUN,
     }
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -371,10 +363,10 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def print_result(payload: dict[str, Any]) -> int:
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    emit_json(payload)
     return 0
 
 
 def fail_result(error: Exception) -> int:
-    print(json.dumps({"ok": False, "error": str(error)}, indent=2, sort_keys=True), file=sys.stderr)
+    emit_json({"ok": False, "error": str(error)}, stream=sys.stderr)
     return 1

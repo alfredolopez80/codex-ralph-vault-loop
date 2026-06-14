@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import Any
 
-from _eval_common import REPO_ROOT, now_iso
-from _mcp_eval_common import append_eval_jsonl, live_skip_report, load_json, load_response, mean, ratio, red_is_blocked, text_has_secret, write_eval_report
+from _eval_common import REPO_ROOT, emit_json, now_iso
+from _mcp_eval_common import append_eval_jsonl, live_skip_report, load_json, load_response
+from _mcp_eval_common import mean, ratio, red_is_blocked, text_has_secret, write_eval_report
 
 
 DEFAULT_FIXTURE = REPO_ROOT / "tests" / "evals" / "fixtures" / "research_citation" / "manifest.json"
@@ -91,7 +91,7 @@ def main() -> int:
     args = parser.parse_args()
 
     report = build_report(args)
-    print(json.dumps(report, indent=2, sort_keys=True))
+    emit_json(report)
     return 0
 
 
