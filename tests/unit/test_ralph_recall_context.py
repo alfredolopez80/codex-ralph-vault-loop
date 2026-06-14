@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -101,10 +100,20 @@ def test_irrelevant_memory_is_not_injected() -> None:
 def test_recall_failure_falls_back_cleanly(monkeypatch) -> None:
     task_intake = load_task_intake()
 
-    def raise_timeout(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired(cmd="ralph-recall", timeout=10)
+    class BrokenRecall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            return project
 
-    monkeypatch.setattr(task_intake.subprocess, "run", raise_timeout)
+        @staticmethod
+        def safe_project_id(_project_id: str) -> str:
+            return ""
+
+        @staticmethod
+        def collect_results(*_args, **_kwargs):
+            raise RuntimeError("recall index unavailable")
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: BrokenRecall)
 
     status, output = task_intake.run_recall(
         "ralph recall codex-ralph-vault-loop",
@@ -114,7 +123,7 @@ def test_recall_failure_falls_back_cleanly(monkeypatch) -> None:
     context = task_intake.build_agent_prompt_context("Task", [], status, output)
 
     assert status == "failed"
-    assert "timeout" in output
+    assert output == "recall error: RuntimeError"
     assert context["final_prompt"] == "Task"
     assert context["memory_status"] == "fallback_no_recall"
     assert context["memory_trace"]["recall_status"] == "failed"
@@ -126,10 +135,20 @@ def test_recall_failure_falls_back_cleanly(monkeypatch) -> None:
 def test_recall_generic_error_is_sanitized_fallback(monkeypatch) -> None:
     task_intake = load_task_intake()
 
-    def raise_error(*_args, **_kwargs):
-        raise RuntimeError("secret-value-that-must-not-leak")
+    class BrokenRecall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            return project
 
-    monkeypatch.setattr(task_intake.subprocess, "run", raise_error)
+        @staticmethod
+        def safe_project_id(_project_id: str) -> str:
+            return ""
+
+        @staticmethod
+        def collect_results(*_args, **_kwargs):
+            raise RuntimeError("secret-value-that-must-not-leak")
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: BrokenRecall)
 
     status, output = task_intake.run_recall(
         "ralph recall codex-ralph-vault-loop",
@@ -142,6 +161,107 @@ def test_recall_generic_error_is_sanitized_fallback(monkeypatch) -> None:
     assert output == "recall error: RuntimeError"
     assert "secret-value-that-must-not-leak" not in context["memory_trace"]["fallback_reason"]
     assert context["memory_trace"]["memory_status"] == "fallback_no_recall"
+
+
+def test_in_process_recall_preserves_workspace_context(monkeypatch, tmp_path: Path) -> None:
+    task_intake = load_task_intake()
+    calls: dict[str, object] = {}
+
+    class Context:
+        project_id = "p-workspace123"
+        project_slug = "workspace-project"
+
+    class Recall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            calls["project"] = project
+            return project
+
+        @staticmethod
+        def safe_project_id(project_id: str) -> str:
+            calls.setdefault("project_ids", []).append(project_id)
+            return project_id
+
+        @staticmethod
+        def derive_context(workspace_root: str) -> Context:
+            calls["workspace_root"] = workspace_root
+            return Context()
+
+        @staticmethod
+        def collect_results(query, project, limit, include_raw, project_id, workspace_root):
+            calls["collect"] = {
+                "query": query,
+                "project": project,
+                "limit": limit,
+                "include_raw": include_raw,
+                "project_id": project_id,
+                "workspace_root": workspace_root,
+            }
+            return []
+
+        @staticmethod
+        def render_markdown(query, project, results) -> str:
+            return (
+                "# Ralph Recall\n\n"
+                f"- query: `{query}`\n"
+                f"- project: `{project}`\n\n"
+                "## Results\n\n"
+                "No safe matches found.\n"
+            )
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: Recall)
+
+    status, _output = task_intake.run_recall(
+        "workspace memory",
+        "",
+        4,
+        project_id="",
+        workspace_root=str(tmp_path),
+    )
+
+    assert status == "ran"
+    assert calls["workspace_root"] == str(tmp_path.resolve())
+    assert calls["project"] == "workspace-project"
+    assert calls["collect"] == {
+        "query": "workspace memory",
+        "project": "workspace-project",
+        "limit": 4,
+        "include_raw": False,
+        "project_id": "p-workspace123",
+        "workspace_root": str(tmp_path.resolve()),
+    }
+
+
+def test_in_process_recall_timeout_returns_fallback(monkeypatch) -> None:
+    task_intake = load_task_intake()
+
+    class Recall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            return project
+
+        @staticmethod
+        def safe_project_id(project_id: str) -> str:
+            return project_id
+
+        @staticmethod
+        def collect_results(*_args, **_kwargs):
+            return []
+
+    def timeout(_callback):
+        raise task_intake.RecallTimeout("recall timeout after 1s")
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: Recall)
+    monkeypatch.setattr(task_intake, "run_with_recall_timeout", timeout)
+
+    status, output = task_intake.run_recall(
+        "workspace memory",
+        "workspace-project",
+        4,
+    )
+
+    assert status == "failed"
+    assert output == "recall timeout after 1s"
 
 
 def test_high_score_wrong_repo_is_rejected() -> None:
@@ -554,6 +674,7 @@ def test_memory_trace_feature_flag_renders_sanitized_json(monkeypatch) -> None:
 def test_memory_trace_is_not_rendered_without_feature_flag(monkeypatch) -> None:
     task_intake = load_task_intake()
     monkeypatch.delenv("RALPH_MEMORY_TRACE", raising=False)
+    monkeypatch.delenv("RALPH_RECALL_VERBOSE", raising=False)
     context = task_intake.build_agent_prompt_context("Task", [], "skipped")
     payload = {
         "sensitivity": "GREEN",
@@ -576,6 +697,77 @@ def test_memory_trace_is_not_rendered_without_feature_flag(monkeypatch) -> None:
     rendered = task_intake.render_markdown(payload)
 
     assert "MEMORY_TRACE_JSON=" not in rendered
+
+
+def test_default_render_omits_unselected_recall_output(monkeypatch) -> None:
+    task_intake = load_task_intake()
+    monkeypatch.delenv("RALPH_MEMORY_TRACE", raising=False)
+    monkeypatch.delenv("RALPH_RECALL_VERBOSE", raising=False)
+    context = task_intake.build_agent_prompt_context("Task", [], "ran", recall_count=1)
+    context["memory_trace"].update(
+        {
+            "memory_rejections": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope_repo"}],
+            "rejected_memory": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope"}],
+        }
+    )
+    payload = {
+        "sensitivity": "GREEN",
+        "complexity": 2,
+        "task_type": "other",
+        "route": "local",
+        "clarification_required": "no",
+        "reason": "test",
+        "clarifying_questions": [],
+        "recall_status": "ran",
+        "recall_output": "# Ralph Recall\n\nRALPH_RECALL_VERBOSE_SENTINEL",
+        "memory_status": context["memory_status"],
+        "selected_memory_context": "",
+        "memory_trace": context["memory_trace"],
+        "project": "codex-ralph-vault-loop",
+        "project_id": "",
+        "workspace_root": "",
+    }
+
+    rendered = task_intake.render_markdown(payload)
+
+    assert "RALPH_RECALL_VERBOSE_SENTINEL" not in rendered
+    assert "memory_rejected=mem_rejected_verbose_001" not in rendered
+    assert "recall_status=ran" in rendered
+    assert "memory_status=disabled" in rendered
+
+
+def test_verbose_render_keeps_unselected_recall_diagnostics(monkeypatch) -> None:
+    task_intake = load_task_intake()
+    monkeypatch.setenv("RALPH_RECALL_VERBOSE", "1")
+    context = task_intake.build_agent_prompt_context("Task", [], "ran", recall_count=1)
+    context["memory_trace"].update(
+        {
+            "memory_rejections": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope_repo"}],
+            "rejected_memory": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope"}],
+        }
+    )
+    payload = {
+        "sensitivity": "GREEN",
+        "complexity": 2,
+        "task_type": "other",
+        "route": "local",
+        "clarification_required": "no",
+        "reason": "test",
+        "clarifying_questions": [],
+        "recall_status": "ran",
+        "recall_output": "# Ralph Recall\n\nRALPH_RECALL_VERBOSE_SENTINEL",
+        "memory_status": context["memory_status"],
+        "selected_memory_context": "",
+        "memory_trace": context["memory_trace"],
+        "project": "codex-ralph-vault-loop",
+        "project_id": "",
+        "workspace_root": "",
+    }
+
+    rendered = task_intake.render_markdown(payload)
+
+    assert "RALPH_RECALL_VERBOSE_SENTINEL" in rendered
+    assert "memory_rejected=mem_rejected_verbose_001 reason=missing_scope_repo" in rendered
 
 
 def test_memory_trace_records_fallback_without_selected_memory() -> None:

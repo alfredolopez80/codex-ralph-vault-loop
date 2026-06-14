@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
-import subprocess
+import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -57,7 +58,6 @@ YELLOW_MARKERS = (
 RECALL_CONTEXT_MIN_SCORE = 20
 RECALL_CONTEXT_LIMIT = 3
 RECALL_CONTEXT_MAX_TOKENS = 180
-RECALL_TIMEOUT_SECONDS = 10
 MEMORY_CONTEXT_BEGIN = "<<<RALPH_MEMORY_CONTEXT_BEGIN>>>"
 MEMORY_CONTEXT_END = "<<<RALPH_MEMORY_CONTEXT_END>>>"
 MEMORY_CONTEXT_NOTICE = (
@@ -90,6 +90,12 @@ SHADOW_TRACE_FIELDS = (
     "safe_to_promote_candidate",
     "raw_included",
 )
+_RECALL_MODULE: Any | None = None
+RECALL_TIMEOUT_SECONDS = 10
+
+
+class RecallTimeout(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -297,6 +303,51 @@ def build_recall_query(redacted_prompt: str, project: str = "", branch: str = ""
     return " ".join(selected)
 
 
+def load_recall_module() -> Any | None:
+    global _RECALL_MODULE
+    if _RECALL_MODULE is not None:
+        return _RECALL_MODULE
+    recall = REPO_ROOT / "scripts" / "memory" / "ralph-recall.py"
+    if not recall.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("ralph_recall_for_task_intake", recall)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _RECALL_MODULE = module
+    return module
+
+
+def recall_timeout_seconds() -> int:
+    raw = os.environ.get("RALPH_RECALL_TIMEOUT_SECONDS")
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return RECALL_TIMEOUT_SECONDS
+
+
+def run_with_recall_timeout(callback):
+    timeout = recall_timeout_seconds()
+    if not hasattr(signal, "SIGALRM"):
+        return callback()
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _raise_timeout(_signum, _frame):
+        raise RecallTimeout(f"recall timeout after {timeout}s")
+
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
+    try:
+        return callback()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def run_recall(
     query: str,
     project: str,
@@ -307,30 +358,42 @@ def run_recall(
 ) -> tuple[str, str]:
     if not query:
         return "skipped", ""
-    recall = REPO_ROOT / "scripts" / "memory" / "ralph-recall.py"
-    if not recall.exists():
+    recall_module = load_recall_module()
+    if recall_module is None:
         return "skipped", "recall script missing"
-    command = [sys.executable, str(recall), query, "--project", project, "--limit", str(limit)]
-    if project_id:
-        command.extend(["--project-id", project_id])
-    if workspace_root:
-        command.extend(["--workspace-root", workspace_root])
     try:
-        result = subprocess.run(
-            command,
-            cwd=str(REPO_ROOT),
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=RECALL_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return "failed", sanitize_fallback_reason(f"recall timeout after {exc.timeout}s")
+        def collect():
+            safe_project_id = recall_module.safe_project_id(project_id)
+            context = None
+            workspace_path = ""
+            if workspace_root:
+                workspace_path = str(Path(workspace_root).expanduser().resolve())
+                context = recall_module.derive_context(workspace_path)
+            if not safe_project_id and context is not None:
+                safe_project_id = recall_module.safe_project_id(str(getattr(context, "project_id", "")))
+            if project:
+                project_value = project
+            elif context is not None:
+                project_value = str(getattr(context, "project_slug", ""))
+            else:
+                project_value = ""
+            safe_project = recall_module.safe_project(project_value)
+            results = recall_module.collect_results(
+                query,
+                safe_project,
+                limit,
+                False,
+                safe_project_id,
+                workspace_path,
+            )
+            return safe_project, results
+
+        safe_project, results = run_with_recall_timeout(collect)
+    except RecallTimeout as exc:
+        return "failed", sanitize_fallback_reason(str(exc))
     except Exception as exc:
         return "failed", sanitize_fallback_reason(f"recall error: {type(exc).__name__}")
-    if result.returncode != 0:
-        return "failed", sanitize_fallback_reason(result.stderr or result.stdout)
-    return "ran", result.stdout.strip()
+    return "ran", recall_module.render_markdown(query, safe_project, results).strip()
 
 
 def parse_recall_results(recall_output: str) -> list[dict[str, Any]]:
@@ -662,6 +725,12 @@ def memory_status_for_recall(recall_status: str, selected_count: int) -> str:
 def memory_trace_enabled(env: Any = None) -> bool:
     source = os.environ if env is None else env
     value = str(source.get("RALPH_MEMORY_TRACE", "")).strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def recall_verbose_enabled(env: Any = None) -> bool:
+    source = os.environ if env is None else env
+    value = str(source.get("RALPH_RECALL_VERBOSE", "")).strip().lower()
     return value in {"1", "true", "yes", "on"}
 
 
@@ -1110,14 +1179,16 @@ def render_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"PROJECT_ID={payload['project_id']}")
     if payload.get("workspace_root"):
         lines.append(f"WORKSPACE_ROOT={payload['workspace_root']}")
-    if payload.get("recall_output"):
+    verbose_recall = recall_verbose_enabled()
+    if payload.get("recall_output") and (payload.get("memory_status") == "injected" or verbose_recall):
         lines.extend(["", str(payload["recall_output"]).strip()])
     if payload.get("selected_memory_context"):
         lines.extend(["", str(payload["selected_memory_context"]).strip()])
     if payload.get("memory_trace", {}).get("fallback_reason"):
         lines.append(f"memory_fallback={payload['memory_trace']['fallback_reason']}")
-    for rejection in payload.get("memory_trace", {}).get("memory_rejections", []):
-        lines.append(f"memory_rejected={rejection['id']} reason={rejection['reason']}")
+    if verbose_recall:
+        for rejection in payload.get("memory_trace", {}).get("memory_rejections", []):
+            lines.append(f"memory_rejected={rejection['id']} reason={rejection['reason']}")
     if memory_trace_enabled():
         trace = public_memory_trace(payload.get("memory_trace", {}))
         lines.append(f"MEMORY_TRACE_JSON={json.dumps(trace, ensure_ascii=True, sort_keys=True)}")

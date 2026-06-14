@@ -12,13 +12,6 @@ emit_json() {
   fi
 }
 
-json_get() {
-  local expr="$1"
-  if command -v jq > /dev/null 2>&1; then
-    printf '%s' "$INPUT" | jq -r "$expr // empty" 2> /dev/null || true
-  fi
-}
-
 safe_id() {
   local raw="$1"
   local safe
@@ -50,14 +43,20 @@ if [[ -n "$LIB_DIR" && -f "$LIB_DIR/prompt-classification.sh" ]]; then
   source "$LIB_DIR/prompt-classification.sh"
 fi
 
-PROMPT="$(json_get '.prompt')"
-if [[ -z "$PROMPT" ]]; then
-  PROMPT="$(json_get '.user_prompt')"
+PROMPT=""
+CWD=""
+SESSION_ID="unknown"
+TURN_ID="unknown"
+HOOK_EVENT_NAME="UserPromptSubmit"
+if command -v jq > /dev/null 2>&1; then
+  PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // .user_prompt // empty' 2> /dev/null || true)"
+  IFS=$'\037' read -r CWD SESSION_ID TURN_ID HOOK_EVENT_NAME < <(
+    printf '%s' "$INPUT" |
+      jq -r '[.cwd // "", .session_id // "unknown", .turn_id // "unknown", .hook_event_name // "UserPromptSubmit"] | join("\u001f")' 2> /dev/null || true
+  )
 fi
-CWD="$(json_get '.cwd')"
-SESSION_ID="$(safe_id "$(json_get '.session_id')")"
-TURN_ID="$(safe_id "$(json_get '.turn_id')")"
-HOOK_EVENT_NAME="$(json_get '.hook_event_name')"
+SESSION_ID="$(safe_id "$SESSION_ID")"
+TURN_ID="$(safe_id "$TURN_ID")"
 ROOT="$(repo_root "$CWD")"
 
 if declare -F codex_classify_prompt > /dev/null 2>&1; then
@@ -96,8 +95,10 @@ fi
 
 if [[ "$COMPLEXITY" -le 2 ]]; then
   CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}."
+elif [[ "$COMPLEXITY" -eq 3 ]]; then
+  CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}. Quick Aristotle check: apply Fase 1 (Autopsia de Suposiciones) and Fase 5 (Movimiento Aristotelico) before answering or acting. Keep it brief."
 else
-  CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}. ${ACTION}"
+  CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}. ${ACTION} Aristotle First Principles required: 1. Autopsia de Suposiciones; 2. Verdades Irreductibles; 3. Reconstruccion desde Cero; 4. Mapa Suposicion vs Verdad; 5. Movimiento Aristotelico."
 fi
 
 emit_json \

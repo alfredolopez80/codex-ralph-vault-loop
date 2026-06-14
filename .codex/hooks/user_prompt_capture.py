@@ -88,6 +88,7 @@ def run_task_intake(payload: dict, context: ActiveContext) -> None:
     if result.returncode != 0:
         print("RALPH_TASK_INTAKE_STATUS=failed")
 
+
 def main() -> int:
     payload = read_hook_input()
     context = active_context_from_payload(payload)

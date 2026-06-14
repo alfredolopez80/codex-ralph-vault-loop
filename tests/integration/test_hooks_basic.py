@@ -100,6 +100,18 @@ def test_hooks_accept_empty_json(tmp_path: Path) -> None:
         assert result.returncode == 0, f"{hook}: {result.stderr}"
 
 
+def test_user_prompt_capture_runs_task_intake_for_continuation_prompts(tmp_path: Path) -> None:
+    for prompt in [
+        "continua donde quedamos",
+        "continue implementing the hook performance fixes and validate memory recall",
+        "sigue revisando el PR y corrige los comentarios",
+    ]:
+        result = run_hook("user_prompt_capture.py", tmp_path, {"prompt": prompt})
+
+        assert result.returncode == 0, result.stderr
+        assert "# Ralph Task Intake" in result.stdout
+
+
 def test_pre_tool_guard_blocks_destructive_command(tmp_path: Path) -> None:
     result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": "git reset --hard HEAD"}})
     assert result.returncode == 0

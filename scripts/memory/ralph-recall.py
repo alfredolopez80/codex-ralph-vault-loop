@@ -117,9 +117,17 @@ def iter_skill_files() -> Iterable[Source]:
             yield Source(path, REPO_ROOT)
 
 
-def source_paths(project: str, include_raw: bool, project_id: str = "") -> Iterable[Source]:
+def source_paths(
+    project: str,
+    include_raw: bool,
+    project_id: str = "",
+    workspace_root: str = "",
+) -> Iterable[Source]:
     ralph_home = env_path("RALPH_HOME", DEFAULT_RALPH_HOME)
     vault = env_path("VAULT_DIR", DEFAULT_VAULT_DIR)
+    context = derive_context(workspace_root)
+    if not project_id and context is not None:
+        project_id = safe_project_id(str(getattr(context, "project_id", "")))
     project = safe_project(project)
     runtime_root = ralph_home / "projects" / project_id if project_id else ralph_home
 
@@ -217,11 +225,18 @@ def safe_text_for_output(text: str, classifier) -> tuple[str | None, bool]:
     return getattr(report, "redacted_text", text), getattr(report, "changed", False)
 
 
-def collect_results(query: str, project: str, limit: int, include_raw: bool, project_id: str = "") -> list[Result]:
+def collect_results(
+    query: str,
+    project: str,
+    limit: int,
+    include_raw: bool,
+    project_id: str = "",
+    workspace_root: str = "",
+) -> list[Result]:
     classifier = load_sensitive_classifier()
     results: list[Result] = []
     seen: set[Path] = set()
-    for source in source_paths(project, include_raw, project_id):
+    for source in source_paths(project, include_raw, project_id, workspace_root):
         if source.path in seen:
             continue
         seen.add(source.path)
@@ -290,7 +305,7 @@ def main() -> int:
     else:
         project_value = project_default()
     project = safe_project(project_value)
-    results = collect_results(args.query, project, args.limit, args.include_raw, project_id)
+    results = collect_results(args.query, project, args.limit, args.include_raw, project_id, workspace_root)
     if args.json:
         print(
             json.dumps(
