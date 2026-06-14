@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -90,6 +91,11 @@ SHADOW_TRACE_FIELDS = (
     "raw_included",
 )
 _RECALL_MODULE: Any | None = None
+RECALL_TIMEOUT_SECONDS = 10
+
+
+class RecallTimeout(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -314,6 +320,34 @@ def load_recall_module() -> Any | None:
     return module
 
 
+def recall_timeout_seconds() -> int:
+    raw = os.environ.get("RALPH_RECALL_TIMEOUT_SECONDS")
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return RECALL_TIMEOUT_SECONDS
+
+
+def run_with_recall_timeout(callback):
+    timeout = recall_timeout_seconds()
+    if not hasattr(signal, "SIGALRM"):
+        return callback()
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _raise_timeout(_signum, _frame):
+        raise RecallTimeout(f"recall timeout after {timeout}s")
+
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
+    try:
+        return callback()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def run_recall(
     query: str,
     project: str,
@@ -328,27 +362,33 @@ def run_recall(
     if recall_module is None:
         return "skipped", "recall script missing"
     try:
-        safe_project_id = recall_module.safe_project_id(project_id)
-        context = None
-        if workspace_root:
-            workspace_path = str(Path(workspace_root).expanduser().resolve())
-            context = recall_module.derive_context(workspace_path)
-        if not safe_project_id and context is not None:
-            safe_project_id = recall_module.safe_project_id(str(getattr(context, "project_id", "")))
-        if project:
-            project_value = project
-        elif context is not None:
-            project_value = str(getattr(context, "project_slug", ""))
-        else:
-            project_value = ""
-        safe_project = recall_module.safe_project(project_value)
-        results = recall_module.collect_results(
-            query,
-            safe_project,
-            limit,
-            False,
-            safe_project_id,
-        )
+        def collect():
+            safe_project_id = recall_module.safe_project_id(project_id)
+            context = None
+            if workspace_root:
+                workspace_path = str(Path(workspace_root).expanduser().resolve())
+                context = recall_module.derive_context(workspace_path)
+            if not safe_project_id and context is not None:
+                safe_project_id = recall_module.safe_project_id(str(getattr(context, "project_id", "")))
+            if project:
+                project_value = project
+            elif context is not None:
+                project_value = str(getattr(context, "project_slug", ""))
+            else:
+                project_value = ""
+            safe_project = recall_module.safe_project(project_value)
+            results = recall_module.collect_results(
+                query,
+                safe_project,
+                limit,
+                False,
+                safe_project_id,
+            )
+            return safe_project, results
+
+        safe_project, results = run_with_recall_timeout(collect)
+    except RecallTimeout as exc:
+        return "failed", sanitize_fallback_reason(str(exc))
     except Exception as exc:
         return "failed", sanitize_fallback_reason(f"recall error: {type(exc).__name__}")
     return "ran", recall_module.render_markdown(query, safe_project, results).strip()

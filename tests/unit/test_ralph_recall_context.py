@@ -230,6 +230,38 @@ def test_in_process_recall_preserves_workspace_context(monkeypatch, tmp_path: Pa
     }
 
 
+def test_in_process_recall_timeout_returns_fallback(monkeypatch) -> None:
+    task_intake = load_task_intake()
+
+    class Recall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            return project
+
+        @staticmethod
+        def safe_project_id(project_id: str) -> str:
+            return project_id
+
+        @staticmethod
+        def collect_results(*_args, **_kwargs):
+            return []
+
+    def timeout(_callback):
+        raise task_intake.RecallTimeout("recall timeout after 1s")
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: Recall)
+    monkeypatch.setattr(task_intake, "run_with_recall_timeout", timeout)
+
+    status, output = task_intake.run_recall(
+        "workspace memory",
+        "workspace-project",
+        4,
+    )
+
+    assert status == "failed"
+    assert output == "recall timeout after 1s"
+
+
 def test_high_score_wrong_repo_is_rejected() -> None:
     task_intake = load_task_intake()
     memories = [

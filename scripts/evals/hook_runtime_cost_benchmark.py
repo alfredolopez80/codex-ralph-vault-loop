@@ -49,19 +49,46 @@ def payloads() -> list[dict[str, str]]:
     ]
 
 
-def run_once(command: list[str], payload: dict[str, str], env: dict[str, str]) -> tuple[float, int]:
+def session_id_for(payload: dict[str, str], iteration: int) -> str:
+    return f"hook-cost-{payload['name']}-{iteration}"
+
+
+def hook_payload(payload: dict[str, str], iteration: int, prompt: str | None = None) -> str:
+    return json.dumps(
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": session_id_for(payload, iteration),
+            "cwd": str(ROOT),
+            "prompt": prompt if prompt is not None else payload["prompt"],
+        }
+    )
+
+
+def seed_continuation_checkpoint(payload: dict[str, str], iteration: int, env: dict[str, str]) -> None:
+    completed = subprocess.run(
+        [sys.executable, str(HOOKS / "continuity_prompt_context.py")],
+        cwd=ROOT,
+        input=hook_payload(
+            payload,
+            iteration,
+            "Optimize Codex hooks for faster execution while preserving memory checkpoints",
+        ),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"continuity seed failed: {completed.stderr[-500:]}")
+
+
+def run_once(command: list[str], payload: dict[str, str], env: dict[str, str], iteration: int) -> tuple[float, int]:
     started = time.perf_counter()
     completed = subprocess.run(
         command,
         cwd=ROOT,
-        input=json.dumps(
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": f"hook-cost-{payload['name']}",
-                "cwd": str(ROOT),
-                "prompt": payload["prompt"],
-            }
-        ),
+        input=hook_payload(payload, iteration),
         text=True,
         capture_output=True,
         env=env,
@@ -90,8 +117,10 @@ def measure(iterations: int) -> dict[str, object]:
             for hook_name, command in USER_PROMPT_HOOKS:
                 samples: list[float] = []
                 stdout_sizes: list[int] = []
-                for _ in range(iterations):
-                    elapsed_ms, stdout_chars = run_once(command, payload, env)
+                for iteration in range(iterations):
+                    if payload["name"] == "continuation" and hook_name == "continuity_prompt_context":
+                        seed_continuation_checkpoint(payload, iteration, env)
+                    elapsed_ms, stdout_chars = run_once(command, payload, env, iteration)
                     samples.append(elapsed_ms)
                     stdout_sizes.append(stdout_chars)
                 p50_ms = statistics.median(samples)

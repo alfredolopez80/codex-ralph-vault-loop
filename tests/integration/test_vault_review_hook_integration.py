@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -9,6 +10,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "codex-ralph-vault-loop"
+
+
+def project_id_for_path(path: Path) -> str:
+    material = f"path:{path.resolve()}".encode("utf-8")
+    return f"p-{hashlib.sha256(material).hexdigest()[:16]}"
 
 
 def env_for(ralph_home: Path, vault_dir: Path) -> dict[str, str]:
@@ -147,6 +153,32 @@ def test_stop_promotion_hook_runs_for_configured_local_notes_sources(tmp_path: P
     promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
     promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
     assert promotion["review_requested"][0]["source_groups"] == ["local-notes"]
+
+
+def test_stop_promotion_hook_runs_for_project_handoff_sources(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    vault_dir = tmp_path / "vault"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    handoffs = ralph_home / "projects" / project_id_for_path(workspace) / "handoffs"
+    handoffs.mkdir(parents=True)
+    (handoffs / "latest.md").write_text(
+        "Decision: project must keep hook benchmark scoped before memory promotion.",
+        encoding="utf-8",
+    )
+
+    result = run_hook(
+        "stop_memory_promotion_review.py",
+        ralph_home,
+        vault_dir,
+        {"cwd": str(workspace), "last_assistant_message": "done"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
+    promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+    candidates = promotion["auto_promoted"] + promotion["review_requested"]
+    assert any(candidate["source_groups"] == ["handoffs"] for candidate in candidates)
 
 
 def test_dream_scheduler_runs_vault_review_after_success(tmp_path: Path) -> None:

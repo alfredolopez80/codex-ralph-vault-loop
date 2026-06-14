@@ -52,7 +52,7 @@ def test_hook_runtime_cost_benchmark_uses_empty_temp_vault(monkeypatch) -> None:
 
     seen_vault_dirs: set[str] = set()
 
-    def fake_run_once(command, payload, env):
+    def fake_run_once(command, payload, env, iteration):
         seen_vault_dirs.add(env["VAULT_DIR"])
         return 1.0, 0
 
@@ -65,3 +65,43 @@ def test_hook_runtime_cost_benchmark_uses_empty_temp_vault(monkeypatch) -> None:
     vault_dir = Path(next(iter(seen_vault_dirs)))
     assert vault_dir.name == "vault-empty"
     assert vault_dir.parent.name.startswith("ralph-hook-cost-")
+
+
+def test_hook_runtime_cost_benchmark_seeds_continuation_checkpoint(monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "hook_runtime_cost_benchmark_test_seed",
+        BENCHMARK,
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    seeded: list[tuple[str, int]] = []
+    continuity_outputs: list[int] = []
+
+    def fake_seed(payload, iteration, env):
+        seeded.append((payload["name"], iteration))
+
+    def fake_run_once(command, payload, env, iteration):
+        hook_name = next(
+            name
+            for name, candidate in module.USER_PROMPT_HOOKS
+            if candidate == command
+        )
+        if payload["name"] == "continuation" and hook_name == "continuity_prompt_context":
+            continuity_outputs.append(120)
+            return 1.0, 120
+        return 1.0, 0
+
+    monkeypatch.setattr(module, "seed_continuation_checkpoint", fake_seed)
+    monkeypatch.setattr(module, "run_once", fake_run_once)
+
+    report = module.measure(2)
+
+    assert seeded == [("continuation", 0), ("continuation", 1)]
+    assert continuity_outputs == [120, 120]
+    continuation_case = next(
+        case
+        for case in report["cases"]
+        if case["payload"] == "continuation" and case["hook"] == "continuity_prompt_context"
+    )
+    assert continuation_case["stdout_chars"] == 120

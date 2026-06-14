@@ -108,6 +108,10 @@ def has_project_learning(context: ActiveContext) -> bool:
         return False
 
 
+def has_project_handoffs(context: ActiveContext) -> bool:
+    return has_markdown_source(project_runtime_root(context) / "handoffs")
+
+
 def has_project_vault_inbox(context: ActiveContext) -> bool:
     vault_dir = os.environ.get("VAULT_DIR")
     if not vault_dir:
@@ -184,6 +188,7 @@ def should_run_review(payload: dict, context: ActiveContext) -> bool:
         return True
     return (
         has_project_learning(context)
+        or has_project_handoffs(context)
         or has_project_vault_inbox(context)
         or has_codex_memory_sources()
         or has_local_notes_sources(context)
