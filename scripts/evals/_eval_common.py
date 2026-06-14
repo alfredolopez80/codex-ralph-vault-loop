@@ -19,7 +19,7 @@ SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import is_red  # noqa: E402
+from sensitive_content import classify_text, is_red  # noqa: E402
 
 SCORECARD_DIR = REPO_ROOT / "config" / "scorecards"
 REPORT_DIR = REPO_ROOT / ".ralph-codex" / "reports" / "evals"
@@ -180,9 +180,26 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def sanitize_diagnostic_value(value: Any) -> Any:
+    if isinstance(value, str):
+        report = classify_text(value)
+        return report.redacted_text if report.changed or report.classification == "RED" else value
+    if isinstance(value, dict):
+        return {str(key): sanitize_diagnostic_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_diagnostic_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_diagnostic_value(item) for item in value]
+    return value
+
+
+def safe_json_text(payload: dict[str, Any]) -> str:
+    return json.dumps(sanitize_diagnostic_value(payload), indent=2, sort_keys=True)
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(safe_json_text(payload) + "\n", encoding="utf-8")
 
 
 def detect_secret_leak(text: str) -> bool:
