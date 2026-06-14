@@ -328,8 +328,20 @@ def run_recall(
     if recall_module is None:
         return "skipped", "recall script missing"
     try:
-        safe_project = recall_module.safe_project(project)
         safe_project_id = recall_module.safe_project_id(project_id)
+        context = None
+        if workspace_root:
+            workspace_path = str(Path(workspace_root).expanduser().resolve())
+            context = recall_module.derive_context(workspace_path)
+        if not safe_project_id and context is not None:
+            safe_project_id = recall_module.safe_project_id(str(getattr(context, "project_id", "")))
+        if project:
+            project_value = project
+        elif context is not None:
+            project_value = str(getattr(context, "project_slug", ""))
+        else:
+            project_value = ""
+        safe_project = recall_module.safe_project(project_value)
         results = recall_module.collect_results(
             query,
             safe_project,

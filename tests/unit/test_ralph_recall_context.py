@@ -163,6 +163,73 @@ def test_recall_generic_error_is_sanitized_fallback(monkeypatch) -> None:
     assert context["memory_trace"]["memory_status"] == "fallback_no_recall"
 
 
+def test_in_process_recall_preserves_workspace_context(monkeypatch, tmp_path: Path) -> None:
+    task_intake = load_task_intake()
+    calls: dict[str, object] = {}
+
+    class Context:
+        project_id = "p-workspace123"
+        project_slug = "workspace-project"
+
+    class Recall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            calls["project"] = project
+            return project
+
+        @staticmethod
+        def safe_project_id(project_id: str) -> str:
+            calls.setdefault("project_ids", []).append(project_id)
+            return project_id
+
+        @staticmethod
+        def derive_context(workspace_root: str) -> Context:
+            calls["workspace_root"] = workspace_root
+            return Context()
+
+        @staticmethod
+        def collect_results(query, project, limit, include_raw, project_id):
+            calls["collect"] = {
+                "query": query,
+                "project": project,
+                "limit": limit,
+                "include_raw": include_raw,
+                "project_id": project_id,
+            }
+            return []
+
+        @staticmethod
+        def render_markdown(query, project, results) -> str:
+            return (
+                "# Ralph Recall\n\n"
+                f"- query: `{query}`\n"
+                f"- project: `{project}`\n\n"
+                "## Results\n\n"
+                "No safe matches found.\n"
+            )
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: Recall)
+
+    status, _output = task_intake.run_recall(
+        "workspace memory",
+        "",
+        4,
+        project_id="",
+        workspace_root=str(tmp_path),
+    )
+
+    assert status == "ran"
+    assert calls["workspace_root"] == str(tmp_path.resolve())
+    assert calls["project"] == "workspace-project"
+    assert calls["collect"] == {
+        "query": "workspace memory",
+        "project": "workspace-project",
+        "limit": 4,
+        "include_raw": False,
+        "project_id": "p-workspace123",
+    }
+
+
 def test_high_score_wrong_repo_is_rejected() -> None:
     task_intake = load_task_intake()
     memories = [
