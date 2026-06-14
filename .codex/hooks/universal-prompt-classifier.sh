@@ -50,9 +50,9 @@ TURN_ID="unknown"
 HOOK_EVENT_NAME="UserPromptSubmit"
 if command -v jq > /dev/null 2>&1; then
   PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // .user_prompt // empty' 2> /dev/null || true)"
-  IFS=$'\t' read -r CWD SESSION_ID TURN_ID HOOK_EVENT_NAME < <(
+  IFS=$'\037' read -r CWD SESSION_ID TURN_ID HOOK_EVENT_NAME < <(
     printf '%s' "$INPUT" |
-      jq -r '[.cwd // "", .session_id // "unknown", .turn_id // "unknown", .hook_event_name // "UserPromptSubmit"] | @tsv' 2> /dev/null || true
+      jq -r '[.cwd // "", .session_id // "unknown", .turn_id // "unknown", .hook_event_name // "UserPromptSubmit"] | join("\u001f")' 2> /dev/null || true
   )
 fi
 SESSION_ID="$(safe_id "$SESSION_ID")"
