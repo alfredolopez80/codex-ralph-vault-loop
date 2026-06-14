@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -57,7 +57,6 @@ YELLOW_MARKERS = (
 RECALL_CONTEXT_MIN_SCORE = 20
 RECALL_CONTEXT_LIMIT = 3
 RECALL_CONTEXT_MAX_TOKENS = 180
-RECALL_TIMEOUT_SECONDS = 10
 MEMORY_CONTEXT_BEGIN = "<<<RALPH_MEMORY_CONTEXT_BEGIN>>>"
 MEMORY_CONTEXT_END = "<<<RALPH_MEMORY_CONTEXT_END>>>"
 MEMORY_CONTEXT_NOTICE = (
@@ -90,6 +89,7 @@ SHADOW_TRACE_FIELDS = (
     "safe_to_promote_candidate",
     "raw_included",
 )
+_RECALL_MODULE: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -297,6 +297,23 @@ def build_recall_query(redacted_prompt: str, project: str = "", branch: str = ""
     return " ".join(selected)
 
 
+def load_recall_module() -> Any | None:
+    global _RECALL_MODULE
+    if _RECALL_MODULE is not None:
+        return _RECALL_MODULE
+    recall = REPO_ROOT / "scripts" / "memory" / "ralph-recall.py"
+    if not recall.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("ralph_recall_for_task_intake", recall)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _RECALL_MODULE = module
+    return module
+
+
 def run_recall(
     query: str,
     project: str,
@@ -307,30 +324,22 @@ def run_recall(
 ) -> tuple[str, str]:
     if not query:
         return "skipped", ""
-    recall = REPO_ROOT / "scripts" / "memory" / "ralph-recall.py"
-    if not recall.exists():
+    recall_module = load_recall_module()
+    if recall_module is None:
         return "skipped", "recall script missing"
-    command = [sys.executable, str(recall), query, "--project", project, "--limit", str(limit)]
-    if project_id:
-        command.extend(["--project-id", project_id])
-    if workspace_root:
-        command.extend(["--workspace-root", workspace_root])
     try:
-        result = subprocess.run(
-            command,
-            cwd=str(REPO_ROOT),
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=RECALL_TIMEOUT_SECONDS,
+        safe_project = recall_module.safe_project(project)
+        safe_project_id = recall_module.safe_project_id(project_id)
+        results = recall_module.collect_results(
+            query,
+            safe_project,
+            limit,
+            False,
+            safe_project_id,
         )
-    except subprocess.TimeoutExpired as exc:
-        return "failed", sanitize_fallback_reason(f"recall timeout after {exc.timeout}s")
     except Exception as exc:
         return "failed", sanitize_fallback_reason(f"recall error: {type(exc).__name__}")
-    if result.returncode != 0:
-        return "failed", sanitize_fallback_reason(result.stderr or result.stdout)
-    return "ran", result.stdout.strip()
+    return "ran", recall_module.render_markdown(query, safe_project, results).strip()
 
 
 def parse_recall_results(recall_output: str) -> list[dict[str, Any]]:

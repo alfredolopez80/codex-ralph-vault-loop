@@ -36,11 +36,9 @@ def tool_input(payload: dict[str, Any]) -> Any:
 def active_context_from_payload(payload: dict[str, Any] | None = None) -> ActiveContext:
     payload = payload or {}
     workspace = workspace_root(payload)
-    git_root = git_root_for(workspace)
+    git_root, branch, sha = git_metadata_for(workspace)
     identity_root = git_root or workspace
     remote_url = git_value(identity_root, "config", "--get", "remote.origin.url") if git_root else ""
-    branch = git_value(identity_root, "rev-parse", "--abbrev-ref", "HEAD") if git_root else ""
-    sha = git_value(identity_root, "rev-parse", "--short", "HEAD") if git_root else ""
     project_slug = safe_slug(identity_root.name)
     workspace_instance_id = hash_text(str(workspace.resolve()))[:16]
     return ActiveContext(
@@ -87,6 +85,19 @@ def git_root_for(path: Path) -> Path | None:
         return None
     git_root = Path(result).expanduser()
     return git_root.resolve() if git_root.exists() else None
+
+
+def git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
+    result = run_git(path, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD")
+    if not result:
+        return git_root_for(path), "", ""
+    lines = result.splitlines()
+    if len(lines) < 2:
+        return git_root_for(path), "", ""
+    git_root = Path(lines[0]).expanduser()
+    if not git_root.exists():
+        return None, "", ""
+    return git_root.resolve(), lines[1].strip(), git_value(git_root, "rev-parse", "--short", "HEAD")
 
 
 def git_value(root: Path, *args: str) -> str:

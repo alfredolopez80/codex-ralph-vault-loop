@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import unicodedata
 import subprocess
 import sys
 
@@ -14,21 +13,6 @@ from shared.redaction import is_red
 
 
 TASK_INTAKE_TIMEOUT_SECONDS = 12
-CONTINUATION_PHRASES = (
-    "continua",
-    "sigue",
-    "donde quedamos",
-    "resume work",
-    "resume task",
-    "resume session",
-    "resume where we left off",
-    "ok sigue",
-    "continue",
-    "carry on",
-    "where were we",
-    "pick it up",
-)
-EXACT_CONTINUATION_PROMPTS = {"resume"}
 
 
 def prompt_terms(prompt: str) -> list[str]:
@@ -105,20 +89,6 @@ def run_task_intake(payload: dict, context: ActiveContext) -> None:
         print("RALPH_TASK_INTAKE_STATUS=failed")
 
 
-def normalize_prompt(text: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", text)
-    ascii_text = decomposed.encode("ascii", "ignore").decode("ascii")
-    return " ".join(ascii_text.lower().split())
-
-
-def is_continuation_prompt(prompt: str) -> bool:
-    normalized = normalize_prompt(prompt)
-    if normalized in EXACT_CONTINUATION_PROMPTS:
-        return True
-    tokens = set(normalized.split())
-    return any(phrase in normalized if " " in phrase else phrase in tokens for phrase in CONTINUATION_PHRASES)
-
-
 def main() -> int:
     payload = read_hook_input()
     context = active_context_from_payload(payload)
@@ -133,8 +103,6 @@ def main() -> int:
 
     if not is_red(prompt):
         capture_safe_prompt(prompt, context)
-    if is_continuation_prompt(prompt):
-        return 0
     run_task_intake(payload, context)
     return 0
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -101,10 +100,20 @@ def test_irrelevant_memory_is_not_injected() -> None:
 def test_recall_failure_falls_back_cleanly(monkeypatch) -> None:
     task_intake = load_task_intake()
 
-    def raise_timeout(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired(cmd="ralph-recall", timeout=10)
+    class BrokenRecall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            return project
 
-    monkeypatch.setattr(task_intake.subprocess, "run", raise_timeout)
+        @staticmethod
+        def safe_project_id(_project_id: str) -> str:
+            return ""
+
+        @staticmethod
+        def collect_results(*_args, **_kwargs):
+            raise RuntimeError("recall index unavailable")
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: BrokenRecall)
 
     status, output = task_intake.run_recall(
         "ralph recall codex-ralph-vault-loop",
@@ -114,7 +123,7 @@ def test_recall_failure_falls_back_cleanly(monkeypatch) -> None:
     context = task_intake.build_agent_prompt_context("Task", [], status, output)
 
     assert status == "failed"
-    assert "timeout" in output
+    assert output == "recall error: RuntimeError"
     assert context["final_prompt"] == "Task"
     assert context["memory_status"] == "fallback_no_recall"
     assert context["memory_trace"]["recall_status"] == "failed"
@@ -126,10 +135,20 @@ def test_recall_failure_falls_back_cleanly(monkeypatch) -> None:
 def test_recall_generic_error_is_sanitized_fallback(monkeypatch) -> None:
     task_intake = load_task_intake()
 
-    def raise_error(*_args, **_kwargs):
-        raise RuntimeError("secret-value-that-must-not-leak")
+    class BrokenRecall:
+        @staticmethod
+        def safe_project(project: str) -> str:
+            return project
 
-    monkeypatch.setattr(task_intake.subprocess, "run", raise_error)
+        @staticmethod
+        def safe_project_id(_project_id: str) -> str:
+            return ""
+
+        @staticmethod
+        def collect_results(*_args, **_kwargs):
+            raise RuntimeError("secret-value-that-must-not-leak")
+
+    monkeypatch.setattr(task_intake, "load_recall_module", lambda: BrokenRecall)
 
     status, output = task_intake.run_recall(
         "ralph recall codex-ralph-vault-loop",

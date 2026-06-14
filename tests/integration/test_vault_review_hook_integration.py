@@ -81,6 +81,18 @@ def test_stop_promotion_hook_runs_vault_review_in_report_only_mode(tmp_path: Pat
     assert not list((vault_dir / "projects" / PROJECT / "decisions").glob("*.md"))
 
 
+def test_stop_promotion_hook_skips_without_learning_or_inbox(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    vault_dir = tmp_path / "vault"
+
+    result = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": "done"})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert not list(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
+    assert not list(ralph_home.glob("projects/*/reports/vault-inbox-review/latest.json"))
+
+
 def test_dream_scheduler_runs_vault_review_after_success(tmp_path: Path) -> None:
     ralph_home = tmp_path / "ralph"
     vault_dir = tmp_path / "vault"
