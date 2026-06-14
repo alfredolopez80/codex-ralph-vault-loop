@@ -554,6 +554,7 @@ def test_memory_trace_feature_flag_renders_sanitized_json(monkeypatch) -> None:
 def test_memory_trace_is_not_rendered_without_feature_flag(monkeypatch) -> None:
     task_intake = load_task_intake()
     monkeypatch.delenv("RALPH_MEMORY_TRACE", raising=False)
+    monkeypatch.delenv("RALPH_RECALL_VERBOSE", raising=False)
     context = task_intake.build_agent_prompt_context("Task", [], "skipped")
     payload = {
         "sensitivity": "GREEN",
@@ -576,6 +577,77 @@ def test_memory_trace_is_not_rendered_without_feature_flag(monkeypatch) -> None:
     rendered = task_intake.render_markdown(payload)
 
     assert "MEMORY_TRACE_JSON=" not in rendered
+
+
+def test_default_render_omits_unselected_recall_output(monkeypatch) -> None:
+    task_intake = load_task_intake()
+    monkeypatch.delenv("RALPH_MEMORY_TRACE", raising=False)
+    monkeypatch.delenv("RALPH_RECALL_VERBOSE", raising=False)
+    context = task_intake.build_agent_prompt_context("Task", [], "ran", recall_count=1)
+    context["memory_trace"].update(
+        {
+            "memory_rejections": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope_repo"}],
+            "rejected_memory": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope"}],
+        }
+    )
+    payload = {
+        "sensitivity": "GREEN",
+        "complexity": 2,
+        "task_type": "other",
+        "route": "local",
+        "clarification_required": "no",
+        "reason": "test",
+        "clarifying_questions": [],
+        "recall_status": "ran",
+        "recall_output": "# Ralph Recall\n\nRALPH_RECALL_VERBOSE_SENTINEL",
+        "memory_status": context["memory_status"],
+        "selected_memory_context": "",
+        "memory_trace": context["memory_trace"],
+        "project": "codex-ralph-vault-loop",
+        "project_id": "",
+        "workspace_root": "",
+    }
+
+    rendered = task_intake.render_markdown(payload)
+
+    assert "RALPH_RECALL_VERBOSE_SENTINEL" not in rendered
+    assert "memory_rejected=mem_rejected_verbose_001" not in rendered
+    assert "recall_status=ran" in rendered
+    assert "memory_status=disabled" in rendered
+
+
+def test_verbose_render_keeps_unselected_recall_diagnostics(monkeypatch) -> None:
+    task_intake = load_task_intake()
+    monkeypatch.setenv("RALPH_RECALL_VERBOSE", "1")
+    context = task_intake.build_agent_prompt_context("Task", [], "ran", recall_count=1)
+    context["memory_trace"].update(
+        {
+            "memory_rejections": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope_repo"}],
+            "rejected_memory": [{"id": "mem_rejected_verbose_001", "reason": "missing_scope"}],
+        }
+    )
+    payload = {
+        "sensitivity": "GREEN",
+        "complexity": 2,
+        "task_type": "other",
+        "route": "local",
+        "clarification_required": "no",
+        "reason": "test",
+        "clarifying_questions": [],
+        "recall_status": "ran",
+        "recall_output": "# Ralph Recall\n\nRALPH_RECALL_VERBOSE_SENTINEL",
+        "memory_status": context["memory_status"],
+        "selected_memory_context": "",
+        "memory_trace": context["memory_trace"],
+        "project": "codex-ralph-vault-loop",
+        "project_id": "",
+        "workspace_root": "",
+    }
+
+    rendered = task_intake.render_markdown(payload)
+
+    assert "RALPH_RECALL_VERBOSE_SENTINEL" in rendered
+    assert "memory_rejected=mem_rejected_verbose_001 reason=missing_scope_repo" in rendered
 
 
 def test_memory_trace_records_fallback_without_selected_memory() -> None:

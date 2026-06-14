@@ -22,11 +22,6 @@
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/aristotle-analysis-display.sh\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
             "command": "python3 .codex/hooks/user_prompt_capture.py",
             "timeout": 10
           },

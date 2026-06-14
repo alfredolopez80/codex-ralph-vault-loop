@@ -665,6 +665,12 @@ def memory_trace_enabled(env: Any = None) -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def recall_verbose_enabled(env: Any = None) -> bool:
+    source = os.environ if env is None else env
+    value = str(source.get("RALPH_RECALL_VERBOSE", "")).strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def shadow_mode_enabled(env: Any = None) -> bool:
     source = os.environ if env is None else env
     return str(source.get("RALPH_MEMORY_TREE_SHADOW", "")).strip() == "1"
@@ -1110,14 +1116,16 @@ def render_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"PROJECT_ID={payload['project_id']}")
     if payload.get("workspace_root"):
         lines.append(f"WORKSPACE_ROOT={payload['workspace_root']}")
-    if payload.get("recall_output"):
+    verbose_recall = recall_verbose_enabled()
+    if payload.get("recall_output") and (payload.get("memory_status") == "injected" or verbose_recall):
         lines.extend(["", str(payload["recall_output"]).strip()])
     if payload.get("selected_memory_context"):
         lines.extend(["", str(payload["selected_memory_context"]).strip()])
     if payload.get("memory_trace", {}).get("fallback_reason"):
         lines.append(f"memory_fallback={payload['memory_trace']['fallback_reason']}")
-    for rejection in payload.get("memory_trace", {}).get("memory_rejections", []):
-        lines.append(f"memory_rejected={rejection['id']} reason={rejection['reason']}")
+    if verbose_recall:
+        for rejection in payload.get("memory_trace", {}).get("memory_rejections", []):
+            lines.append(f"memory_rejected={rejection['id']} reason={rejection['reason']}")
     if memory_trace_enabled():
         trace = public_memory_trace(payload.get("memory_trace", {}))
         lines.append(f"MEMORY_TRACE_JSON={json.dumps(trace, ensure_ascii=True, sort_keys=True)}")

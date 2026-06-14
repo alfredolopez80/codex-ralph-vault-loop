@@ -96,8 +96,10 @@ fi
 
 if [[ "$COMPLEXITY" -le 2 ]]; then
   CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}."
+elif [[ "$COMPLEXITY" -eq 3 ]]; then
+  CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}. Quick Aristotle check: apply Fase 1 (Autopsia de Suposiciones) and Fase 5 (Movimiento Aristotelico) before answering or acting. Keep it brief."
 else
-  CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}. ${ACTION}"
+  CONTEXT="Prompt classification: complexity=${COMPLEXITY}/10 route=${ROUTE}. ${ACTION} Aristotle First Principles required: 1. Autopsia de Suposiciones; 2. Verdades Irreductibles; 3. Reconstruccion desde Cero; 4. Mapa Suposicion vs Verdad; 5. Movimiento Aristotelico."
 fi
 
 emit_json \

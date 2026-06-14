@@ -5,9 +5,11 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
 from shared.paths import REPO_ROOT, read_hook_input
+from shared.learning import should_persist_learning
 
 
 def run_assisted_promotion(context: ActiveContext) -> None:
@@ -98,11 +100,39 @@ def vault_review_summary(context: ActiveContext) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
+def has_project_learning(context: ActiveContext) -> bool:
+    root = project_runtime_root(context)
+    try:
+        return any((root / "ledgers").glob("learning-*.md"))
+    except OSError:
+        return False
+
+
+def has_project_vault_inbox(context: ActiveContext) -> bool:
+    vault_dir = os.environ.get("VAULT_DIR")
+    if not vault_dir:
+        vault_dir = str(Path.home() / "Documents" / "Obsidian" / "MiVault")
+    inbox = Path(vault_dir).expanduser() / "projects" / context.project_slug / "inbox"
+    try:
+        return inbox.is_dir() and any(inbox.glob("*.md"))
+    except OSError:
+        return False
+
+
+def should_run_review(payload: dict, context: ActiveContext) -> bool:
+    message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
+    if isinstance(message, str) and should_persist_learning(message):
+        return True
+    return has_project_learning(context) or has_project_vault_inbox(context)
+
+
 def main() -> int:
     try:
         payload = read_hook_input()
         context = active_context_from_payload(payload)
         if payload.get("stop_hook_active"):
+            return 0
+        if not should_run_review(payload, context):
             return 0
         run_assisted_promotion(context)
         run_vault_inbox_review(context)
