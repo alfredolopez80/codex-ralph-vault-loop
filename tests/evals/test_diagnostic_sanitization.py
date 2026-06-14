@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.autoresearch import common as autoresearch_common
 from scripts.evals import _eval_common
+import diagnostic_json
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class FakeReport:
 
 
 def test_eval_json_helpers_store_redacted_diagnostics(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(_eval_common, "classify_text", lambda _value: FakeReport())
+    monkeypatch.setattr(diagnostic_json, "classify_text", lambda _value: FakeReport())
     payload = {"diagnostics": {"message": "RAW_DIAGNOSTIC_VALUE"}}
     output = tmp_path / "eval.json"
 
@@ -30,7 +31,7 @@ def test_eval_json_helpers_store_redacted_diagnostics(monkeypatch, tmp_path: Pat
 
 
 def test_autoresearch_json_helpers_store_redacted_diagnostics(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(autoresearch_common, "classify_text", lambda _value: FakeReport())
+    monkeypatch.setattr(diagnostic_json, "classify_text", lambda _value: FakeReport())
     payload = {"ok": False, "error": "RAW_DIAGNOSTIC_VALUE"}
     json_path = tmp_path / "autoresearch.json"
     jsonl_path = tmp_path / "autoresearch.jsonl"

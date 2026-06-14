@@ -23,7 +23,8 @@ if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
 from _eval_common import load_scorecard  # noqa: E402
-from sensitive_content import classify_text, is_red  # noqa: E402
+from diagnostic_json import append_jsonl, emit_json, safe_json_text, write_json  # noqa: E402
+from sensitive_content import is_red  # noqa: E402
 
 
 DEFAULT_SCORECARD = REPO_ROOT / "config" / "scorecards" / "ralph_autoresearch_v1.yaml"
@@ -65,33 +66,6 @@ def session_paths(cwd: Path) -> dict[str, Path]:
         "ideas": cwd / IDEAS,
         "last_run": cwd / LAST_RUN,
     }
-
-
-def sanitize_diagnostic_value(value: Any) -> Any:
-    if isinstance(value, str):
-        report = classify_text(value)
-        return "[REDACTED:diagnostic]" if report.changed or report.classification == "RED" else value
-    if isinstance(value, dict):
-        return {str(key): sanitize_diagnostic_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [sanitize_diagnostic_value(item) for item in value]
-    if isinstance(value, tuple):
-        return [sanitize_diagnostic_value(item) for item in value]
-    return value
-
-
-def safe_json_text(payload: dict[str, Any]) -> str:
-    return json.dumps(sanitize_diagnostic_value(payload), indent=2, sort_keys=True)
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    with path.open("w", encoding="utf-8") as handle:
-        handle.write(safe_json_text(payload) + "\n")  # codeql[py/clear-text-storage-sensitive-data]
-
-
-def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(sanitize_diagnostic_value(payload), sort_keys=True) + "\n")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -389,10 +363,10 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def print_result(payload: dict[str, Any]) -> int:
-    sys.stdout.write(safe_json_text(payload) + "\n")  # codeql[py/clear-text-logging-sensitive-data]
+    emit_json(payload)
     return 0
 
 
 def fail_result(error: Exception) -> int:
-    print(safe_json_text({"ok": False, "error": str(error)}), file=sys.stderr)
+    emit_json({"ok": False, "error": str(error)}, stream=sys.stderr)
     return 1

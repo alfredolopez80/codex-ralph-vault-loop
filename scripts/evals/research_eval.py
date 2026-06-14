@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Any
 
-from _eval_common import REPO_ROOT, now_iso
-from _eval_common import safe_json_text
+from _eval_common import REPO_ROOT, emit_json, now_iso
 from _mcp_eval_common import append_eval_jsonl, live_skip_report, load_json, load_response
 from _mcp_eval_common import mean, ratio, red_is_blocked, text_has_secret, write_eval_report
 
@@ -93,7 +91,7 @@ def main() -> int:
     args = parser.parse_args()
 
     report = build_report(args)
-    sys.stdout.write(safe_json_text(report) + "\n")  # codeql[py/clear-text-logging-sensitive-data]
+    emit_json(report)
     return 0
 
 
