@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +93,7 @@ def main() -> int:
     args = parser.parse_args()
 
     report = build_report(args)
-    print(safe_json_text(report))  # lgtm[py/clear-text-logging-sensitive-data]
+    sys.stdout.write(safe_json_text(report) + "\n")
     return 0
 
 
