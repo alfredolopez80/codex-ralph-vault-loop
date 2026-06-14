@@ -93,6 +93,62 @@ def test_stop_promotion_hook_skips_without_learning_or_inbox(tmp_path: Path) -> 
     assert not list(ralph_home.glob("projects/*/reports/vault-inbox-review/latest.json"))
 
 
+def test_stop_promotion_hook_runs_for_codex_memory_sources(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    vault_dir = tmp_path / "vault"
+    codex_memory = tmp_path / "codex-memories"
+    codex_memory.mkdir()
+    (codex_memory / "MEMORY.md").write_text(
+        "Decision: codex memory project convention should be reviewed before promotion.",
+        encoding="utf-8",
+    )
+    env = env_for(ralph_home, vault_dir)
+    env["CODEX_MEMORY_HOME"] = str(codex_memory)
+
+    result = subprocess.run(
+        [sys.executable, str(ROOT / ".codex" / "hooks" / "stop_memory_promotion_review.py")],
+        cwd=ROOT,
+        input=json.dumps({"last_assistant_message": "done"}),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
+    promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+    assert promotion["review_requested"][0]["source_groups"] == ["codex-memories"]
+
+
+def test_stop_promotion_hook_runs_for_configured_local_notes_sources(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    vault_dir = tmp_path / "vault"
+    local_notes = tmp_path / "repo" / ".local-notes" / "reviews"
+    local_notes.mkdir(parents=True)
+    (local_notes / "future-review.md").write_text(
+        "Decision: project local-notes review findings should be considered for memory promotion.",
+        encoding="utf-8",
+    )
+    env = env_for(ralph_home, vault_dir)
+    env["RALPH_LOCAL_NOTES_ROOTS"] = str(tmp_path / "repo" / ".local-notes")
+
+    result = subprocess.run(
+        [sys.executable, str(ROOT / ".codex" / "hooks" / "stop_memory_promotion_review.py")],
+        cwd=ROOT,
+        input=json.dumps({"last_assistant_message": "done"}),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
+    promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+    assert promotion["review_requested"][0]["source_groups"] == ["local-notes"]
+
+
 def test_dream_scheduler_runs_vault_review_after_success(tmp_path: Path) -> None:
     ralph_home = tmp_path / "ralph"
     vault_dir = tmp_path / "vault"

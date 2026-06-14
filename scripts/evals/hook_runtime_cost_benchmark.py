@@ -79,6 +79,7 @@ def measure(iterations: int) -> dict[str, object]:
         env = os.environ.copy()
         env["RALPH_HOME"] = str(Path(tmp) / "ralph")
         env["CODEX_MEMORY_HOME"] = str(Path(tmp) / "codex-memory-empty")
+        env["VAULT_DIR"] = str(Path(tmp) / "vault-empty")
         env["RALPH_LOCAL_NOTES_ROOTS"] = ""
         env.pop("RALPH_MEMORY_TRACE", None)
 
