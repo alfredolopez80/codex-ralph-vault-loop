@@ -188,13 +188,14 @@ def test_in_process_recall_preserves_workspace_context(monkeypatch, tmp_path: Pa
             return Context()
 
         @staticmethod
-        def collect_results(query, project, limit, include_raw, project_id):
+        def collect_results(query, project, limit, include_raw, project_id, workspace_root):
             calls["collect"] = {
                 "query": query,
                 "project": project,
                 "limit": limit,
                 "include_raw": include_raw,
                 "project_id": project_id,
+                "workspace_root": workspace_root,
             }
             return []
 
@@ -227,6 +228,7 @@ def test_in_process_recall_preserves_workspace_context(monkeypatch, tmp_path: Pa
         "limit": 4,
         "include_raw": False,
         "project_id": "p-workspace123",
+        "workspace_root": str(tmp_path.resolve()),
     }
 
 

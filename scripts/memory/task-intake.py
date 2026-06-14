@@ -365,6 +365,7 @@ def run_recall(
         def collect():
             safe_project_id = recall_module.safe_project_id(project_id)
             context = None
+            workspace_path = ""
             if workspace_root:
                 workspace_path = str(Path(workspace_root).expanduser().resolve())
                 context = recall_module.derive_context(workspace_path)
@@ -383,6 +384,7 @@ def run_recall(
                 limit,
                 False,
                 safe_project_id,
+                workspace_path,
             )
             return safe_project, results
 
