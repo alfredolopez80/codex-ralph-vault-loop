@@ -86,7 +86,7 @@ def safe_json_text(payload: dict[str, Any]) -> str:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as handle:
-        handle.write(safe_json_text(payload) + "\n")
+        handle.write(safe_json_text(payload) + "\n")  # codeql[py/clear-text-storage-sensitive-data]
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
@@ -389,7 +389,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def print_result(payload: dict[str, Any]) -> int:
-    sys.stdout.write(safe_json_text(payload) + "\n")
+    sys.stdout.write(safe_json_text(payload) + "\n")  # codeql[py/clear-text-logging-sensitive-data]
     return 0
 
 

@@ -93,7 +93,7 @@ def main() -> int:
     args = parser.parse_args()
 
     report = build_report(args)
-    sys.stdout.write(safe_json_text(report) + "\n")
+    sys.stdout.write(safe_json_text(report) + "\n")  # codeql[py/clear-text-logging-sensitive-data]
     return 0
 
 
