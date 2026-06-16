@@ -22,7 +22,6 @@ def hook_config() -> dict:
     hooks = GLOBAL_HOOK_DIR
     slop = GLOBAL_SLOP_GUARD
     return {
-        "version": 1,
         "hooks": {
             "SessionStart": [
                 {

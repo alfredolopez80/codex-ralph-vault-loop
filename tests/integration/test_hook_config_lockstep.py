@@ -124,6 +124,9 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
     local = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     global_config = generated_global_config(tmp_path)
 
+    assert set(local) == {"hooks"}
+    assert set(global_config) == {"hooks"}
+
     for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"):
         assert hook_pairs(global_config, event) == hook_pairs(local, event)
 
