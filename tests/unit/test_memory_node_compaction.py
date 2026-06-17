@@ -20,6 +20,16 @@ def runtime(ralph_home: Path) -> Path:
     return ralph_home / "projects" / PROJECT
 
 
+def tree_nodes_dir(ralph_home: Path) -> Path:
+    # Wave 5 layout: {RALPH_MEMORY_HOME}/memory_tree/projects/{project}/nodes
+    # (was {ralph_home}/projects/{project}/memory_tree/nodes -- inverted).
+    return ralph_home / "memory_tree" / "projects" / PROJECT / "nodes"
+
+
+def tree_root(ralph_home: Path) -> Path:
+    return ralph_home / "memory_tree" / "projects" / PROJECT
+
+
 def frontmatter(**metadata: str) -> str:
     lines = ["---"]
     for key, value in metadata.items():
@@ -196,7 +206,7 @@ def test_dry_run_does_not_mutate_memory_tree(tmp_path: Path) -> None:
 
     assert report["dry_run"] is True
     assert report["candidates"]
-    assert not (root / "memory_tree").exists()
+    assert not tree_root(tmp_path).exists()
 
 
 def test_write_creates_node(tmp_path: Path) -> None:
@@ -204,7 +214,7 @@ def test_write_creates_node(tmp_path: Path) -> None:
     write_md(root, "handoffs/latest.md", "Validated write marker.", classification="YELLOW", project_id=PROJECT)
 
     report = run_compact(tmp_path, tmp_path, "--write")
-    node_files = sorted((root / "memory_tree" / "nodes").glob("*.json"))
+    node_files = sorted(tree_nodes_dir(tmp_path).glob("*.json"))
     node = json.loads(node_files[0].read_text(encoding="utf-8"))
 
     assert report["dry_run"] is False
@@ -220,7 +230,7 @@ def test_duplicate_candidate_not_duplicated(tmp_path: Path) -> None:
     write_md(root, "ledgers/two.md", body, classification="YELLOW", project_id=PROJECT)
 
     report = run_compact(tmp_path, tmp_path, "--write")
-    node_files = sorted((root / "memory_tree" / "nodes").glob("*.json"))
+    node_files = sorted(tree_nodes_dir(tmp_path).glob("*.json"))
 
     assert len(node_files) == 1
     assert len(report["written"]) == 1

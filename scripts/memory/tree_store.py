@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -38,12 +39,129 @@ class TreeStoreError(ValueError):
 class TreeStorePathError(TreeStoreError):
     pass
 
+SHA256_RE = re.compile(r"[a-f0-9]{64}")
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def default_ralph_home() -> Path:
+    """Codex runtime root for NON-tree state (handoffs, ledgers, checkpoints).
+
+    Intentionally unchanged: ``~/.ralph-codex``. The shared MEMORY TREE root is
+    resolved separately by ``default_memory_home`` so unifying the tree with the
+    claude agent (Wave 5) does NOT move codex's session/handoff state.
+    """
     return Path("~/.ralph-codex").expanduser()
+
+
+def default_memory_home() -> Path:
+    """Root for the SHARED durable memory tree (Wave 5, Addendum 3, 2026-06-17).
+
+    Honors ``RALPH_MEMORY_HOME`` (default ``~/.ralph``) so codex and claude
+    converge on ONE shared memory tree root. This affects ONLY the memory tree;
+    ``default_ralph_home`` (handoffs/ledgers) stays ``~/.ralph-codex``.
+    """
+    home = os.environ.get("RALPH_MEMORY_HOME", "").strip()
+    return Path(home or "~/.ralph").expanduser()
+
+
+# ---------------------------------------------------------------------------
+# Canonical project id derivation -- byte-identical to the claude agent's
+# multi-agent-ralph-loop/scripts/memory/tree_store.py (Wave 5, Addendum 3).
+# Ported verbatim so the SAME target repo yields the SAME project_id from
+# either agent. Override via RALPH_PROJECT_ID (codex compatibility).
+# ---------------------------------------------------------------------------
+
+def _git_remote_url(repo_root: Path) -> str:
+    """Best-effort git remote URL for *repo_root*; '' if none / not a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def resolve_main_repo_root(repo_root: Path) -> Path:
+    """Return the MAIN repository root for *repo_root*, unwrapping worktrees.
+
+    Single source of truth for "which project does this path belong to". For a
+    normal checkout this is ``git rev-parse --show-toplevel``. For a linked
+    worktree the top-level ``.git`` is a *file* pointing at
+    ``<main>/.git/worktrees/<name>``; the main repo root is three levels up from
+    that gitdir. Outside a git repo (or on any git error) the resolved input
+    path is returned verbatim as a stable fallback.
+    """
+    start = repo_root.expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return start
+    if result.returncode != 0:
+        return start
+    toplevel = Path(result.stdout.strip())
+    git_marker = toplevel / ".git"
+    if not git_marker.is_file():
+        # Normal checkout: .git is a directory, toplevel IS the main repo.
+        return toplevel
+    try:
+        content = git_marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return toplevel
+    gitdir = content.split("gitdir:", 1)[-1].strip()
+    gitdir_path = (
+        Path(gitdir) if Path(gitdir).is_absolute() else (toplevel / gitdir).resolve()
+    )
+    # .git/worktrees/<name> -> up 3 levels to the main repo root.
+    if "worktrees" in gitdir_path.parts:
+        return gitdir_path.parent.parent.parent
+    return toplevel
+
+
+def repo_remote_hash(repo_root: Path) -> str:
+    """Stable 16-char hash of the main repo's remote URL (path as fallback)."""
+    main_repo = resolve_main_repo_root(repo_root)
+    remote = _git_remote_url(main_repo)
+    material = remote or str(main_repo)
+    return sha256_text(material)[:16]
+
+
+def workspace_instance_id(repo_root: Path) -> str:
+    """Identity of the PROJECT: the main-repo directory name (worktree-unwrapped)."""
+    return safe_segment(resolve_main_repo_root(repo_root).name, "workspace_instance_id")
+
+
+def compute_project_id(repo_root: Path) -> str:
+    """Canonical project id: main-repo remote-hash + main-repo dir name.
+
+    Worktrees are unwrapped to their main repository first, so two worktrees of
+    the same repo resolve to the SAME project id. ``RALPH_PROJECT_ID`` override
+    wins when set (codex compatibility). When unset, the git-remote-hash
+    derivation matches the claude agent byte-for-byte.
+    """
+    override = os.environ.get("RALPH_PROJECT_ID", "").strip()
+    if override:
+        return safe_segment(override, "project_id")
+    main_repo = resolve_main_repo_root(repo_root)
+    return safe_segment(
+        f"{repo_remote_hash(main_repo)}_{workspace_instance_id(main_repo)}",
+        "project_id",
+    )
 
 
 def safe_segment(value: object, label: str) -> str:
@@ -99,12 +217,21 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 class TreeStore:
     def __init__(self, ralph_home: Path | None = None) -> None:
-        self.ralph_home = (ralph_home or default_ralph_home()).expanduser()
+        # Default to the SHARED memory home (Wave 5) so codex writes to the same
+        # tree the claude agent reads. Explicit ``ralph_home`` still wins (tests
+        # pass tmp_path; callers may override).
+        self.ralph_home = (ralph_home or default_memory_home()).expanduser()
+
+    def projects_root(self) -> Path:
+        return self.ralph_home / "memory_tree" / "projects"
 
     def project_tree(self, project_id: str) -> Path:
+        # Layout aligned with the claude agent (Wave 5, Addendum 3):
+        #   {RALPH_MEMORY_HOME}/memory_tree/projects/{project_id}/
+        # (was {home}/projects/{project_id}/memory_tree/ -- inverted nesting).
         safe_project = safe_segment(project_id, "project_id")
-        root = self.ralph_home / "projects" / safe_project / "memory_tree"
-        return ensure_within(self.ralph_home, root)
+        root = self.projects_root() / safe_project
+        return ensure_within(self.projects_root(), root)
 
     def nodes_dir(self, project_id: str) -> Path:
         return self.project_tree(project_id) / "nodes"

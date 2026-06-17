@@ -19,7 +19,7 @@ for import_dir in (SCRIPT_DIR, REPO_ROOT / ".codex" / "hooks"):
         sys.path.insert(0, str(import_dir))
 
 from memory_node import MemoryNode, MemoryNodeValidationError, contains_red_material, sha256_text  # noqa: E402
-from tree_store import TreeStore  # noqa: E402
+from tree_store import TreeStore, compute_project_id, default_memory_home  # noqa: E402
 from usage_ledger import record_usage  # noqa: E402
 
 try:
@@ -70,16 +70,25 @@ def terms(value: str) -> list[str]:
 
 def context_for(project_root: Path, project_id: str = "", branch: str = "", workspace_instance_id: str = "") -> Context:
     root = project_root.expanduser().resolve()
+    # Wave 5 (Addendum 3): the memory-tree project_id MUST agree byte-for-byte
+    # with the claude agent so the SAME target repo resolves to the SAME shared
+    # tree dir. Precedence:
+    #   1. explicit --project-id / RALPH_PROJECT_ID (CLI default carries the env)
+    #   2. the SHARED compute_project_id (git-remote-hash, worktree-unwrapped)
+    # The legacy active_context ``p-<hash>`` id is NOT used for the tree id (it
+    # is a different algorithm and would split the shared tree). active_context
+    # may still supply slug / branch / workspace metadata.
+    resolved_id = project_id or compute_project_id(root)
     if active_context_from_payload is not None:
         active = active_context_from_payload({"cwd": str(root), "session_id": "recall-v2"})
         return Context(
             root,
             getattr(active, "project_slug", root.name),
-            project_id or getattr(active, "project_id", ""),
+            resolved_id,
             workspace_instance_id or getattr(active, "workspace_instance_id", "") or sha256_text(str(root))[:16],
             branch or getattr(active, "branch", "") or "unknown",
         )
-    return Context(root, root.name, project_id or "p-" + sha256_text(str(root))[:16], workspace_instance_id or sha256_text(str(root))[:16], branch or "unknown")
+    return Context(root, root.name, resolved_id, workspace_instance_id or sha256_text(str(root))[:16], branch or "unknown")
 
 
 def analyze_query(query: str) -> dict[str, Any]:
@@ -311,7 +320,7 @@ def main() -> int:
     parser.add_argument("--query", required=True)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
-    parser.add_argument("--ralph-home", default=os.environ.get("RALPH_HOME", "~/.ralph-codex"))
+    parser.add_argument("--ralph-home", default=str(default_memory_home()))
     parser.add_argument("--branch", default="")
     parser.add_argument("--workspace-instance-id", default="")
     parser.add_argument("--limit", type=int, default=5)
