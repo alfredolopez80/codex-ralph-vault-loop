@@ -460,27 +460,103 @@ class TreeStore:
             if contains_red_material(content):
                 raise TreeStoreError("snapshot raw file is unsafe")
 
+    @staticmethod
+    def _index_entry(node: dict[str, Any]) -> dict[str, Any]:
+        raw_ref = node.get("raw_ref") if isinstance(node.get("raw_ref"), dict) else None
+        ref = {"sha256": raw_ref.get("sha256")} if raw_ref else None
+        return {
+            "node_id": node["node_id"],
+            "memory_type": node.get("memory_type", ""),
+            "domain": node.get("domain", "general"),
+            "branch": node.get("branch", ""),
+            "created_on_branch": node.get("created_on_branch", node.get("branch", "")),
+            "visibility": node.get("visibility", "branch_local"),
+            "promotion_status": node.get("promotion_status", "not_promoted"),
+            "summary": node.get("summary", ""),
+            "trigger": node.get("trigger", {}),
+            "topic_tags": node.get("topic_tags", []),
+            "entities": node.get("entities", []),
+            "source_paths": node.get("source_paths", []),
+            "links": node.get("links", []),
+            "quality": node.get("quality", {}),
+            "raw_ref": ref,
+            "updated_at": node.get("updated_at", ""),
+            "created_at": node.get("created_at", ""),
+            # Perf (Addendum 5): a COMPLETE recall payload so recall reads
+            # index.json once (O(1)) instead of opening all N node files.
+            # Mirrors the claude agent byte-for-byte for the shared tree.
+            "salience": node.get("salience", {}),
+            "sensitivity": node.get("sensitivity", ""),
+            "authority": node.get("authority", ""),
+            "project_id": node.get("project_id", ""),
+            "workspace_instance_id": node.get("workspace_instance_id", ""),
+            "repo_remote_hash": node.get("repo_remote_hash", ""),
+            "commit": node.get("commit", ""),
+            "session_id": node.get("session_id", ""),
+            "detailed_summary": node.get("detailed_summary", ""),
+            "source_description": node.get("source_description", ""),
+        }
+
+    @staticmethod
+    def _entry_tokens(entry: dict[str, Any]) -> set[str]:
+        """Maximal ``[A-Za-z0-9_./-]`` runs (len>=3) of an entry's searchable text.
+
+        Posting tokens. NOT stopword/length-filtered like recall's QUERY terms,
+        because recall matches a query term as a SUBSTRING of node text and a
+        non-stopword term can sit inside a stopword run (e.g. ``her`` in
+        ``where``). Indexing every run keeps candidate selection LOSSLESS.
+        Mirrors the claude agent byte-for-byte.
+        """
+        trigger = entry.get("trigger")
+        trigger_text = " ".join(str(v) for v in trigger.values()) if isinstance(trigger, dict) else str(trigger or "")
+        parts = [
+            str(entry.get("summary", "")),
+            trigger_text,
+            " ".join(str(x) for x in entry.get("entities", []) or []),
+            " ".join(str(x) for x in entry.get("source_paths", []) or []),
+            " ".join(str(x) for x in entry.get("topic_tags", []) or []),
+            " ".join(str(x) for x in entry.get("links", []) or []),
+        ]
+        blob = " ".join(parts).lower()
+        return {tok for tok in re.findall(r"[A-Za-z0-9_./-]+", blob) if len(tok) >= 3}
+
+    def _build_postings(self, nodes: list[dict[str, Any]]) -> dict[str, list[str]]:
+        postings: dict[str, list[str]] = {}
+        for entry in nodes:
+            node_id = entry.get("node_id")
+            if not node_id:
+                continue
+            for tok in self._entry_tokens(entry):
+                postings.setdefault(tok, []).append(node_id)
+        for tok in postings:
+            postings[tok] = sorted(set(postings[tok]))
+        return postings
+
+    def load_index(self, project_id: str) -> dict[str, Any] | None:
+        """Return parsed index.json, or None if absent/corrupt (callers fall back)."""
+        try:
+            path = self.project_tree(project_id) / "index.json"
+        except TreeStorePathError:
+            return None
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
     def _write_index(self, project_id: str) -> None:
         root = self.ensure_layout(project_id)
-        nodes = self.list_nodes(project_id)
+        nodes = [self._index_entry(node) for node in self.list_nodes(project_id)]
         index = {
             "schema_version": "ralph_memory_tree_index_v1",
             "project_id": project_id,
             "updated_at": now_iso(),
-            "nodes": [
-                {
-                    "node_id": node["node_id"],
-                    "memory_type": node.get("memory_type", ""),
-                    "branch": node.get("branch", ""), "created_on_branch": node.get("created_on_branch", node.get("branch", "")),
-                    "visibility": node.get("visibility", "branch_local"), "promotion_status": node.get("promotion_status", "not_promoted"),
-                    "summary": node.get("summary", ""),
-                    "trigger": node.get("trigger", {}),
-                    "topic_tags": node.get("topic_tags", []),
-                    "source_paths": node.get("source_paths", []),
-                    "links": node.get("links", []), "quality": node.get("quality", {}),
-                }
-                for node in nodes
-            ],
+            "nodes": nodes,
+            # Perf (Addendum 5): inverted index (token -> node_ids) so recall scores
+            # only candidate nodes sharing a term with the query, not all N.
+            "postings": self._build_postings(nodes),
         }
         atomic_write_json(root / "index.json", index)
 
