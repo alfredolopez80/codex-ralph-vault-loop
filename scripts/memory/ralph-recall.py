@@ -286,7 +286,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Recall safe local Ralph memory context.")
     parser.add_argument("query")
     parser.add_argument("--project", default="")
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--include-raw", action="store_true")

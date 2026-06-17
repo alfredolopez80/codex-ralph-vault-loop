@@ -274,7 +274,7 @@ def consolidate_tree(store: TreeStore, project_id: str, branch: str, write: bool
 def main() -> int:
     parser = argparse.ArgumentParser(description="Safely consolidate Ralph Memory Tree v2 nodes.")
     parser.add_argument("--project-root", default=".")
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--ralph-home", default=os.environ.get("RALPH_HOME", "~/.ralph-codex"))
     parser.add_argument("--branch", default="")
     parser.add_argument("--explain", action="store_true")

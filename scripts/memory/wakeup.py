@@ -268,7 +268,7 @@ def record_injection(root: Path, session_id: str, checkpoint_hash: str, key: str
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print compact Ralph Codex wakeup context.")
     parser.add_argument("--project", default=os.environ.get("VAULT_PROJECT", ""))
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     args = parser.parse_args()
     print(build_context(project_id=args.project_id, workspace_root=args.workspace_root, project=args.project), end="")

@@ -169,7 +169,7 @@ def main() -> int:
     parser.add_argument("--target-time", default=DEFAULT_TARGET_TIME, help="Local HH:MM time. Default: 11:30.")
     parser.add_argument("--max-seconds", type=int, default=15)
     parser.add_argument("--vault-project", default=Path.cwd().name)
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
     args = parser.parse_args()
 

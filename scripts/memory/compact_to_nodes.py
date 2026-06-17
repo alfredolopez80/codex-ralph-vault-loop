@@ -21,7 +21,7 @@ from classify_learning import classify_learning  # noqa: E402
 from compact_sources import DEFAULT_VAULT_DIR, Source, discover_sources, read_source, skip_source  # noqa: E402
 from memory_node import SCHEMA_VERSION, contains_red_material, deterministic_node_id, sha256_text  # noqa: E402
 from sensitive_content import public_findings  # noqa: E402
-from tree_store import TreeStore, TreeStoreError  # noqa: E402
+from tree_store import TreeStore, TreeStoreError, compute_project_id  # noqa: E402
 
 try:
     from shared.active_context import active_context_from_payload  # type: ignore  # noqa: E402
@@ -90,19 +90,25 @@ def frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 def context_for(project_root: Path, project_id: str, session_id: str) -> Context:
     root = project_root.expanduser().resolve()
+    # The TREE project_id keys the SHARED memory tree and MUST be the canonical
+    # git-remote id (Wave 5, Addendum 4). The explicit ``project_id`` arg only
+    # wins when supplied (its CLI default now carries RALPH_MEMORY_PROJECT_ID,
+    # NOT the legacy RALPH_PROJECT_ID). Otherwise derive via compute_project_id
+    # so codex and claude write/read the SAME tree dir.
+    tree_project_id = project_id or compute_project_id(root)
     if active_context_from_payload is not None:
         active = active_context_from_payload({"cwd": str(root), "session_id": session_id})
         return Context(
             root,
             getattr(active, "project_slug", root.name),
-            project_id or getattr(active, "project_id", ""),
+            tree_project_id,
             getattr(active, "workspace_instance_id", "") or sha256_text(str(root))[:16],
             getattr(active, "remote_url_hash", "") or sha256_text(str(root))[:16],
             getattr(active, "branch", "") or "unknown",
             getattr(active, "sha", "") or "",
             session_id or getattr(active, "session_id", "") or "compact-to-nodes",
         )
-    return Context(root, root.name, project_id or "p-" + sha256_text(str(root))[:16], sha256_text(str(root))[:16], sha256_text(str(root))[:16], "unknown", "", session_id or "compact-to-nodes")
+    return Context(root, root.name, tree_project_id, sha256_text(str(root))[:16], sha256_text(str(root))[:16], "unknown", "", session_id or "compact-to-nodes")
 
 
 def runtime_root(ralph_home: Path, project_id: str) -> Path:
@@ -277,7 +283,7 @@ def main() -> int:
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--dry-run", action="store_true", help="Default: report only.")
     parser.add_argument("--write", action="store_true", help="Write deduplicated candidates.")
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--ralph-home", default=os.environ.get("RALPH_HOME", "~/.ralph-codex"))
     parser.add_argument("--session-id", default=os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID", "compact-to-nodes"))
     parser.add_argument("--max-items", type=int, default=1000)

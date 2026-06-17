@@ -162,7 +162,7 @@ def promote_branch_memory(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Promote Ralph Memory Tree branch candidates after evidence checks.")
     parser.add_argument("--project-root", default=".")
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--ralph-home", default=os.environ.get("RALPH_HOME", "~/.ralph-codex"))
     parser.add_argument("--source-branch", default="")
     parser.add_argument("--target-branch", default="main")

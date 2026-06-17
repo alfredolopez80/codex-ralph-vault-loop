@@ -19,7 +19,12 @@ for import_dir in (SCRIPT_DIR, REPO_ROOT / ".codex" / "hooks"):
         sys.path.insert(0, str(import_dir))
 
 from memory_node import MemoryNode, MemoryNodeValidationError, contains_red_material, sha256_text  # noqa: E402
-from tree_store import TreeStore, compute_project_id, default_memory_home  # noqa: E402
+from tree_store import (  # noqa: E402
+    TreeStore,
+    compute_project_id,
+    default_memory_home,
+    workspace_instance_id as canonical_workspace_instance_id,
+)
 from usage_ledger import record_usage  # noqa: E402
 
 try:
@@ -73,22 +78,28 @@ def context_for(project_root: Path, project_id: str = "", branch: str = "", work
     # Wave 5 (Addendum 3): the memory-tree project_id MUST agree byte-for-byte
     # with the claude agent so the SAME target repo resolves to the SAME shared
     # tree dir. Precedence:
-    #   1. explicit --project-id / RALPH_PROJECT_ID (CLI default carries the env)
+    #   1. explicit --project-id / RALPH_MEMORY_PROJECT_ID (CLI default carries it)
     #   2. the SHARED compute_project_id (git-remote-hash, worktree-unwrapped)
     # The legacy active_context ``p-<hash>`` id is NOT used for the tree id (it
     # is a different algorithm and would split the shared tree). active_context
     # may still supply slug / branch / workspace metadata.
     resolved_id = project_id or compute_project_id(root)
+    # The worktree filter compares against the CANONICAL workspace_instance_id
+    # (worktree-unwrapped main-repo dir name) -- the SAME value compute_project_id
+    # and node writers use. The legacy active_context / path-hash fallbacks were a
+    # different algorithm and would reject every canonical node as wrong_worktree,
+    # breaking the unified shared tree (Wave 5, Addendum 4). Mirrors claude.
+    resolved_workspace = workspace_instance_id or canonical_workspace_instance_id(root)
     if active_context_from_payload is not None:
         active = active_context_from_payload({"cwd": str(root), "session_id": "recall-v2"})
         return Context(
             root,
             getattr(active, "project_slug", root.name),
             resolved_id,
-            workspace_instance_id or getattr(active, "workspace_instance_id", "") or sha256_text(str(root))[:16],
+            resolved_workspace,
             branch or getattr(active, "branch", "") or "unknown",
         )
-    return Context(root, root.name, resolved_id, workspace_instance_id or sha256_text(str(root))[:16], branch or "unknown")
+    return Context(root, root.name, resolved_id, resolved_workspace, branch or "unknown")
 
 
 def analyze_query(query: str) -> dict[str, Any]:
@@ -319,7 +330,7 @@ def main() -> int:
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--query", required=True)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--project-id", default=os.environ.get("RALPH_PROJECT_ID", ""))
+    parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--ralph-home", default=str(default_memory_home()))
     parser.add_argument("--branch", default="")
     parser.add_argument("--workspace-instance-id", default="")

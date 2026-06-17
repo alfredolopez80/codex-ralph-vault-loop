@@ -69,9 +69,12 @@ def default_memory_home() -> Path:
 
 # ---------------------------------------------------------------------------
 # Canonical project id derivation -- byte-identical to the claude agent's
-# multi-agent-ralph-loop/scripts/memory/tree_store.py (Wave 5, Addendum 3).
+# multi-agent-ralph-loop/scripts/memory/tree_store.py (Wave 5, Addendum 4).
 # Ported verbatim so the SAME target repo yields the SAME project_id from
-# either agent. Override via RALPH_PROJECT_ID (codex compatibility).
+# either agent. The TREE id is intentionally DECOUPLED from the legacy
+# ``RALPH_PROJECT_ID`` (``p-<hash>``) that codex hooks set at runtime: the
+# shared tree is keyed by git-remote, and only the dedicated
+# ``RALPH_MEMORY_PROJECT_ID`` env var (when set) overrides it.
 # ---------------------------------------------------------------------------
 
 def _git_remote_url(repo_root: Path) -> str:
@@ -147,14 +150,16 @@ def workspace_instance_id(repo_root: Path) -> str:
 
 
 def compute_project_id(repo_root: Path) -> str:
-    """Canonical project id: main-repo remote-hash + main-repo dir name.
+    """Canonical TREE project id: main-repo remote-hash + main-repo dir name.
 
     Worktrees are unwrapped to their main repository first, so two worktrees of
-    the same repo resolve to the SAME project id. ``RALPH_PROJECT_ID`` override
-    wins when set (codex compatibility). When unset, the git-remote-hash
-    derivation matches the claude agent byte-for-byte.
+    the same repo resolve to the SAME project id. Only the dedicated
+    ``RALPH_MEMORY_PROJECT_ID`` env var overrides this id; the legacy
+    ``RALPH_PROJECT_ID`` (``p-<hash>``) that codex runtime hooks export is NOT
+    honored here, so codex and claude converge on the SAME git-remote-keyed
+    shared tree regardless of legacy session ids.
     """
-    override = os.environ.get("RALPH_PROJECT_ID", "").strip()
+    override = os.environ.get("RALPH_MEMORY_PROJECT_ID", "").strip()
     if override:
         return safe_segment(override, "project_id")
     main_repo = resolve_main_repo_root(repo_root)
