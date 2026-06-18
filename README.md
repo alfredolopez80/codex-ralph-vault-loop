@@ -236,6 +236,12 @@ release notes, articles, and future blog-style content. Use
 `content-research-writer` when a claim needs sourcing, and keep citations close
 to the claim they support.
 
+`slop-guard` is intentionally not installed as an automatic Codex `Stop` hook.
+The hook was removed because running a prose analyzer on every final response
+created avoidable token cost, latency, and operational noise. Use prose-quality
+tools manually when a document, PR body, release note, or public artifact needs
+that review.
+
 For visual assets and article imagery:
 
 | Check       | Standard                                                                                                            |
