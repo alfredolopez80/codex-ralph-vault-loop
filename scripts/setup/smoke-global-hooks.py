@@ -124,7 +124,7 @@ def main() -> int:
             "post_tool_checkpoint.py",
             "post_tool_cost_ledger.py",
         ],
-        "Stop": ["codex_stop_slop_guard.py", "stop_persist_memory.py", "stop_memory_promotion_review.py"],
+        "Stop": ["stop_persist_memory.py", "stop_memory_promotion_review.py"],
     }
     for event, names in required.items():
         sequence = hook_basenames(config, event)
@@ -140,15 +140,6 @@ def main() -> int:
     if not (repo_root / "scripts" / "memory" / "wakeup.py").is_file():
         print(f"GLOBAL_HOOKS_SMOKE_FAIL invalid repo root {repo_root}", file=sys.stderr)
         return 1
-    slop_source = repo_root / "scripts" / "gates" / "codex_stop_slop_guard.py"
-    slop_target = GLOBAL_HOOK_DIR / "codex_stop_slop_guard.py"
-    if not slop_source.is_file() or not slop_target.is_file():
-        print("GLOBAL_HOOKS_SMOKE_FAIL missing slop guard source or global copy", file=sys.stderr)
-        return 1
-    if slop_source.read_bytes() != slop_target.read_bytes():
-        print("GLOBAL_HOOKS_SMOKE_FAIL global slop guard does not match repo source", file=sys.stderr)
-        return 1
-
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
         env = {
@@ -234,32 +225,6 @@ def main() -> int:
         for index, command in enumerate(hook_commands(config, "Stop")):
             stop_result = run_hook_command(command, stop_payload, env)
             assert_stop_output_contract(f"Stop hook {index} {command}", stop_result)
-
-        slop_env = env | {
-            "HOME": str(base),
-            "CODEX_SLOP_GUARD_ENABLED": "1",
-            "PATH": "",
-        }
-        operational_slop = run_hook(
-            "codex_stop_slop_guard.py",
-            {
-                "session_id": "global-hook-smoke-operational-slop",
-                "cwd": str(project_a),
-                "last_assistant_message": "/goal Validate the installed slop guard skip behavior without running analyzer.",
-            },
-            slop_env,
-        )
-        assert_stop_output_contract("codex_stop_slop_guard.py operational skip", operational_slop)
-        if operational_slop.stdout.strip():
-            raise RuntimeError("slop guard operational skip emitted stdout")
-        slop_log = base / ".ralph-codex" / "logs" / "slop_guard_hooks.jsonl"
-        if not slop_log.is_file():
-            raise RuntimeError("slop guard operational skip did not write temp log")
-        latest_slop = json.loads(slop_log.read_text(encoding="utf-8").splitlines()[-1])
-        if latest_slop.get("mode") != "operational_skip" or latest_slop.get("blocked") is not False:
-            raise RuntimeError("slop guard operational skip log mismatch")
-        if "/goal Validate" in slop_log.read_text(encoding="utf-8"):
-            raise RuntimeError("slop guard log leaked raw operational prompt")
 
         shaping_doc = project_a / "shaping.md"
         shaping_doc.write_text("---\nshaping: true\n---\n# Smoke shaping\n", encoding="utf-8")

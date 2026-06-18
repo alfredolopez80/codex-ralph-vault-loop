@@ -94,11 +94,6 @@
           },
           {
             "type": "command",
-            "command": "python3 scripts/gates/codex_stop_slop_guard.py",
-            "timeout": 45
-          },
-          {
-            "type": "command",
             "command": "python3 .codex/hooks/stop_route_decision_warn.py",
             "timeout": 10
           },

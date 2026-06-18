@@ -18,7 +18,6 @@ RED_SENTINEL = "token" + "=PRE_GLOBAL_AUDIT_RED_SENTINEL_39217"
 PROJECT = "codex-ralph-vault-loop"
 WORKTREE_AWARE_PASS = "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_PASS"
 WORKTREE_AWARE_FAIL = "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL"
-SLOP_GUARD_PENDING_INSTALL = "global slop guard does not match source codex_stop_slop_guard.py"
 
 
 def now_iso() -> str:
@@ -92,15 +91,6 @@ def installer_source_guard() -> dict[str, Any]:
 
 def doctor_global_result() -> dict[str, Any]:
     result = run_command(["bash", str(ROOT / "scripts" / "setup" / "doctor-global.sh")])
-    combined = result["stdout"] + result["stderr"]
-    if result["pass"]:
-        return result
-    if SLOP_GUARD_PENDING_INSTALL in combined and re.search(r"GLOBAL_DOCTOR_FAIL_COUNT\s+1\b", combined):
-        return {
-            **result,
-            "expected": "pending-slop-guard-install",
-            "pending_activation": True,
-        }
     return result
 
 

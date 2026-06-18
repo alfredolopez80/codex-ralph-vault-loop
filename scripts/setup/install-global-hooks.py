@@ -11,7 +11,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
-GLOBAL_SLOP_GUARD = GLOBAL_HOOK_DIR / "codex_stop_slop_guard.py"
 
 
 def q(path: Path) -> str:
@@ -20,7 +19,6 @@ def q(path: Path) -> str:
 
 def hook_config() -> dict:
     hooks = GLOBAL_HOOK_DIR
-    slop = GLOBAL_SLOP_GUARD
     return {
         "hooks": {
             "SessionStart": [
@@ -117,11 +115,6 @@ def hook_config() -> dict:
                         },
                         {
                             "type": "command",
-                            "command": f"python3 {q(slop)}",
-                            "timeout": 45,
-                        },
-                        {
-                            "type": "command",
                             "command": f"python3 {q(hooks / 'stop_route_decision_warn.py')}",
                             "timeout": 10,
                         },
@@ -183,7 +176,6 @@ def main() -> int:
     if args.dry_run:
         print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / '.codex' / 'hooks'} -> {GLOBAL_HOOK_DIR}")
         print(f"GLOBAL_HOOKS_DRY_RUN write {GLOBAL_HOOK_DIR / '.ralph-repo-root'}")
-        print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / 'scripts' / 'gates' / 'codex_stop_slop_guard.py'} -> {GLOBAL_SLOP_GUARD}")
         print(f"GLOBAL_HOOKS_DRY_RUN write {GLOBAL_HOOKS}")
         print(json.dumps(data, indent=2))
         return 0
@@ -199,7 +191,6 @@ def main() -> int:
         shutil.rmtree(GLOBAL_HOOK_DIR)
     shutil.copytree(REPO / ".codex" / "hooks", GLOBAL_HOOK_DIR, symlinks=True)
     (GLOBAL_HOOK_DIR / ".ralph-repo-root").write_text(str(REPO) + "\n", encoding="utf-8")
-    shutil.copy2(REPO / "scripts" / "gates" / "codex_stop_slop_guard.py", GLOBAL_SLOP_GUARD)
 
     if GLOBAL_HOOKS.exists():
         backup = GLOBAL_HOOKS.with_suffix(".json.bak-global-hooks")

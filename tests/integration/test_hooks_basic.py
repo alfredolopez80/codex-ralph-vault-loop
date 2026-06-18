@@ -1045,12 +1045,9 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
     assert any("file_line_guard.py --event PostToolUse" in command for command in post_commands)
     assert any("shaping_ripple.py" in command for command in post_commands)
     assert any("file_line_guard.py --event Stop" in command for command in stop_commands)
-    assert any("codex_stop_slop_guard.py" in command for command in stop_commands)
+    assert not any("codex_stop_slop_guard.py" in command for command in stop_commands)
     assert any("stop_memory_promotion_review.py" in command for command in stop_commands)
     assert next(i for i, command in enumerate(stop_commands) if "file_line_guard.py --event Stop" in command) < next(
-        i for i, command in enumerate(stop_commands) if "codex_stop_slop_guard.py" in command
-    )
-    assert next(i for i, command in enumerate(stop_commands) if "codex_stop_slop_guard.py" in command) < next(
         i for i, command in enumerate(stop_commands) if "stop_route_decision_warn.py" in command
     )
 
