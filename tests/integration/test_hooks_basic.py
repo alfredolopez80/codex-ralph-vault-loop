@@ -165,6 +165,7 @@ def test_pre_tool_guard_blocks_scripted_sensitive_file_reads(tmp_path: Path) -> 
         f"node -e 'require(\"fs\").readFileSync(\"{env_name}\", \"utf8\")'",
         f"ruby -e 'puts {file_helper}(\"{env_name}\")'",
         f"ruby -e 'puts {io_helper}(\"{env_name}\")'",
+        f"ruby -e 'puts File . {read_attr}(\"{env_name}\")'",
     ]
 
     for command in commands:
@@ -192,6 +193,8 @@ def test_pre_tool_guard_blocks_protected_option_values(tmp_path: Path) -> None:
         f"python3 deploy.py --{pw_name} hunter2",
         f"node app.js --{tk_name} abcdefghijklmnop",
         f"tool --{key_name}=abcdefghi",
+        "echo --" + pw_name + " hunter2",
+        "python3 deploy.py -- --" + tk_name + " hunter2",
     ]
 
     for command in commands:
@@ -208,11 +211,13 @@ def test_pre_tool_guard_blocks_protected_env_exposure(tmp_path: Path) -> None:
     env_attr = "en" + "v"
     commands = [
         f"echo ${key_name}",
+        "echo \"'$" + key_name + "'\"",
         f"printf %s ${tk_name}",
         f"python3 -c 'import os; print(os.environ.get(\"{tk_name}\"))'",
         f"python3 -c 'import os; print(os.{environ_attr}[\"{tk_name}\"])'",
         f"node -e 'console.log(process." + f"env.{tk_name})'",
         f"node -e 'console.log(process." + f"{env_attr}[\"{tk_name}\"])'",
+        "node -e 'console.log(process." + env_attr + "[`" + tk_name + "`])'",
     ]
 
     for command in commands:
@@ -230,6 +235,7 @@ def test_pre_tool_guard_blocks_protected_search_paths(tmp_path: Path) -> None:
         f"rg --files {env_name}",
         f"rg -g {env_name} FOO",
         f"rg --glob={env_name} FOO",
+        f"rg --iglob {env_name} FOO",
         f"grep -R -m1 --include={env_name} FOO src",
     ]
 
@@ -260,7 +266,7 @@ def test_pre_tool_guard_allows_option_reference_literals(tmp_path: Path) -> None
     tk_option = "--" + "to" + "ken"
     commands = [
         f"rg -- '{tk_option}' docs",
-        f"echo {tk_option} reference only",
+        f"echo {tk_option}",
     ]
 
     for command in commands:

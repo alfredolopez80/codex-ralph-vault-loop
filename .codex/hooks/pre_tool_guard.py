@@ -30,7 +30,7 @@ SENSITIVE_PATH_RE = re.compile(r"(?i)(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet
 SCRIPT_EXEC_RE = re.compile(r"(?i)\b(?:python(?:3(?:\.\d+)?)?|node|ruby|perl|bash|sh|zsh)\b")
 SCRIPT_READ_RE = re.compile(
     r"(?i)(?:\bopen\b|\bread_text\b|\bread_bytes\b|\breadFile(?:Sync)?\b|\bcreateReadStream\b|"
-    r"\b(?:File|IO)\.read\b|\bsource\b|<\s*)"
+    r"\b(?:File|IO)\s*\.\s*read\b|\bsource\b|<\s*)"
 )
 
 # Build protected markers from fragments so maintenance patches do not trip this guard.
@@ -62,7 +62,7 @@ ENV_READ_RE = re.compile(
     + "env"
     + r"(?:\.|\s*\[))"
 )
-ENV_NAME_LITERAL_RE = re.compile(r"['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]")
+ENV_NAME_LITERAL_RE = re.compile(r"['\"`]([A-Za-z_][A-Za-z0-9_]*)['\"`]")
 SENSITIVE_SCAN_TOOLS = {"ag", "ack", "egrep", "fgrep", "grep", "rg"}
 REFERENCE_ONLY_TOOLS = {"echo", "printf"}
 
@@ -418,14 +418,19 @@ def command_parts(command: str) -> list[str]:
 def shell_expanded_names(command: str) -> list[str]:
     names: list[str] = []
     in_single = False
+    in_double = False
     idx = 0
     while idx < len(command):
         char = command[idx]
-        if char == "\\":
+        if char == "\\" and not in_single:
             idx += 2
             continue
-        if char == "'":
+        if char == "'" and not in_double:
             in_single = not in_single
+            idx += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
             idx += 1
             continue
         if in_single or char != "$":
@@ -442,11 +447,12 @@ def shell_expanded_names(command: str) -> list[str]:
 
 def command_has_protected_option_value(command: str) -> bool:
     parts = command_parts(command)
-    if parts and executable_name(parts[0]) in REFERENCE_ONLY_TOOLS:
-        return False
+    tool = executable_name(parts[0]) if parts else ""
     for idx, part in enumerate(parts):
         if part == "--":
-            break
+            if tool in SENSITIVE_SCAN_TOOLS:
+                break
+            continue
         if not SENSITIVE_OPTION_RE.match(part):
             continue
         if "=" in part:
@@ -476,9 +482,9 @@ def search_option_targets_protected_path(tool: str, segment: list[str]) -> bool:
     for idx, candidate in enumerate(segment):
         next_part = segment[idx + 1] if idx + 1 < len(segment) else ""
         if tool in {"rg", "ag", "ack"}:
-            if candidate in {"-g", "--glob"} and next_part and SENSITIVE_PATH_RE.search(next_part):
+            if candidate in {"-g", "--glob", "--iglob"} and next_part and SENSITIVE_PATH_RE.search(next_part):
                 return True
-            if candidate.startswith("--glob=") and SENSITIVE_PATH_RE.search(candidate.split("=", 1)[1]):
+            if candidate.startswith(("--glob=", "--iglob=")) and SENSITIVE_PATH_RE.search(candidate.split("=", 1)[1]):
                 return True
             if candidate.startswith("-g") and candidate != "-g" and SENSITIVE_PATH_RE.search(candidate[2:]):
                 return True
