@@ -40,6 +40,8 @@ DEFAULT_SKILLS=(
   obsidian-capture
   obsidian-spec
   oracle-pro-debugger
+  claude-agentic-review
+  zcode-agentic-builder
   codex-design-studio
   codex-dynamic-workflows
   ralph-objective-prep

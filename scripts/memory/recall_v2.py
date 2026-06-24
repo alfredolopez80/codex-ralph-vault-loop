@@ -178,18 +178,38 @@ def candidate_payloads(
     if not isinstance(postings, dict) or not isinstance(entries, list):
         return iter_node_payloads(store, project_id)
 
+    directory = store.nodes_dir(project_id)
+    indexed_ids = {str(e.get("node_id")) for e in entries if isinstance(e, dict) and e.get("node_id")}
+
+    def unindexed_payloads() -> list[tuple[Path, Any]]:
+        """Return raw node files not represented in index.json.
+
+        Direct writers and older tools can create node files without rebuilding
+        the fat index. Those nodes still carry security/scope/provenance
+        decisions, so recall must inspect them before declaring the rejection
+        trace complete.
+        """
+        if not directory.exists():
+            return []
+        payloads: list[tuple[Path, Any]] = []
+        for path in sorted(directory.glob("*.json")):
+            if path.name.startswith(".") or path.stem in indexed_ids:
+                continue
+            try:
+                payloads.append((path, json.loads(path.read_text(encoding="utf-8"))))
+            except (OSError, json.JSONDecodeError, ValueError):
+                payloads.append((path, None))
+        return payloads
+
     search_terms = [s for s in analysis.get("search_terms", []) if s]
     if not search_terms:
-        return []
+        return unindexed_payloads()
 
     candidate_ids: set[str] = set()
     for token, ids in postings.items():
         if isinstance(ids, list) and any(s in token for s in search_terms):
             candidate_ids.update(ids)
-    if not candidate_ids:
-        return []
 
-    directory = store.nodes_dir(project_id)
     by_id = {e.get("node_id"): e for e in entries if isinstance(e, dict)}
     out: list[tuple[Path, Any]] = []
     for nid in candidate_ids:
@@ -199,6 +219,7 @@ def candidate_payloads(
             out.append((path, entry))
         else:
             out.append((path, store.load_node(project_id, nid)))
+    out.extend(unindexed_payloads())
     return out
 
 

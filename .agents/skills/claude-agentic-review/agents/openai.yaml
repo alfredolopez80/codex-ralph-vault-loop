@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Agentic Review"
+  short_description: "Deep Claude CLI repository review"
+  default_prompt: "Use $claude-agentic-review to review this repository with Claude CLI evidence and validation."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ZCode Agentic Builder"
+  short_description: "Fast ZCode implementation workflow"
+  default_prompt: "Use $zcode-agentic-builder to implement this change with ZCode and validate the result."
