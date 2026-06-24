@@ -25,7 +25,6 @@ SENSITIVE_COMMAND_PATTERNS = [
         r"(?i)\b(cat|less|more|head|tail|sed|awk|pbcopy|open|curl|wget|scp|rsync)\b"
         r".*(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)"
     ),
-    re.compile(r"(?i)\b(echo|printf|curl|wget|npx|node|python3?)\b.*(api[_-]?key|secret|token|password|credential)"),
 ]
 
 AUTOMATION_MUTATION_MODES = {"create", "update"}

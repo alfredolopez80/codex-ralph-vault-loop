@@ -128,6 +128,33 @@ def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
     assert ".env" not in payload["reason"]
 
 
+def test_pre_tool_guard_allows_safe_sensitive_references_without_values(tmp_path: Path) -> None:
+    env_name = "." + "env"
+    access_name = "ACCESS" + "_" + "TO" + "KEN"
+    tk_name = "TO" + "KEN"
+    commands = [
+        f"echo Mention {env_name} in docs",
+        f"printf Review {access_name} variable naming",
+        f"python3 -c 'print(\"{tk_name} reference only\")'",
+    ]
+
+    for command in commands:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "", command
+
+
+def test_pre_tool_guard_blocks_sensitive_values_in_commands(tmp_path: Path) -> None:
+    key_name = "TO" + "KEN"
+    command = f"echo {key_name}=abc123"
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+
+
 def test_pre_tool_guard_blocks_unbounded_large_output_commands(tmp_path: Path) -> None:
     for command in [
         "kubectl logs deploy/control-api",

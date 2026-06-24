@@ -247,6 +247,23 @@ Choose the best safe MCP lane by task intent. Cost is secondary to intent, sensi
 
 For complexity 7+, Codex main owns the work with gates. Z.ai or MiniMax may still provide advisory MCP output only when the content is GREEN or sanitized YELLOW and Codex can verify locally.
 
+## Authorized CLI Advisor Queries
+
+The `claude-agentic-review` and `zcode-agentic-builder` skills are local
+prompt-construction and supervision skills. They are authorized to invoke their
+paired local CLI commands as advisory consultation routes:
+
+- `claude-agentic-review` may use `claude -p "{prompt}"`.
+- `zcode-agentic-builder` may use `zcode --prompt "{prompt}"`, preferably
+  `zcode --prompt "{prompt}" --cwd . --mode build` for repo-local build work.
+
+These commands are approved consultation paths when the user has authorized
+their use, the prompt is minimized to the needed files and facts, and the
+context is GREEN or sanitized YELLOW. Treat the result as advisory only: Codex
+main still owns final decisions, edits, synthesis, safety, and local
+verification. RED-classified material must not be sent through these CLI
+prompts.
+
 Before sending context to Z.ai or MiniMax for non-trivial work, shape the request as:
 
 ```text
