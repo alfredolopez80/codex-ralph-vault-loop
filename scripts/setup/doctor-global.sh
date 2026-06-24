@@ -220,6 +220,8 @@ check_agents_policy() {
     grep -q "Authorized local CLI advisor queries" "$GLOBAL_AGENTS_MD" &&
     grep -q 'claude -p "{prompt}"' "$GLOBAL_AGENTS_MD" &&
     grep -q 'zcode --prompt "{prompt}"' "$GLOBAL_AGENTS_MD" &&
+    grep -q "explicit user approval for that exact run" "$GLOBAL_AGENTS_MD" &&
+    grep -q "managed Codex escalation reviewer" "$GLOBAL_AGENTS_MD" &&
     grep -q "RED-classified material must never be sent to these CLIs" "$GLOBAL_AGENTS_MD"; then
     ok "global AGENTS.md intent-based MCP policy present"
   else

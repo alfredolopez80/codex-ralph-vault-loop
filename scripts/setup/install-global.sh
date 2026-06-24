@@ -288,6 +288,8 @@ Rules:
   - `claude-agentic-review` may use `claude -p "{prompt}"`.
   - `zcode-agentic-builder` may use `zcode --prompt "{prompt}"`, preferably
     `zcode --prompt "{prompt}" --cwd . --mode build` for repo-local build work.
+  - For `claude -p` and `zcode --prompt`, Codex may use them only after explicit user approval for that exact run.
+  - If the managed Codex escalation reviewer blocks the run, do not bypass it; ask the user to run the command outside Codex or proceed with local-only review.
   - These CLI advisors must receive only minimized GREEN or sanitized YELLOW context.
   - Codex main remains final owner of decisions, edits, safety, and verification.
   - RED-classified material must never be sent to these CLIs.
