@@ -26,6 +26,11 @@ SENSITIVE_COMMAND_PATTERNS = [
         r".*(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)"
     ),
 ]
+SENSITIVE_PATH_RE = re.compile(r"(?i)(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)")
+SCRIPT_EXEC_RE = re.compile(r"(?i)\b(?:python(?:3(?:\.\d+)?)?|node|ruby|perl|bash|sh|zsh)\b")
+SCRIPT_READ_RE = re.compile(
+    r"(?i)(?:\bopen\b|\bread_text\b|\bread_bytes\b|\breadFile(?:Sync)?\b|\bcreateReadStream\b|\bsource\b|<\s*)"
+)
 
 AUTOMATION_MUTATION_MODES = {"create", "update"}
 AUTOMATION_REVIEW_MODES = {"suggested_create", "suggested_update"}
@@ -605,6 +610,9 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
             return 0
+    if SCRIPT_EXEC_RE.search(command) and SENSITIVE_PATH_RE.search(command) and SCRIPT_READ_RE.search(command):
+        write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
+        return 0
     wakeup_payload = stale_repo_local_wakeup_payload(command, payload)
     if wakeup_payload:
         write_json({"decision": "block", **wakeup_payload})

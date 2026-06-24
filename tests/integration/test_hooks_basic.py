@@ -155,6 +155,30 @@ def test_pre_tool_guard_blocks_sensitive_values_in_commands(tmp_path: Path) -> N
     assert payload["decision"] == "block"
 
 
+def test_pre_tool_guard_blocks_scripted_sensitive_file_reads(tmp_path: Path) -> None:
+    env_name = "." + "env"
+    commands = [
+        f"python3 -c 'from pathlib import Path; print(Path(\"{env_name}\").read_text())'",
+        f"node -e 'require(\"fs\").readFileSync(\"{env_name}\", \"utf8\")'",
+    ]
+
+    for command in commands:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+
+
+def test_pre_tool_guard_allows_scripted_sensitive_references_without_reads(tmp_path: Path) -> None:
+    env_name = "." + "env"
+    command = f"python3 -c 'print(\"{env_name} reference only\")'"
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 def test_pre_tool_guard_blocks_unbounded_large_output_commands(tmp_path: Path) -> None:
     for command in [
         "kubectl logs deploy/control-api",
