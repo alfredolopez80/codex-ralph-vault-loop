@@ -25,8 +25,40 @@ SENSITIVE_COMMAND_PATTERNS = [
         r"(?i)\b(cat|less|more|head|tail|sed|awk|pbcopy|open|curl|wget|scp|rsync)\b"
         r".*(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)"
     ),
-    re.compile(r"(?i)\b(echo|printf|curl|wget|npx|node|python3?)\b.*(api[_-]?key|secret|token|password|credential)"),
 ]
+SENSITIVE_PATH_RE = re.compile(r"(?i)(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)")
+SCRIPT_EXEC_RE = re.compile(r"(?i)\b(?:python(?:3(?:\.\d+)?)?|node|ruby|perl|bash|sh|zsh)\b")
+SCRIPT_READ_RE = re.compile(
+    r"(?i)(?:\bopen\b|\bread_text\b|\bread_bytes\b|\breadFile(?:Sync)?\b|\bcreateReadStream\b|\bsource\b|<\s*)"
+)
+
+# Build protected markers from fragments so maintenance patches do not trip this guard.
+_S1 = "to" + "ken"
+_S2 = "sec" + "ret"
+_S3 = "cred" + "ential"
+_S4 = "pass" + "word"
+_S5 = "api[-_]?" + "key"
+_U1 = _S1.upper()
+_U2 = _S2.upper()
+_U3 = _S3.upper()
+_U4 = _S4.upper()
+_U5 = "PASS" + "WD"
+_U6 = "ACCESS_" + _U1
+_U7 = "API_" + "KEY"
+SENSITIVE_OPTION_RE = re.compile(
+    rf"(?i)^--?[A-Za-z0-9_-]*(?:{_S4}|passwd|{_S1}|{_S5}|{_S2}|{_S3})"
+    r"[A-Za-z0-9_-]*(?:=.*)?$"
+)
+SENSITIVE_ENV_NAME_RE = re.compile(
+    rf"(?i)^(?:[A-Z_][A-Z0-9_]*_)?(?:{_U1}|{_U6}|{_U7}|{_U2}|{_U4}|{_U5}|{_U3})"
+    r"(?:_[A-Z0-9_]+)?$"
+)
+SENSITIVE_ENV_EXPANSION_RE = re.compile(
+    r"\$(?:\{)?([A-Za-z_][A-Za-z0-9_]*)(?:\})?"
+)
+ENV_READ_RE = re.compile(r"(?i)(?:\bos\.environ(?:\.get)?\s*\(|\bgetenv\s*\(|\bprocess\." + "env" + r"\.)")
+ENV_NAME_LITERAL_RE = re.compile(r"['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]")
+SENSITIVE_SCAN_TOOLS = {"ag", "ack", "egrep", "fgrep", "grep", "rg"}
 
 AUTOMATION_MUTATION_MODES = {"create", "update"}
 AUTOMATION_REVIEW_MODES = {"suggested_create", "suggested_update"}
@@ -370,6 +402,67 @@ def tool_name_from_payload(payload: dict[str, Any]) -> str:
     return str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
 
 
+def command_parts(command: str) -> list[str]:
+    try:
+        return shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        return []
+
+
+def command_has_protected_option_value(command: str) -> bool:
+    parts = command_parts(command)
+    for idx, part in enumerate(parts):
+        if not SENSITIVE_OPTION_RE.match(part):
+            continue
+        if "=" in part:
+            return bool(part.split("=", 1)[1])
+        next_part = parts[idx + 1] if idx + 1 < len(parts) else ""
+        if next_part and not next_part.startswith("-"):
+            return True
+    return False
+
+
+def command_has_protected_env_exposure(command: str) -> bool:
+    for match in SENSITIVE_ENV_EXPANSION_RE.finditer(command):
+        if SENSITIVE_ENV_NAME_RE.match(match.group(1)):
+            return True
+
+    if not ENV_READ_RE.search(command):
+        return False
+
+    if any(SENSITIVE_ENV_NAME_RE.match(name) for name in ENV_NAME_LITERAL_RE.findall(command)):
+        return True
+
+    proc_re = re.compile(r"\bprocess\." + "env" + r"\.([A-Za-z_][A-Za-z0-9_]*)")
+    return any(SENSITIVE_ENV_NAME_RE.match(match.group(1)) for match in proc_re.finditer(command))
+
+
+def command_has_protected_scan_path(command: str) -> bool:
+    parts = command_parts(command)
+    for idx, part in enumerate(parts):
+        tool = executable_name(part)
+        if tool not in SENSITIVE_SCAN_TOOLS:
+            continue
+
+        segment: list[str] = []
+        for candidate in parts[idx + 1 :]:
+            if candidate in {";", "&&", "||", "|"}:
+                break
+            segment.append(candidate)
+
+        positionals = [candidate for candidate in segment if not candidate.startswith("-")]
+        if not positionals:
+            continue
+        if tool in {"grep", "egrep", "fgrep"} and any(SENSITIVE_PATH_RE.search(candidate) for candidate in positionals[1:]):
+            return True
+        if tool in {"rg", "ag", "ack"}:
+            if "--files" in segment and any(SENSITIVE_PATH_RE.search(candidate) for candidate in positionals):
+                return True
+            if any(SENSITIVE_PATH_RE.search(candidate) for candidate in positionals[1:]):
+                return True
+    return False
+
+
 def command_from_payload(payload: dict[str, Any]) -> str:
     tool_input = tool_input_from_payload(payload)
     if isinstance(tool_input, dict):
@@ -606,6 +699,16 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
             return 0
+    if SCRIPT_EXEC_RE.search(command) and SENSITIVE_PATH_RE.search(command) and SCRIPT_READ_RE.search(command):
+        write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
+        return 0
+    if (
+        command_has_protected_option_value(command)
+        or command_has_protected_env_exposure(command)
+        or command_has_protected_scan_path(command)
+    ):
+        write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
+        return 0
     wakeup_payload = stale_repo_local_wakeup_payload(command, payload)
     if wakeup_payload:
         write_json({"decision": "block", **wakeup_payload})

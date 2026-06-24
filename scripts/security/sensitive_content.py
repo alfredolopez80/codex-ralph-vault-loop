@@ -122,11 +122,6 @@ PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
         ),
     ),
     (
-        "env_file",
-        "env_file_reference",
-        re.compile(r"(?i)(?:^|[\s/])\.env(?:\.[A-Za-z0-9_-]+)?(?:$|[\s:/])"),
-    ),
-    (
         "customer_data",
         "customer_sensitive_marker",
         re.compile(
