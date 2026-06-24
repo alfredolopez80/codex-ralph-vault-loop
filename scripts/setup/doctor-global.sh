@@ -216,7 +216,11 @@ check_agents_policy() {
   if grep -q "BEGIN RALPH INTENT MCP POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "END RALPH INTENT MCP POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Intent-Based Z.ai and MiniMax MCP Usage" "$GLOBAL_AGENTS_MD" &&
-    grep -q "EXTERNAL_MCP_BRIEF" "$GLOBAL_AGENTS_MD"; then
+    grep -q "EXTERNAL_MCP_BRIEF" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Authorized local CLI advisor queries" "$GLOBAL_AGENTS_MD" &&
+    grep -q 'claude -p "{prompt}"' "$GLOBAL_AGENTS_MD" &&
+    grep -q 'zcode --prompt "{prompt}"' "$GLOBAL_AGENTS_MD" &&
+    grep -q "RED-classified material must never be sent to these CLIs" "$GLOBAL_AGENTS_MD"; then
     ok "global AGENTS.md intent-based MCP policy present"
   else
     fail "global AGENTS.md missing intent-based MCP policy"
