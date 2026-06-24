@@ -110,6 +110,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "SFW Package-Manager Protection" in agents_text
     assert "Codex Productivity Patterns" in agents_text
     assert "Done when:" in agents_text
+    assert "After any PR is merged" in agents_text
     assert "CONTEXT_ONLY" in agents_text
     assert "NO_PREAMBLE" in agents_text
     assert "$ralph-opportunity-scout" in agents_text

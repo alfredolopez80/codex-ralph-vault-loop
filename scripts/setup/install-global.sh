@@ -398,6 +398,7 @@ POLICY_SCOUT
   fi
   cat << 'POLICY_TAIL'
 - Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
+- After any PR is merged, sync the local `main` branch with `origin/main` before considering the PR follow-up complete. Use a fast-forward-only update when possible and verify `main` and `origin/main` point to the same commit.
 - Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
 - Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.
 - Do not use `--yolo` for production, shared, or sensitive local work.

@@ -268,6 +268,7 @@ check_agents_policy() {
     grep -q "END RALPH PRODUCTIVITY PATTERNS POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Codex Productivity Patterns" "$GLOBAL_AGENTS_MD" &&
     grep -q "Done when:" "$GLOBAL_AGENTS_MD" &&
+    grep -q "After any PR is merged" "$GLOBAL_AGENTS_MD" &&
     grep -q "CONTEXT_ONLY" "$GLOBAL_AGENTS_MD" &&
     grep -q "NO_PREAMBLE" "$GLOBAL_AGENTS_MD" &&
     grep -q 'ralph-opportunity-scout' "$GLOBAL_AGENTS_MD" &&
