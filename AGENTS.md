@@ -264,6 +264,9 @@ main still owns final decisions, edits, synthesis, safety, and local
 verification. RED-classified material must not be sent through these CLI
 prompts.
 
+For `claude -p` and `zcode --prompt`, Codex may use them only after explicit user approval for that exact run.
+If the managed Codex escalation reviewer blocks the run, do not bypass it; ask the user to run the command outside Codex or proceed with local-only review.
+
 Before sending context to Z.ai or MiniMax for non-trivial work, shape the request as:
 
 ```text
