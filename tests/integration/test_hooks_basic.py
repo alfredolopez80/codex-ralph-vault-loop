@@ -179,6 +179,65 @@ def test_pre_tool_guard_allows_scripted_sensitive_references_without_reads(tmp_p
     assert result.stdout == ""
 
 
+def test_pre_tool_guard_blocks_protected_option_values(tmp_path: Path) -> None:
+    pw_name = "pass" + "word"
+    tk_name = "to" + "ken"
+    key_name = "api" + "-" + "key"
+    commands = [
+        f"python3 deploy.py --{pw_name} hunter2",
+        f"node app.js --{tk_name} abcdefghijklmnop",
+        f"tool --{key_name}=abcdefghi",
+    ]
+
+    for command in commands:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+
+
+def test_pre_tool_guard_blocks_protected_env_exposure(tmp_path: Path) -> None:
+    tk_name = ("to" + "ken").upper()
+    key_name = "OPENAI_" + "API_" + "KEY"
+    commands = [
+        f"echo ${key_name}",
+        f"printf %s ${tk_name}",
+        f"python3 -c 'import os; print(os.environ.get(\"{tk_name}\"))'",
+        f"node -e 'console.log(process." + f"env.{tk_name})'",
+    ]
+
+    for command in commands:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+
+
+def test_pre_tool_guard_blocks_protected_search_paths(tmp_path: Path) -> None:
+    env_name = "." + "env"
+    commands = [
+        f"rg FOO {env_name}",
+        f"grep FOO {env_name}",
+        f"rg --files {env_name}",
+    ]
+
+    for command in commands:
+        result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["decision"] == "block"
+
+
+def test_pre_tool_guard_allows_protected_search_references_without_file_target(tmp_path: Path) -> None:
+    env_name = "." + "env"
+    command = f"rg {env_name} AGENTS.md"
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 def test_pre_tool_guard_blocks_unbounded_large_output_commands(tmp_path: Path) -> None:
     for command in [
         "kubectl logs deploy/control-api",
