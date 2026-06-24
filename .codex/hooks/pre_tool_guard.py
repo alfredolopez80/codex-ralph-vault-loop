@@ -445,8 +445,8 @@ def shell_expanded_names(command: str) -> list[str]:
     return names
 
 
-def command_has_protected_option_value(command: str) -> bool:
-    parts = strip_environment_prefix(command_parts(command))
+def segment_has_protected_option_value(parts: list[str]) -> bool:
+    parts = strip_environment_prefix(parts)
     tool = executable_name(parts[0]) if parts else ""
     for idx, part in enumerate(parts):
         if part == "--":
@@ -461,6 +461,14 @@ def command_has_protected_option_value(command: str) -> bool:
         if next_part and not next_part.startswith("-"):
             return True
     return False
+
+
+def command_has_protected_option_value(command: str) -> bool:
+    try:
+        segments = shell_segments(command)
+    except ValueError:
+        segments = [command_parts(command)]
+    return any(segment_has_protected_option_value(segment) for segment in segments)
 
 
 def command_has_protected_env_exposure(command: str) -> bool:
