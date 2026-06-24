@@ -195,6 +195,7 @@ def test_pre_tool_guard_blocks_protected_option_values(tmp_path: Path) -> None:
         f"tool --{key_name}=abcdefghi",
         "echo --" + pw_name + " hunter2",
         "python3 deploy.py -- --" + tk_name + " hunter2",
+        "echo ok && tool --" + tk_name + " abcdefghijklmnop",
     ]
 
     for command in commands:
@@ -268,6 +269,8 @@ def test_pre_tool_guard_allows_option_reference_literals(tmp_path: Path) -> None
         f"rg -- '{tk_option}' docs",
         f"FOO=1 rg -- '{tk_option}' docs",
         f"env FOO=1 rg -- '{tk_option}' docs",
+        f"echo ok && rg -- '{tk_option}' docs",
+        f"printf ok | env FOO=1 rg -- '{tk_option}' docs",
         f"echo {tk_option}",
     ]
 
