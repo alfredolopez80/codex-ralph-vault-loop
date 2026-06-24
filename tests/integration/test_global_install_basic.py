@@ -93,6 +93,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "global `ultrathink` skill as the default operating mode" in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" in agents_text
     assert "EXTERNAL_MCP_BRIEF" in agents_text
+    assert "Authorized local CLI advisor queries" in agents_text
+    assert 'claude -p "{prompt}"' in agents_text
+    assert 'zcode --prompt "{prompt}"' in agents_text
+    assert "RED-classified material must never be sent to these CLIs" in agents_text
     assert "Default Codex/Codex App Model Routing Policy" not in agents_text
     assert "Mandatory default routing" not in agents_text
     assert "Ralph Memory Core" in agents_text

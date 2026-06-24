@@ -284,6 +284,13 @@ Rules:
 - RED content stays local.
 - Never configure Z.ai or MiniMax as direct `model_provider` profiles.
 - Preserve `ralph_coding_models`, official Z.ai MCPs, and official MiniMax MCP availability.
+- Authorized local CLI advisor queries:
+  - `claude-agentic-review` may use `claude -p "{prompt}"`.
+  - `zcode-agentic-builder` may use `zcode --prompt "{prompt}"`, preferably
+    `zcode --prompt "{prompt}" --cwd . --mode build` for repo-local build work.
+  - These CLI advisors must receive only minimized GREEN or sanitized YELLOW context.
+  - Codex main remains final owner of decisions, edits, safety, and verification.
+  - RED-classified material must never be sent to these CLIs.
 - Do not use Z.ai or MiniMax for image, video, music, voice, TTS, voice cloning, or visual generation.
 - GPT Images 2 is the only approved image generation route.
 - Codex must verify external output locally before acting on it.
