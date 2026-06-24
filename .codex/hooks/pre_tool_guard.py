@@ -29,7 +29,8 @@ SENSITIVE_COMMAND_PATTERNS = [
 SENSITIVE_PATH_RE = re.compile(r"(?i)(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)")
 SCRIPT_EXEC_RE = re.compile(r"(?i)\b(?:python(?:3(?:\.\d+)?)?|node|ruby|perl|bash|sh|zsh)\b")
 SCRIPT_READ_RE = re.compile(
-    r"(?i)(?:\bopen\b|\bread_text\b|\bread_bytes\b|\breadFile(?:Sync)?\b|\bcreateReadStream\b|\bsource\b|<\s*)"
+    r"(?i)(?:\bopen\b|\bread_text\b|\bread_bytes\b|\breadFile(?:Sync)?\b|\bcreateReadStream\b|"
+    r"\b(?:File|IO)\.read\b|\bsource\b|<\s*)"
 )
 
 # Build protected markers from fragments so maintenance patches do not trip this guard.
@@ -56,9 +57,14 @@ SENSITIVE_ENV_NAME_RE = re.compile(
 SENSITIVE_ENV_EXPANSION_RE = re.compile(
     r"\$(?:\{)?([A-Za-z_][A-Za-z0-9_]*)(?:\})?"
 )
-ENV_READ_RE = re.compile(r"(?i)(?:\bos\.environ(?:\.get)?\s*\(|\bgetenv\s*\(|\bprocess\." + "env" + r"\.)")
+ENV_READ_RE = re.compile(
+    r"(?i)(?:\bos\.environ(?:\.get)?\s*\(|\bos\.environ\s*\[|\bgetenv\s*\(|\bprocess\."
+    + "env"
+    + r"(?:\.|\s*\[))"
+)
 ENV_NAME_LITERAL_RE = re.compile(r"['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]")
 SENSITIVE_SCAN_TOOLS = {"ag", "ack", "egrep", "fgrep", "grep", "rg"}
+REFERENCE_ONLY_TOOLS = {"echo", "printf"}
 
 AUTOMATION_MUTATION_MODES = {"create", "update"}
 AUTOMATION_REVIEW_MODES = {"suggested_create", "suggested_update"}
@@ -409,9 +415,38 @@ def command_parts(command: str) -> list[str]:
         return []
 
 
+def shell_expanded_names(command: str) -> list[str]:
+    names: list[str] = []
+    in_single = False
+    idx = 0
+    while idx < len(command):
+        char = command[idx]
+        if char == "\\":
+            idx += 2
+            continue
+        if char == "'":
+            in_single = not in_single
+            idx += 1
+            continue
+        if in_single or char != "$":
+            idx += 1
+            continue
+        match = SENSITIVE_ENV_EXPANSION_RE.match(command, idx)
+        if match:
+            names.append(match.group(1))
+            idx = match.end()
+            continue
+        idx += 1
+    return names
+
+
 def command_has_protected_option_value(command: str) -> bool:
     parts = command_parts(command)
+    if parts and executable_name(parts[0]) in REFERENCE_ONLY_TOOLS:
+        return False
     for idx, part in enumerate(parts):
+        if part == "--":
+            break
         if not SENSITIVE_OPTION_RE.match(part):
             continue
         if "=" in part:
@@ -423,8 +458,8 @@ def command_has_protected_option_value(command: str) -> bool:
 
 
 def command_has_protected_env_exposure(command: str) -> bool:
-    for match in SENSITIVE_ENV_EXPANSION_RE.finditer(command):
-        if SENSITIVE_ENV_NAME_RE.match(match.group(1)):
+    for name in shell_expanded_names(command):
+        if SENSITIVE_ENV_NAME_RE.match(name):
             return True
 
     if not ENV_READ_RE.search(command):
@@ -435,6 +470,24 @@ def command_has_protected_env_exposure(command: str) -> bool:
 
     proc_re = re.compile(r"\bprocess\." + "env" + r"\.([A-Za-z_][A-Za-z0-9_]*)")
     return any(SENSITIVE_ENV_NAME_RE.match(match.group(1)) for match in proc_re.finditer(command))
+
+
+def search_option_targets_protected_path(tool: str, segment: list[str]) -> bool:
+    for idx, candidate in enumerate(segment):
+        next_part = segment[idx + 1] if idx + 1 < len(segment) else ""
+        if tool in {"rg", "ag", "ack"}:
+            if candidate in {"-g", "--glob"} and next_part and SENSITIVE_PATH_RE.search(next_part):
+                return True
+            if candidate.startswith("--glob=") and SENSITIVE_PATH_RE.search(candidate.split("=", 1)[1]):
+                return True
+            if candidate.startswith("-g") and candidate != "-g" and SENSITIVE_PATH_RE.search(candidate[2:]):
+                return True
+        if tool in {"grep", "egrep", "fgrep"}:
+            if candidate == "--include" and next_part and SENSITIVE_PATH_RE.search(next_part):
+                return True
+            if candidate.startswith("--include=") and SENSITIVE_PATH_RE.search(candidate.split("=", 1)[1]):
+                return True
+    return False
 
 
 def command_has_protected_scan_path(command: str) -> bool:
@@ -449,6 +502,9 @@ def command_has_protected_scan_path(command: str) -> bool:
             if candidate in {";", "&&", "||", "|"}:
                 break
             segment.append(candidate)
+
+        if search_option_targets_protected_path(tool, segment):
+            return True
 
         positionals = [candidate for candidate in segment if not candidate.startswith("-")]
         if not positionals:
