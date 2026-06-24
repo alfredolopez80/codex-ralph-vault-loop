@@ -266,6 +266,8 @@ def test_pre_tool_guard_allows_option_reference_literals(tmp_path: Path) -> None
     tk_option = "--" + "to" + "ken"
     commands = [
         f"rg -- '{tk_option}' docs",
+        f"FOO=1 rg -- '{tk_option}' docs",
+        f"env FOO=1 rg -- '{tk_option}' docs",
         f"echo {tk_option}",
     ]
 

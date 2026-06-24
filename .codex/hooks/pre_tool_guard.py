@@ -446,7 +446,7 @@ def shell_expanded_names(command: str) -> list[str]:
 
 
 def command_has_protected_option_value(command: str) -> bool:
-    parts = command_parts(command)
+    parts = strip_environment_prefix(command_parts(command))
     tool = executable_name(parts[0]) if parts else ""
     for idx, part in enumerate(parts):
         if part == "--":
