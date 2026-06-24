@@ -12,6 +12,7 @@
 - Vault remembers. Durable memory belongs in the approved Ralph/Codex memory paths, not in ad hoc repo files.
 - Do not bypass critical hooks. If `prettier`, `gitleaks`, `semgrep`, or `pre-commit` are missing from `PATH`, use the local machine binaries when present, install only with approval, or stop and report the blocker; do not use `--no-verify` to skip security or formatting gates unless the user explicitly orders that exact bypass.
 - Do not merge or close a PR until review feedback and automated checks have been inspected, and any actionable comments are addressed or explicitly documented as non-actionable. If feedback arrives after an early merge, open a follow-up branch/PR instead of silently ignoring it.
+- After any PR is merged, sync the local `main` branch with `origin/main` before considering the PR follow-up complete. Use a fast-forward-only update when possible and verify `main` and `origin/main` point to the same commit.
 
 ## Default Ultrathink
 
