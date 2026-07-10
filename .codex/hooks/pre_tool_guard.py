@@ -20,12 +20,7 @@ DESTRUCTIVE_PATTERNS = [
     re.compile(r"\bchmod\s+-R\s+777\b"),
 ]
 
-SENSITIVE_COMMAND_PATTERNS = [
-    re.compile(
-        r"(?i)\b(cat|less|more|head|tail|sed|awk|pbcopy|open|curl|wget|scp|rsync)\b"
-        r".*(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)"
-    ),
-]
+SENSITIVE_COMMAND_TOOLS = {"awk", "cat", "curl", "head", "less", "more", "open", "pbcopy", "rsync", "scp", "sed", "tail", "wget"}
 SENSITIVE_PATH_RE = re.compile(r"(?i)(\.env|id_rsa|id_ed25519|\.pem|\.key|wallet|credential|secret|token)")
 SCRIPT_EXEC_RE = re.compile(r"(?i)\b(?:python(?:3(?:\.\d+)?)?|node|ruby|perl|bash|sh|zsh)\b")
 SCRIPT_READ_RE = re.compile(
@@ -533,6 +528,23 @@ def command_has_protected_scan_path(command: str) -> bool:
     return False
 
 
+def command_has_sensitive_tool_path(command: str) -> bool:
+    try:
+        segments = shell_segments(command)
+    except ValueError:
+        segments = [command_parts(command)]
+    for raw_segment in segments:
+        segment = strip_environment_prefix(raw_segment)
+        if not segment:
+            continue
+        tool = executable_name(segment[0])
+        if tool not in SENSITIVE_COMMAND_TOOLS:
+            continue
+        if any(SENSITIVE_PATH_RE.search(part) for part in segment[1:]):
+            return True
+    return False
+
+
 def command_from_payload(payload: dict[str, Any]) -> str:
     tool_input = tool_input_from_payload(payload)
     if isinstance(tool_input, dict):
@@ -765,10 +777,9 @@ def main() -> int:
         if pattern.search(command):
             write_json({"decision": "block", "reason": "Blocked obvious destructive command by pre_tool_guard."})
             return 0
-    for pattern in SENSITIVE_COMMAND_PATTERNS:
-        if pattern.search(command):
-            write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
-            return 0
+    if command_has_sensitive_tool_path(command):
+        write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
+        return 0
     if SCRIPT_EXEC_RE.search(command) and SENSITIVE_PATH_RE.search(command) and SCRIPT_READ_RE.search(command):
         write_json({"decision": "block", "reason": "Blocked command that could expose RED-sensitive material."})
         return 0

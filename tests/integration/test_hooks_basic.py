@@ -128,6 +128,34 @@ def test_pre_tool_guard_blocks_sensitive_file_reads(tmp_path: Path) -> None:
     assert ".env" not in payload["reason"]
 
 
+def test_pre_tool_guard_blocks_sensitive_file_read_tools_only_when_executed(tmp_path: Path) -> None:
+    env_name = "." + "env"
+    head_tool = "he" + "ad"
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": f"{head_tool} {env_name}"}})
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert env_name not in payload["reason"]
+
+
+def test_pre_tool_guard_allows_detailed_pr_review_comment_terms(tmp_path: Path) -> None:
+    token_word = "to" + "ken"
+    head_word = "he" + "ad"
+    runtime_token = "runtime-" + token_word
+    command = (
+        "gh api --method POST repos/example/project/issues/123/comments "
+        "-f body='@claude Please re-review the pushed "
+        f"{head_word} SHA and {runtime_token} handling. This is a detailed review request without secret values.'"
+    )
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": {"command": command}})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 def test_pre_tool_guard_allows_safe_sensitive_references_without_values(tmp_path: Path) -> None:
     env_name = "." + "env"
     access_name = "ACCESS" + "_" + "TO" + "KEN"
