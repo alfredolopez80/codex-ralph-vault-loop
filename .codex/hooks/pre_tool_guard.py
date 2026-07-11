@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -8,10 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from shared.paths import REPO_ROOT, read_hook_input, write_json
-from shared.context_budget import classify_command, classify_patch_payload, payload_patch_text
+from shared.context_budget import classify_command, classify_patch_payload, nested_patch_envelope, payload_patch_text
 from shared.redaction import is_red, sensitivity_report
-from shared.local_minikube_grant import allows as local_minikube_patch_allowed
-from shared.local_minikube_grant import digest as local_patch_digest
+from shared.local_minikube_grant import allows_command, digest as approval_digest
 from shared.local_minikube_grant import targets as local_patch_targets
 
 
@@ -548,11 +548,117 @@ def command_has_sensitive_tool_path(command: str) -> bool:
     return False
 
 
+CLOUD_TOOLS = {"aws", "gcloud", "helm", "kubectl", "minikube", "terraform"}
+READ_ACTIONS = {
+    "api-resources", "api-versions", "can-i", "cluster-info", "describe", "diff", "explain", "get",
+    "get-contexts", "head", "history", "info", "list", "logs", "ls", "output", "plan", "providers",
+    "search", "show", "status", "template", "top", "validate", "version", "view", "whoami",
+}
+DESTRUCTIVE_ACTIONS = {"delete", "destroy", "drain", "drop", "purge", "remove", "rm", "terminate", "uninstall", "wipe"}
+MUTATING_ACTIONS = {
+    "add", "annotate", "apply", "attach", "autoscale", "cordon", "cp", "create", "deploy", "detach",
+    "edit", "expose", "import", "install", "label", "move", "mv", "patch", "put", "replace", "restart",
+    "restore", "resume", "rollback", "rollout", "scale", "set", "start", "stop", "submit", "suspend",
+    "taint", "uncordon", "update", "upgrade", "use-context",
+}
+
+
+def nested_script_path(tokens: list[str]) -> str | None:
+    if not tokens:
+        return None
+    tool = executable_name(tokens[0])
+    interpreters = {"bash", "node", "perl", "python", "python3", "ruby", "sh", "zsh"}
+    candidates = tokens[1:] if tool in interpreters else tokens[:1]
+    for candidate in candidates:
+        if candidate.startswith("-"):
+            continue
+        if ".local-notes" in Path(candidate).expanduser().parts or "/.local-notes/" in candidate:
+            return candidate
+    return None
+
+
+def action_words(parts: list[str]) -> list[str]:
+    return [Path(part).name.lower().replace("_", "-") for part in parts[1:] if part and not part.startswith("-")]
+
+
+def segment_cloud_risk(parts: list[str]) -> tuple[str, str, str] | None:
+    parts = strip_environment_prefix(parts)
+    if not parts:
+        return None
+    tool = executable_name(parts[0])
+    if tool in {"run-local-minikube-script", "run-local-minikube-script.py"}:
+        invoked = Path(parts[0]).expanduser()
+        trusted = Path.home() / ".ralph-codex" / "bin" / "run-local-minikube-script"
+        if invoked == trusted:
+            return None
+        return ("mutating", "local-script", "execute an unverified minikube wrapper")
+    script_path = nested_script_path(parts)
+    if script_path:
+        return ("mutating", "local-script", f"execute reviewed local script {script_path}")
+    if tool in {"bash", "sh", "zsh"} and "-c" in parts:
+        index = parts.index("-c")
+        if index + 1 < len(parts):
+            return cloud_command_risk(parts[index + 1])
+    if tool not in CLOUD_TOOLS:
+        return None
+    words = action_words(parts)
+    destructive = next((word for word in words if word in DESTRUCTIVE_ACTIONS), None)
+    if destructive:
+        return ("destructive", tool, f"{destructive} resources or runtime components")
+    mutating = next((word for word in words if word in MUTATING_ACTIONS), None)
+    if mutating:
+        return ("mutating", tool, f"{mutating} cluster or cloud state")
+    if any(word in READ_ACTIONS or word.startswith(("describe-", "get-", "list-", "head-")) for word in words):
+        return None
+    return ("mutating", tool, "run an unclassified cloud operation that may change state")
+
+
+def cloud_command_risk(command: str) -> tuple[str, str, str] | None:
+    try:
+        segments = shell_segments(command)
+    except ValueError:
+        segments = [command_parts(command)]
+    risks = [risk for segment in segments if (risk := segment_cloud_risk(segment))]
+    if not risks:
+        return None
+    return next((risk for risk in risks if risk[0] == "destructive"), risks[0])
+
+
 def command_from_payload(payload: dict[str, Any]) -> str:
     tool_input = tool_input_from_payload(payload)
     if isinstance(tool_input, dict):
-        return str(tool_input.get("command") or tool_input.get("cmd") or "")
+        direct = str(tool_input.get("command") or tool_input.get("cmd") or "")
+        if direct:
+            return direct
+        for key in ("source", "code", "script"):
+            source = tool_input.get(key)
+            if not isinstance(source, str) or "tools.exec_command" not in source:
+                continue
+            match = re.search(r"(?:^|[,{]\s*)cmd\s*:\s*(\")", source)
+            if not match:
+                continue
+            try:
+                decoded = json.JSONDecoder().raw_decode(source[match.start(1) :])[0]
+            except (ValueError, TypeError):
+                continue
+            if isinstance(decoded, str):
+                return decoded
+        return ""
     return str(tool_input)
+
+
+def nested_exec_envelope_safe(payload: dict[str, Any]) -> bool | None:
+    tool_input = tool_input_from_payload(payload)
+    if not isinstance(tool_input, dict):
+        return None
+    for key in ("source", "code", "script"):
+        source = tool_input.get(key)
+        if not isinstance(source, str) or "tools.exec_command" not in source:
+            continue
+        if source.count("tools.exec_command") != 1 or source.count("tools.") != 1:
+            return False
+        return bool(command_from_payload(payload))
+    return None
 
 
 def payload_is_patch_text(payload: dict[str, Any]) -> bool:
@@ -760,36 +866,26 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
 
 def main() -> int:
     payload = read_hook_input()
-    patch_text = payload_patch_text(payload)
-    patch_cwd = cwd_from_payload(payload)
-    eligible_local_targets = local_patch_targets(patch_text, patch_cwd) if patch_text else None
-    local_patch_allowed = bool(eligible_local_targets) and local_minikube_patch_allowed(patch_text, patch_cwd)
-    if eligible_local_targets and not local_patch_allowed:
-        patch_hash = local_patch_digest(patch_text)
-        target_args = " ".join(f"--target {shlex.quote(str(target))}" for target in eligible_local_targets)
-        suggested_command = (
-            f"~/.ralph-codex/bin/authorize-local-minikube-patch --sha256 {patch_hash} "
-            f"--cwd {shlex.quote(str(patch_cwd))} {target_args}"
-        )
+    nested_patch = nested_patch_envelope(payload)
+    if nested_patch and not nested_patch.safe:
         write_json(
             {
                 "decision": "block",
-                "reason": (
-                    "This exact .local-notes patch is eligible but requires explicit user approval. "
-                    "Request approval to run suggested_command, then retry the identical patch."
-                ),
-                "reason_code": "local_patch_grant_required",
-                "suggested_command": suggested_command,
-                "patch_sha256": patch_hash,
-                "targets": [str(target) for target in eligible_local_targets],
+                "reason": "Nested apply_patch envelope contains unsupported or additional executable code.",
+                "reason_code": "unsafe_nested_patch_envelope",
             }
         )
         return 0
-    patch_finding = None if local_patch_allowed else classify_patch_payload(patch_text)
+    patch_text = payload_patch_text(payload)
+    patch_cwd = cwd_from_payload(payload)
+    eligible_local_targets = local_patch_targets(patch_text, patch_cwd) if patch_text else None
+    if eligible_local_targets:
+        return 0
+    patch_finding = classify_patch_payload(patch_text)
     if patch_finding:
         write_json(patch_finding.hook_payload())
         return 0
-    if payload_is_patch_text(payload) or local_patch_allowed:
+    if payload_is_patch_text(payload):
         return 0
 
     automation_reason = blocked_automation_reason(payload)
@@ -797,8 +893,42 @@ def main() -> int:
         write_json({"decision": "block", "reason": automation_reason})
         return 0
 
+    nested_exec_safe = nested_exec_envelope_safe(payload)
+    if nested_exec_safe is False:
+        write_json(
+            {
+                "decision": "block",
+                "reason": "Nested command envelope must contain one static exec_command call and no other tool calls.",
+                "reason_code": "unsafe_nested_command_envelope",
+            }
+        )
+        return 0
+
     command = command_from_payload(payload)
     if not command:
+        return 0
+
+    cloud_risk = cloud_command_risk(command)
+    if cloud_risk:
+        if allows_command(command):
+            return 0
+        risk_level, tool, consequence = cloud_risk
+        command_hash = approval_digest(command)
+        write_json(
+            {
+                "decision": "block",
+                "reason": (
+                    f"Human approval required: {tool} command is {risk_level} and may {consequence}. "
+                    "Review the exact command shown by Codex, approve suggested_command, then retry it unchanged."
+                ),
+                "reason_code": "cloud_command_approval_required",
+                "risk_level": risk_level,
+                "tool": tool,
+                "consequence": consequence,
+                "command_sha256": command_hash,
+                "suggested_command": f"~/.ralph-codex/bin/approve-risky-command --sha256 {command_hash}",
+            }
+        )
         return 0
 
     for pattern in DESTRUCTIVE_PATTERNS:

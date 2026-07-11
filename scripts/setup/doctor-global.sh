@@ -30,6 +30,7 @@ AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 REVIEWED_OPERATION_SOURCE="${REPO_ROOT}/scripts/operations/reviewed-cloud-operation.py"
 MINIKUBE_AUTHORIZE_SOURCE="${REPO_ROOT}/scripts/security/authorize-local-minikube-patch.py"
 MINIKUBE_RUN_SOURCE="${REPO_ROOT}/scripts/security/run-local-minikube-script.py"
+RISKY_COMMAND_APPROVE_SOURCE="${REPO_ROOT}/scripts/security/approve-risky-command.py"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
@@ -414,6 +415,7 @@ main() {
   check_operation_helper_link "reviewed-cloud-operation" "$REVIEWED_OPERATION_SOURCE"
   check_operation_helper_link "authorize-local-minikube-patch" "$MINIKUBE_AUTHORIZE_SOURCE"
   check_operation_helper_link "run-local-minikube-script" "$MINIKUBE_RUN_SOURCE"
+  check_operation_helper_link "approve-risky-command" "$RISKY_COMMAND_APPROVE_SOURCE"
   check_hook_marker
   check_global_hooks
   check_agents_policy

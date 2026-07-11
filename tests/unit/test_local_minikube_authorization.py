@@ -87,7 +87,7 @@ def test_pre_tool_guard_uses_exact_local_grant(tmp_path: Path) -> None:
     assert result.stdout == ""
 
 
-def test_pre_tool_guard_returns_actionable_request_when_grant_is_missing(tmp_path: Path) -> None:
+def test_pre_tool_guard_allows_untracked_local_notes_patch_without_grant(tmp_path: Path) -> None:
     notes = tmp_path / ".local-notes"
     notes.mkdir()
     marker = "PASS" + "WORD"
@@ -105,13 +105,88 @@ def test_pre_tool_guard_returns_actionable_request_when_grant_is_missing(tmp_pat
     )
 
     assert result.returncode == 0
-    payload = json.loads(result.stdout)
-    assert payload["decision"] == "block"
-    assert payload["reason_code"] == "local_patch_grant_required"
-    assert payload["patch_sha256"] == digest(patch)
-    assert payload["targets"] == [str(notes / "seed.sh")]
-    assert "authorize-local-minikube-patch" in payload["suggested_command"]
-    assert digest(patch) in payload["suggested_command"]
+    assert result.stdout == ""
+
+
+def run_guard(tmp_path: Path, command: str, grant_root: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CODEX_LOCAL_GRANT_ROOT"] = str(grant_root)
+    return subprocess.run(
+        [sys.executable, str(HOOKS / "pre_tool_guard.py")],
+        input=json.dumps({"tool_input": {"command": command, "cwd": str(tmp_path)}}),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+
+def test_cloud_reads_pass_and_mutations_request_human_approval(tmp_path: Path) -> None:
+    grant_root = tmp_path / "approvals"
+    reads = [
+        "kubectl get pods",
+        "aws ec2 describe-instances",
+        "gcloud compute instances list",
+        "terraform plan",
+        "minikube status",
+        "helm list",
+    ]
+    mutations = [
+        "kubectl apply -f deployment.yaml",
+        "aws s3 cp artifact s3://bucket/artifact",
+        "gcloud run deploy service",
+        "terraform apply plan.tfplan",
+        "minikube stop",
+        "helm upgrade service chart/",
+    ]
+    for command in reads:
+        assert run_guard(tmp_path, command, grant_root).stdout == "", command
+    for command in mutations:
+        payload = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+        assert payload["reason_code"] == "cloud_command_approval_required"
+        assert payload["risk_level"] == "mutating"
+        assert "approve-risky-command" in payload["suggested_command"]
+
+
+def test_destructive_command_approval_is_exact_and_one_use(tmp_path: Path) -> None:
+    grant_root = tmp_path / "approvals"
+    command = "kubectl delete namespace feature-test"
+    blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    assert blocked["risk_level"] == "destructive"
+    grant_root.mkdir(mode=0o700)
+    marker = grant_root / f"command-{digest(command)}.approved"
+    marker.write_text("", encoding="utf-8")
+    marker.chmod(0o600)
+
+    assert run_guard(tmp_path, command, grant_root).stdout == ""
+    assert not marker.exists()
+    retried = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    assert retried["reason_code"] == "cloud_command_approval_required"
+
+
+def test_local_script_execution_requests_approval(tmp_path: Path) -> None:
+    notes = tmp_path / ".local-notes"
+    notes.mkdir()
+    script = notes / "seed.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    payload = json.loads(run_guard(tmp_path, f"bash {script}", tmp_path / "approvals").stdout)
+    assert payload["tool"] == "local-script"
+    assert payload["risk_level"] == "mutating"
+
+
+def test_verified_minikube_wrapper_does_not_require_extra_approval(tmp_path: Path) -> None:
+    command = (
+        "~/.ralph-codex/bin/run-local-minikube-script --profile feature-test "
+        "--context feature-test .local-notes/seed.sh"
+    )
+    assert run_guard(tmp_path, command, tmp_path / "approvals").stdout == ""
+
+
+def test_minikube_wrapper_name_without_canonical_path_requires_approval(tmp_path: Path) -> None:
+    command = "./run-local-minikube-script --profile feature-test --context feature-test .local-notes/seed.sh"
+    payload = json.loads(run_guard(tmp_path, command, tmp_path / "approvals").stdout)
+    assert payload["reason_code"] == "cloud_command_approval_required"
+    assert payload["tool"] == "local-script"
 
 
 def load_runner():
