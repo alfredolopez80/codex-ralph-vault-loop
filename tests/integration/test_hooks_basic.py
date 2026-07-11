@@ -176,11 +176,13 @@ def test_pre_tool_guard_allows_runtime_generated_database_url_patch(tmp_path: Pa
     pw_name = "app_" + "pass" + "word"
     db_scheme = "postgres" + "ql"
     runtime_ref = "${" + pw_name + "}"
+    redis_runtime_ref = "${" + "REDIS_PASSWORD" + "}"
     patch = (
         "*** Begin Patch\n"
         "*** Add File: scripts/runtime-db-fixture.txt\n"
         "+connection-string: \"" + db_scheme + "://control_api_runtime:" + runtime_ref + "@postgres/control_api\"\n"
         "+DATABASE_URL=" + db_scheme + "://control_api_runtime:" + runtime_ref + "@postgres/control_api\n"
+        "+DATABASE_URL=redis://:" + redis_runtime_ref + "@redis:6379/0\n"
         "*** End Patch\n"
     )
 
@@ -188,6 +190,23 @@ def test_pre_tool_guard_allows_runtime_generated_database_url_patch(tmp_path: Pa
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
+
+
+def test_pre_tool_guard_blocks_nested_command_substitution_in_database_url_patch(tmp_path: Path) -> None:
+    db_scheme = "postgres" + "ql"
+    substitution = "$" + "(python3 -c 'print(\"hunter2\")')"
+    patch = (
+        "*** Begin Patch\n"
+        "*** Add File: scripts/runtime-db-fixture.txt\n"
+        "+connection-string: \"" + db_scheme + "://control:" + substitution + "@postgres/control_api\"\n"
+        "*** End Patch\n"
+    )
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": patch})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
 
 
 def test_pre_tool_guard_blocks_sensitive_values_in_commands(tmp_path: Path) -> None:

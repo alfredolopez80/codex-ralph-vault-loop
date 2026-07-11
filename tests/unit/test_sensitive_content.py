@@ -76,6 +76,8 @@ def test_sensitive_detector_allows_runtime_generated_database_urls() -> None:
         url_prefix + "$" + pw_name + "@postgres/control_api",
         "DATABASE_URL=" + url_prefix + "${" + pw_name + "}@postgres/control_api",
         "db_url: " + url_prefix + "$" + pw_name + "@postgres/control_api",
+        "DATABASE_URL=redis" + "://:${" + "REDIS_PASSWORD" + "}@redis:6379/0",
+        "db_url: postgres" + "://:${" + "DB_PASSWORD" + "}@host/db",
     ]
 
     for sample in samples:
@@ -92,7 +94,10 @@ def test_sensitive_detector_blocks_literal_database_url_passwords_and_suffixes()
         scheme + "://control_api_runtime:${" + pw_name + "}hunter2@postgres/control_api",
         scheme + "://control_api_runtime:$" + pw_name + "-hunter2@postgres/control_api",
         scheme + "://control_api_runtime:$(printf hunter2)@postgres/control_api",
+        "connection-string: \"" + scheme + "://control:$" + "(python3 -c 'print(\"hunter2\")')@postgres/control_api\"",
         "DATABASE_URL=" + scheme + "://control_api_runtime:hunter2@postgres/control_api",
+        scheme + "://control:${" + pw_name + "}@hunter2@postgres/control_api",
+        "DATABASE_URL=" + scheme + "://control:${" + pw_name + "}@hunter2@postgres/control_api",
     ]
 
     for sample in samples:

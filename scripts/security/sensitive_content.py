@@ -41,7 +41,95 @@ _PRIVATE_KEY_PEM = (
 
 _DB_SCHEMES = r"(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss)"
 _RUNTIME_DB_PASSWORD_REF = r"(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*)"
+_DB_URL_START = re.compile(r"(?i)\b" + _DB_SCHEMES + r"://")
+_DB_URL_ASSIGNMENT_START = re.compile(
+    r"(?i)\b(?:database_url|db_url|sqlalchemy_database_uri|mongo_uri|redis_url)\s*[:=]\s*['\"]?"
+)
+_RUNTIME_DB_PASSWORD_REF_FULL = re.compile(_RUNTIME_DB_PASSWORD_REF)
 _WORD = r"[a-z]{3,12}"
+
+
+def _database_url_authority_end(text: str, start: int) -> int:
+    """Return the end of a URL authority, preserving nested command substitutions."""
+    depth = 0
+    index = start
+    while index < len(text):
+        if depth:
+            if text[index] == "(":
+                depth += 1
+            elif text[index] == ")":
+                depth -= 1
+            index += 1
+            continue
+        if text.startswith("$(", index):
+            depth = 1
+            index += 2
+            continue
+        if text[index].isspace() or text[index] in "'\"<>/":
+            break
+        index += 1
+    return index
+
+
+def _database_url_credential_spans(text: str) -> list[tuple[int, int]]:
+    """Find DB URLs whose credential segment is not exactly a runtime variable."""
+    spans: list[tuple[int, int]] = []
+    for match in _DB_URL_START.finditer(text):
+        authority_end = _database_url_authority_end(text, match.end())
+        authority = text[match.end() : authority_end]
+        separator = authority.rfind("@")
+        if separator < 0:
+            continue
+        userinfo = authority[:separator]
+        colon = userinfo.find(":")
+        if colon < 0:
+            continue
+        credential_segment = userinfo[colon + 1 :]
+        if _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment):
+            continue
+        spans.append((match.start(), authority_end))
+    return spans
+
+
+def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
+    """Find URL-setting assignments except a DB URL with an exact runtime variable."""
+    spans: list[tuple[int, int]] = []
+    for match in _DB_URL_ASSIGNMENT_START.finditer(text):
+        value_start = match.end()
+        url_match = _DB_URL_START.match(text, value_start)
+        if url_match:
+            authority_end = _database_url_authority_end(text, url_match.end())
+            authority = text[url_match.end() : authority_end]
+            separator = authority.rfind("@")
+            if separator >= 0:
+                userinfo = authority[:separator]
+                colon = userinfo.find(":")
+                credential_segment = userinfo[colon + 1 :] if colon >= 0 else None
+                if credential_segment is not None and _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment):
+                    continue
+            # The credentialed URL is redacted by _database_url_credential_spans.
+            continue
+        value_end = value_start
+        while value_end < len(text) and not text[value_end].isspace() and text[value_end] not in "'\"":
+            value_end += 1
+        if value_end > value_start:
+            spans.append((match.start(), value_end))
+    return spans
+
+
+def _database_url_findings(text: str) -> list[tuple[str, tuple[int, int]]]:
+    findings = [("database_url_with_credentials", span) for span in _database_url_credential_spans(text)]
+    findings.extend(("database_url_assignment", span) for span in _database_url_assignment_spans(text))
+    return findings
+
+
+def _replace_spans(text: str, spans: list[tuple[int, int]], replacement: str) -> tuple[str, bool]:
+    redacted = text
+    changed = False
+    for start, end in sorted(set(spans), reverse=True):
+        redacted = redacted[:start] + replacement + redacted[end:]
+        changed = True
+    return redacted, changed
 
 PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     (
@@ -110,34 +198,6 @@ PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
         ),
     ),
     (
-        "database_url",
-        "database_url_with_credentials",
-        re.compile(
-            r"(?i)\b"
-            + _DB_SCHEMES
-            + r"://[^\s'\"<>/]+:(?!"
-            + _RUNTIME_DB_PASSWORD_REF
-            + r"@)[^\s'\"<>@]+@[^\s'\"<>]+"
-        ),
-    ),
-    (
-        "database_url",
-        "database_url_command_substitution_credentials",
-        re.compile(r"(?i)\b" + _DB_SCHEMES + r"://[^\s'\"<>/]+:\$\([^)]*\)@[^\s'\"<>]+"),
-    ),
-    (
-        "database_url",
-        "database_url_assignment",
-        re.compile(
-            r"(?i)\b(?:database_url|db_url|sqlalchemy_database_uri|mongo_uri|redis_url)"
-            r"\s*[:=]\s*['\"]?(?!"
-            + _DB_SCHEMES
-            + r"://[^\s'\"<>/]+:"
-            + _RUNTIME_DB_PASSWORD_REF
-            + r"@[^\s'\"<>]+)[^'\"\s]+"
-        ),
-    ),
-    (
         "customer_data",
         "customer_sensitive_marker",
         re.compile(
@@ -168,12 +228,17 @@ def scan_text(text: str) -> tuple[SensitiveFinding, ...]:
             if key not in seen:
                 findings.append(SensitiveFinding(kind=kind, label=label))
                 seen.add(key)
+    for label, _span in _database_url_findings(text):
+        key = ("database_url", label)
+        if key not in seen:
+            findings.append(SensitiveFinding(kind="database_url", label=label))
+            seen.add(key)
     return tuple(findings)
 
 
 def redact_text(text: str) -> tuple[str, bool]:
-    redacted = text
-    changed = False
+    database_spans = [span for _label, span in _database_url_findings(text)]
+    redacted, changed = _replace_spans(text, database_spans, "[REDACTED:database_url]")
     for kind, _label, pattern in PATTERNS:
         redacted, count = pattern.subn(f"[REDACTED:{kind}]", redacted)
         changed = changed or count > 0
