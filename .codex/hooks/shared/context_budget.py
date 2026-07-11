@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .redaction import is_red
+from .paths import append_jsonl, ensure_runtime, now_iso
 
 
 DATA_IMAGE_RE = re.compile(r"data:image/[^;,\s]+;base64,", re.IGNORECASE)
@@ -879,27 +881,74 @@ def _safe_nested_patch_source(source: str, literal_span: tuple[int, int]) -> boo
     start, end = literal_span
     normalized = source[:start] + "PATCH_LITERAL" + source[end:]
     normalized = re.sub(r"^\s*//\s*@exec:[^\r\n]*(?:\r?\n)?", "", normalized)
-    identifier = r"[A-Za-z_$][A-Za-z0-9_$]*"
-    direct = rf"\s*text\s*\(\s*await\s+tools\.apply_patch\s*\(\s*PATCH_LITERAL\s*\)\s*\)\s*;?\s*"
-    direct_result = rf"\s*const\s+(?P<result>{identifier})\s*=\s*await\s+tools\.apply_patch\s*\(\s*PATCH_LITERAL\s*\)\s*;\s*text\s*\(\s*(?P=result)\s*\)\s*;?\s*"
-    const_inline = rf"\s*const\s+(?P<patch>{identifier})\s*=\s*PATCH_LITERAL\s*;\s*text\s*\(\s*await\s+tools\.apply_patch\s*\(\s*(?P=patch)\s*\)\s*\)\s*;?\s*"
-    const_result = rf"\s*const\s+(?P<patch>{identifier})\s*=\s*PATCH_LITERAL\s*;\s*const\s+(?P<result>{identifier})\s*=\s*await\s+tools\.apply_patch\s*\(\s*(?P=patch)\s*\)\s*;\s*text\s*\(\s*(?P=result)\s*\)\s*;?\s*"
-    return any(re.fullmatch(pattern, normalized, re.DOTALL) for pattern in (direct, direct_result, const_inline, const_result))
+    pattern = (
+        r"\s*const\s+patch\s*=\s*PATCH_LITERAL\s*;\s*"
+        r"const\s+result\s*=\s*await\s+tools\.apply_patch\s*\(\s*patch\s*\)\s*;\s*"
+        r"text\s*\(\s*result\s*\)\s*;?\s*"
+    )
+    return bool(re.fullmatch(pattern, normalized, re.DOTALL))
+
+
+def _patch_payload_nodes(payload: dict[str, Any]) -> list[tuple[str, Any]]:
+    nodes: list[tuple[str, Any]] = []
+    queue = [(key, payload.get(key)) for key in ("tool_input", "toolInput", "input", "arguments")]
+    while queue:
+        path, value = queue.pop(0)
+        if value is None:
+            continue
+        nodes.append((path, value))
+        if isinstance(value, dict) and path.count(".") < 2:
+            for key in ("input", "arguments", "params", "tool_input", "toolInput"):
+                if key in value:
+                    queue.append((f"{path}.{key}", value[key]))
+    return nodes
+
+
+def _payload_shape(value: Any, depth: int = 0) -> dict[str, Any]:
+    if isinstance(value, str):
+        return {"type": "string", "size": len(value), "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest()}
+    if isinstance(value, dict):
+        fields = sorted(str(key) for key in value)[:32]
+        shape: dict[str, Any] = {"type": "object", "fields": fields}
+        if depth < 2:
+            shape["children"] = {key: _payload_shape(value[key], depth + 1) for key in fields if key in value}
+        return shape
+    if isinstance(value, list):
+        return {"type": "array", "size": len(value)}
+    return {"type": type(value).__name__}
+
+
+def record_patch_payload_shape(payload: dict[str, Any], nested: NestedPatchEnvelope | None) -> None:
+    if nested is None and not payload_patch_text(payload):
+        return
+    try:
+        report = {
+            "created_at": now_iso(),
+            "event": "pre_tool_patch_payload_shape",
+            "payload": _payload_shape(payload),
+            "patch_sha256": hashlib.sha256(nested.patch.encode("utf-8")).hexdigest() if nested and nested.patch else None,
+            "source_field": nested.source_field if nested else None,
+            "source_safe": nested.safe if nested else None,
+        }
+        append_jsonl(ensure_runtime() / "reports" / "pre-tool-patch-payload-shapes.jsonl", report)
+    except Exception:
+        pass
 
 
 def nested_patch_envelope(payload: dict[str, Any]) -> NestedPatchEnvelope | None:
-    tool_input = payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
     candidates: list[tuple[str, str]] = []
-    if isinstance(tool_input, str):
-        candidates.append(("tool_input", tool_input))
-    elif isinstance(tool_input, dict):
-        for key in ("source", "code", "script"):
-            value = tool_input.get(key)
-            if isinstance(value, str):
-                candidates.append((key, value))
-    for source_field, source in candidates:
-        if "tools.apply_patch" not in source:
-            continue
+    for path, node in _patch_payload_nodes(payload):
+        if isinstance(node, str):
+            candidates.append((path, node))
+        elif isinstance(node, dict):
+            for key in ("source", "code", "script"):
+                value = node.get(key)
+                if isinstance(value, str):
+                    candidates.append((f"{path}.{key}", value))
+    matching = [(field, source) for field, source in candidates if "tools.apply_patch" in source]
+    if len(matching) > 1:
+        return NestedPatchEnvelope(patch="", safe=False, source_field="ambiguous")
+    for source_field, source in matching:
         if source.count("tools.apply_patch") != 1:
             return NestedPatchEnvelope(patch="", safe=False, source_field=source_field)
         matches: list[tuple[re.Match[str], str]] = []
@@ -916,15 +965,14 @@ def nested_patch_envelope(payload: dict[str, Any]) -> NestedPatchEnvelope | None
 
 
 def payload_patch_text(payload: dict[str, Any]) -> str:
-    tool_input = payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
-    if isinstance(tool_input, dict):
-        for key in ("patch", "diff", "content"):
-            value = tool_input.get(key)
-            if isinstance(value, str):
-                return value
-    if isinstance(tool_input, str):
-        if tool_input.lstrip().startswith("*** Begin Patch"):
-            return tool_input
+    for _path, node in _patch_payload_nodes(payload):
+        if isinstance(node, dict):
+            for key in ("patch", "diff", "content"):
+                value = node.get(key)
+                if isinstance(value, str):
+                    return value
+        elif isinstance(node, str) and node.lstrip().startswith("*** Begin Patch"):
+            return node
     nested = nested_patch_envelope(payload)
     if nested and nested.safe:
         return nested.patch

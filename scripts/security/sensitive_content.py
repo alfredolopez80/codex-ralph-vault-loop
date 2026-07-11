@@ -73,7 +73,7 @@ def _database_url_authority_end(text: str, start: int) -> int:
     return index
 
 
-def _database_url_credential_spans(text: str) -> list[tuple[int, int]]:
+def _database_url_credential_spans(text: str, safe_printf_templates: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """Find DB URLs whose credential segment is not exactly a runtime variable."""
     spans: list[tuple[int, int]] = []
     for match in _DB_URL_START.finditer(text):
@@ -87,96 +87,168 @@ def _database_url_credential_spans(text: str) -> list[tuple[int, int]]:
         if colon < 0:
             continue
         credential_segment = userinfo[colon + 1 :]
-        if (
-            _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment)
-            or _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(credential_segment)
+        if _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment):
+            continue
+        if _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(credential_segment) and any(
+            start <= match.start() < end for start, end in safe_printf_templates
         ):
             continue
         spans.append((match.start(), authority_end))
     return spans
 
 
-def _printf_placeholder_index(format_string: str, target: int) -> int | None:
-    """Return the one-based position of an unescaped %s at target."""
-    count = 0
+def _shell_tokens(command: str) -> list[tuple[str, int, int]] | None:
+    tokens: list[tuple[str, int, int]] = []
+    index = 0
+    while index < len(command):
+        if command[index].isspace():
+            index += 1
+            continue
+        if command[index] in ";|&":
+            end = index + 2 if command[index : index + 2] in {"&&", "||"} else index + 1
+            tokens.append((command[index:end], index, end))
+            index = end
+            continue
+        start = index
+        quote = ""
+        while index < len(command):
+            char = command[index]
+            if quote:
+                if char == "\\" and quote != "'" and index + 1 < len(command):
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ""
+                index += 1
+                continue
+            if char in "'\"":
+                quote = char
+                index += 1
+                continue
+            if char.isspace() or char in ";|&":
+                break
+            index += 1
+        if quote:
+            return None
+        tokens.append((command[start:index], start, index))
+    return tokens
+
+
+def _decode_shell_word(word: str) -> str | None:
+    try:
+        parts = shlex.split(word, posix=True)
+    except ValueError:
+        return None
+    return parts[0] if len(parts) == 1 else None
+
+
+def _runtime_shell_reference(word: str) -> bool:
+    return bool(
+        _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(word)
+        or re.fullmatch(r'"' + _RUNTIME_DB_PASSWORD_REF + r'"', word)
+    )
+
+
+def _printf_format_positions(format_string: str) -> list[int] | None:
+    positions: list[int] = []
     index = 0
     while index < len(format_string):
         if format_string.startswith("%%", index):
             index += 2
             continue
         if format_string.startswith("%s", index):
-            count += 1
-            if index == target:
-                return count
+            positions.append(index)
             index += 2
             continue
         if format_string[index] == "%":
             return None
         index += 1
-    return None
+    return positions
 
 
-def _printf_command_fragment(command: str) -> str | None:
-    for match in re.finditer(r"\bprintf(?:\s|$)", command):
-        prefix = command[: match.start()].rstrip()
-        if prefix and not prefix.endswith(("$(", ";", "|", "&&", "||")):
+def _printf_format_index(tokens: list[tuple[str, int, int]]) -> int | None:
+    index = 1
+    while index < len(tokens):
+        shell_word = tokens[index][0]
+        if shell_word == "--":
+            return index + 1
+        if shell_word == "-v":
+            index += 2
             continue
-        fragment = command[match.start() :]
-        if prefix.endswith("$("):
-            closing_parenthesis = fragment.rfind(")")
-            if closing_parenthesis >= 0:
-                fragment = fragment[:closing_parenthesis]
-        return fragment
+        if shell_word.startswith("-"):
+            return None
+        return index
     return None
 
 
-def _printf_database_url_credential_spans(text: str) -> list[tuple[int, int]]:
-    """Find printf DB templates whose credential argument is not a runtime reference."""
-    spans: list[tuple[int, int]] = []
+def _printf_database_url_templates(text: str) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """Return safe printf format spans and unsafe command-line spans."""
+    safe_templates: list[tuple[int, int]] = []
+    unsafe_spans: list[tuple[int, int]] = []
     offset = 0
-    for line in text.splitlines(keepends=True):
-        line_end = offset + len(line.rstrip("\r\n"))
-        command = line[1:].lstrip() if line.startswith("+") else line.lstrip()
-        printf_command = _printf_command_fragment(command)
-        if printf_command is None:
-            offset += len(line)
+    for raw_line in text.splitlines(keepends=True):
+        content = raw_line.rstrip("\r\n")
+        line_end = offset + len(content)
+        command = content[1:].lstrip() if content.startswith(("+", "-")) else content.lstrip()
+        command_offset = offset + len(content) - len(command)
+        tokens = _shell_tokens(command)
+        if tokens is not None and not any(token[0] == "printf" for token in tokens):
+            substitution = re.search(r"\$\(\s*(printf\b[^)]*)\)", command)
+            if substitution:
+                command_offset += substitution.start(1)
+                command = substitution.group(1)
+                tokens = _shell_tokens(command)
+        if tokens is None:
+            if "printf" in command and _DB_URL_START.search(command):
+                unsafe_spans.append((offset, line_end))
+            offset += len(raw_line)
             continue
-        try:
-            parts = shlex.split(printf_command, posix=True)
-        except ValueError:
-            if _DB_URL_START.search(printf_command):
-                spans.append((offset, line_end))
-            offset += len(line)
-            continue
-        format_index = 2 if len(parts) > 2 and parts[1] == "--" else 1
-        if len(parts) <= format_index or parts[0] != "printf":
-            offset += len(line)
-            continue
-        format_string = parts[format_index]
-        for match in _DB_URL_START.finditer(format_string):
-            authority_end = _database_url_authority_end(format_string, match.end())
-            authority = format_string[match.end() : authority_end]
-            separator = authority.rfind("@")
-            if separator < 0:
+        index = 0
+        while index < len(tokens):
+            if tokens[index][0] in {";", "|", "&&", "||"}:
+                index += 1
                 continue
-            userinfo = authority[:separator]
-            colon = userinfo.find(":")
-            if colon < 0:
+            command_start = index
+            while index < len(tokens) and tokens[index][0] not in {";", "|", "&&", "||"}:
+                index += 1
+            command_tokens = tokens[command_start:index]
+            printf_index = next((position for position, token in enumerate(command_tokens) if token[0] == "printf"), None)
+            if printf_index is None:
                 continue
-            credential_start = match.end() + colon + 1
-            if not _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(userinfo[colon + 1 :]):
+            printf_tokens = command_tokens[printf_index:]
+            format_index = _printf_format_index(printf_tokens)
+            if format_index is None or format_index >= len(printf_tokens):
+                unsafe_spans.append((offset, line_end))
                 continue
-            placeholder_index = _printf_placeholder_index(format_string, credential_start)
-            argument_index = format_index + (placeholder_index or 0)
-            if (
-                placeholder_index is None
-                or argument_index >= len(parts)
-                or not _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(parts[argument_index])
-            ):
-                spans.append((offset, line_end))
-                break
-        offset += len(line)
-    return spans
+            raw_format, format_start, format_end = printf_tokens[format_index]
+            format_string = _decode_shell_word(raw_format)
+            positions = _printf_format_positions(format_string) if format_string is not None else None
+            if not positions:
+                continue
+            argument_tokens = printf_tokens[format_index + 1 :]
+            for match in _DB_URL_START.finditer(format_string):
+                authority_end = _database_url_authority_end(format_string, match.end())
+                authority = format_string[match.end() : authority_end]
+                separator = authority.rfind("@")
+                userinfo = authority[:separator] if separator >= 0 else ""
+                colon = userinfo.find(":")
+                if colon < 0 or userinfo[colon + 1 :] != "%s":
+                    continue
+                credential_position = match.end() + colon + 1
+                credential_index = positions.index(credential_position) + 1 if credential_position in positions else 0
+                if not credential_index or len(argument_tokens) % len(positions):
+                    unsafe_spans.append((offset, line_end))
+                    break
+                for start in range(0, len(argument_tokens), len(positions)):
+                    if not _runtime_shell_reference(argument_tokens[start + credential_index - 1][0]):
+                        unsafe_spans.append((offset, line_end))
+                        break
+                else:
+                    safe_templates.append((command_offset + format_start, command_offset + format_end))
+                if unsafe_spans and unsafe_spans[-1] == (offset, line_end):
+                    break
+        offset += len(raw_line)
+    return safe_templates, unsafe_spans
 
 
 def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
@@ -193,10 +265,7 @@ def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
                 userinfo = authority[:separator]
                 colon = userinfo.find(":")
                 credential_segment = userinfo[colon + 1 :] if colon >= 0 else None
-                if credential_segment is not None and (
-                    _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment)
-                    or _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(credential_segment)
-                ):
+                if credential_segment is not None and _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment):
                     continue
             # The credentialed URL is redacted by _database_url_credential_spans.
             continue
@@ -209,10 +278,14 @@ def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
 
 
 def _database_url_findings(text: str) -> list[tuple[str, tuple[int, int]]]:
-    findings = [("database_url_with_credentials", span) for span in _database_url_credential_spans(text)]
+    safe_templates, unsafe_printf_spans = _printf_database_url_templates(text)
+    findings = [
+        ("database_url_with_credentials", span)
+        for span in _database_url_credential_spans(text, safe_templates)
+    ]
     findings.extend(
         ("printf_database_url_literal_credential_argument", span)
-        for span in _printf_database_url_credential_spans(text)
+        for span in unsafe_printf_spans
     )
     findings.extend(("database_url_assignment", span) for span in _database_url_assignment_spans(text))
     return findings

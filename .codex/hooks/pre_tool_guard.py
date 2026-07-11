@@ -15,10 +15,11 @@ from shared.context_budget import (
     classify_patch_payload,
     nested_patch_envelope,
     payload_patch_text,
+    record_patch_payload_shape,
 )
 from shared.cloud_operation_gate import assess_command
 from shared.redaction import is_red, sensitivity_report
-from shared.local_minikube_grant import allows_command, digest as approval_digest
+from shared.local_minikube_grant import allows_command, allows_patch, digest as approval_digest, patch_grant
 from shared.local_minikube_grant import targets as local_patch_targets
 
 
@@ -812,6 +813,7 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
 def main() -> int:
     payload = read_hook_input()
     nested_patch = nested_patch_envelope(payload)
+    record_patch_payload_shape(payload, nested_patch)
     if nested_patch and not nested_patch.safe:
         write_json(
             {
@@ -832,8 +834,32 @@ def main() -> int:
         return 0
     patch_finding = classify_patch_payload(patch_text)
     if patch_finding:
-        write_json(patch_finding.hook_payload())
-        return 0
+        grant = patch_grant(patch_text, patch_cwd) if patch_text else None
+        if grant is None:
+            write_json(patch_finding.hook_payload())
+            return 0
+        if allows_patch(patch_text, patch_cwd) is None:
+            command = shlex.join(
+                [
+                    "~/.ralph-codex/bin/approve-local-patch",
+                    "--sha256",
+                    grant.patch_sha256,
+                    "--cwd",
+                    grant.cwd,
+                    *[item for target in grant.targets for item in ("--target", target)],
+                ]
+            )
+            write_json(
+                {
+                    "decision": "block",
+                    "reason": "Human approval required for this exact static sensitive patch.",
+                    "reason_code": "local_patch_grant_required",
+                    "patch_sha256": grant.patch_sha256,
+                    "targets": list(grant.targets),
+                    "suggested_command": command,
+                }
+            )
+            return 0
     if payload_is_patch_text(payload):
         return 0
 

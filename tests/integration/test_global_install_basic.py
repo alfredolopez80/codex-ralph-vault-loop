@@ -67,6 +67,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     authorize_minikube = tmp_path / ".ralph-codex" / "bin" / "authorize-local-minikube-patch"
     run_minikube = tmp_path / ".ralph-codex" / "bin" / "run-local-minikube-script"
     approve_risky = tmp_path / ".ralph-codex" / "bin" / "approve-risky-command"
+    approve_patch = tmp_path / ".ralph-codex" / "bin" / "approve-local-patch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
     assert skill.is_symlink()
@@ -83,6 +84,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert authorize_minikube.is_symlink()
     assert run_minikube.is_symlink()
     assert approve_risky.is_symlink()
+    assert approve_patch.is_symlink()
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
@@ -100,6 +102,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(authorize_minikube) == str(ROOT / "scripts" / "security" / "authorize-local-minikube-patch.py")
     assert os.readlink(run_minikube) == str(ROOT / "scripts" / "security" / "run-local-minikube-script.py")
     assert os.readlink(approve_risky) == str(ROOT / "scripts" / "security" / "approve-risky-command.py")
+    assert os.readlink(approve_patch) == str(ROOT / "scripts" / "security" / "approve-local-patch.py")
     agents_text = agents_md.read_text(encoding="utf-8")
     assert "Default Ultrathink Policy" in agents_text
     assert "global `ultrathink` skill as the default operating mode" in agents_text
@@ -173,6 +176,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not run_minikube.is_symlink()
     assert not approve_risky.exists()
     assert not approve_risky.is_symlink()
+    assert not approve_patch.exists()
+    assert not approve_patch.is_symlink()
     agents_text = agents_md.read_text(encoding="utf-8")
     assert "Default Ultrathink Policy" not in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" not in agents_text

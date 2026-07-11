@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 sys.path.insert(0, str(HOOKS))
 
-from shared.local_minikube_grant import allows, digest, targets  # noqa: E402
+from shared.local_minikube_grant import allows, create_patch_marker, digest, patch_grant, targets  # noqa: E402
 from shared.cloud_operation_gate import ContextVerification, assess_command  # noqa: E402
 from shared import minikube_context  # noqa: E402
 
@@ -30,6 +30,7 @@ def write_grant(grant_root: Path, patch: str, target: Path, *, expired: bool = F
 def run_patch_guard(tmp_path: Path, patch: str, grant_root: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["CODEX_LOCAL_GRANT_ROOT"] = str(grant_root)
+    env["RALPH_HOME"] = str(tmp_path / "ralph-home")
     return subprocess.run(
         [sys.executable, str(HOOKS / "pre_tool_guard.py")],
         input=json.dumps({"tool_input": {"patch": patch, "cwd": str(tmp_path)}}),
@@ -38,6 +39,17 @@ def run_patch_guard(tmp_path: Path, patch: str, grant_root: Path) -> subprocess.
         env=env,
         check=False,
     )
+
+
+def tracked_patch(tmp_path: Path, target: str = "deploy/scripts/runtime.sh") -> tuple[str, str]:
+    path = tmp_path / target
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", target], cwd=tmp_path, capture_output=True, check=True)
+    value = "sec" + "ret" + "=abcd1234"
+    patch = "*** Begin Patch\n*** Update File: " + target + "\n+" + value + "\n*** End Patch"
+    return patch, target
 
 
 def test_grant_requires_exact_patch_target_and_unexpired_hash(tmp_path: Path, monkeypatch) -> None:
@@ -79,6 +91,81 @@ def test_grant_rejects_tracked_local_notes_target(tmp_path: Path) -> None:
     subprocess.run(["git", "add", str(target)], cwd=tmp_path, capture_output=True, check=True)
     patch = "*** Begin Patch\n*** Update File: .local-notes/seed.sh\n+hello\n*** End Patch"
     assert targets(patch, tmp_path) is None
+
+
+def test_static_sensitive_tracked_patch_requires_exact_one_use_grant(tmp_path: Path, monkeypatch) -> None:
+    patch, target = tracked_patch(tmp_path)
+    grant_root = tmp_path / "grants"
+    monkeypatch.setenv("CODEX_LOCAL_GRANT_ROOT", str(grant_root))
+
+    first = run_patch_guard(tmp_path, patch, grant_root)
+    payload = json.loads(first.stdout)
+    assert payload["reason_code"] == "local_patch_grant_required"
+    assert payload["patch_sha256"] == digest(patch)
+    assert payload["targets"] == [target]
+    assert "approve-local-patch" in payload["suggested_command"]
+
+    grant = patch_grant(patch, tmp_path)
+    assert grant is not None
+    marker = create_patch_marker(grant)
+    assert run_patch_guard(tmp_path, patch, grant_root).stdout == ""
+    assert not marker.exists()
+
+    retried = json.loads(run_patch_guard(tmp_path, patch, grant_root).stdout)
+    assert retried["reason_code"] == "local_patch_grant_required"
+    changed = json.loads(run_patch_guard(tmp_path, patch + "\n", grant_root).stdout)
+    assert changed["reason_code"] == "local_patch_grant_required"
+
+
+def test_static_sensitive_patch_grants_are_not_bound_to_a_path_allowlist(tmp_path: Path) -> None:
+    patch, target = tracked_patch(tmp_path, "config/runtime.yml")
+
+    payload = json.loads(run_patch_guard(tmp_path, patch, tmp_path / "grants").stdout)
+
+    assert payload["reason_code"] == "local_patch_grant_required"
+    assert payload["targets"] == [target]
+
+
+def test_approve_local_patch_helper_creates_the_exact_grant(tmp_path: Path) -> None:
+    patch, target = tracked_patch(tmp_path)
+    grant = patch_grant(patch, tmp_path)
+    assert grant is not None
+    grant_root = tmp_path / "grants"
+    env = os.environ.copy()
+    env["CODEX_LOCAL_GRANT_ROOT"] = str(grant_root)
+    helper = ROOT / "scripts" / "security" / "approve-local-patch.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(helper),
+            "--sha256",
+            grant.patch_sha256,
+            "--cwd",
+            str(tmp_path),
+            "--target",
+            target,
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "APPROVED_ONCE" in result.stdout
+    assert run_patch_guard(tmp_path, patch, grant_root).stdout == ""
+
+
+def test_patch_payload_shape_log_is_sanitized(tmp_path: Path) -> None:
+    patch, _target = tracked_patch(tmp_path)
+    result = run_patch_guard(tmp_path, patch, tmp_path / "grants")
+    assert result.returncode == 0
+    report = tmp_path / "ralph-home" / "reports" / "pre-tool-patch-payload-shapes.jsonl"
+    data = report.read_text(encoding="utf-8")
+    assert "pre_tool_patch_payload_shape" in data
+    assert patch not in data
+    assert "patch_sha256" in data
 
 def test_pre_tool_guard_uses_exact_local_grant(tmp_path: Path) -> None:
     notes = tmp_path / ".local-notes"

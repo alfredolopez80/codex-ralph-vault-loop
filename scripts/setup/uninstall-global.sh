@@ -11,6 +11,7 @@ REVIEWED_OPERATION_SOURCE="${REPO_ROOT}/scripts/operations/reviewed-cloud-operat
 MINIKUBE_AUTHORIZE_SOURCE="${REPO_ROOT}/scripts/security/authorize-local-minikube-patch.py"
 MINIKUBE_RUN_SOURCE="${REPO_ROOT}/scripts/security/run-local-minikube-script.py"
 RISKY_COMMAND_APPROVE_SOURCE="${REPO_ROOT}/scripts/security/approve-risky-command.py"
+LOCAL_PATCH_APPROVE_SOURCE="${REPO_ROOT}/scripts/security/approve-local-patch.py"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
@@ -169,6 +170,7 @@ remove_helpers() {
   remove_link "${MINIKUBE_AUTHORIZE_SOURCE}" "${GLOBAL_HELPER_ROOT}/authorize-local-minikube-patch"
   remove_link "${MINIKUBE_RUN_SOURCE}" "${GLOBAL_HELPER_ROOT}/run-local-minikube-script"
   remove_link "${RISKY_COMMAND_APPROVE_SOURCE}" "${GLOBAL_HELPER_ROOT}/approve-risky-command"
+  remove_link "${LOCAL_PATCH_APPROVE_SOURCE}" "${GLOBAL_HELPER_ROOT}/approve-local-patch"
 }
 
 remove_policy_block() {
