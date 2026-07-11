@@ -31,12 +31,7 @@ def test_native_and_safe_nested_local_patches_are_allowed(tmp_path: Path) -> Non
     (tmp_path / ".local-notes").mkdir()
     patch = local_patch()
     literal = json.dumps(patch)
-    sources = [
-        f"text(await tools.apply_patch({literal}));",
-        f"const patch = {literal}; text(await tools.apply_patch(patch));",
-        f"const patch = {literal}; const result = await tools.apply_patch(patch); text(result);",
-        f"text(await tools.apply_patch(`{patch}`));",
-    ]
+    sources = [f"const patch = {literal}; const result = await tools.apply_patch(patch); text(result);"]
     native = run_guard(tmp_path, {"tool_input": {"patch": patch, "cwd": str(tmp_path)}})
     assert native.stdout == ""
     for source in sources:
@@ -44,8 +39,13 @@ def test_native_and_safe_nested_local_patches_are_allowed(tmp_path: Path) -> Non
         assert result.returncode == 0, result.stderr
         assert result.stdout == "", source
     for field in ("code", "script"):
-        result = run_guard(tmp_path, {"tool_input": {field: sources[1], "cwd": str(tmp_path)}})
+        result = run_guard(tmp_path, {"tool_input": {field: sources[0], "cwd": str(tmp_path)}})
         assert result.stdout == ""
+    native_arguments = run_guard(
+        tmp_path,
+        {"tool_input": {"arguments": {"source": sources[0]}, "cwd": str(tmp_path)}},
+    )
+    assert native_arguments.stdout == ""
 
 
 def test_dynamic_nested_patch_envelopes_are_rejected(tmp_path: Path) -> None:
@@ -53,6 +53,8 @@ def test_dynamic_nested_patch_envelopes_are_rejected(tmp_path: Path) -> None:
     patch = local_patch()
     literal = json.dumps(patch)
     unsafe_sources = [
+        f"text(await tools.apply_patch({literal}));",
+        f"const patch = {literal}; text(await tools.apply_patch(patch));",
         "const patch = getPatch(); text(await tools.apply_patch(patch));",
         f"const patch = {literal} + suffix; text(await tools.apply_patch(patch));",
         "text(await tools.apply_patch(`*** Begin Patch\\n${body}\\n*** End Patch`));",

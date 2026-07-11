@@ -104,11 +104,11 @@ def test_sensitive_detector_allows_printf_database_url_template_only_as_full_cre
     runtime_variable = "$" + "DB_PASSWORD"
     braced_runtime_variable = "${" + "DB_PASSWORD" + "}"
     allowed = [
-        postgres_url(formatter, formatter),
         postgres_url("user", runtime_variable),
         postgres_url("user", braced_runtime_variable),
     ]
     blocked = [
+        postgres_url(formatter, formatter),
         postgres_url("user", "actual-value"),
         postgres_url("user", "prefix-" + formatter),
         postgres_url("user", formatter + "-suffix"),
@@ -160,6 +160,28 @@ def test_sensitive_detector_blocks_printf_templates_with_unsupported_prior_place
     report = classify_text(sample)
 
     assert report.classification == "RED"
+
+
+def test_sensitive_detector_blocks_all_printf_literal_credential_bypasses() -> None:
+    runtime_credential = "$" + "DB_PASSWORD"
+    literal_credential = "hun" + "ter2"
+    quoted_credential = "'" + runtime_credential + "'"
+    escaped_credential = "\\" + runtime_credential
+    direct = printf_database_url("app", literal_credential)
+    samples = [
+        printf_database_url("app", quoted_credential),
+        printf_database_url("app", escaped_credential),
+        "printf ok; " + direct,
+        "LC_ALL=C " + direct,
+        "env FOO=1 " + direct,
+        "printf -v DATABASE_URL 'postgres://%s:%s@host/db' app " + literal_credential,
+        "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " app " + literal_credential,
+        "-" + direct,
+    ]
+
+    for sample in samples:
+        report = classify_text(sample)
+        assert report.classification == "RED", sample
 
 
 def test_sensitive_detector_blocks_literal_database_url_passwords_and_suffixes() -> None:
