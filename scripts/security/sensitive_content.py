@@ -40,6 +40,7 @@ _PRIVATE_KEY_PEM = (
 )
 
 _DB_SCHEMES = r"(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss)"
+_RUNTIME_DB_PASSWORD_REF = r"(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*)"
 _WORD = r"[a-z]{3,12}"
 
 PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
@@ -111,14 +112,29 @@ PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     (
         "database_url",
         "database_url_with_credentials",
-        re.compile(r"(?i)\b" + _DB_SCHEMES + r"://[^\s'\"<>/]+:[^\s'\"<>@]+@[^\s'\"<>]+"),
+        re.compile(
+            r"(?i)\b"
+            + _DB_SCHEMES
+            + r"://[^\s'\"<>/]+:(?!"
+            + _RUNTIME_DB_PASSWORD_REF
+            + r"@)[^\s'\"<>@]+@[^\s'\"<>]+"
+        ),
+    ),
+    (
+        "database_url",
+        "database_url_command_substitution_credentials",
+        re.compile(r"(?i)\b" + _DB_SCHEMES + r"://[^\s'\"<>/]+:\$\([^)]*\)@[^\s'\"<>]+"),
     ),
     (
         "database_url",
         "database_url_assignment",
         re.compile(
             r"(?i)\b(?:database_url|db_url|sqlalchemy_database_uri|mongo_uri|redis_url)"
-            r"\s*[:=]\s*['\"]?[^'\"\s]+"
+            r"\s*[:=]\s*['\"]?(?!"
+            + _DB_SCHEMES
+            + r"://[^\s'\"<>/]+:"
+            + _RUNTIME_DB_PASSWORD_REF
+            + r"@[^\s'\"<>]+)[^'\"\s]+"
         ),
     ),
     (

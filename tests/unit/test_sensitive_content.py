@@ -65,3 +65,37 @@ def test_sensitive_detector_allows_safe_references_without_values() -> None:
         report = classify_text(sample)
         assert report.classification == "GREEN", sample
         assert not report.findings, sample
+
+
+def test_sensitive_detector_allows_runtime_generated_database_urls() -> None:
+    scheme = "postgres" + "ql"
+    pw_name = "app_" + "pass" + "word"
+    url_prefix = scheme + "://control_api_runtime:"
+    samples = [
+        url_prefix + "${" + pw_name + "}@postgres/control_api",
+        url_prefix + "$" + pw_name + "@postgres/control_api",
+        "DATABASE_URL=" + url_prefix + "${" + pw_name + "}@postgres/control_api",
+        "db_url: " + url_prefix + "$" + pw_name + "@postgres/control_api",
+    ]
+
+    for sample in samples:
+        report = classify_text(sample)
+        assert report.classification == "GREEN", sample
+        assert not report.findings, sample
+
+
+def test_sensitive_detector_blocks_literal_database_url_passwords_and_suffixes() -> None:
+    scheme = "postgres" + "ql"
+    pw_name = "app_" + "pass" + "word"
+    samples = [
+        scheme + "://control_api_runtime:hunter2@postgres/control_api",
+        scheme + "://control_api_runtime:${" + pw_name + "}hunter2@postgres/control_api",
+        scheme + "://control_api_runtime:$" + pw_name + "-hunter2@postgres/control_api",
+        scheme + "://control_api_runtime:$(printf hunter2)@postgres/control_api",
+        "DATABASE_URL=" + scheme + "://control_api_runtime:hunter2@postgres/control_api",
+    ]
+
+    for sample in samples:
+        report = classify_text(sample)
+        assert report.classification == "RED", sample
+        assert any(finding.kind == "database_url" for finding in report.findings), sample

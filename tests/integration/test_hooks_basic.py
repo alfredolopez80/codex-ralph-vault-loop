@@ -172,6 +172,24 @@ def test_pre_tool_guard_allows_safe_sensitive_references_without_values(tmp_path
         assert result.stdout == "", command
 
 
+def test_pre_tool_guard_allows_runtime_generated_database_url_patch(tmp_path: Path) -> None:
+    pw_name = "app_" + "pass" + "word"
+    db_scheme = "postgres" + "ql"
+    runtime_ref = "${" + pw_name + "}"
+    patch = (
+        "*** Begin Patch\n"
+        "*** Add File: scripts/runtime-db-fixture.txt\n"
+        "+connection-string: \"" + db_scheme + "://control_api_runtime:" + runtime_ref + "@postgres/control_api\"\n"
+        "+DATABASE_URL=" + db_scheme + "://control_api_runtime:" + runtime_ref + "@postgres/control_api\n"
+        "*** End Patch\n"
+    )
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": patch})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 def test_pre_tool_guard_blocks_sensitive_values_in_commands(tmp_path: Path) -> None:
     key_name = "TO" + "KEN"
     command = f"echo {key_name}=abc123"
