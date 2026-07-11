@@ -20,6 +20,10 @@ def jwt_fixture() -> str:
     return "eyJ" + "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturepart"
 
 
+def postgres_url(user: str, segment: str) -> str:
+    return "postgres" + "://" + user + ":" + segment + "@host/db"
+
+
 def test_sensitive_detector_covers_secret_families() -> None:
     samples = [
         "api_key" + "=fixture-value",
@@ -84,6 +88,32 @@ def test_sensitive_detector_allows_runtime_generated_database_urls() -> None:
         report = classify_text(sample)
         assert report.classification == "GREEN", sample
         assert not report.findings, sample
+
+
+def test_sensitive_detector_allows_printf_database_url_template_only_as_full_credential_segment() -> None:
+    formatter = "%" + "s"
+    runtime_variable = "$" + "DB_PASSWORD"
+    braced_runtime_variable = "${" + "DB_PASSWORD" + "}"
+    allowed = [
+        postgres_url(formatter, formatter),
+        postgres_url("user", runtime_variable),
+        postgres_url("user", braced_runtime_variable),
+    ]
+    blocked = [
+        postgres_url("user", "actual-value"),
+        postgres_url("user", "prefix-" + formatter),
+        postgres_url("user", formatter + "-suffix"),
+    ]
+
+    for sample in allowed:
+        report = classify_text(sample)
+        assert report.classification == "GREEN", sample
+        assert not report.findings, sample
+
+    for sample in blocked:
+        report = classify_text(sample)
+        assert report.classification == "RED", sample
+        assert any(finding.kind == "database_url" for finding in report.findings), sample
 
 
 def test_sensitive_detector_blocks_literal_database_url_passwords_and_suffixes() -> None:
