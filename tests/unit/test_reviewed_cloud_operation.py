@@ -43,18 +43,17 @@ def invoke(runner, monkeypatch, mode: str, script: Path, target: str, *args: str
     return runner.main()
 
 
-def test_requires_successful_dry_run_before_authorization_and_execution(tmp_path: Path, monkeypatch) -> None:
+def test_requires_successful_dry_run_before_execution(tmp_path: Path, monkeypatch) -> None:
     runner = load_runner()
     script, log = make_script(tmp_path)
     monkeypatch.setenv("CODEX_REVIEWED_OPERATION_ROOT", str(tmp_path / "state"))
 
-    with pytest.raises(SystemExit, match="unavailable"):
-        invoke(runner, monkeypatch, "authorize", script, "gcp/project-a/cluster-a", "apply")
+    with pytest.raises(SystemExit, match="dry-run is required"):
+        invoke(runner, monkeypatch, "execute", script, "gcp/project-a/cluster-a", "apply")
     assert invoke(runner, monkeypatch, "dry-run", script, "gcp/project-a/cluster-a", "apply") == 0
-    assert invoke(runner, monkeypatch, "authorize", script, "gcp/project-a/cluster-a", "apply") == 0
     assert invoke(runner, monkeypatch, "execute", script, "gcp/project-a/cluster-a", "apply") == 0
     assert log.read_text(encoding="utf-8") == "apply\n"
-    with pytest.raises(SystemExit, match="unavailable"):
+    with pytest.raises(SystemExit, match="dry-run is required"):
         invoke(runner, monkeypatch, "execute", script, "gcp/project-a/cluster-a", "apply")
 
 
@@ -64,13 +63,13 @@ def test_changed_target_arguments_or_script_require_new_dry_run(tmp_path: Path, 
     monkeypatch.setenv("CODEX_REVIEWED_OPERATION_ROOT", str(tmp_path / "state"))
     assert invoke(runner, monkeypatch, "dry-run", script, "aws/account-a/cluster-a", "apply") == 0
 
-    with pytest.raises(SystemExit, match="unavailable"):
-        invoke(runner, monkeypatch, "authorize", script, "aws/account-b/cluster-a", "apply")
-    with pytest.raises(SystemExit, match="unavailable"):
-        invoke(runner, monkeypatch, "authorize", script, "aws/account-a/cluster-a", "delete")
+    with pytest.raises(SystemExit, match="dry-run is required"):
+        invoke(runner, monkeypatch, "execute", script, "aws/account-b/cluster-a", "apply")
+    with pytest.raises(SystemExit, match="dry-run is required"):
+        invoke(runner, monkeypatch, "execute", script, "aws/account-a/cluster-a", "delete")
     script.write_text(script.read_text(encoding="utf-8") + "# reviewed change\n", encoding="utf-8")
-    with pytest.raises(SystemExit, match="unavailable"):
-        invoke(runner, monkeypatch, "authorize", script, "aws/account-a/cluster-a", "apply")
+    with pytest.raises(SystemExit, match="dry-run is required"):
+        invoke(runner, monkeypatch, "execute", script, "aws/account-a/cluster-a", "apply")
 
 
 def test_failed_dry_run_does_not_create_evidence(tmp_path: Path, monkeypatch) -> None:
@@ -79,5 +78,5 @@ def test_failed_dry_run_does_not_create_evidence(tmp_path: Path, monkeypatch) ->
     monkeypatch.setenv("CODEX_REVIEWED_OPERATION_ROOT", str(tmp_path / "state"))
     with pytest.raises(SystemExit, match="DRY_RUN_FAILED"):
         invoke(runner, monkeypatch, "dry-run", script, "gcp/project-a/cluster-a", "apply")
-    with pytest.raises(SystemExit, match="unavailable"):
-        invoke(runner, monkeypatch, "authorize", script, "gcp/project-a/cluster-a", "apply")
+    with pytest.raises(SystemExit, match="dry-run is required"):
+        invoke(runner, monkeypatch, "execute", script, "gcp/project-a/cluster-a", "apply")

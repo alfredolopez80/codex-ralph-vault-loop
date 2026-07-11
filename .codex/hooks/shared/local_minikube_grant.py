@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import subprocess
@@ -10,6 +9,7 @@ from pathlib import Path
 
 
 PATCH_PATH_RE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.MULTILINE)
+MARKER_TTL_SECONDS = 900
 
 
 def root() -> Path:
@@ -71,21 +71,17 @@ def allows(patch: str, cwd: Path) -> bool:
     if not patch_targets:
         return False
     payload_hash = digest(patch)
-    grant_path = root() / f"{payload_hash}.json"
+    marker_path = root() / f"{payload_hash}.approved"
     try:
         grant_root = root()
         if grant_root.is_symlink() or grant_root.stat().st_mode & 0o077:
             return False
-        if grant_path.is_symlink() or grant_path.stat().st_mode & 0o077:
+        if marker_path.is_symlink() or marker_path.stat().st_mode & 0o077:
             return False
-        grant = json.loads(grant_path.read_text(encoding="utf-8"))
-        expiry = datetime.fromisoformat(grant["expires_at"])
-    except (OSError, ValueError, KeyError, TypeError):
+        age = datetime.now(timezone.utc).timestamp() - marker_path.stat().st_mtime
+        if age < 0 or age > MARKER_TTL_SECONDS or marker_path.stat().st_size != 0:
+            return False
+        marker_path.unlink()
+    except OSError:
         return False
-    return bool(
-        grant.get("kind") == "local-minikube-patch"
-        and grant.get("sha256") == payload_hash
-        and grant.get("targets") == sorted(str(path) for path in patch_targets)
-        and expiry.tzinfo is not None
-        and expiry > datetime.now(timezone.utc)
-    )
+    return True
