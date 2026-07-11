@@ -46,6 +46,7 @@ _DB_URL_ASSIGNMENT_START = re.compile(
     r"(?i)\b(?:database_url|db_url|sqlalchemy_database_uri|mongo_uri|redis_url)\s*[:=]\s*['\"]?"
 )
 _RUNTIME_DB_PASSWORD_REF_FULL = re.compile(_RUNTIME_DB_PASSWORD_REF)
+_PRINTF_DB_CREDENTIAL_REF_FULL = re.compile(r"%s")
 _WORD = r"[a-z]{3,12}"
 
 
@@ -85,7 +86,10 @@ def _database_url_credential_spans(text: str) -> list[tuple[int, int]]:
         if colon < 0:
             continue
         credential_segment = userinfo[colon + 1 :]
-        if _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment):
+        if (
+            _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment)
+            or _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(credential_segment)
+        ):
             continue
         spans.append((match.start(), authority_end))
     return spans
@@ -105,7 +109,10 @@ def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
                 userinfo = authority[:separator]
                 colon = userinfo.find(":")
                 credential_segment = userinfo[colon + 1 :] if colon >= 0 else None
-                if credential_segment is not None and _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment):
+                if credential_segment is not None and (
+                    _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(credential_segment)
+                    or _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(credential_segment)
+                ):
                     continue
             # The credentialed URL is redacted by _database_url_credential_spans.
             continue

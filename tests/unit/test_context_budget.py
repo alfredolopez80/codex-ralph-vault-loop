@@ -66,3 +66,19 @@ def test_blocks_full_file_python_print_and_toxic_patch(tmp_path: Path) -> None:
     assert classify_command(command, tmp_path)
     patch = "*** Begin Patch\n+" + long_alpha_payload() + "\n*** End Patch"
     assert classify_patch_payload(patch)
+
+
+def test_allows_printf_database_url_template_patch() -> None:
+    scheme = "postgres"
+    formatter = "%" + "s"
+    template = scheme + "://" + formatter + ":" + formatter + "@host/db"
+    user_argument = "$" + "user"
+    credential_argument = "$" + "credential"
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: deploy/scripts/provision-control-api-runtime-roles.sh\n"
+        "+printf '" + template + "' " + user_argument + " " + credential_argument + "\n"
+        "*** End Patch"
+    )
+
+    assert classify_patch_payload(patch) is None

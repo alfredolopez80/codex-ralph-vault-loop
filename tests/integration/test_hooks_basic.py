@@ -192,6 +192,25 @@ def test_pre_tool_guard_allows_runtime_generated_database_url_patch(tmp_path: Pa
     assert result.stdout == ""
 
 
+def test_pre_tool_guard_allows_printf_database_url_template_patch(tmp_path: Path) -> None:
+    scheme = "postgres"
+    formatter = "%" + "s"
+    template = scheme + "://" + formatter + ":" + formatter + "@host/db"
+    user_argument = "$" + "user"
+    credential_argument = "$" + "credential"
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: deploy/scripts/provision-control-api-runtime-roles.sh\n"
+        "+printf '" + template + "' " + user_argument + " " + credential_argument + "\n"
+        "*** End Patch"
+    )
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": patch})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 def test_pre_tool_guard_blocks_nested_command_substitution_in_database_url_patch(tmp_path: Path) -> None:
     db_scheme = "postgres" + "ql"
     substitution = "$" + "(python3 -c 'print(\"hunter2\")')"
