@@ -592,6 +592,8 @@ def nested_exec_envelope_safe(payload: dict[str, Any]) -> bool | None:
             return False
         normalized = re.sub(r"^\s*//\s*@exec:[^\r\n]*(?:\r?\n)?", "", source)
         without_literals = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`', "", normalized)
+        if len(re.findall(r"(?:^|[,{]\s*)cmd\s*:", without_literals)) != 1:
+            return False
         calls = re.findall(r"(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", without_literals)
         if any(call != "text" for call in calls):
             return False

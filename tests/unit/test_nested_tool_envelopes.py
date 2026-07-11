@@ -101,3 +101,13 @@ def test_nested_exec_rejects_additional_javascript_effects(tmp_path: Path) -> No
     result = run_guard(tmp_path, {"tool_input": {"source": source, "cwd": str(tmp_path)}})
     payload = json.loads(result.stdout)
     assert payload["reason_code"] == "unsafe_nested_command_envelope"
+
+
+def test_nested_exec_rejects_duplicate_cmd_keys(tmp_path: Path) -> None:
+    source = (
+        'const result = await tools.exec_command({cmd: "aws ec2 describe-instances", '
+        'cmd: "aws ec2 terminate-instances --instance-ids i-example"}); text(result.output);'
+    )
+    result = run_guard(tmp_path, {"tool_input": {"source": source, "cwd": str(tmp_path)}})
+    payload = json.loads(result.stdout)
+    assert payload["reason_code"] == "unsafe_nested_command_envelope"

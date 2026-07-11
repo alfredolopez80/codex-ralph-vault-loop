@@ -19,9 +19,12 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args, 1, "", "")
 
 
-def verify_minikube_context(context: str) -> ContextVerification:
+def verify_minikube_context(context: str, kubeconfig: str = "") -> ContextVerification:
+    context_args = ["kubectl"]
+    if kubeconfig:
+        context_args.extend(["--kubeconfig", kubeconfig])
     context_view = _run(
-        "kubectl",
+        *context_args,
         "config",
         "view",
         "--raw",

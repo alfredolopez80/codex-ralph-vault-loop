@@ -217,7 +217,7 @@ def test_script_location_does_not_change_cloud_evaluation(tmp_path: Path) -> Non
 
 
 def test_verified_minikube_allows_mutation_and_ordinary_delete(tmp_path: Path) -> None:
-    verify = lambda context: ContextVerification(True, True, "feature-test")
+    verify = lambda context, kubeconfig="": ContextVerification(True, True, "feature-test")
     for command in (
         "kubectl --context feature-test apply -f deployment.yaml",
         "kubectl --context feature-test delete deployment api",
@@ -229,7 +229,7 @@ def test_verified_minikube_allows_mutation_and_ordinary_delete(tmp_path: Path) -
 
 
 def test_verified_minikube_complete_delete_still_requires_approval(tmp_path: Path) -> None:
-    verify = lambda context: ContextVerification(True, True, "feature-test")
+    verify = lambda context, kubeconfig="": ContextVerification(True, True, "feature-test")
     for command in (
         "kubectl --context feature-test delete namespace feature-test",
         "kubectl --context feature-test delete pods --all",
@@ -240,7 +240,7 @@ def test_verified_minikube_complete_delete_still_requires_approval(tmp_path: Pat
 
 
 def test_non_minikube_context_allows_reads_but_gates_mutations(tmp_path: Path) -> None:
-    verify = lambda context: ContextVerification(True, False)
+    verify = lambda context, kubeconfig="": ContextVerification(True, False)
     read = assess_command("kubectl --context live get pods", tmp_path, verify)
     mutation = assess_command("kubectl --context live apply -f deployment.yaml", tmp_path, verify)
     assert read.action == "allow"
@@ -248,13 +248,13 @@ def test_non_minikube_context_allows_reads_but_gates_mutations(tmp_path: Path) -
 
 
 def test_rollout_status_is_read_only_for_non_minikube_context(tmp_path: Path) -> None:
-    verify = lambda context: ContextVerification(True, False)
+    verify = lambda context, kubeconfig="": ContextVerification(True, False)
     assessment = assess_command("kubectl --context live rollout status deployment/api", tmp_path, verify)
     assert assessment.action == "allow"
 
 
 def test_invalid_or_dynamic_kubectl_context_is_blocked(tmp_path: Path) -> None:
-    invalid = lambda context: ContextVerification(False, False)
+    invalid = lambda context, kubeconfig="": ContextVerification(False, False)
     missing = assess_command("kubectl get pods", tmp_path, invalid)
     unknown = assess_command("kubectl --context missing get pods", tmp_path, invalid)
     dynamic = assess_command("kubectl --context '$KUBE_CONTEXT' get pods", tmp_path, invalid)
@@ -264,6 +264,7 @@ def test_invalid_or_dynamic_kubectl_context_is_blocked(tmp_path: Path) -> None:
 
 
 def test_context_verifier_matches_running_profile_context_and_endpoint(monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
     responses = iter(
         [
             subprocess.CompletedProcess([], 0, "https://127.0.0.1:8443", ""),
@@ -272,13 +273,18 @@ def test_context_verifier_matches_running_profile_context_and_endpoint(monkeypat
             subprocess.CompletedProcess([], 0, "https://127.0.0.1:8443", ""),
         ]
     )
-    monkeypatch.setattr(minikube_context, "_run", lambda *args: next(responses))
-    result = minikube_context.verify_minikube_context("feature-test")
+    def fake_run(*args: str) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return next(responses)
+
+    monkeypatch.setattr(minikube_context, "_run", fake_run)
+    result = minikube_context.verify_minikube_context("feature-test", "/tmp/minikube.yaml")
     assert result == ContextVerification(True, True, "feature-test")
+    assert calls[0][:3] == ("kubectl", "--kubeconfig", "/tmp/minikube.yaml")
 
 
 def test_verified_wrapper_inspects_scripts_in_any_directory(tmp_path: Path) -> None:
-    verify = lambda context: ContextVerification(True, True, "feature-test")
+    verify = lambda context, kubeconfig="": ContextVerification(True, True, "feature-test")
     notes = tmp_path / ".local-notes"
     notes.mkdir()
     for script in (notes / "seed.sh", tmp_path / "seed.sh"):
@@ -314,7 +320,7 @@ def test_script_kubectl_without_context_is_blocked_in_any_directory(tmp_path: Pa
 
 
 def test_combined_shell_flags_and_xargs_are_evaluated(tmp_path: Path) -> None:
-    verify = lambda context: ContextVerification(True, True, "feature-test")
+    verify = lambda context, kubeconfig="": ContextVerification(True, True, "feature-test")
     shell = assess_command(
         "bash -lc 'kubectl --context feature-test delete namespace feature-test'",
         tmp_path,

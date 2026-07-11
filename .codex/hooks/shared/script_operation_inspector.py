@@ -7,6 +7,7 @@ from pathlib import Path
 
 SCRIPT_INTERPRETERS = {"bash", "node", "perl", "python", "python3", "ruby", "sh", "zsh"}
 SCRIPT_SUFFIXES = {".bash", ".js", ".mjs", ".pl", ".py", ".rb", ".sh", ".zsh"}
+PYTHON_VALUE_OPTIONS = {"-W", "-X", "--check-hash-based-pycs"}
 MAX_SCRIPT_BYTES = 256_000
 TOOL_RE = re.compile(r"(?<![A-Za-z0-9_.-])(aws|gcloud|helm|kubectl|minikube|terraform)(?![A-Za-z0-9_.-])")
 
@@ -32,10 +33,26 @@ def script_path(parts: list[str], cwd: Path) -> Path | None:
     tool = Path(parts[0]).name.lower()
     is_interpreter = _is_script_interpreter(tool)
     if is_interpreter:
-        if "-c" in parts or "-m" in parts:
-            return None
-        candidates = [part for part in parts[1:] if not part.startswith("-")]
+        index = 1
+        while index < len(parts):
+            part = parts[index]
+            if part == "--":
+                index += 1
+                break
+            if part in {"-c", "-m"}:
+                return None
+            option = part.split("=", 1)[0]
+            if option in PYTHON_VALUE_OPTIONS:
+                index += 1 if "=" in part or (len(part) > 2 and part[:2] in PYTHON_VALUE_OPTIONS) else 2
+                continue
+            if part.startswith("-"):
+                index += 1
+                continue
+            break
+        candidates = parts[index : index + 1]
     else:
+        if "/" not in parts[0] and not Path(parts[0]).is_absolute():
+            return None
         candidates = parts[:1]
     if not candidates:
         return None
