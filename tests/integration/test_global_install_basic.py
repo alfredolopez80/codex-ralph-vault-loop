@@ -63,6 +63,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     scout_codex_skill = tmp_path / ".codex" / "skills" / "ralph-opportunity-scout"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
+    reviewed_operation = tmp_path / ".ralph-codex" / "bin" / "reviewed-cloud-operation"
+    authorize_minikube = tmp_path / ".ralph-codex" / "bin" / "authorize-local-minikube-patch"
+    run_minikube = tmp_path / ".ralph-codex" / "bin" / "run-local-minikube-script"
     hooks_json = tmp_path / ".codex" / "hooks.json"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
     assert skill.is_symlink()
@@ -75,6 +78,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert scout_codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
+    assert reviewed_operation.is_symlink()
+    assert authorize_minikube.is_symlink()
+    assert run_minikube.is_symlink()
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
@@ -88,6 +94,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(scout_codex_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
+    assert os.readlink(reviewed_operation) == str(ROOT / "scripts" / "operations" / "reviewed-cloud-operation.py")
+    assert os.readlink(authorize_minikube) == str(ROOT / "scripts" / "security" / "authorize-local-minikube-patch.py")
+    assert os.readlink(run_minikube) == str(ROOT / "scripts" / "security" / "run-local-minikube-script.py")
     agents_text = agents_md.read_text(encoding="utf-8")
     assert "Default Ultrathink Policy" in agents_text
     assert "global `ultrathink` skill as the default operating mode" in agents_text
@@ -152,6 +161,12 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not agent.is_symlink()
     assert not helper.exists()
     assert not helper.is_symlink()
+    assert not reviewed_operation.exists()
+    assert not reviewed_operation.is_symlink()
+    assert not authorize_minikube.exists()
+    assert not authorize_minikube.is_symlink()
+    assert not run_minikube.exists()
+    assert not run_minikube.is_symlink()
     agents_text = agents_md.read_text(encoding="utf-8")
     assert "Default Ultrathink Policy" not in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" not in agents_text

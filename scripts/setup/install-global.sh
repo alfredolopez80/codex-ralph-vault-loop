@@ -7,6 +7,9 @@ SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
 AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
+REVIEWED_OPERATION_SOURCE="${REPO_ROOT}/scripts/operations/reviewed-cloud-operation.py"
+MINIKUBE_AUTHORIZE_SOURCE="${REPO_ROOT}/scripts/security/authorize-local-minikube-patch.py"
+MINIKUBE_RUN_SOURCE="${REPO_ROOT}/scripts/security/run-local-minikube-script.py"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
@@ -213,6 +216,12 @@ install_agent() {
 
 install_helpers() {
   install_link "${AUTORESEARCH_SOURCE_ROOT}" "${GLOBAL_HELPER_ROOT}/autoresearch"
+}
+
+install_operation_helpers() {
+  install_link "${REVIEWED_OPERATION_SOURCE}" "${GLOBAL_HELPER_ROOT}/reviewed-cloud-operation"
+  install_link "${MINIKUBE_AUTHORIZE_SOURCE}" "${GLOBAL_HELPER_ROOT}/authorize-local-minikube-patch"
+  install_link "${MINIKUBE_RUN_SOURCE}" "${GLOBAL_HELPER_ROOT}/run-local-minikube-script"
 }
 
 install_hooks() {
@@ -751,6 +760,7 @@ main() {
   else
     printf 'GLOBAL_INSTALL_INFO autoresearch-helpers-skipped skill-not-selected\n'
   fi
+  install_operation_helpers
   install_agents_policy
   install_hooks
 

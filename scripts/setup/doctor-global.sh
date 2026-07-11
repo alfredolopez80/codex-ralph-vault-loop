@@ -27,6 +27,9 @@ SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
 AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
+REVIEWED_OPERATION_SOURCE="${REPO_ROOT}/scripts/operations/reviewed-cloud-operation.py"
+MINIKUBE_AUTHORIZE_SOURCE="${REPO_ROOT}/scripts/security/authorize-local-minikube-patch.py"
+MINIKUBE_RUN_SOURCE="${REPO_ROOT}/scripts/security/run-local-minikube-script.py"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
@@ -187,6 +190,21 @@ check_helper_link() {
     fail "autoresearch helper target exists but is not expected repo symlink: $target"
   else
     fail "autoresearch helpers missing"
+  fi
+}
+
+check_operation_helper_link() {
+  local name="$1"
+  local source="$2"
+  local target="${GLOBAL_HELPER_ROOT}/${name}"
+  if [[ ! -x "$source" ]]; then
+    fail "source operation helper missing or not executable $source"
+  elif [[ -L "$target" && "$(readlink "$target")" == "$source" ]]; then
+    ok "operation helper linked $name"
+  elif [[ -e "$target" || -L "$target" ]]; then
+    fail "operation helper target exists but is not expected repo symlink: $target"
+  else
+    fail "operation helper missing $name"
   fi
 }
 
@@ -393,6 +411,9 @@ main() {
     check_agent_link "$agent"
   done
   check_helper_link
+  check_operation_helper_link "reviewed-cloud-operation" "$REVIEWED_OPERATION_SOURCE"
+  check_operation_helper_link "authorize-local-minikube-patch" "$MINIKUBE_AUTHORIZE_SOURCE"
+  check_operation_helper_link "run-local-minikube-script" "$MINIKUBE_RUN_SOURCE"
   check_hook_marker
   check_global_hooks
   check_agents_policy
