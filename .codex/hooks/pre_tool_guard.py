@@ -10,6 +10,7 @@ from typing import Any
 from shared.paths import REPO_ROOT, read_hook_input, write_json
 from shared.context_budget import classify_command, classify_patch_payload, payload_patch_text
 from shared.redaction import is_red, sensitivity_report
+from shared.local_minikube_grant import allows as local_minikube_patch_allowed
 
 
 DESTRUCTIVE_PATTERNS = [
@@ -757,11 +758,13 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
 
 def main() -> int:
     payload = read_hook_input()
-    patch_finding = classify_patch_payload(payload_patch_text(payload))
+    patch_text = payload_patch_text(payload)
+    local_patch_allowed = bool(patch_text) and local_minikube_patch_allowed(patch_text, cwd_from_payload(payload))
+    patch_finding = None if local_patch_allowed else classify_patch_payload(patch_text)
     if patch_finding:
         write_json(patch_finding.hook_payload())
         return 0
-    if payload_is_patch_text(payload):
+    if payload_is_patch_text(payload) or local_patch_allowed:
         return 0
 
     automation_reason = blocked_automation_reason(payload)
