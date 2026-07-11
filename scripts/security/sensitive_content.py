@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 
 
@@ -95,6 +96,89 @@ def _database_url_credential_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _printf_placeholder_index(format_string: str, target: int) -> int | None:
+    """Return the one-based position of an unescaped %s at target."""
+    count = 0
+    index = 0
+    while index < len(format_string):
+        if format_string.startswith("%%", index):
+            index += 2
+            continue
+        if format_string.startswith("%s", index):
+            count += 1
+            if index == target:
+                return count
+            index += 2
+            continue
+        if format_string[index] == "%":
+            return None
+        index += 1
+    return None
+
+
+def _printf_command_fragment(command: str) -> str | None:
+    for match in re.finditer(r"\bprintf(?:\s|$)", command):
+        prefix = command[: match.start()].rstrip()
+        if prefix and not prefix.endswith(("$(", ";", "|", "&&", "||")):
+            continue
+        fragment = command[match.start() :]
+        if prefix.endswith("$("):
+            closing_parenthesis = fragment.rfind(")")
+            if closing_parenthesis >= 0:
+                fragment = fragment[:closing_parenthesis]
+        return fragment
+    return None
+
+
+def _printf_database_url_credential_spans(text: str) -> list[tuple[int, int]]:
+    """Find printf DB templates whose credential argument is not a runtime reference."""
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        line_end = offset + len(line.rstrip("\r\n"))
+        command = line[1:].lstrip() if line.startswith("+") else line.lstrip()
+        printf_command = _printf_command_fragment(command)
+        if printf_command is None:
+            offset += len(line)
+            continue
+        try:
+            parts = shlex.split(printf_command, posix=True)
+        except ValueError:
+            if _DB_URL_START.search(printf_command):
+                spans.append((offset, line_end))
+            offset += len(line)
+            continue
+        format_index = 2 if len(parts) > 2 and parts[1] == "--" else 1
+        if len(parts) <= format_index or parts[0] != "printf":
+            offset += len(line)
+            continue
+        format_string = parts[format_index]
+        for match in _DB_URL_START.finditer(format_string):
+            authority_end = _database_url_authority_end(format_string, match.end())
+            authority = format_string[match.end() : authority_end]
+            separator = authority.rfind("@")
+            if separator < 0:
+                continue
+            userinfo = authority[:separator]
+            colon = userinfo.find(":")
+            if colon < 0:
+                continue
+            credential_start = match.end() + colon + 1
+            if not _PRINTF_DB_CREDENTIAL_REF_FULL.fullmatch(userinfo[colon + 1 :]):
+                continue
+            placeholder_index = _printf_placeholder_index(format_string, credential_start)
+            argument_index = format_index + (placeholder_index or 0)
+            if (
+                placeholder_index is None
+                or argument_index >= len(parts)
+                or not _RUNTIME_DB_PASSWORD_REF_FULL.fullmatch(parts[argument_index])
+            ):
+                spans.append((offset, line_end))
+                break
+        offset += len(line)
+    return spans
+
+
 def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
     """Find URL-setting assignments except a DB URL with an exact runtime variable."""
     spans: list[tuple[int, int]] = []
@@ -126,6 +210,10 @@ def _database_url_assignment_spans(text: str) -> list[tuple[int, int]]:
 
 def _database_url_findings(text: str) -> list[tuple[str, tuple[int, int]]]:
     findings = [("database_url_with_credentials", span) for span in _database_url_credential_spans(text)]
+    findings.extend(
+        ("printf_database_url_literal_credential_argument", span)
+        for span in _printf_database_url_credential_spans(text)
+    )
     findings.extend(("database_url_assignment", span) for span in _database_url_assignment_spans(text))
     return findings
 

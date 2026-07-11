@@ -211,6 +211,25 @@ def test_pre_tool_guard_allows_printf_database_url_template_patch(tmp_path: Path
     assert result.stdout == ""
 
 
+def test_pre_tool_guard_blocks_printf_database_url_template_with_literal_credential_argument(tmp_path: Path) -> None:
+    scheme = "postgres"
+    formatter = "%" + "s"
+    template = scheme + "://" + formatter + ":" + formatter + "@host/db"
+    literal_credential = "hun" + "ter2"
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: deploy/scripts/provision-control-api-runtime-roles.sh\n"
+        "+printf '" + template + "' app " + literal_credential + "\n"
+        "*** End Patch"
+    )
+
+    result = run_hook("pre_tool_guard.py", tmp_path, {"tool_input": patch})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+
+
 def test_pre_tool_guard_blocks_nested_command_substitution_in_database_url_patch(tmp_path: Path) -> None:
     db_scheme = "postgres" + "ql"
     substitution = "$" + "(python3 -c 'print(\"hunter2\")')"
