@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -40,13 +41,30 @@ class CommandAssessment:
     profile: str = ""
     warning: str = ""
     approval_subject: str = ""
-ContextVerifier = Callable[[str], ContextVerification]
+ContextVerifier = Callable[[str, str], ContextVerification]
+
+
 def _tool(value: str) -> str:
     return Path(value).name.lower()
 
 
 def _segments(command: str) -> list[list[str]]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    normalized: list[str] = []
+    quote = ""
+    escaped = False
+    for char in command:
+        if escaped:
+            normalized.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            normalized.append(char)
+            escaped = True
+            continue
+        if char in {"'", '"'}:
+            quote = "" if quote == char else char if not quote else quote
+        normalized.append(";" if char == "\n" and not quote else char)
+    lexer = shlex.shlex("".join(normalized), posix=True, punctuation_chars=";&|")
     lexer.whitespace_split = True
     segments: list[list[str]] = []
     current: list[str] = []
@@ -63,10 +81,35 @@ def _segments(command: str) -> list[list[str]]:
 
 
 def _without_environment(parts: list[str]) -> list[str]:
-    index = 1 if parts and _tool(parts[0]) == "env" else 0
+    if not parts:
+        return parts
+    index = 1 if _tool(parts[0]) == "env" else 0
+    value_options = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"}
+    while index < len(parts) and _tool(parts[0]) == "env":
+        part = parts[index]
+        option = part.split("=", 1)[0]
+        if option in value_options:
+            index += 1 if "=" in part else 2
+            continue
+        if part.startswith("-"):
+            index += 1
+            continue
+        if "=" not in part:
+            break
+        index += 1
     while index < len(parts) and "=" in parts[index] and not parts[index].startswith("-"):
         index += 1
     return parts[index:]
+
+
+def _environment_value(parts: list[str], name: str) -> str:
+    prefix = name + "="
+    for part in parts:
+        if part.startswith(prefix):
+            return part.split("=", 1)[1]
+        if _tool(part) in CLOUD_TOOLS:
+            break
+    return ""
 
 
 def _context(parts: list[str]) -> str:
@@ -92,15 +135,15 @@ def _words(parts: list[str]) -> list[str]:
 
 
 def _kubectl_complete_deletion(parts: list[str]) -> bool:
-    words = _words(parts)
-    if "delete" not in words:
+    operands_with_action = [part.lower().replace("_", "-") for part in parts[1:] if part and not part.startswith("-")]
+    if "delete" not in operands_with_action:
         return False
-    operands = words[words.index("delete") + 1 :]
+    operands = operands_with_action[operands_with_action.index("delete") + 1 :]
     return (
         "--all" in parts
         or "--all-namespaces" in parts
         or "-A" in parts
-        or any(resource in COMPLETE_KUBERNETES_RESOURCES for resource in operands)
+        or any(resource.split("/", 1)[0] in COMPLETE_KUBERNETES_RESOURCES for resource in operands)
         or any(
             part in {"-f", "--filename", "-k", "--kustomize"}
             or part.startswith(("--filename=", "--kustomize="))
@@ -131,6 +174,16 @@ def _shell_command(parts: list[str]) -> str:
     return ""
 
 
+def _rewrites_inspected_script(command: str, scripts: list[Path], cwd: Path) -> bool:
+    for match in re.finditer(r">{1,2}\s*([^\s;&|]+)", command):
+        raw_target = match.group(1).strip("'\"")
+        target = Path(raw_target).expanduser()
+        target = target if target.is_absolute() else cwd / target
+        if target.resolve(strict=False) in scripts:
+            return True
+    return False
+
+
 def _approval(tool: str, risk: str, consequence: str) -> CommandAssessment:
     return CommandAssessment(
         action="approval",
@@ -141,7 +194,12 @@ def _approval(tool: str, risk: str, consequence: str) -> CommandAssessment:
     )
 
 
-def _assess_cloud_parts(parts: list[str], verifier: ContextVerifier) -> CommandAssessment:
+def _assess_cloud_parts(
+    parts: list[str],
+    verifier: ContextVerifier,
+    kubeconfig: str = "",
+    cwd: Path = Path.cwd(),
+) -> CommandAssessment:
     tool = _tool(parts[0])
     risk, operation = _classify_words(parts)
     if tool != "kubectl":
@@ -164,7 +222,11 @@ def _assess_cloud_parts(parts: list[str], verifier: ContextVerifier) -> CommandA
             reason="kubectl --context must be a static context name.",
             tool=tool,
         )
-    verification = verifier(context)
+    effective_kubeconfig = _option(parts, "--kubeconfig") or kubeconfig
+    if effective_kubeconfig:
+        config_path = Path(effective_kubeconfig).expanduser()
+        effective_kubeconfig = str(config_path if config_path.is_absolute() else (cwd / config_path).resolve(strict=False))
+    verification = verifier(context, effective_kubeconfig)
     if not verification.valid:
         return CommandAssessment(
             action="block",
@@ -208,6 +270,7 @@ def assess_command(
     verifier: ContextVerifier = verify_minikube_context,
 ) -> CommandAssessment:
     script_hashes: list[str] = []
+    inspected_scripts: list[Path] = []
     assessments: list[CommandAssessment] = []
     try:
         segments = _segments(command)
@@ -215,7 +278,14 @@ def assess_command(
         approval = _approval("command", "mutating", "execute a command that cannot be parsed safely")
         return replace(approval, approval_subject=command)
 
-    def assess_parts(raw_parts: list[str], depth: int = 0) -> None:
+    def assess_parts(raw_parts: list[str], depth: int = 0, active_cwd: Path = cwd) -> None:
+        raw_tool = _tool(raw_parts[0]) if raw_parts else ""
+        if raw_tool == "env":
+            env_cwd = _option(raw_parts, "--chdir") or _option(raw_parts, "-C")
+            if env_cwd:
+                candidate = Path(env_cwd).expanduser()
+                active_cwd = (candidate if candidate.is_absolute() else active_cwd / candidate).resolve(strict=False)
+        kubeconfig = _environment_value(raw_parts, "KUBECONFIG")
         parts = _without_environment(raw_parts)
         if not parts:
             return
@@ -227,16 +297,15 @@ def assess_command(
             shell_command = _shell_command(parts)
             if shell_command:
                 try:
-                    for segment in _segments(shell_command):
-                        assess_parts(segment, depth + 1)
+                    assess_sequence(_segments(shell_command), depth + 1, active_cwd)
                 except ValueError:
                     assessments.append(_approval("local-script", "mutating", "execute dynamic shell content"))
                 return
         if tool == "xargs":
             for index, part in enumerate(parts[1:], start=1):
                 nested_tool = _tool(part)
-                if nested_tool in CLOUD_TOOLS or nested_tool in {"bash", "sh", "zsh"} or script_path(parts[index:], cwd):
-                    assess_parts(parts[index:], depth + 1)
+                if nested_tool in CLOUD_TOOLS or nested_tool in {"bash", "sh", "zsh"} or script_path(parts[index:], active_cwd):
+                    assess_parts(parts[index:], depth + 1, active_cwd)
                     return
             return
         trusted_wrapper = Path.home() / ".ralph-codex" / "bin" / "run-local-minikube-script"
@@ -246,7 +315,7 @@ def assess_command(
                 return
             wrapper_context = _context(parts)
             wrapper_profile = _option(parts, "--profile")
-            verification = verifier(wrapper_context) if wrapper_context else ContextVerification(False, False)
+            verification = verifier(wrapper_context, "") if wrapper_context else ContextVerification(False, False)
             if (
                 not wrapper_context
                 or not verification.valid
@@ -266,7 +335,7 @@ def assess_command(
                     )
                 )
                 return
-            script = wrapper_script_path(parts, cwd)
+            script = wrapper_script_path(parts, active_cwd)
             if not script:
                 assessments.append(
                     CommandAssessment(
@@ -286,9 +355,10 @@ def assess_command(
                 )
             )
         else:
-            script = script_path(parts, cwd)
+            script = script_path(parts, active_cwd)
 
         if script:
+            inspected_scripts.append(script)
             commands, error, script_hash = script_cloud_commands(script)
             if script_hash:
                 script_hashes.append(f"{script}:{script_hash}")
@@ -298,7 +368,7 @@ def assess_command(
             for script_command in commands:
                 try:
                     for segment in _segments(script_command):
-                        assess_parts(segment, depth + 1)
+                        assess_parts(segment, depth + 1, active_cwd)
                 except ValueError:
                     assessments.append(
                         _approval("local-script", "mutating", "execute a cloud command that cannot be parsed statically")
@@ -306,11 +376,25 @@ def assess_command(
             return
 
         if tool in CLOUD_TOOLS:
-            assessments.append(_assess_cloud_parts(parts, verifier))
+            assessments.append(_assess_cloud_parts(parts, verifier, kubeconfig, active_cwd))
 
-    for segment in segments:
-        assess_parts(segment)
+    def assess_sequence(command_segments: list[list[str]], depth: int, start_cwd: Path) -> None:
+        active_cwd = start_cwd
+        for segment in command_segments:
+            parts = _without_environment(segment)
+            if parts and _tool(parts[0]) == "cd":
+                if len(parts) != 2 or parts[1] == "-" or any(char in parts[1] for char in "$`{}"):
+                    assessments.append(_approval("local-script", "mutating", "execute a relative script after dynamic cd"))
+                    continue
+                target = Path(parts[1]).expanduser()
+                active_cwd = (target if target.is_absolute() else active_cwd / target).resolve(strict=False)
+                continue
+            assess_parts(segment, depth, active_cwd)
+
+    assess_sequence(segments, 0, cwd)
     chosen = _choose(assessments)
+    if inspected_scripts and _rewrites_inspected_script(command, inspected_scripts, cwd) and chosen.action == "allow":
+        chosen = _approval("local-script", "mutating", "rewrite an inspected script before execution")
     subject = f"{cwd.resolve(strict=False)}\n{command}"
     if script_hashes:
         subject += "\n" + "\n".join(sorted(set(script_hashes)))
