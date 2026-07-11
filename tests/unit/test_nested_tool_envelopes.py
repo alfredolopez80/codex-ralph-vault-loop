@@ -78,13 +78,12 @@ def test_effectful_nested_patch_envelopes_are_rejected(tmp_path: Path) -> None:
         assert payload["reason_code"] == "unsafe_nested_patch_envelope"
 
 
-def test_nested_exec_command_uses_same_cloud_gate(tmp_path: Path) -> None:
+def test_nested_exec_command_requires_explicit_kubectl_context(tmp_path: Path) -> None:
     command = "kubectl delete namespace feature-test"
     source = f"const result = await tools.exec_command({{cmd: {json.dumps(command)}}}); text(result.output);"
     result = run_guard(tmp_path, {"tool_input": {"source": source, "cwd": str(tmp_path)}})
     payload = json.loads(result.stdout)
-    assert payload["reason_code"] == "cloud_command_approval_required"
-    assert payload["risk_level"] == "destructive"
+    assert payload["reason_code"] == "kubectl_context_required"
 
 
 def test_nested_exec_rejects_multiple_tool_calls(tmp_path: Path) -> None:

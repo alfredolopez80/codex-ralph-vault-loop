@@ -25,10 +25,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.script.is_symlink():
-        raise SystemExit("REFUSED: script must be a regular .local-notes file")
+        raise SystemExit("REFUSED: script must be a regular file")
     script = args.script.resolve(strict=True)
-    if ".local-notes" not in script.parts or not script.is_file():
-        raise SystemExit("REFUSED: script must be a regular .local-notes file")
+    if not script.is_file():
+        raise SystemExit("REFUSED: script must be a regular file")
 
     status = json.loads(checked_output("minikube", "-p", args.profile, "status", "--output=json"))
     if status.get("Host") != "Running" or status.get("APIServer") != "Running":
@@ -41,6 +41,8 @@ def main() -> int:
     profile_server = checked_output("minikube", "-p", args.profile, "kubectl", "--", "config", "view", "--minify", "-o", selector)
     if not context_server or context_server != profile_server:
         raise SystemExit("REFUSED: API endpoint does not belong to the profile")
+
+    print(f"MINIKUBE_CONTEXT_VERIFIED profile={args.profile} context={args.context}", flush=True)
 
     isolated_config = checked_output(
         "kubectl", "config", "view", "--raw", "--flatten", "--minify", "--context", args.context

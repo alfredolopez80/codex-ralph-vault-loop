@@ -310,7 +310,6 @@ def test_pre_tool_guard_allows_option_reference_literals(tmp_path: Path) -> None
 
 def test_pre_tool_guard_blocks_unbounded_large_output_commands(tmp_path: Path) -> None:
     for command in [
-        "kubectl logs deploy/control-api",
         "docker logs control-api",
         "tail -f server.log",
         "ls -R .",
@@ -325,7 +324,6 @@ def test_pre_tool_guard_blocks_unbounded_large_output_commands(tmp_path: Path) -
 
 def test_pre_tool_guard_allows_byte_capped_large_output_commands(tmp_path: Path) -> None:
     for command in [
-        "kubectl logs deploy/control-api 2>&1 | head -c 6000",
         "docker logs control-api 2>&1 | head -c 6000",
         "ls -R . 2>&1 | head -c 6000",
         "jq . report.json 2>&1 | head -c 6000",
@@ -356,7 +354,6 @@ def test_pre_tool_guard_blocks_unbounded_firehose_commands(tmp_path: Path) -> No
         "git diff; head -c 1 /dev/null": "git diff --name-only | head -n 50",
         "git diff & printf x | head -c 1": "git diff --name-only | head -n 50",
         "echo ok | head -c 6000; jq . huge.json": "head -c 6000",
-        "kubectl logs deploy/control-api; head -c 1 /dev/null": "head -c 6000",
         "python3 -m pytest tests -vv": "head -c 6000",
     }
 

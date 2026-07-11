@@ -10,6 +10,7 @@ from typing import Any
 
 from shared.paths import REPO_ROOT, read_hook_input, write_json
 from shared.context_budget import classify_command, classify_patch_payload, nested_patch_envelope, payload_patch_text
+from shared.cloud_operation_gate import assess_command
 from shared.redaction import is_red, sensitivity_report
 from shared.local_minikube_grant import allows_command, digest as approval_digest
 from shared.local_minikube_grant import targets as local_patch_targets
@@ -548,82 +549,6 @@ def command_has_sensitive_tool_path(command: str) -> bool:
     return False
 
 
-CLOUD_TOOLS = {"aws", "gcloud", "helm", "kubectl", "minikube", "terraform"}
-READ_ACTIONS = {
-    "api-resources", "api-versions", "can-i", "cluster-info", "describe", "diff", "explain", "get",
-    "get-contexts", "head", "history", "info", "list", "logs", "ls", "output", "plan", "providers",
-    "search", "show", "status", "template", "top", "validate", "version", "view", "whoami",
-}
-DESTRUCTIVE_ACTIONS = {"delete", "destroy", "drain", "drop", "purge", "remove", "rm", "terminate", "uninstall", "wipe"}
-MUTATING_ACTIONS = {
-    "add", "annotate", "apply", "attach", "autoscale", "cordon", "cp", "create", "deploy", "detach",
-    "edit", "expose", "import", "install", "label", "move", "mv", "patch", "put", "replace", "restart",
-    "restore", "resume", "rollback", "rollout", "scale", "set", "start", "stop", "submit", "suspend",
-    "taint", "uncordon", "update", "upgrade", "use-context",
-}
-
-
-def nested_script_path(tokens: list[str]) -> str | None:
-    if not tokens:
-        return None
-    tool = executable_name(tokens[0])
-    interpreters = {"bash", "node", "perl", "python", "python3", "ruby", "sh", "zsh"}
-    candidates = tokens[1:] if tool in interpreters else tokens[:1]
-    for candidate in candidates:
-        if candidate.startswith("-"):
-            continue
-        if ".local-notes" in Path(candidate).expanduser().parts or "/.local-notes/" in candidate:
-            return candidate
-    return None
-
-
-def action_words(parts: list[str]) -> list[str]:
-    return [Path(part).name.lower().replace("_", "-") for part in parts[1:] if part and not part.startswith("-")]
-
-
-def segment_cloud_risk(parts: list[str]) -> tuple[str, str, str] | None:
-    parts = strip_environment_prefix(parts)
-    if not parts:
-        return None
-    tool = executable_name(parts[0])
-    if tool in {"run-local-minikube-script", "run-local-minikube-script.py"}:
-        invoked = Path(parts[0]).expanduser()
-        trusted = Path.home() / ".ralph-codex" / "bin" / "run-local-minikube-script"
-        if invoked == trusted:
-            return None
-        return ("mutating", "local-script", "execute an unverified minikube wrapper")
-    script_path = nested_script_path(parts)
-    if script_path:
-        return ("mutating", "local-script", f"execute reviewed local script {script_path}")
-    if tool in {"bash", "sh", "zsh"} and "-c" in parts:
-        index = parts.index("-c")
-        if index + 1 < len(parts):
-            return cloud_command_risk(parts[index + 1])
-    if tool not in CLOUD_TOOLS:
-        return None
-    words = action_words(parts)
-    destructive = next((word for word in words if word in DESTRUCTIVE_ACTIONS), None)
-    if destructive:
-        return ("destructive", tool, f"{destructive} resources or runtime components")
-    mutating = next((word for word in words if word in MUTATING_ACTIONS), None)
-    if mutating:
-        return ("mutating", tool, f"{mutating} cluster or cloud state")
-    if any(word in READ_ACTIONS or word.startswith(("describe-", "get-", "list-", "head-")) for word in words):
-        return None
-    return ("mutating", tool, "run an unclassified cloud operation that may change state")
-
-
-def cloud_command_risk(command: str) -> tuple[str, str, str] | None:
-    try:
-        segments = shell_segments(command)
-    except ValueError:
-        segments = [command_parts(command)]
-    risks = [risk for segment in segments if (risk := segment_cloud_risk(segment))]
-    if not risks:
-        return None
-    return next((risk for risk in risks if risk[0] == "destructive"), risks[0])
-
-
 def command_from_payload(payload: dict[str, Any]) -> str:
     tool_input = tool_input_from_payload(payload)
     if isinstance(tool_input, dict):
@@ -908,27 +833,40 @@ def main() -> int:
     if not command:
         return 0
 
-    cloud_risk = cloud_command_risk(command)
-    if cloud_risk:
-        if allows_command(command):
+    cloud_assessment = assess_command(command, cwd_from_payload(payload))
+    if cloud_assessment.action == "block":
+        response = {
+            "decision": "block",
+            "reason": cloud_assessment.reason,
+            "reason_code": cloud_assessment.reason_code,
+        }
+        if cloud_assessment.context:
+            response["context"] = cloud_assessment.context
+        write_json(response)
+        return 0
+    if cloud_assessment.action == "approval":
+        approval_subject = cloud_assessment.approval_subject or command
+        if allows_command(approval_subject):
             return 0
-        risk_level, tool, consequence = cloud_risk
-        command_hash = approval_digest(command)
+        command_hash = approval_digest(approval_subject)
         write_json(
             {
                 "decision": "block",
                 "reason": (
-                    f"Human approval required: {tool} command is {risk_level} and may {consequence}. "
+                    f"Human approval required: {cloud_assessment.tool} command is "
+                    f"{cloud_assessment.risk_level} and may {cloud_assessment.consequence}. "
                     "Review the exact command shown by Codex, approve suggested_command, then retry it unchanged."
                 ),
                 "reason_code": "cloud_command_approval_required",
-                "risk_level": risk_level,
-                "tool": tool,
-                "consequence": consequence,
+                "risk_level": cloud_assessment.risk_level,
+                "tool": cloud_assessment.tool,
+                "consequence": cloud_assessment.consequence,
                 "command_sha256": command_hash,
                 "suggested_command": f"~/.ralph-codex/bin/approve-risky-command --sha256 {command_hash}",
             }
         )
+        return 0
+    if cloud_assessment.profile:
         return 0
 
     for pattern in DESTRUCTIVE_PATTERNS:

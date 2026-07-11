@@ -13,6 +13,8 @@ HOOKS = ROOT / ".codex" / "hooks"
 sys.path.insert(0, str(HOOKS))
 
 from shared.local_minikube_grant import allows, digest, targets  # noqa: E402
+from shared.cloud_operation_gate import ContextVerification, assess_command  # noqa: E402
+from shared import cloud_operation_gate  # noqa: E402
 
 
 def write_grant(grant_root: Path, patch: str, target: Path, *, expired: bool = False) -> None:
@@ -124,7 +126,6 @@ def run_guard(tmp_path: Path, command: str, grant_root: Path) -> subprocess.Comp
 def test_cloud_reads_pass_and_mutations_request_human_approval(tmp_path: Path) -> None:
     grant_root = tmp_path / "approvals"
     reads = [
-        "kubectl get pods",
         "aws ec2 describe-instances",
         "gcloud compute instances list",
         "terraform plan",
@@ -132,7 +133,6 @@ def test_cloud_reads_pass_and_mutations_request_human_approval(tmp_path: Path) -
         "helm list",
     ]
     mutations = [
-        "kubectl apply -f deployment.yaml",
         "aws s3 cp artifact s3://bucket/artifact",
         "gcloud run deploy service",
         "terraform apply plan.tfplan",
@@ -147,10 +147,13 @@ def test_cloud_reads_pass_and_mutations_request_human_approval(tmp_path: Path) -
         assert payload["risk_level"] == "mutating"
         assert "approve-risky-command" in payload["suggested_command"]
 
+    missing_context = json.loads(run_guard(tmp_path, "kubectl get pods", grant_root).stdout)
+    assert missing_context["reason_code"] == "kubectl_context_required"
+
 
 def test_destructive_command_approval_is_exact_and_one_use(tmp_path: Path) -> None:
     grant_root = tmp_path / "approvals"
-    command = "kubectl delete namespace feature-test"
+    command = "aws ec2 terminate-instances --instance-ids i-example"
     blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
     assert blocked["risk_level"] == "destructive"
     grant_root.mkdir(mode=0o700)
@@ -164,22 +167,106 @@ def test_destructive_command_approval_is_exact_and_one_use(tmp_path: Path) -> No
     assert retried["reason_code"] == "cloud_command_approval_required"
 
 
-def test_local_script_execution_requests_approval(tmp_path: Path) -> None:
+def test_script_location_does_not_change_cloud_evaluation(tmp_path: Path) -> None:
     notes = tmp_path / ".local-notes"
     notes.mkdir()
-    script = notes / "seed.sh"
-    script.write_text("#!/bin/sh\n", encoding="utf-8")
-    payload = json.loads(run_guard(tmp_path, f"bash {script}", tmp_path / "approvals").stdout)
-    assert payload["tool"] == "local-script"
-    assert payload["risk_level"] == "mutating"
+    scripts = [notes / "seed.sh", tmp_path / "seed.sh"]
+    for script in scripts:
+        script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+        payload = json.loads(run_guard(tmp_path, f"bash {script}", tmp_path / "approvals").stdout)
+        assert payload["tool"] == "aws"
+        assert payload["risk_level"] == "mutating"
 
 
-def test_verified_minikube_wrapper_does_not_require_extra_approval(tmp_path: Path) -> None:
-    command = (
-        "~/.ralph-codex/bin/run-local-minikube-script --profile feature-test "
-        "--context feature-test .local-notes/seed.sh"
+def test_verified_minikube_allows_mutation_and_ordinary_delete(tmp_path: Path) -> None:
+    verify = lambda context: ContextVerification(True, True, "feature-test")
+    for command in (
+        "kubectl --context feature-test apply -f deployment.yaml",
+        "kubectl --context feature-test delete deployment api",
+    ):
+        assessment = assess_command(command, tmp_path, verify)
+        assert assessment.action == "allow"
+        assert assessment.profile == "feature-test"
+        assert assessment.warning
+
+
+def test_verified_minikube_complete_delete_still_requires_approval(tmp_path: Path) -> None:
+    verify = lambda context: ContextVerification(True, True, "feature-test")
+    for command in (
+        "kubectl --context feature-test delete namespace feature-test",
+        "kubectl --context feature-test delete pods --all",
+    ):
+        assessment = assess_command(command, tmp_path, verify)
+        assert assessment.action == "approval"
+        assert assessment.risk_level == "destructive"
+
+
+def test_non_minikube_context_allows_reads_but_gates_mutations(tmp_path: Path) -> None:
+    verify = lambda context: ContextVerification(True, False)
+    read = assess_command("kubectl --context live get pods", tmp_path, verify)
+    mutation = assess_command("kubectl --context live apply -f deployment.yaml", tmp_path, verify)
+    assert read.action == "allow"
+    assert mutation.action == "approval"
+
+
+def test_invalid_or_dynamic_kubectl_context_is_blocked(tmp_path: Path) -> None:
+    invalid = lambda context: ContextVerification(False, False)
+    missing = assess_command("kubectl get pods", tmp_path, invalid)
+    unknown = assess_command("kubectl --context missing get pods", tmp_path, invalid)
+    dynamic = assess_command("kubectl --context '$KUBE_CONTEXT' get pods", tmp_path, invalid)
+    assert missing.reason_code == "kubectl_context_required"
+    assert unknown.reason_code == "kubectl_context_invalid"
+    assert dynamic.reason_code == "kubectl_context_not_static"
+
+
+def test_context_verifier_matches_running_profile_context_and_endpoint(monkeypatch) -> None:
+    responses = iter(
+        [
+            subprocess.CompletedProcess([], 0, "https://127.0.0.1:8443", ""),
+            subprocess.CompletedProcess([], 0, json.dumps({"valid": [{"Name": "feature-test", "Status": "Running"}]}), ""),
+            subprocess.CompletedProcess([], 0, "feature-test", ""),
+            subprocess.CompletedProcess([], 0, "https://127.0.0.1:8443", ""),
+        ]
     )
-    assert run_guard(tmp_path, command, tmp_path / "approvals").stdout == ""
+    monkeypatch.setattr(cloud_operation_gate, "_run", lambda *args: next(responses))
+    result = cloud_operation_gate.verify_minikube_context("feature-test")
+    assert result == ContextVerification(True, True, "feature-test")
+
+
+def test_verified_wrapper_inspects_scripts_in_any_directory(tmp_path: Path) -> None:
+    verify = lambda context: ContextVerification(True, True, "feature-test")
+    notes = tmp_path / ".local-notes"
+    notes.mkdir()
+    for script in (notes / "seed.sh", tmp_path / "seed.sh"):
+        script.write_text(
+            "#!/bin/sh\nkubectl --context feature-test delete deployment api\n",
+            encoding="utf-8",
+        )
+        command = (
+            f"{Path.home()}/.ralph-codex/bin/run-local-minikube-script "
+            f"--profile feature-test --context feature-test {script}"
+        )
+        assessment = assess_command(command, tmp_path, verify)
+        assert assessment.action == "allow"
+        assert assessment.profile == "feature-test"
+
+
+def test_script_approval_changes_when_script_content_changes(tmp_path: Path) -> None:
+    script = tmp_path / "cloud.sh"
+    script.write_text("#!/bin/sh\naws s3 cp one s3://bucket/one\n", encoding="utf-8")
+    first = assess_command(f"bash {script}", tmp_path)
+    script.write_text("#!/bin/sh\naws s3 cp two s3://bucket/two\n", encoding="utf-8")
+    second = assess_command(f"bash {script}", tmp_path)
+    assert first.action == "approval"
+    assert second.action == "approval"
+    assert first.approval_subject != second.approval_subject
+
+
+def test_script_kubectl_without_context_is_blocked_in_any_directory(tmp_path: Path) -> None:
+    script = tmp_path / "cluster.sh"
+    script.write_text("#!/bin/sh\nkubectl get pods\n", encoding="utf-8")
+    assessment = assess_command(f"bash {script}", tmp_path)
+    assert assessment.reason_code == "kubectl_context_required"
 
 
 def test_minikube_wrapper_name_without_canonical_path_requires_approval(tmp_path: Path) -> None:
@@ -221,3 +308,24 @@ def test_runner_rejects_endpoint_mismatch(tmp_path: Path, monkeypatch) -> None:
         assert "does not belong" in str(exc)
     else:
         raise AssertionError("endpoint mismatch must be refused")
+
+
+def test_runner_accepts_regular_script_outside_local_notes(tmp_path: Path, monkeypatch, capsys) -> None:
+    script = tmp_path / "seed.sh"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    script.chmod(0o700)
+    runner = load_runner()
+    outputs = iter(
+        [
+            json.dumps({"Host": "Running", "APIServer": "Running"}),
+            "feature-test",
+            "https://127.0.0.1:8443",
+            "https://127.0.0.1:8443",
+            "apiVersion: v1",
+        ]
+    )
+    monkeypatch.setattr(runner, "checked_output", lambda *args: next(outputs))
+    monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0))
+    monkeypatch.setattr(sys, "argv", ["runner", "--profile", "feature-test", "--context", "feature-test", str(script)])
+    assert runner.main() == 0
+    assert "MINIKUBE_CONTEXT_VERIFIED profile=feature-test context=feature-test" in capsys.readouterr().out

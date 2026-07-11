@@ -74,6 +74,7 @@ Use productivity patterns only when they preserve the existing safety model:
 - Use explicit skill names and `@file` references when they improve scope precision.
 - Before starting any multi-file audit, repo-wide sweep, migration, recurring chore, or vague keep-going mission, consult `$ralph-opportunity-scout` and propose the best Ralph-native tool path when useful.
 - Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
+- Require explicit `--context` on every `kubectl` command. When the hook verifies minikube, state the verified profile, context, and operation consequence to the user. Evaluate scripts by content regardless of their directory.
 - Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
 - Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.
 - Do not use `--yolo` for production, shared, or sensitive local work.
@@ -232,19 +233,19 @@ sessions and writes under the path-hardened project runtime
 
 Choose the best safe MCP lane by task intent. Cost is secondary to intent, sensitivity, and verification value.
 
-| Intent | Default route |
-|---|---|
-| Trivial local work | `local` |
-| Logs, diffs, summaries, PR summaries | `minimax-fast` |
-| Test ideas and lightweight implementation support | `minimax-fast` or `zai-fast` |
-| Debugging, architecture, auth, migrations, rollout risk | `zai-deep` |
-| Claim adjudication / reviewer disagreement | `zai-deep` |
-| Spec vs implementation review | `zai-deep` |
-| Current web research | `zai-search` or MiniMax search |
-| Specific URL reading | `zai-reader` |
-| Public GitHub repo research | `zai-repo` |
-| Screenshot, diagram, or chart understanding | `zai-vision` or `minimax-vision` |
-| RED/sensitive content | `local` |
+| Intent                                                  | Default route                    |
+| ------------------------------------------------------- | -------------------------------- |
+| Trivial local work                                      | `local`                          |
+| Logs, diffs, summaries, PR summaries                    | `minimax-fast`                   |
+| Test ideas and lightweight implementation support       | `minimax-fast` or `zai-fast`     |
+| Debugging, architecture, auth, migrations, rollout risk | `zai-deep`                       |
+| Claim adjudication / reviewer disagreement              | `zai-deep`                       |
+| Spec vs implementation review                           | `zai-deep`                       |
+| Current web research                                    | `zai-search` or MiniMax search   |
+| Specific URL reading                                    | `zai-reader`                     |
+| Public GitHub repo research                             | `zai-repo`                       |
+| Screenshot, diagram, or chart understanding             | `zai-vision` or `minimax-vision` |
+| RED/sensitive content                                   | `local`                          |
 
 For complexity 7+, Codex main owns the work with gates. Z.ai or MiniMax may still provide advisory MCP output only when the content is GREEN or sanitized YELLOW and Codex can verify locally.
 
