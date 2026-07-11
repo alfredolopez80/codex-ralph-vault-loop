@@ -11,6 +11,10 @@ MAX_SCRIPT_BYTES = 256_000
 TOOL_RE = re.compile(r"(?<![A-Za-z0-9_.-])(aws|gcloud|helm|kubectl|minikube|terraform)(?![A-Za-z0-9_.-])")
 
 
+def _is_script_interpreter(tool: str) -> bool:
+    return tool in SCRIPT_INTERPRETERS or bool(re.fullmatch(r"python(?:3(?:\.\d+)*)?", tool))
+
+
 def _regular_script(candidate: Path) -> Path | None:
     absolute = candidate.expanduser()
     if absolute.is_symlink():
@@ -26,7 +30,8 @@ def script_path(parts: list[str], cwd: Path) -> Path | None:
     if not parts:
         return None
     tool = Path(parts[0]).name.lower()
-    if tool in SCRIPT_INTERPRETERS:
+    is_interpreter = _is_script_interpreter(tool)
+    if is_interpreter:
         if "-c" in parts or "-m" in parts:
             return None
         candidates = [part for part in parts[1:] if not part.startswith("-")]
@@ -39,7 +44,7 @@ def script_path(parts: list[str], cwd: Path) -> Path | None:
     script = _regular_script(candidate)
     if not script:
         return None
-    if tool in SCRIPT_INTERPRETERS or script.suffix.lower() in SCRIPT_SUFFIXES or script.stat().st_mode & 0o111:
+    if is_interpreter or script.suffix.lower() in SCRIPT_SUFFIXES or script.stat().st_mode & 0o111:
         return script
     return None
 

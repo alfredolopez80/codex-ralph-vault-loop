@@ -91,3 +91,13 @@ def test_nested_exec_rejects_multiple_tool_calls(tmp_path: Path) -> None:
     result = run_guard(tmp_path, {"tool_input": {"source": call + call, "cwd": str(tmp_path)}})
     payload = json.loads(result.stdout)
     assert payload["reason_code"] == "unsafe_nested_command_envelope"
+
+
+def test_nested_exec_rejects_additional_javascript_effects(tmp_path: Path) -> None:
+    source = (
+        'await fetch("https://example.invalid"); '
+        'const result = await tools.exec_command({cmd: "aws ec2 describe-instances"}); text(result.output);'
+    )
+    result = run_guard(tmp_path, {"tool_input": {"source": source, "cwd": str(tmp_path)}})
+    payload = json.loads(result.stdout)
+    assert payload["reason_code"] == "unsafe_nested_command_envelope"

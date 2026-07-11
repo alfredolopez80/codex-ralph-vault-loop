@@ -14,7 +14,7 @@ sys.path.insert(0, str(HOOKS))
 
 from shared.local_minikube_grant import allows, digest, targets  # noqa: E402
 from shared.cloud_operation_gate import ContextVerification, assess_command  # noqa: E402
-from shared import cloud_operation_gate  # noqa: E402
+from shared import minikube_context  # noqa: E402
 
 
 def write_grant(grant_root: Path, patch: str, target: Path, *, expired: bool = False) -> None:
@@ -25,6 +25,19 @@ def write_grant(grant_root: Path, patch: str, target: Path, *, expired: bool = F
     if expired:
         old = path.stat().st_mtime - 901
         os.utime(path, (old, old))
+
+
+def run_patch_guard(tmp_path: Path, patch: str, grant_root: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CODEX_LOCAL_GRANT_ROOT"] = str(grant_root)
+    return subprocess.run(
+        [sys.executable, str(HOOKS / "pre_tool_guard.py")],
+        input=json.dumps({"tool_input": {"patch": patch, "cwd": str(tmp_path)}}),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
 
 
 def test_grant_requires_exact_patch_target_and_unexpired_hash(tmp_path: Path, monkeypatch) -> None:
@@ -110,6 +123,31 @@ def test_pre_tool_guard_allows_untracked_local_notes_patch_without_grant(tmp_pat
     assert result.stdout == ""
 
 
+def test_local_notes_patch_blocks_literal_sensitive_value(tmp_path: Path) -> None:
+    (tmp_path / ".local-notes").mkdir()
+    assignment = "sec" + "ret=abcd1234"
+    patch = f"*** Begin Patch\n*** Add File: .local-notes/value.txt\n+{assignment}\n*** End Patch"
+    result = run_patch_guard(tmp_path, patch, tmp_path / "grants")
+    payload = json.loads(result.stdout)
+    assert payload["reason_code"] == "toxic_patch_payload"
+
+
+def test_move_outside_local_notes_does_not_receive_local_exception(tmp_path: Path) -> None:
+    notes = tmp_path / ".local-notes"
+    notes.mkdir()
+    source = notes / "value.txt"
+    source.write_text("placeholder\n", encoding="utf-8")
+    assignment = "sec" + "ret=abcd1234"
+    patch = (
+        "*** Begin Patch\n*** Update File: .local-notes/value.txt\n"
+        f"*** Move to: scripts/value.txt\n+{assignment}\n*** End Patch"
+    )
+    assert targets(patch, tmp_path) is None
+    result = run_patch_guard(tmp_path, patch, tmp_path / "grants")
+    payload = json.loads(result.stdout)
+    assert payload["reason_code"] == "toxic_patch_payload"
+
+
 def run_guard(tmp_path: Path, command: str, grant_root: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["CODEX_LOCAL_GRANT_ROOT"] = str(grant_root)
@@ -157,7 +195,7 @@ def test_destructive_command_approval_is_exact_and_one_use(tmp_path: Path) -> No
     blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
     assert blocked["risk_level"] == "destructive"
     grant_root.mkdir(mode=0o700)
-    marker = grant_root / f"command-{digest(command)}.approved"
+    marker = grant_root / f"command-{blocked['command_sha256']}.approved"
     marker.write_text("", encoding="utf-8")
     marker.chmod(0o600)
 
@@ -209,6 +247,12 @@ def test_non_minikube_context_allows_reads_but_gates_mutations(tmp_path: Path) -
     assert mutation.action == "approval"
 
 
+def test_rollout_status_is_read_only_for_non_minikube_context(tmp_path: Path) -> None:
+    verify = lambda context: ContextVerification(True, False)
+    assessment = assess_command("kubectl --context live rollout status deployment/api", tmp_path, verify)
+    assert assessment.action == "allow"
+
+
 def test_invalid_or_dynamic_kubectl_context_is_blocked(tmp_path: Path) -> None:
     invalid = lambda context: ContextVerification(False, False)
     missing = assess_command("kubectl get pods", tmp_path, invalid)
@@ -228,8 +272,8 @@ def test_context_verifier_matches_running_profile_context_and_endpoint(monkeypat
             subprocess.CompletedProcess([], 0, "https://127.0.0.1:8443", ""),
         ]
     )
-    monkeypatch.setattr(cloud_operation_gate, "_run", lambda *args: next(responses))
-    result = cloud_operation_gate.verify_minikube_context("feature-test")
+    monkeypatch.setattr(minikube_context, "_run", lambda *args: next(responses))
+    result = minikube_context.verify_minikube_context("feature-test")
     assert result == ContextVerification(True, True, "feature-test")
 
 
@@ -267,6 +311,49 @@ def test_script_kubectl_without_context_is_blocked_in_any_directory(tmp_path: Pa
     script.write_text("#!/bin/sh\nkubectl get pods\n", encoding="utf-8")
     assessment = assess_command(f"bash {script}", tmp_path)
     assert assessment.reason_code == "kubectl_context_required"
+
+
+def test_combined_shell_flags_and_xargs_are_evaluated(tmp_path: Path) -> None:
+    verify = lambda context: ContextVerification(True, True, "feature-test")
+    shell = assess_command(
+        "bash -lc 'kubectl --context feature-test delete namespace feature-test'",
+        tmp_path,
+        verify,
+    )
+    xargs = assess_command(
+        "printf api | xargs kubectl --context feature-test delete namespace feature-test",
+        tmp_path,
+        verify,
+    )
+    assert shell.action == "approval"
+    assert xargs.action == "approval"
+
+
+def test_versioned_python_runner_inspects_script(tmp_path: Path) -> None:
+    script = tmp_path / "cloud.py"
+    script.write_text("aws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+    assessment = assess_command(f"python3.12 {script}", tmp_path)
+    assert assessment.action == "approval"
+
+
+def test_command_approval_is_bound_to_cwd(tmp_path: Path) -> None:
+    command = "terraform apply plan.tfplan"
+    first = assess_command(command, tmp_path / "first")
+    second = assess_command(command, tmp_path / "second")
+    assert first.approval_subject != second.approval_subject
+
+
+def test_approved_cloud_command_still_runs_red_checks(tmp_path: Path) -> None:
+    grant_root = tmp_path / "approvals"
+    sensitive_option = "--to" + "ken=" + "sk-" + "x" * 20
+    command = f"aws s3 cp artifact s3://bucket/artifact {sensitive_option}"
+    blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    grant_root.mkdir(mode=0o700)
+    marker = grant_root / f"command-{blocked['command_sha256']}.approved"
+    marker.write_text("", encoding="utf-8")
+    marker.chmod(0o600)
+    retried = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    assert "RED-sensitive" in retried["reason"] or "RED-sensitive" in retried.get("reason", "")
 
 
 def test_minikube_wrapper_name_without_canonical_path_requires_approval(tmp_path: Path) -> None:

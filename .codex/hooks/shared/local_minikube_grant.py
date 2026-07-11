@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 PATCH_PATH_RE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.MULTILINE)
+PATCH_MOVE_RE = re.compile(r"^\*\*\* Move to: (.+)$", re.MULTILINE)
 MARKER_TTL_SECONDS = 900
 
 
@@ -67,7 +68,7 @@ def is_git_tracked(path: Path) -> bool:
 
 
 def targets(patch: str, cwd: Path) -> list[Path] | None:
-    raw_paths = PATCH_PATH_RE.findall(patch)
+    raw_paths = [*PATCH_PATH_RE.findall(patch), *PATCH_MOVE_RE.findall(patch)]
     if not raw_paths:
         return None
     resolved: list[Path] = []

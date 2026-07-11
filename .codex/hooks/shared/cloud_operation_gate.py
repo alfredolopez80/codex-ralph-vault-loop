@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import shlex
-import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Literal
 
+from shared.minikube_context import ContextVerification, verify_minikube_context
 from shared.script_operation_inspector import script_cloud_commands, script_path, wrapper_script_path
 
 
@@ -30,13 +29,6 @@ COMPLETE_KUBERNETES_RESOURCES = {
 
 
 @dataclass(frozen=True)
-class ContextVerification:
-    valid: bool
-    is_minikube: bool
-    profile: str = ""
-
-
-@dataclass(frozen=True)
 class CommandAssessment:
     action: Literal["allow", "approval", "block"]
     reason_code: str = ""
@@ -49,44 +41,6 @@ class CommandAssessment:
     warning: str = ""
     approval_subject: str = ""
 ContextVerifier = Callable[[str], ContextVerification]
-def _run(*args: str) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(args, text=True, capture_output=True, check=False, timeout=5)
-    except (OSError, subprocess.TimeoutExpired):
-        return subprocess.CompletedProcess(args, 1, "", "")
-
-
-def verify_minikube_context(context: str) -> ContextVerification:
-    context_view = _run(
-        "kubectl", "config", "view", "--raw", "--minify", "--context", context,
-        "-o", "jsonpath={.clusters[0].cluster.server}",
-    )
-    context_server = context_view.stdout.strip()
-    if context_view.returncode != 0 or not context_server:
-        return ContextVerification(valid=False, is_minikube=False)
-
-    profiles_result = _run("minikube", "profile", "list", "--output=json")
-    if profiles_result.returncode != 0:
-        return ContextVerification(valid=True, is_minikube=False)
-    try:
-        profiles = json.loads(profiles_result.stdout).get("valid", [])
-    except (AttributeError, json.JSONDecodeError):
-        return ContextVerification(valid=True, is_minikube=False)
-
-    for item in profiles:
-        if not isinstance(item, dict) or item.get("Status") != "Running" or not item.get("Name"):
-            continue
-        profile = str(item["Name"])
-        profile_context = _run("minikube", "-p", profile, "kubectl", "--", "config", "current-context")
-        if profile_context.returncode != 0 or profile_context.stdout.strip() != context:
-            continue
-        profile_server = _run(
-            "minikube", "-p", profile, "kubectl", "--", "config", "view", "--raw", "--minify",
-            "-o", "jsonpath={.clusters[0].cluster.server}",
-        )
-        if profile_server.returncode == 0 and profile_server.stdout.strip() == context_server:
-            return ContextVerification(valid=True, is_minikube=True, profile=profile)
-    return ContextVerification(valid=True, is_minikube=False)
 def _tool(value: str) -> str:
     return Path(value).name.lower()
 
@@ -157,6 +111,8 @@ def _kubectl_complete_deletion(parts: list[str]) -> bool:
 
 def _classify_words(parts: list[str]) -> tuple[str, str]:
     words = _words(parts)
+    if any(words[index : index + 2] == ["rollout", "status"] for index in range(len(words) - 1)):
+        return ("read", "")
     destructive = next((word for word in words if any(word == action or word.startswith(action + "-") for action in DESTRUCTIVE_ACTIONS)), "")
     if destructive:
         return ("destructive", destructive)
@@ -166,6 +122,13 @@ def _classify_words(parts: list[str]) -> tuple[str, str]:
     if any(word in READ_ACTIONS or word.startswith(("describe-", "get-", "list-", "head-")) for word in words):
         return ("read", "")
     return ("mutating", "unclassified")
+
+
+def _shell_command(parts: list[str]) -> str:
+    for index, part in enumerate(parts[1:], start=1):
+        if part.startswith("-") and not part.startswith("--") and part[1:].isalpha() and "c" in part[1:]:
+            return parts[index + 1] if index + 1 < len(parts) else ""
+    return ""
 
 
 def _approval(tool: str, risk: str, consequence: str) -> CommandAssessment:
@@ -260,6 +223,22 @@ def assess_command(
             assessments.append(_approval("local-script", "mutating", "execute nested script logic beyond inspection depth"))
             return
         tool = _tool(parts[0])
+        if tool in {"bash", "sh", "zsh"}:
+            shell_command = _shell_command(parts)
+            if shell_command:
+                try:
+                    for segment in _segments(shell_command):
+                        assess_parts(segment, depth + 1)
+                except ValueError:
+                    assessments.append(_approval("local-script", "mutating", "execute dynamic shell content"))
+                return
+        if tool == "xargs":
+            for index, part in enumerate(parts[1:], start=1):
+                nested_tool = _tool(part)
+                if nested_tool in CLOUD_TOOLS or nested_tool in {"bash", "sh", "zsh"} or script_path(parts[index:], cwd):
+                    assess_parts(parts[index:], depth + 1)
+                    return
+            return
         trusted_wrapper = Path.home() / ".ralph-codex" / "bin" / "run-local-minikube-script"
         if tool in {"run-local-minikube-script", "run-local-minikube-script.py"}:
             if Path(parts[0]).expanduser() != trusted_wrapper:
@@ -326,22 +305,13 @@ def assess_command(
                     )
             return
 
-        if tool in {"bash", "sh", "zsh"} and "-c" in parts:
-            index = parts.index("-c")
-            if index + 1 < len(parts):
-                try:
-                    for segment in _segments(parts[index + 1]):
-                        assess_parts(segment, depth + 1)
-                except ValueError:
-                    assessments.append(_approval("local-script", "mutating", "execute dynamic shell content"))
-            return
         if tool in CLOUD_TOOLS:
             assessments.append(_assess_cloud_parts(parts, verifier))
 
     for segment in segments:
         assess_parts(segment)
     chosen = _choose(assessments)
-    subject = command
+    subject = f"{cwd.resolve(strict=False)}\n{command}"
     if script_hashes:
         subject += "\n" + "\n".join(sorted(set(script_hashes)))
     return replace(chosen, approval_subject=subject)

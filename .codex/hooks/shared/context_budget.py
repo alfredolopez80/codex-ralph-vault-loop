@@ -109,7 +109,7 @@ class GuardFinding:
     suggested_command: str | None = None
 
     def hook_payload(self) -> dict[str, str]:
-        payload = {"decision": "block", "reason": self.reason}
+        payload = {"decision": "block", "reason": self.reason, "reason_code": self.reason_code}
         if self.suggested_command:
             payload["suggested_command"] = self.suggested_command
         return payload
@@ -286,6 +286,30 @@ def classify_patch_payload(patch: str) -> GuardFinding | None:
             risk="block",
             reason_code="toxic_patch_payload",
             reason="Context budget guard blocked an oversized or toxic patch payload.",
+        )
+    return None
+
+
+GENERATED_ASSIGNMENT_RE = re.compile(
+    r"(?im)^\+?[^\n]*\b[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential)"
+    r"\s*[:=]\s*['\"]?(?:generated|placeholder|example|changeme|\$\(|\$\{|\$[A-Za-z_])[^\n]*$"
+)
+GENERATED_DATABASE_URL_RE = re.compile(
+    r"(?im)^\+?[^\n]*(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss)://"
+    r"[^\n]*(?:\$\(|\$\{|\$[A-Za-z_])[^\n]*$"
+)
+
+
+def classify_local_notes_patch_payload(patch: str) -> GuardFinding | None:
+    if not patch:
+        return None
+    sanitized = GENERATED_ASSIGNMENT_RE.sub("+generated runtime value", patch)
+    sanitized = GENERATED_DATABASE_URL_RE.sub("+generated runtime URL", sanitized)
+    if len(patch) > DEFAULT_MAX_PATCH_CHARS or toxic_text_reasons(sanitized):
+        return GuardFinding(
+            risk="block",
+            reason_code="toxic_patch_payload",
+            reason="Context budget guard blocked an oversized local patch or a literal sensitive value.",
         )
     return None
 

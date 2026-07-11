@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from shared.paths import REPO_ROOT, read_hook_input, write_json
-from shared.context_budget import classify_command, classify_patch_payload, nested_patch_envelope, payload_patch_text
+from shared.context_budget import (
+    classify_command,
+    classify_local_notes_patch_payload,
+    classify_patch_payload,
+    nested_patch_envelope,
+    payload_patch_text,
+)
 from shared.cloud_operation_gate import assess_command
 from shared.redaction import is_red, sensitivity_report
 from shared.local_minikube_grant import allows_command, digest as approval_digest
@@ -582,7 +588,19 @@ def nested_exec_envelope_safe(payload: dict[str, Any]) -> bool | None:
             continue
         if source.count("tools.exec_command") != 1 or source.count("tools.") != 1:
             return False
-        return bool(command_from_payload(payload))
+        if not command_from_payload(payload):
+            return False
+        normalized = re.sub(r"^\s*//\s*@exec:[^\r\n]*(?:\r?\n)?", "", source)
+        without_literals = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`', "", normalized)
+        calls = re.findall(r"(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", without_literals)
+        if any(call != "text" for call in calls):
+            return False
+        identifier = r"[A-Za-z_$][A-Za-z0-9_$]*"
+        pattern = (
+            rf"\s*const\s+(?P<result>{identifier})\s*=\s*await\s+tools\.exec_command\s*\(\s*\{{.*\}}\s*\)\s*;"
+            rf"\s*text\s*\(\s*(?:JSON\.stringify\s*\(\s*)?(?P=result)(?:\.output)?\s*\)?\s*\)\s*;?\s*"
+        )
+        return bool(re.fullmatch(pattern, normalized, re.DOTALL))
     return None
 
 
@@ -805,6 +823,10 @@ def main() -> int:
     patch_cwd = cwd_from_payload(payload)
     eligible_local_targets = local_patch_targets(patch_text, patch_cwd) if patch_text else None
     if eligible_local_targets:
+        local_patch_finding = classify_local_notes_patch_payload(patch_text)
+        if local_patch_finding:
+            write_json(local_patch_finding.hook_payload())
+            return 0
         return 0
     patch_finding = classify_patch_payload(patch_text)
     if patch_finding:
@@ -846,28 +868,25 @@ def main() -> int:
         return 0
     if cloud_assessment.action == "approval":
         approval_subject = cloud_assessment.approval_subject or command
-        if allows_command(approval_subject):
+        if not allows_command(approval_subject):
+            command_hash = approval_digest(approval_subject)
+            write_json(
+                {
+                    "decision": "block",
+                    "reason": (
+                        f"Human approval required: {cloud_assessment.tool} command is "
+                        f"{cloud_assessment.risk_level} and may {cloud_assessment.consequence}. "
+                        "Review the exact command shown by Codex, approve suggested_command, then retry it unchanged."
+                    ),
+                    "reason_code": "cloud_command_approval_required",
+                    "risk_level": cloud_assessment.risk_level,
+                    "tool": cloud_assessment.tool,
+                    "consequence": cloud_assessment.consequence,
+                    "command_sha256": command_hash,
+                    "suggested_command": f"~/.ralph-codex/bin/approve-risky-command --sha256 {command_hash}",
+                }
+            )
             return 0
-        command_hash = approval_digest(approval_subject)
-        write_json(
-            {
-                "decision": "block",
-                "reason": (
-                    f"Human approval required: {cloud_assessment.tool} command is "
-                    f"{cloud_assessment.risk_level} and may {cloud_assessment.consequence}. "
-                    "Review the exact command shown by Codex, approve suggested_command, then retry it unchanged."
-                ),
-                "reason_code": "cloud_command_approval_required",
-                "risk_level": cloud_assessment.risk_level,
-                "tool": cloud_assessment.tool,
-                "consequence": cloud_assessment.consequence,
-                "command_sha256": command_hash,
-                "suggested_command": f"~/.ralph-codex/bin/approve-risky-command --sha256 {command_hash}",
-            }
-        )
-        return 0
-    if cloud_assessment.profile:
-        return 0
 
     for pattern in DESTRUCTIVE_PATTERNS:
         if pattern.search(command):
