@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -108,7 +109,7 @@ class GuardFinding:
     suggested_command: str | None = None
 
     def hook_payload(self) -> dict[str, str]:
-        payload = {"decision": "block", "reason": self.reason}
+        payload = {"decision": "block", "reason": self.reason, "reason_code": self.reason_code}
         if self.suggested_command:
             payload["suggested_command"] = self.suggested_command
         return payload
@@ -285,6 +286,30 @@ def classify_patch_payload(patch: str) -> GuardFinding | None:
             risk="block",
             reason_code="toxic_patch_payload",
             reason="Context budget guard blocked an oversized or toxic patch payload.",
+        )
+    return None
+
+
+GENERATED_ASSIGNMENT_RE = re.compile(
+    r"(?im)^\+?[^\n]*\b[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential)"
+    r"\s*[:=]\s*['\"]?(?:generated|placeholder|example|changeme|\$\(|\$\{|\$[A-Za-z_])[^\n]*$"
+)
+GENERATED_DATABASE_URL_RE = re.compile(
+    r"(?im)^\+?[^\n]*(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss)://"
+    r"[^\n]*(?:\$\(|\$\{|\$[A-Za-z_])[^\n]*$"
+)
+
+
+def classify_local_notes_patch_payload(patch: str) -> GuardFinding | None:
+    if not patch:
+        return None
+    sanitized = GENERATED_ASSIGNMENT_RE.sub("+generated runtime value", patch)
+    sanitized = GENERATED_DATABASE_URL_RE.sub("+generated runtime URL", sanitized)
+    if len(patch) > DEFAULT_MAX_PATCH_CHARS or toxic_text_reasons(sanitized):
+        return GuardFinding(
+            risk="block",
+            reason_code="toxic_patch_payload",
+            reason="Context budget guard blocked an oversized local patch or a literal sensitive value.",
         )
     return None
 
@@ -813,6 +838,83 @@ def classify_command(command: str, cwd: Path) -> GuardFinding | None:
     return None
 
 
+@dataclass(frozen=True)
+class NestedPatchEnvelope:
+    patch: str
+    safe: bool
+    source_field: str
+
+
+JS_STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`', re.DOTALL)
+
+
+def _decode_static_js_string(literal: str) -> str | None:
+    if literal.startswith('"'):
+        try:
+            value = json.loads(literal)
+        except (ValueError, TypeError):
+            return None
+        return value if isinstance(value, str) else None
+    if not literal or literal[0] not in {"'", "`"} or literal[-1] != literal[0]:
+        return None
+    body = literal[1:-1]
+    if literal[0] == "`" and "${" in body:
+        return None
+    result: list[str] = []
+    index = 0
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", "\\": "\\", "'": "'", '"': '"', "`": "`"}
+    while index < len(body):
+        if body[index] != "\\":
+            result.append(body[index])
+            index += 1
+            continue
+        if index + 1 >= len(body) or body[index + 1] not in escapes:
+            return None
+        result.append(escapes[body[index + 1]])
+        index += 2
+    return "".join(result)
+
+
+def _safe_nested_patch_source(source: str, literal_span: tuple[int, int]) -> bool:
+    start, end = literal_span
+    normalized = source[:start] + "PATCH_LITERAL" + source[end:]
+    normalized = re.sub(r"^\s*//\s*@exec:[^\r\n]*(?:\r?\n)?", "", normalized)
+    identifier = r"[A-Za-z_$][A-Za-z0-9_$]*"
+    direct = rf"\s*text\s*\(\s*await\s+tools\.apply_patch\s*\(\s*PATCH_LITERAL\s*\)\s*\)\s*;?\s*"
+    direct_result = rf"\s*const\s+(?P<result>{identifier})\s*=\s*await\s+tools\.apply_patch\s*\(\s*PATCH_LITERAL\s*\)\s*;\s*text\s*\(\s*(?P=result)\s*\)\s*;?\s*"
+    const_inline = rf"\s*const\s+(?P<patch>{identifier})\s*=\s*PATCH_LITERAL\s*;\s*text\s*\(\s*await\s+tools\.apply_patch\s*\(\s*(?P=patch)\s*\)\s*\)\s*;?\s*"
+    const_result = rf"\s*const\s+(?P<patch>{identifier})\s*=\s*PATCH_LITERAL\s*;\s*const\s+(?P<result>{identifier})\s*=\s*await\s+tools\.apply_patch\s*\(\s*(?P=patch)\s*\)\s*;\s*text\s*\(\s*(?P=result)\s*\)\s*;?\s*"
+    return any(re.fullmatch(pattern, normalized, re.DOTALL) for pattern in (direct, direct_result, const_inline, const_result))
+
+
+def nested_patch_envelope(payload: dict[str, Any]) -> NestedPatchEnvelope | None:
+    tool_input = payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
+    candidates: list[tuple[str, str]] = []
+    if isinstance(tool_input, str):
+        candidates.append(("tool_input", tool_input))
+    elif isinstance(tool_input, dict):
+        for key in ("source", "code", "script"):
+            value = tool_input.get(key)
+            if isinstance(value, str):
+                candidates.append((key, value))
+    for source_field, source in candidates:
+        if "tools.apply_patch" not in source:
+            continue
+        if source.count("tools.apply_patch") != 1:
+            return NestedPatchEnvelope(patch="", safe=False, source_field=source_field)
+        matches: list[tuple[re.Match[str], str]] = []
+        for match in JS_STRING_RE.finditer(source):
+            decoded = _decode_static_js_string(match.group(0))
+            if decoded and decoded.lstrip().startswith("*** Begin Patch") and "*** End Patch" in decoded:
+                matches.append((match, decoded))
+        if len(matches) != 1:
+            return NestedPatchEnvelope(patch="", safe=False, source_field=source_field)
+        match, patch = matches[0]
+        safe = _safe_nested_patch_source(source, match.span())
+        return NestedPatchEnvelope(patch=patch, safe=safe, source_field=source_field)
+    return None
+
+
 def payload_patch_text(payload: dict[str, Any]) -> str:
     tool_input = payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
     if isinstance(tool_input, dict):
@@ -821,5 +923,9 @@ def payload_patch_text(payload: dict[str, Any]) -> str:
             if isinstance(value, str):
                 return value
     if isinstance(tool_input, str):
-        return tool_input
+        if tool_input.lstrip().startswith("*** Begin Patch"):
+            return tool_input
+    nested = nested_patch_envelope(payload)
+    if nested and nested.safe:
+        return nested.patch
     return ""

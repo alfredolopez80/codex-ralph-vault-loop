@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -8,10 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from shared.paths import REPO_ROOT, read_hook_input, write_json
-from shared.context_budget import classify_command, classify_patch_payload, payload_patch_text
+from shared.context_budget import (
+    classify_command,
+    classify_local_notes_patch_payload,
+    classify_patch_payload,
+    nested_patch_envelope,
+    payload_patch_text,
+)
+from shared.cloud_operation_gate import assess_command
 from shared.redaction import is_red, sensitivity_report
-from shared.local_minikube_grant import allows as local_minikube_patch_allowed
-from shared.local_minikube_grant import digest as local_patch_digest
+from shared.local_minikube_grant import allows_command, digest as approval_digest
 from shared.local_minikube_grant import targets as local_patch_targets
 
 
@@ -551,8 +558,50 @@ def command_has_sensitive_tool_path(command: str) -> bool:
 def command_from_payload(payload: dict[str, Any]) -> str:
     tool_input = tool_input_from_payload(payload)
     if isinstance(tool_input, dict):
-        return str(tool_input.get("command") or tool_input.get("cmd") or "")
+        direct = str(tool_input.get("command") or tool_input.get("cmd") or "")
+        if direct:
+            return direct
+        for key in ("source", "code", "script"):
+            source = tool_input.get(key)
+            if not isinstance(source, str) or "tools.exec_command" not in source:
+                continue
+            match = re.search(r"(?:^|[,{]\s*)cmd\s*:\s*(\")", source)
+            if not match:
+                continue
+            try:
+                decoded = json.JSONDecoder().raw_decode(source[match.start(1) :])[0]
+            except (ValueError, TypeError):
+                continue
+            if isinstance(decoded, str):
+                return decoded
+        return ""
     return str(tool_input)
+
+
+def nested_exec_envelope_safe(payload: dict[str, Any]) -> bool | None:
+    tool_input = tool_input_from_payload(payload)
+    if not isinstance(tool_input, dict):
+        return None
+    for key in ("source", "code", "script"):
+        source = tool_input.get(key)
+        if not isinstance(source, str) or "tools.exec_command" not in source:
+            continue
+        if source.count("tools.exec_command") != 1 or source.count("tools.") != 1:
+            return False
+        if not command_from_payload(payload):
+            return False
+        normalized = re.sub(r"^\s*//\s*@exec:[^\r\n]*(?:\r?\n)?", "", source)
+        without_literals = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`', "", normalized)
+        calls = re.findall(r"(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", without_literals)
+        if any(call != "text" for call in calls):
+            return False
+        identifier = r"[A-Za-z_$][A-Za-z0-9_$]*"
+        pattern = (
+            rf"\s*const\s+(?P<result>{identifier})\s*=\s*await\s+tools\.exec_command\s*\(\s*\{{.*\}}\s*\)\s*;"
+            rf"\s*text\s*\(\s*(?:JSON\.stringify\s*\(\s*)?(?P=result)(?:\.output)?\s*\)?\s*\)\s*;?\s*"
+        )
+        return bool(re.fullmatch(pattern, normalized, re.DOTALL))
+    return None
 
 
 def payload_is_patch_text(payload: dict[str, Any]) -> bool:
@@ -760,36 +809,30 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
 
 def main() -> int:
     payload = read_hook_input()
-    patch_text = payload_patch_text(payload)
-    patch_cwd = cwd_from_payload(payload)
-    eligible_local_targets = local_patch_targets(patch_text, patch_cwd) if patch_text else None
-    local_patch_allowed = bool(eligible_local_targets) and local_minikube_patch_allowed(patch_text, patch_cwd)
-    if eligible_local_targets and not local_patch_allowed:
-        patch_hash = local_patch_digest(patch_text)
-        target_args = " ".join(f"--target {shlex.quote(str(target))}" for target in eligible_local_targets)
-        suggested_command = (
-            f"~/.ralph-codex/bin/authorize-local-minikube-patch --sha256 {patch_hash} "
-            f"--cwd {shlex.quote(str(patch_cwd))} {target_args}"
-        )
+    nested_patch = nested_patch_envelope(payload)
+    if nested_patch and not nested_patch.safe:
         write_json(
             {
                 "decision": "block",
-                "reason": (
-                    "This exact .local-notes patch is eligible but requires explicit user approval. "
-                    "Request approval to run suggested_command, then retry the identical patch."
-                ),
-                "reason_code": "local_patch_grant_required",
-                "suggested_command": suggested_command,
-                "patch_sha256": patch_hash,
-                "targets": [str(target) for target in eligible_local_targets],
+                "reason": "Nested apply_patch envelope contains unsupported or additional executable code.",
+                "reason_code": "unsafe_nested_patch_envelope",
             }
         )
         return 0
-    patch_finding = None if local_patch_allowed else classify_patch_payload(patch_text)
+    patch_text = payload_patch_text(payload)
+    patch_cwd = cwd_from_payload(payload)
+    eligible_local_targets = local_patch_targets(patch_text, patch_cwd) if patch_text else None
+    if eligible_local_targets:
+        local_patch_finding = classify_local_notes_patch_payload(patch_text)
+        if local_patch_finding:
+            write_json(local_patch_finding.hook_payload())
+            return 0
+        return 0
+    patch_finding = classify_patch_payload(patch_text)
     if patch_finding:
         write_json(patch_finding.hook_payload())
         return 0
-    if payload_is_patch_text(payload) or local_patch_allowed:
+    if payload_is_patch_text(payload):
         return 0
 
     automation_reason = blocked_automation_reason(payload)
@@ -797,9 +840,53 @@ def main() -> int:
         write_json({"decision": "block", "reason": automation_reason})
         return 0
 
+    nested_exec_safe = nested_exec_envelope_safe(payload)
+    if nested_exec_safe is False:
+        write_json(
+            {
+                "decision": "block",
+                "reason": "Nested command envelope must contain one static exec_command call and no other tool calls.",
+                "reason_code": "unsafe_nested_command_envelope",
+            }
+        )
+        return 0
+
     command = command_from_payload(payload)
     if not command:
         return 0
+
+    cloud_assessment = assess_command(command, cwd_from_payload(payload))
+    if cloud_assessment.action == "block":
+        response = {
+            "decision": "block",
+            "reason": cloud_assessment.reason,
+            "reason_code": cloud_assessment.reason_code,
+        }
+        if cloud_assessment.context:
+            response["context"] = cloud_assessment.context
+        write_json(response)
+        return 0
+    if cloud_assessment.action == "approval":
+        approval_subject = cloud_assessment.approval_subject or command
+        if not allows_command(approval_subject):
+            command_hash = approval_digest(approval_subject)
+            write_json(
+                {
+                    "decision": "block",
+                    "reason": (
+                        f"Human approval required: {cloud_assessment.tool} command is "
+                        f"{cloud_assessment.risk_level} and may {cloud_assessment.consequence}. "
+                        "Review the exact command shown by Codex, approve suggested_command, then retry it unchanged."
+                    ),
+                    "reason_code": "cloud_command_approval_required",
+                    "risk_level": cloud_assessment.risk_level,
+                    "tool": cloud_assessment.tool,
+                    "consequence": cloud_assessment.consequence,
+                    "command_sha256": command_hash,
+                    "suggested_command": f"~/.ralph-codex/bin/approve-risky-command --sha256 {command_hash}",
+                }
+            )
+            return 0
 
     for pattern in DESTRUCTIVE_PATTERNS:
         if pattern.search(command):

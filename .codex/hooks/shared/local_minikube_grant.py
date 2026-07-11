@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 PATCH_PATH_RE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.MULTILINE)
+PATCH_MOVE_RE = re.compile(r"^\*\*\* Move to: (.+)$", re.MULTILINE)
 MARKER_TTL_SECONDS = 900
 
 
@@ -19,6 +20,27 @@ def root() -> Path:
 
 def digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def marker_allows(marker_name: str) -> bool:
+    marker_path = root() / f"{marker_name}.approved"
+    try:
+        marker_root = root()
+        if marker_root.is_symlink() or marker_root.stat().st_mode & 0o077:
+            return False
+        if marker_path.is_symlink() or marker_path.stat().st_mode & 0o077:
+            return False
+        age = datetime.now(timezone.utc).timestamp() - marker_path.stat().st_mtime
+        if age < 0 or age > MARKER_TTL_SECONDS or marker_path.stat().st_size != 0:
+            return False
+        marker_path.unlink()
+    except OSError:
+        return False
+    return True
+
+
+def allows_command(command: str) -> bool:
+    return marker_allows(f"command-{digest(command)}")
 
 
 def is_git_tracked(path: Path) -> bool:
@@ -46,7 +68,7 @@ def is_git_tracked(path: Path) -> bool:
 
 
 def targets(patch: str, cwd: Path) -> list[Path] | None:
-    raw_paths = PATCH_PATH_RE.findall(patch)
+    raw_paths = [*PATCH_PATH_RE.findall(patch), *PATCH_MOVE_RE.findall(patch)]
     if not raw_paths:
         return None
     resolved: list[Path] = []
@@ -71,17 +93,4 @@ def allows(patch: str, cwd: Path) -> bool:
     if not patch_targets:
         return False
     payload_hash = digest(patch)
-    marker_path = root() / f"{payload_hash}.approved"
-    try:
-        grant_root = root()
-        if grant_root.is_symlink() or grant_root.stat().st_mode & 0o077:
-            return False
-        if marker_path.is_symlink() or marker_path.stat().st_mode & 0o077:
-            return False
-        age = datetime.now(timezone.utc).timestamp() - marker_path.stat().st_mtime
-        if age < 0 or age > MARKER_TTL_SECONDS or marker_path.stat().st_size != 0:
-            return False
-        marker_path.unlink()
-    except OSError:
-        return False
-    return True
+    return marker_allows(payload_hash)

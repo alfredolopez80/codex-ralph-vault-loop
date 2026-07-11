@@ -10,6 +10,7 @@ AUTORESEARCH_SOURCE_ROOT="${REPO_ROOT}/scripts/autoresearch"
 REVIEWED_OPERATION_SOURCE="${REPO_ROOT}/scripts/operations/reviewed-cloud-operation.py"
 MINIKUBE_AUTHORIZE_SOURCE="${REPO_ROOT}/scripts/security/authorize-local-minikube-patch.py"
 MINIKUBE_RUN_SOURCE="${REPO_ROOT}/scripts/security/run-local-minikube-script.py"
+RISKY_COMMAND_APPROVE_SOURCE="${REPO_ROOT}/scripts/security/approve-risky-command.py"
 GLOBAL_SKILL_ROOT="${HOME}/.agents/skills"
 GLOBAL_CODEX_SKILL_ROOT="${HOME}/.codex/skills"
 GLOBAL_AGENT_ROOT="${HOME}/.codex/agents"
@@ -222,6 +223,7 @@ install_operation_helpers() {
   install_link "${REVIEWED_OPERATION_SOURCE}" "${GLOBAL_HELPER_ROOT}/reviewed-cloud-operation"
   install_link "${MINIKUBE_AUTHORIZE_SOURCE}" "${GLOBAL_HELPER_ROOT}/authorize-local-minikube-patch"
   install_link "${MINIKUBE_RUN_SOURCE}" "${GLOBAL_HELPER_ROOT}/run-local-minikube-script"
+  install_link "${RISKY_COMMAND_APPROVE_SOURCE}" "${GLOBAL_HELPER_ROOT}/approve-risky-command"
 }
 
 install_hooks() {
@@ -407,6 +409,7 @@ POLICY_SCOUT
   fi
   cat << 'POLICY_TAIL'
 - Use worktrees for parallel work only after proving branch, HEAD, dirty state, process ownership, and runtime/profile ownership where applicable.
+- Require explicit `--context` on every `kubectl` command. When the hook verifies minikube, state the verified profile, context, and operation consequence to the user. Evaluate scripts by content regardless of their directory.
 - After any PR is merged, sync the local `main` branch with `origin/main` before considering the PR follow-up complete. Use a fast-forward-only update when possible and verify `main` and `origin/main` point to the same commit.
 - Keep automations report-only by default. Self-improvement automations may propose AGENTS or skill changes with evidence, but must not edit files automatically.
 - Do not add a `/permissions` workflow; the sandbox, approval, hook, `sfw`, RED-policy, and production-integrity rules remain the permission model.
