@@ -82,3 +82,21 @@ def test_allows_printf_database_url_template_patch() -> None:
     )
 
     assert classify_patch_payload(patch) is None
+
+
+def test_blocks_printf_database_url_template_patch_with_literal_credential_argument() -> None:
+    scheme = "postgres"
+    formatter = "%" + "s"
+    template = scheme + "://" + formatter + ":" + formatter + "@host/db"
+    literal_credential = "hun" + "ter2"
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: deploy/scripts/provision-control-api-runtime-roles.sh\n"
+        "+printf '" + template + "' app " + literal_credential + "\n"
+        "*** End Patch"
+    )
+
+    finding = classify_patch_payload(patch)
+
+    assert finding is not None
+    assert finding.reason_code == "toxic_patch_payload"

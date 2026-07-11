@@ -24,6 +24,15 @@ def postgres_url(user: str, segment: str) -> str:
     return "postgres" + "://" + user + ":" + segment + "@host/db"
 
 
+def printf_database_url(user_argument: str, credential_argument: str) -> str:
+    formatter = "%" + "s"
+    return "printf '" + postgres_url(formatter, formatter) + "' " + user_argument + " " + credential_argument
+
+
+def printf_database_url_in_command_substitution(user_argument: str, credential_argument: str) -> str:
+    return "dsn=\"$(" + printf_database_url(user_argument, credential_argument) + ")\""
+
+
 def test_sensitive_detector_covers_secret_families() -> None:
     samples = [
         "api_key" + "=fixture-value",
@@ -114,6 +123,43 @@ def test_sensitive_detector_allows_printf_database_url_template_only_as_full_cre
         report = classify_text(sample)
         assert report.classification == "RED", sample
         assert any(finding.kind == "database_url" for finding in report.findings), sample
+
+
+def test_sensitive_detector_requires_runtime_printf_credential_argument() -> None:
+    runtime_user = "$" + "user"
+    runtime_credential = "$" + "DB_PASSWORD"
+    literal_credential = "hun" + "ter2"
+
+    safe_report = classify_text(printf_database_url(runtime_user, runtime_credential))
+    blocked_report = classify_text(printf_database_url("app", literal_credential))
+
+    assert safe_report.classification == "GREEN"
+    assert blocked_report.classification == "RED"
+    assert any(finding.kind == "database_url" for finding in blocked_report.findings)
+
+
+def test_sensitive_detector_requires_runtime_credential_for_printf_command_substitution() -> None:
+    runtime_credential = "$" + "DB_PASSWORD"
+    literal_credential = "hun" + "ter2"
+
+    safe_report = classify_text(printf_database_url_in_command_substitution("$user", runtime_credential))
+    blocked_report = classify_text(printf_database_url_in_command_substitution("app", literal_credential))
+
+    assert safe_report.classification == "GREEN"
+    assert blocked_report.classification == "RED"
+
+
+def test_sensitive_detector_blocks_printf_templates_with_unsupported_prior_placeholder() -> None:
+    unsupported_formatter = "%" + "q"
+    formatter = "%" + "s"
+    template = postgres_url(unsupported_formatter, formatter)
+    runtime_user = "$" + "user"
+    runtime_credential = "$" + "DB_PASSWORD"
+    sample = "printf '" + template + "' " + runtime_user + " " + runtime_credential
+
+    report = classify_text(sample)
+
+    assert report.classification == "RED"
 
 
 def test_sensitive_detector_blocks_literal_database_url_passwords_and_suffixes() -> None:
