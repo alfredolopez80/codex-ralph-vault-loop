@@ -11,6 +11,8 @@ from shared.paths import REPO_ROOT, read_hook_input, write_json
 from shared.context_budget import classify_command, classify_patch_payload, payload_patch_text
 from shared.redaction import is_red, sensitivity_report
 from shared.local_minikube_grant import allows as local_minikube_patch_allowed
+from shared.local_minikube_grant import digest as local_patch_digest
+from shared.local_minikube_grant import targets as local_patch_targets
 
 
 DESTRUCTIVE_PATTERNS = [
@@ -759,7 +761,30 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
 def main() -> int:
     payload = read_hook_input()
     patch_text = payload_patch_text(payload)
-    local_patch_allowed = bool(patch_text) and local_minikube_patch_allowed(patch_text, cwd_from_payload(payload))
+    patch_cwd = cwd_from_payload(payload)
+    eligible_local_targets = local_patch_targets(patch_text, patch_cwd) if patch_text else None
+    local_patch_allowed = bool(eligible_local_targets) and local_minikube_patch_allowed(patch_text, patch_cwd)
+    if eligible_local_targets and not local_patch_allowed:
+        patch_hash = local_patch_digest(patch_text)
+        target_args = " ".join(f"--target {shlex.quote(str(target))}" for target in eligible_local_targets)
+        suggested_command = (
+            f"~/.ralph-codex/bin/authorize-local-minikube-patch --sha256 {patch_hash} "
+            f"--cwd {shlex.quote(str(patch_cwd))} {target_args}"
+        )
+        write_json(
+            {
+                "decision": "block",
+                "reason": (
+                    "This exact .local-notes patch is eligible but requires explicit user approval. "
+                    "Request approval to run suggested_command, then retry the identical patch."
+                ),
+                "reason_code": "local_patch_grant_required",
+                "suggested_command": suggested_command,
+                "patch_sha256": patch_hash,
+                "targets": [str(target) for target in eligible_local_targets],
+            }
+        )
+        return 0
     patch_finding = None if local_patch_allowed else classify_patch_payload(patch_text)
     if patch_finding:
         write_json(patch_finding.hook_payload())
