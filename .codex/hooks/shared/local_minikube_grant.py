@@ -145,7 +145,10 @@ def patch_grant(patch: str, cwd: Path) -> PatchGrant | None:
 def patch_grant_from_request(patch_sha256: str, cwd: Path, targets: list[str]) -> PatchGrant | None:
     if not re.fullmatch(r"[0-9a-f]{64}", patch_sha256):
         return None
-    normalized_targets = _normalized_target_paths(cwd, targets)
+    repo_root = _git_root(cwd)
+    if repo_root is None or not targets:
+        return None
+    normalized_targets = _normalized_target_paths(repo_root, targets)
     if normalized_targets is None:
         return None
     canonical_cwd = str(cwd.resolve())

@@ -7,7 +7,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.context_budget import classify_command, classify_patch_payload, classify_prompt, text_is_toxic, toxic_text_reasons  # noqa: E402
+from shared.context_budget import (  # noqa: E402
+    classify_command,
+    classify_patch_payload,
+    classify_prompt,
+    patch_is_grantable_sensitive,
+    text_is_toxic,
+    toxic_text_reasons,
+)
 
 
 def long_alpha_payload() -> str:
@@ -66,6 +73,15 @@ def test_blocks_full_file_python_print_and_toxic_patch(tmp_path: Path) -> None:
     assert classify_command(command, tmp_path)
     patch = "*** Begin Patch\n+" + long_alpha_payload() + "\n*** End Patch"
     assert classify_patch_payload(patch)
+
+
+def test_patch_grant_requires_red_to_be_the_only_toxic_reason() -> None:
+    key_name = "to" + "ken"
+    red_patch = "*** Begin Patch\n+" + key_name + "=fixture-value\n*** End Patch"
+    mixed_patch = red_patch + "\ndata:image/png;base64," + ("A" * 4100)
+
+    assert patch_is_grantable_sensitive(red_patch)
+    assert not patch_is_grantable_sensitive(mixed_patch)
 
 
 def test_allows_printf_database_url_template_patch() -> None:

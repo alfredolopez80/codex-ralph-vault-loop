@@ -14,6 +14,7 @@ from shared.context_budget import (
     classify_local_notes_patch_payload,
     classify_patch_payload,
     nested_patch_envelope,
+    patch_is_grantable_sensitive,
     payload_patch_text,
     record_patch_payload_shape,
 )
@@ -834,14 +835,14 @@ def main() -> int:
         return 0
     patch_finding = classify_patch_payload(patch_text)
     if patch_finding:
-        grant = patch_grant(patch_text, patch_cwd) if patch_text else None
+        grant = patch_grant(patch_text, patch_cwd) if patch_is_grantable_sensitive(patch_text) else None
         if grant is None:
             write_json(patch_finding.hook_payload())
             return 0
         if allows_patch(patch_text, patch_cwd) is None:
             command = shlex.join(
                 [
-                    "~/.ralph-codex/bin/approve-local-patch",
+                    str(Path.home() / ".ralph-codex" / "bin" / "approve-local-patch"),
                     "--sha256",
                     grant.patch_sha256,
                     "--cwd",
