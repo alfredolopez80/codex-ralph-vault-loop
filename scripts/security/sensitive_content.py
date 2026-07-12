@@ -181,6 +181,27 @@ def _printf_format_index(tokens: list[tuple[str, int, int]]) -> int | None:
     return None
 
 
+_REDIRECTION_RE = re.compile(r"^(?:&>>?|\d*(?:>>?|<<|<>|>&|<&))")
+
+
+def _without_shell_redirections(tokens: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
+    """Remove redirection operators and their separate targets, retaining later args."""
+    result: list[tuple[str, int, int]] = []
+    skip_target = False
+    for token in tokens:
+        word = token[0]
+        if skip_target:
+            skip_target = False
+            continue
+        match = _REDIRECTION_RE.match(word)
+        if not match:
+            result.append(token)
+            continue
+        if match.end() == len(word):
+            skip_target = True
+    return result
+
+
 def _printf_database_url_templates(text: str) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     """Return safe printf format spans and unsafe command-line spans."""
     safe_templates: list[tuple[int, int]] = []
@@ -215,13 +236,7 @@ def _printf_database_url_templates(text: str) -> tuple[list[tuple[int, int]], li
             printf_index = next((position for position, token in enumerate(command_tokens) if token[0] == "printf"), None)
             if printf_index is None:
                 continue
-            printf_tokens = command_tokens[printf_index:]
-            redirect_index = next(
-                (position for position, token in enumerate(printf_tokens) if token[0].startswith((">", "<"))),
-                None,
-            )
-            if redirect_index is not None:
-                printf_tokens = printf_tokens[:redirect_index]
+            printf_tokens = _without_shell_redirections(command_tokens[printf_index:])
             format_index = _printf_format_index(printf_tokens)
             if format_index is None or format_index >= len(printf_tokens):
                 unsafe_spans.append((offset, line_end))

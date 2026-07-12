@@ -294,7 +294,7 @@ def classify_patch_payload(patch: str) -> GuardFinding | None:
 
 def patch_is_grantable_sensitive(patch: str) -> bool:
     """Return whether a patch is blocked solely on a grantable RED boundary."""
-    return bool(patch) and len(patch) <= DEFAULT_MAX_PATCH_CHARS and is_red(patch)
+    return bool(patch) and len(patch) <= DEFAULT_MAX_PATCH_CHARS and toxic_text_reasons(patch) == ["red-sensitive content"]
 
 
 GENERATED_ASSIGNMENT_RE = re.compile(

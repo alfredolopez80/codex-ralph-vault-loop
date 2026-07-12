@@ -159,6 +159,16 @@ def test_sensitive_detector_allows_runtime_printf_database_url_with_redirection(
     assert not report.findings
 
 
+def test_sensitive_detector_rejects_printf_arguments_after_redirection() -> None:
+    runtime_credential = "$" + "DB_PASSWORD"
+    sample = "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " > .env evil hunter2"
+
+    report = classify_text(sample)
+
+    assert report.classification == "RED"
+    assert any(finding.kind == "database_url" for finding in report.findings)
+
+
 def test_sensitive_detector_blocks_printf_templates_with_unsupported_prior_placeholder() -> None:
     unsupported_formatter = "%" + "q"
     formatter = "%" + "s"
