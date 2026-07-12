@@ -292,6 +292,11 @@ def classify_patch_payload(patch: str) -> GuardFinding | None:
     return None
 
 
+def patch_is_grantable_sensitive(patch: str) -> bool:
+    """Return whether a patch is blocked solely on a grantable RED boundary."""
+    return bool(patch) and len(patch) <= DEFAULT_MAX_PATCH_CHARS and is_red(patch)
+
+
 GENERATED_ASSIGNMENT_RE = re.compile(
     r"(?im)^\+?[^\n]*\b[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential)"
     r"\s*[:=]\s*['\"]?(?:generated|placeholder|example|changeme|\$\(|\$\{|\$[A-Za-z_])[^\n]*$"
@@ -908,10 +913,24 @@ def _payload_shape(value: Any, depth: int = 0) -> dict[str, Any]:
     if isinstance(value, str):
         return {"type": "string", "size": len(value), "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest()}
     if isinstance(value, dict):
-        fields = sorted(str(key) for key in value)[:32]
-        shape: dict[str, Any] = {"type": "object", "fields": fields}
+        keys = sorted(value, key=lambda key: str(key))[:32]
+        fields = [
+            {
+                "name_sha256": hashlib.sha256(str(key).encode("utf-8")).hexdigest(),
+                "name_size": len(str(key)),
+                "value_type": type(value[key]).__name__,
+            }
+            for key in keys
+        ]
+        shape: dict[str, Any] = {"type": "object", "size": len(value), "fields": fields}
         if depth < 2:
-            shape["children"] = {key: _payload_shape(value[key], depth + 1) for key in fields if key in value}
+            shape["children"] = [
+                {
+                    "name_sha256": hashlib.sha256(str(key).encode("utf-8")).hexdigest(),
+                    "shape": _payload_shape(value[key], depth + 1),
+                }
+                for key in keys
+            ]
         return shape
     if isinstance(value, list):
         return {"type": "array", "size": len(value)}

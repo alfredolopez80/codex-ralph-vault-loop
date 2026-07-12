@@ -149,6 +149,16 @@ def test_sensitive_detector_requires_runtime_credential_for_printf_command_subst
     assert blocked_report.classification == "RED"
 
 
+def test_sensitive_detector_allows_runtime_printf_database_url_with_redirection() -> None:
+    runtime_credential = "$" + "DB_PASSWORD"
+    sample = "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " > .env"
+
+    report = classify_text(sample)
+
+    assert report.classification == "GREEN"
+    assert not report.findings
+
+
 def test_sensitive_detector_blocks_printf_templates_with_unsupported_prior_placeholder() -> None:
     unsupported_formatter = "%" + "q"
     formatter = "%" + "s"

@@ -216,6 +216,12 @@ def _printf_database_url_templates(text: str) -> tuple[list[tuple[int, int]], li
             if printf_index is None:
                 continue
             printf_tokens = command_tokens[printf_index:]
+            redirect_index = next(
+                (position for position, token in enumerate(printf_tokens) if token[0].startswith((">", "<"))),
+                None,
+            )
+            if redirect_index is not None:
+                printf_tokens = printf_tokens[:redirect_index]
             format_index = _printf_format_index(printf_tokens)
             if format_index is None or format_index >= len(printf_tokens):
                 unsafe_spans.append((offset, line_end))

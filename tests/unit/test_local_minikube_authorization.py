@@ -12,7 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 sys.path.insert(0, str(HOOKS))
 
-from shared.local_minikube_grant import allows, create_patch_marker, digest, patch_grant, targets  # noqa: E402
+from shared.local_minikube_grant import (  # noqa: E402
+    allows,
+    create_patch_marker,
+    digest,
+    patch_grant,
+    patch_grant_from_request,
+    targets,
+)
 from shared.cloud_operation_gate import ContextVerification, assess_command  # noqa: E402
 from shared import minikube_context  # noqa: E402
 
@@ -103,7 +110,7 @@ def test_static_sensitive_tracked_patch_requires_exact_one_use_grant(tmp_path: P
     assert payload["reason_code"] == "local_patch_grant_required"
     assert payload["patch_sha256"] == digest(patch)
     assert payload["targets"] == [target]
-    assert "approve-local-patch" in payload["suggested_command"]
+    assert payload["suggested_command"].startswith(str(Path.home() / ".ralph-codex" / "bin" / "approve-local-patch"))
 
     grant = patch_grant(patch, tmp_path)
     assert grant is not None
@@ -124,6 +131,28 @@ def test_static_sensitive_patch_grants_are_not_bound_to_a_path_allowlist(tmp_pat
 
     assert payload["reason_code"] == "local_patch_grant_required"
     assert payload["targets"] == [target]
+
+
+def test_patch_grant_request_preserves_repo_relative_targets_from_subdirectory(tmp_path: Path) -> None:
+    patch, target = tracked_patch(tmp_path, "sub/config/runtime.yml")
+    subdirectory = tmp_path / "sub"
+    patch = patch.replace("sub/config/runtime.yml", "config/runtime.yml")
+    grant = patch_grant(patch, subdirectory)
+    assert grant is not None
+    assert grant.targets == (target,)
+
+    requested = patch_grant_from_request(digest(patch), subdirectory, [target])
+    assert requested == grant
+
+
+def test_oversized_sensitive_patch_cannot_request_a_grant(tmp_path: Path) -> None:
+    patch, target = tracked_patch(tmp_path)
+    patch += "\n" + ("+x\n" * 125_000)
+
+    payload = json.loads(run_patch_guard(tmp_path, patch, tmp_path / "grants").stdout)
+
+    assert payload["reason_code"] == "toxic_patch_payload"
+    assert payload.get("targets") != [target]
 
 
 def test_approve_local_patch_helper_creates_the_exact_grant(tmp_path: Path) -> None:
@@ -166,6 +195,34 @@ def test_patch_payload_shape_log_is_sanitized(tmp_path: Path) -> None:
     assert "pre_tool_patch_payload_shape" in data
     assert patch not in data
     assert "patch_sha256" in data
+
+
+def test_patch_payload_shape_does_not_persist_raw_field_names(tmp_path: Path) -> None:
+    patch, _target = tracked_patch(tmp_path)
+    grant_root = tmp_path / "grants"
+    env = os.environ.copy()
+    env["CODEX_LOCAL_GRANT_ROOT"] = str(grant_root)
+    env["RALPH_HOME"] = str(tmp_path / "ralph-home")
+    result = subprocess.run(
+        [sys.executable, str(HOOKS / "pre_tool_guard.py")],
+        input=json.dumps(
+            {
+                "tool_input": {
+                    "patch": patch,
+                    "opaque-field-fixture": "opaque-value-fixture",
+                    "cwd": str(tmp_path),
+                }
+            }
+        ),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0
+    report = (tmp_path / "ralph-home" / "reports" / "pre-tool-patch-payload-shapes.jsonl").read_text(encoding="utf-8")
+    assert "opaque-field-fixture" not in report
+    assert "opaque-value-fixture" not in report
 
 def test_pre_tool_guard_uses_exact_local_grant(tmp_path: Path) -> None:
     notes = tmp_path / ".local-notes"
