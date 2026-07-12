@@ -151,12 +151,18 @@ def test_sensitive_detector_requires_runtime_credential_for_printf_command_subst
 
 def test_sensitive_detector_allows_runtime_printf_database_url_with_redirection() -> None:
     runtime_credential = "$" + "DB_PASSWORD"
-    sample = "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " > .env"
+    samples = [
+        "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " > .env",
+        "printf 'postgres://%s:%s@host/db' app " + runtime_credential + ">.env",
+        "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " &> .env",
+        "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " 2>.env",
+        "printf 'postgres://%s:%s@host/db' app " + runtime_credential + " 2>&1",
+    ]
 
-    report = classify_text(sample)
-
-    assert report.classification == "GREEN"
-    assert not report.findings
+    for sample in samples:
+        report = classify_text(sample)
+        assert report.classification == "GREEN", sample
+        assert not report.findings, sample
 
 
 def test_sensitive_detector_rejects_printf_arguments_after_redirection() -> None:
