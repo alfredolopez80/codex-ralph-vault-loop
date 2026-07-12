@@ -104,11 +104,43 @@ def _shell_tokens(command: str) -> list[tuple[str, int, int]] | None:
         if command[index].isspace():
             index += 1
             continue
-        if command[index] in ";|&":
-            end = index + 2 if command[index : index + 2] in {"&&", "||"} else index + 1
+        if command.startswith(("&&", "||"), index):
+            tokens.append((command[index : index + 2], index, index + 2))
+            index += 2
+            continue
+        if command.startswith(("&>", "&>>"), index):
+            end = index + 3 if command.startswith("&>>", index) else index + 2
             tokens.append((command[index:end], index, end))
             index = end
             continue
+        if command[index] in ";|&":
+            tokens.append((command[index], index, index + 1))
+            index += 1
+            continue
+        if command[index].isdigit():
+            fd_end = index
+            while fd_end < len(command) and command[fd_end].isdigit():
+                fd_end += 1
+            if fd_end < len(command) and command[fd_end] in "<>":
+                redirection_end = fd_end + 1
+                if command.startswith((">>", "<<", "<>"), fd_end):
+                    redirection_end = fd_end + 2
+                elif command.startswith((">&", "<&"), fd_end):
+                    redirection_end = fd_end + 2
+                tokens.append((command[index:redirection_end], index, redirection_end))
+                index = redirection_end
+                continue
+        if command[index] in "<>":
+            end = index + 1
+            if command.startswith((">>", "<<", "<>"), index):
+                end = index + 2
+            elif command.startswith((">&", "<&"), index):
+                end = index + 2
+            tokens.append((command[index:end], index, end))
+            index = end
+            continue
+        if command[index] in ";|&":
+            raise AssertionError("shell operator should have been consumed")
         start = index
         quote = ""
         while index < len(command):
@@ -125,7 +157,7 @@ def _shell_tokens(command: str) -> list[tuple[str, int, int]] | None:
                 quote = char
                 index += 1
                 continue
-            if char.isspace() or char in ";|&":
+            if char.isspace() or char in ";|&<>":
                 break
             index += 1
         if quote:
@@ -181,7 +213,7 @@ def _printf_format_index(tokens: list[tuple[str, int, int]]) -> int | None:
     return None
 
 
-_REDIRECTION_RE = re.compile(r"^(?:&>>?|\d*(?:>>?|<<|<>|>&|<&))")
+_REDIRECTION_RE = re.compile(r"^(?:&>>?|\d*(?:>&|<&|>>?|<<|<>))")
 
 
 def _without_shell_redirections(tokens: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
