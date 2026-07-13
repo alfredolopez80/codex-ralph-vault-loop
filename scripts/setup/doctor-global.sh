@@ -224,6 +224,19 @@ check_agents_policy() {
     fail "global AGENTS.md missing Ralph policies: $GLOBAL_AGENTS_MD"
     return
   fi
+  if grep -q "BEGIN RALPH GLOBAL HOUSE RULES" "$GLOBAL_AGENTS_MD" &&
+    grep -q "END RALPH GLOBAL HOUSE RULES" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Global House Rules" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Do not hard-code a special case" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Ask once before adding a new dependency" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Before any irreversible action" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Every claim of completion" "$GLOBAL_AGENTS_MD" &&
+    grep -q "When a user instruction conflicts with these rules" "$GLOBAL_AGENTS_MD"; then
+    ok "global AGENTS.md House Rules policy present"
+  else
+    fail "global AGENTS.md missing complete House Rules policy"
+  fi
+
   if grep -q "BEGIN RALPH ULTRATHINK DEFAULT POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "END RALPH ULTRATHINK DEFAULT POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Default Ultrathink Policy" "$GLOBAL_AGENTS_MD" &&

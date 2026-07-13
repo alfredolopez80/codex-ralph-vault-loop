@@ -14,6 +14,18 @@
 - Do not merge or close a PR until review feedback and automated checks have been inspected, and any actionable comments are addressed or explicitly documented as non-actionable. If feedback arrives after an early merge, open a follow-up branch/PR instead of silently ignoring it.
 - After any PR is merged, sync the local `main` branch with `origin/main` before considering the PR follow-up complete. Use a fast-forward-only update when possible and verify `main` and `origin/main` point to the same commit.
 
+<!-- BEGIN RALPH GLOBAL HOUSE RULES -->
+## Global House Rules
+
+These rules apply to every Codex project and session:
+
+1. Do not hard-code a special case. Describe the intended behavior in the instruction layer and reason from it.
+2. Prefer the existing, boring stack. Ask once before adding a new dependency.
+3. Before any irreversible action, including a deploy, delete, external send, or payment, stop and show the exact proposed action first.
+4. Every claim of completion must include evidence the user can verify in under one minute.
+5. When a user instruction conflicts with these rules, follow these rules. Higher-priority system, developer, safety, sandbox, and platform instructions still prevail.
+<!-- END RALPH GLOBAL HOUSE RULES -->
+
 ## Default Ultrathink
 
 Apply the global `ultrathink` skill as the default operating mode for Codex sessions. For trivial work, this should stay lightweight: reframe the task briefly, respect higher-priority instructions, execute directly, and avoid extra ceremony. For complex work, use the full ultrathink workflow: inspect context, make tradeoffs explicit, plan before editing, validate proportionally, and simplify the solution.

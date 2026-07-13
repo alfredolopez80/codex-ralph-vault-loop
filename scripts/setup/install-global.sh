@@ -239,6 +239,22 @@ install_hooks() {
   python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
 }
 
+house_rules_policy_block() {
+  cat << 'POLICY'
+<!-- BEGIN RALPH GLOBAL HOUSE RULES -->
+## Global House Rules
+
+These rules apply to every Codex project and session:
+
+1. Do not hard-code a special case. Describe the intended behavior in the instruction layer and reason from it.
+2. Prefer the existing, boring stack. Ask once before adding a new dependency.
+3. Before any irreversible action, including a deploy, delete, external send, or payment, stop and show the exact proposed action first.
+4. Every claim of completion must include evidence the user can verify in under one minute.
+5. When a user instruction conflicts with these rules, follow these rules. Higher-priority system, developer, safety, sandbox, and platform instructions still prevail.
+<!-- END RALPH GLOBAL HOUSE RULES -->
+POLICY
+}
+
 ultrathink_policy_block() {
   cat << 'POLICY'
 <!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->
@@ -422,8 +438,8 @@ POLICY_TAIL
 
 install_agents_policy() {
   local target="$GLOBAL_AGENTS_MD"
-  local start="<!-- BEGIN RALPH INTENT MCP POLICY -->"
-  local end="<!-- END RALPH INTENT MCP POLICY -->"
+  local start="<!-- BEGIN RALPH GLOBAL HOUSE RULES -->"
+  local end="<!-- END RALPH GLOBAL HOUSE RULES -->"
 
   if [[ "$MODE" == "dry-run" ]]; then
     printf 'GLOBAL_INSTALL_DRY_RUN update %s ralph-global-policies\n' "$target"
@@ -444,6 +460,38 @@ install_agents_policy() {
   fi
 
   local policy_file
+  policy_file="$(mktemp)"
+  house_rules_policy_block > "$policy_file"
+  python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+policy = Path(sys.argv[2]).read_text(encoding="utf-8").strip() + "\n"
+start = sys.argv[3]
+end = sys.argv[4]
+
+text = target.read_text(encoding="utf-8") if target.exists() else ""
+has_start = start in text
+has_end = end in text
+if has_start != has_end:
+    raise SystemExit(f"GLOBAL_INSTALL_FAIL unbalanced global-house-rules policy markers in {target}")
+if has_start and has_end:
+    before, rest = text.split(start, 1)
+    _old, after = rest.split(end, 1)
+    rendered = before.rstrip() + "\n\n" + policy + after.lstrip()
+elif text.strip():
+    rendered = text.rstrip() + "\n\n" + policy
+else:
+    rendered = policy
+target.write_text(rendered, encoding="utf-8")
+PY
+  rm -f "$policy_file"
+
+  start="<!-- BEGIN RALPH INTENT MCP POLICY -->"
+  end="<!-- END RALPH INTENT MCP POLICY -->"
   policy_file="$(mktemp)"
   intent_mcp_policy_block > "$policy_file"
   python3 - "$target" "$policy_file" "$start" "$end" << 'PY'
@@ -489,6 +537,7 @@ else:
             "\n## Default E2E Guardian Global Policy",
             "\n## Default Plans Folder",
             "\n## Ralph Memory Core",
+            "\n<!-- BEGIN RALPH GLOBAL HOUSE RULES -->",
             "\n<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->",
             "\n<!-- BEGIN RALPH MEMORY CORE POLICY -->",
             "\n<!-- BEGIN RALPH IMPLEMENTATION NOTES POLICY -->",

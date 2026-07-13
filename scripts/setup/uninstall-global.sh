@@ -218,6 +218,10 @@ PY
 
 remove_agents_policy() {
   remove_policy_block \
+    "global-house-rules-policy" \
+    "<!-- BEGIN RALPH GLOBAL HOUSE RULES -->" \
+    "<!-- END RALPH GLOBAL HOUSE RULES -->"
+  remove_policy_block \
     "ultrathink-default-policy" \
     "<!-- BEGIN RALPH ULTRATHINK DEFAULT POLICY -->" \
     "<!-- END RALPH ULTRATHINK DEFAULT POLICY -->"

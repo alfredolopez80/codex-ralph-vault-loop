@@ -104,6 +104,14 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(approve_risky) == str(ROOT / "scripts" / "security" / "approve-risky-command.py")
     assert os.readlink(approve_patch) == str(ROOT / "scripts" / "security" / "approve-local-patch.py")
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert agents_text.count("<!-- BEGIN RALPH GLOBAL HOUSE RULES -->") == 1
+    assert agents_text.count("<!-- END RALPH GLOBAL HOUSE RULES -->") == 1
+    assert "Global House Rules" in agents_text
+    assert "Do not hard-code a special case" in agents_text
+    assert "Ask once before adding a new dependency" in agents_text
+    assert "Before any irreversible action" in agents_text
+    assert "Every claim of completion" in agents_text
+    assert "When a user instruction conflicts with these rules" in agents_text
     assert "Default Ultrathink Policy" in agents_text
     assert "global `ultrathink` skill as the default operating mode" in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" in agents_text
@@ -146,6 +154,12 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert smoke.returncode == 0, smoke.stderr + smoke.stdout
     assert "GLOBAL_HOOKS_SMOKE_PASS" in smoke.stdout
 
+    agents_md.write_text(agents_text.replace("Every claim of completion", "Completion claims", 1), encoding="utf-8")
+    missing_rule = run_script(tmp_path, "doctor-global.sh")
+    assert missing_rule.returncode != 0
+    assert "missing complete House Rules policy" in missing_rule.stdout + missing_rule.stderr
+    agents_md.write_text(agents_text, encoding="utf-8")
+
     uninstall = run_script(tmp_path, "uninstall-global.sh", "--uninstall", "--with-agents")
     assert uninstall.returncode == 0, uninstall.stderr
     assert not skill.exists()
@@ -179,6 +193,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not approve_patch.exists()
     assert not approve_patch.is_symlink()
     agents_text = agents_md.read_text(encoding="utf-8")
+    assert "Global House Rules" not in agents_text
+    assert "BEGIN RALPH GLOBAL HOUSE RULES" not in agents_text
     assert "Default Ultrathink Policy" not in agents_text
     assert "Intent-Based Z.ai and MiniMax MCP Usage" not in agents_text
     assert "Global hooks resolve Ralph scripts from" not in agents_text
@@ -356,6 +372,35 @@ def test_global_install_rejects_symlinked_agents_md_and_unbalanced_markers(tmp_p
     unbalanced = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
     assert unbalanced.returncode != 0
     assert "unbalanced memory-core policy markers" in unbalanced.stderr
+
+    (codex / "AGENTS.md").write_text("<!-- BEGIN RALPH GLOBAL HOUSE RULES -->\n", encoding="utf-8")
+    unbalanced_house_rules = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "orchestrator",
+        "--allow-worktree-source",
+    )
+    assert unbalanced_house_rules.returncode != 0
+    assert "unbalanced global-house-rules policy markers" in unbalanced_house_rules.stderr
+
+
+def test_global_house_rules_reinstall_is_idempotent_and_preserves_user_text(tmp_path: Path) -> None:
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text("User policy before Ralph.\n", encoding="utf-8")
+
+    first = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
+    second = run_script(tmp_path, "install-global.sh", "--install", "--skills", "orchestrator", "--allow-worktree-source")
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    text = agents_md.read_text(encoding="utf-8")
+    assert "User policy before Ralph." in text
+    assert text.count("<!-- BEGIN RALPH GLOBAL HOUSE RULES -->") == 1
+    assert text.count("<!-- END RALPH GLOBAL HOUSE RULES -->") == 1
+    assert text.count("Global House Rules") == 1
 
 
 def test_global_install_replaces_stale_memory_core_policy(tmp_path: Path) -> None:
