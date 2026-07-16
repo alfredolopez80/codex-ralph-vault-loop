@@ -115,7 +115,12 @@ def main() -> int:
     config = json.loads(GLOBAL_HOOKS_JSON.read_text(encoding="utf-8"))
     required = {
         "SessionStart": ["session_start_wakeup.py"],
-        "UserPromptSubmit": ["user_prompt_capture.py", "continuity_prompt_context.py"],
+        "UserPromptSubmit": [
+            "universal-prompt-classifier.sh",
+            "user_prompt_capture.py",
+            "user_prompt_improve.py",
+            "continuity_prompt_context.py",
+        ],
         "PreToolUse": ["pre_tool_guard.py"],
         "PostToolUse": [
             "file_line_guard.py",
@@ -131,6 +136,10 @@ def main() -> int:
         missing = [name for name in names if name not in sequence]
         if missing:
             print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {event} hooks {missing}", file=sys.stderr)
+            return 1
+        positions = [sequence.index(name) for name in names]
+        if positions != sorted(positions):
+            print(f"GLOBAL_HOOKS_SMOKE_FAIL invalid {event} hook order {sequence}", file=sys.stderr)
             return 1
     repo_root_file = GLOBAL_HOOK_DIR / ".ralph-repo-root"
     if not repo_root_file.is_file():
@@ -152,6 +161,33 @@ def main() -> int:
         project_b = base / "project-b"
         init_git(project_a)
         init_git(project_b)
+        improve_sentinel = "GLOBAL_SMOKE_RAW_PROMPT_SENTINEL_61927"
+        improve = run_hook(
+            "user_prompt_improve.py",
+            {"hook_event_name": "UserPromptSubmit", "prompt": improve_sentinel},
+            env,
+        )
+        assert_ok("user_prompt_improve.py", improve)
+        if len(improve.stdout.encode("utf-8")) > 768:
+            raise RuntimeError("user_prompt_improve.py exceeded compact output budget")
+        improve_payload = json.loads(improve.stdout)
+        expected_context = improve_payload.get("hookSpecificOutput", {})
+        if expected_context.get("hookEventName") != "UserPromptSubmit":
+            raise RuntimeError("user_prompt_improve.py emitted unsupported hook event")
+        if "Improve Prompt Contract" not in str(expected_context.get("additionalContext", "")):
+            raise RuntimeError("user_prompt_improve.py omitted compact prompt contract")
+        if improve_sentinel in improve.stdout:
+            raise RuntimeError("user_prompt_improve.py echoed the raw prompt")
+        if Path(env["RALPH_HOME"]).exists():
+            raise RuntimeError("user_prompt_improve.py persisted runtime state")
+        empty_improve = run_hook(
+            "user_prompt_improve.py",
+            {"hook_event_name": "UserPromptSubmit", "prompt": "  "},
+            env,
+        )
+        assert_ok("user_prompt_improve.py empty prompt", empty_improve)
+        if empty_improve.stdout:
+            raise RuntimeError("user_prompt_improve.py emitted context for an empty prompt")
         prompt = run_hook(
             "continuity_prompt_context.py",
             {

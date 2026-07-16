@@ -37,7 +37,7 @@ def generated_global_config(home: Path) -> dict:
     env = os.environ.copy()
     env["HOME"] = str(home)
     result = subprocess.run(
-        [sys.executable, str(SCRIPT), "--dry-run"],
+        [sys.executable, str(SCRIPT), "--dry-run", "--allow-worktree-source"],
         cwd=ROOT,
         env=env,
         text=True,
@@ -129,6 +129,15 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
 
     for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"):
         assert hook_pairs(global_config, event) == hook_pairs(local, event)
+
+    user_prompt = [name for name, _timeout in hook_pairs(local, "UserPromptSubmit")]
+    assert user_prompt == [
+        "universal-prompt-classifier.sh",
+        "user_prompt_capture.py",
+        "user_prompt_improve.py",
+        "continuity_prompt_context.py",
+    ]
+    assert dict(hook_pairs(local, "UserPromptSubmit"))["user_prompt_improve.py"] == 10
 
     post_tool = [name for name, _timeout in hook_pairs(local, "PostToolUse")]
     assert post_tool.index("post_tool_extract_memory.py") < post_tool.index("post_tool_checkpoint.py")

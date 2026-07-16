@@ -61,6 +61,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     workflow_codex_skill = tmp_path / ".codex" / "skills" / "codex-dynamic-workflows"
     scout_skill = tmp_path / ".agents" / "skills" / "ralph-opportunity-scout"
     scout_codex_skill = tmp_path / ".codex" / "skills" / "ralph-opportunity-scout"
+    ultrathink_skill = tmp_path / ".agents" / "skills" / "ultrathink"
+    ultrathink_codex_skill = tmp_path / ".codex" / "skills" / "ultrathink"
+    improve_prompt_skill = tmp_path / ".agents" / "skills" / "improve-prompt"
+    improve_prompt_codex_skill = tmp_path / ".codex" / "skills" / "improve-prompt"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     reviewed_operation = tmp_path / ".ralph-codex" / "bin" / "reviewed-cloud-operation"
@@ -78,6 +82,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert workflow_codex_skill.is_symlink()
     assert scout_skill.is_symlink()
     assert scout_codex_skill.is_symlink()
+    assert ultrathink_skill.is_symlink()
+    assert ultrathink_codex_skill.is_symlink()
+    assert improve_prompt_skill.is_symlink()
+    assert improve_prompt_codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
     assert reviewed_operation.is_symlink()
@@ -96,6 +104,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(workflow_codex_skill) == str(ROOT / ".agents" / "skills" / "codex-dynamic-workflows")
     assert os.readlink(scout_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(scout_codex_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
+    assert os.readlink(ultrathink_skill) == str(ROOT / ".agents" / "skills" / "ultrathink")
+    assert os.readlink(ultrathink_codex_skill) == str(ROOT / ".agents" / "skills" / "ultrathink")
+    assert os.readlink(improve_prompt_skill) == str(ROOT / ".agents" / "skills" / "improve-prompt")
+    assert os.readlink(improve_prompt_codex_skill) == str(ROOT / ".agents" / "skills" / "improve-prompt")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     assert os.readlink(reviewed_operation) == str(ROOT / "scripts" / "operations" / "reviewed-cloud-operation.py")
@@ -178,6 +190,14 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not scout_skill.is_symlink()
     assert not scout_codex_skill.exists()
     assert not scout_codex_skill.is_symlink()
+    assert not ultrathink_skill.exists()
+    assert not ultrathink_skill.is_symlink()
+    assert not ultrathink_codex_skill.exists()
+    assert not ultrathink_codex_skill.is_symlink()
+    assert not improve_prompt_skill.exists()
+    assert not improve_prompt_skill.is_symlink()
+    assert not improve_prompt_codex_skill.exists()
+    assert not improve_prompt_codex_skill.is_symlink()
     assert not agent.exists()
     assert not agent.is_symlink()
     assert not helper.exists()

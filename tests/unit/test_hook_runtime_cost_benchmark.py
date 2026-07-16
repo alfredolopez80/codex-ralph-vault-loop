@@ -35,6 +35,7 @@ def test_hook_runtime_cost_benchmark_emits_metrics_contract(tmp_path: Path) -> N
     report = json.loads(json_text)
     assert report["iterations"] == 1
     assert {case["payload"] for case in report["cases"]} >= {"simple", "implementation", "continuation"}
+    assert "user_prompt_improve" in {case["hook"] for case in report["cases"]}
     assert "METRIC hook_cost_score=" in result.stdout
     assert "METRIC hook_total_p50_ms=" in result.stdout
     assert "METRIC hook_output_context_units=" in result.stdout
@@ -60,7 +61,7 @@ def test_hook_runtime_cost_benchmark_uses_empty_temp_vault(monkeypatch) -> None:
 
     report = module.measure(1)
 
-    assert report["hook_cost_score"] == 9.0
+    assert report["hook_cost_score"] == 12.0
     assert len(seen_vault_dirs) == 1
     vault_dir = Path(next(iter(seen_vault_dirs)))
     assert vault_dir.name == "vault-empty"

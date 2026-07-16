@@ -47,6 +47,11 @@ def hook_config() -> dict:
                         },
                         {
                             "type": "command",
+                            "command": f"python3 {q(hooks / 'user_prompt_improve.py')}",
+                            "timeout": 10,
+                        },
+                        {
+                            "type": "command",
                             "command": f"python3 {q(hooks / 'continuity_prompt_context.py')}",
                             "timeout": 10,
                         }

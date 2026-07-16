@@ -15,12 +15,17 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Stores `.codex/state/<session>/prompt-classification.json`.
   - Adds concise `additionalContext` without blocking simple prompts.
 
-- `.codex/hooks/aristotle-analysis-display.sh`
-  - Runs on `UserPromptSubmit` after classification.
-  - For complexity 3, injects a short first-principles reminder.
-  - For complexity 4 or higher, injects the five Aristotle phases and asks for
-    a verifiable plan before file edits when the route requires it.
-  - For complexity 1 or 2, returns `{"continue":true}` without extra context.
+- `.codex/hooks/user_prompt_improve.py`
+  - Runs on every non-empty `UserPromptSubmit` after safe prompt capture and
+    before continuity/memory context.
+  - Injects a compact, non-authoritative `Improve Prompt Contract` that frames
+    the request as goal, success evidence, constraints, tools, output, and stop
+    rules.
+  - Preserves the user's task type, explicit values, language, permissions, and
+    scope. It never widens authorization or exposes a rewritten prompt unless
+    the user asks for one.
+  - Does not echo or persist the raw prompt and fails open on local runtime
+    errors. Empty prompts produce no stdout.
 
 - `.codex/hooks/anti-rationalization-stop.sh`
   - Runs on `Stop`.
@@ -63,6 +68,9 @@ existing hook chain rather than installed as a separate hook system.
     generated replacement history, and RED-sensitive prompt material.
   - Returns only a sanitized reason; it does not echo the raw payload or persist
     the raw prompt.
+  - The next hook, `user_prompt_improve.py`, receives the same event but emits
+    only its static improvement contract; the user's content is not copied into
+    the injected context.
 - `PreToolUse` via `.codex/hooks/pre_tool_guard.py`
   - Blocks base64 encode commands, likely binary/media/database dumps, oversized
     full-file displays, high-risk broad `rg` searches over home/global runtime
@@ -111,15 +119,15 @@ writes. Set
 
 ## Hook Timing And Responsibility
 
-| Timing                   | Hook event / surface                                                                                    | Responsibility                                                                                                                                                                      | Validation evidence                                                                                                                                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session start            | `SessionStart` / `session_start_wakeup.py`                                                              | Run dream catch-up when due, then Ralph wakeup for the active project.                                                                                                              | `bash scripts/setup/doctor-global.sh`; `python3 scripts/setup/smoke-global-hooks.py` after install.                                                                                                          |
-| Before prompt context    | `UserPromptSubmit` / `user_prompt_capture.py`, `task-intake.py`, `ralph-recall.py`, `context_budget.py` | Classify sensitivity, run scoped recall, reject stale or wrong-scope memory, inject selected memory as non-authoritative context or trace fallback.                                 | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_ralph_recall_context.py -q`; `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_memory_recall_flow_e2e.py -q`.   |
-| Before command execution | `PreToolUse` / `pre_tool_guard.py`                                                                      | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations. | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                                                 |
-| After command execution  | `PostToolUse` / `post_tool_checkpoint.py`, `post_tool_extract_memory.py`, `autoresearch_observer.py`    | Skip RED or context-toxic persistence; capture bounded AutoResearch metrics only when an active session exists.                                                                     | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hooks_basic.py -q`; `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_autoresearch_hook_observer.py -q`. |
-| Thread finalization      | `Stop` hooks and `implementation_notes_guard.py`                                                        | Enforce quality gates, safe handoff, route warnings, and approved-plan implementation notes.                                                                                        | `bash .codex/tests/run-hook-tests.sh`; implementation-notes integration tests.                                                                                                                               |
-| Compact lifecycle        | `PreCompact` / `PostCompact`                                                                            | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                                              |
-| Weekly validation        | Codex App automation                                                                                    | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                                                    |
+| Timing                   | Hook event / surface                                                                                       | Responsibility                                                                                                                                                                      | Validation evidence                                                                                                                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session start            | `SessionStart` / `session_start_wakeup.py`                                                                 | Run dream catch-up when due, then Ralph wakeup for the active project.                                                                                                              | `bash scripts/setup/doctor-global.sh`; `python3 scripts/setup/smoke-global-hooks.py` after install.                                                                                                          |
+| Before prompt context    | `UserPromptSubmit` / classifier, `user_prompt_capture.py`, `user_prompt_improve.py`, continuity and recall | Classify complexity and sensitivity, reject unsafe prompt payloads, inject the compact Improve Prompt contract, then add scoped continuity/memory as non-authoritative context.     | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hook_config_lockstep.py tests/integration/test_hooks_basic.py -q`; `bash .codex/tests/run-hook-tests.sh`.                         |
+| Before command execution | `PreToolUse` / `pre_tool_guard.py`                                                                         | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations. | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                                                 |
+| After command execution  | `PostToolUse` / `post_tool_checkpoint.py`, `post_tool_extract_memory.py`, `autoresearch_observer.py`       | Skip RED or context-toxic persistence; capture bounded AutoResearch metrics only when an active session exists.                                                                     | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hooks_basic.py -q`; `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_autoresearch_hook_observer.py -q`. |
+| Thread finalization      | `Stop` hooks and `implementation_notes_guard.py`                                                           | Enforce quality gates, safe handoff, route warnings, and approved-plan implementation notes.                                                                                        | `bash .codex/tests/run-hook-tests.sh`; implementation-notes integration tests.                                                                                                                               |
+| Compact lifecycle        | `PreCompact` / `PostCompact`                                                                               | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                                              |
+| Weekly validation        | Codex App automation                                                                                       | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                                                    |
 
 ## Manual Tests
 
@@ -138,7 +146,7 @@ Run a single hook by piping a fixture:
 
 ```bash
 bash .codex/hooks/universal-prompt-classifier.sh < .codex/tests/fixtures/user-prompt-complex.json
-bash .codex/hooks/aristotle-analysis-display.sh < .codex/tests/fixtures/user-prompt-complex.json
+python3 .codex/hooks/user_prompt_improve.py < .codex/tests/fixtures/user-prompt-complex.json
 bash .codex/hooks/anti-rationalization-stop.sh < .codex/tests/fixtures/stop-excuse.json
 bash .codex/hooks/ralph-stop-quality-gate.sh < .codex/tests/fixtures/stop-verified.json
 python3 .codex/hooks/implementation_notes_guard.py < .codex/tests/fixtures/implementation-notes-no-plan.json

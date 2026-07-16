@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve Prompt"
+  short_description: "Audit and improve GPT-5.6 prompt contracts"
+  default_prompt: "Use $improve-prompt to audit and improve this prompt with controlled evals."

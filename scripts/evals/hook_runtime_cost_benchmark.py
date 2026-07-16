@@ -16,6 +16,7 @@ HOOKS = ROOT / ".codex" / "hooks"
 USER_PROMPT_HOOKS = (
     ("universal_prompt_classifier", ["bash", str(HOOKS / "universal-prompt-classifier.sh")]),
     ("user_prompt_capture", [sys.executable, str(HOOKS / "user_prompt_capture.py")]),
+    ("user_prompt_improve", [sys.executable, str(HOOKS / "user_prompt_improve.py")]),
     ("continuity_prompt_context", [sys.executable, str(HOOKS / "continuity_prompt_context.py")]),
 )
 

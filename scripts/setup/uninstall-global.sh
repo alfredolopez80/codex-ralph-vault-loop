@@ -54,6 +54,7 @@ DEFAULT_SKILLS=(
   bug-hunt
   bugbot-pr-review
   ultrathink
+  improve-prompt
   make-requirements-great
   framing-doc
   kickoff-doc

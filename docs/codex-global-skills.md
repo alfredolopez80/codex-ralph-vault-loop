@@ -9,6 +9,51 @@ The safe operator templates for `Done when:`, native `/goal`,
 references, worktrees, continuity, notifications, and report-only automations
 live in [`docs/codex-productivity-patterns.md`](./codex-productivity-patterns.md).
 
+## Always-visible prompt skills
+
+| Field | `ultrathink` | `improve-prompt` |
+|---|---|---|
+| Repo source | `.agents/skills/ultrathink` | `.agents/skills/improve-prompt` |
+| Global agent path | `~/.agents/skills/ultrathink` | `~/.agents/skills/improve-prompt` |
+| Global Codex path | `~/.codex/skills/ultrathink` | `~/.codex/skills/improve-prompt` |
+| Automatic behavior | Default design-minded workflow from global policy | Compact internal request framing from `user_prompt_improve.py` |
+
+`improve-prompt` converts prompt stacks into lean outcome contracts for GPT-5.6
+Sol and the GPT-5.6 family. The global prompt hook applies only its compact,
+safe framing to every non-empty user request: preserve task type and explicit
+values, infer the completion contract where useful, never expand authority, and
+do not expose or persist a rewritten prompt. Explicit `$improve-prompt` use
+loads the full skill for prompt audits, rewrites, migrations, and eval design.
+
+Install or refresh both skills and the global hooks from the canonical checkout:
+
+```bash
+bash scripts/setup/install-global.sh --install --skills ultrathink,improve-prompt
+```
+
+Codex gives initial skill metadata a bounded context budget. A very large
+implicit inventory can therefore omit later skills even when their symlinks are
+healthy. Diagnose the model-visible layer, not only the filesystem layer:
+
+```bash
+bash scripts/setup/doctor-global.sh --check-discovery
+```
+
+When discovery fails because the catalog is saturated, the curator below keeps
+every skill on disk but disables physical first-level `~/.agents/skills`
+entries in Codex. Symlinked project skills remain enabled. The default command
+is report-only; mutations are backed up and reversible.
+
+```bash
+python3 scripts/setup/curate-global-skills.py
+python3 scripts/setup/curate-global-skills.py --apply
+bash scripts/setup/doctor-global.sh --check-discovery
+python3 scripts/setup/curate-global-skills.py --remove
+```
+
+After skill or hook changes, start a fresh Codex session or restart Codex App so
+the runtime reloads discovery and hook configuration.
+
 ## ralph-objective-prep
 
 | Field | Value |

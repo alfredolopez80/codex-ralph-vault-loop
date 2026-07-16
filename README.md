@@ -37,7 +37,7 @@ Codex sessions to remember verified work without leaking private context.
 What you get from a fresh checkout:
 
 - A Codex-native instruction surface in [`AGENTS.md`](./AGENTS.md).
-- 33 repo-local skills and 13 subagents wired for review, security, memory,
+- 42 repo-local skills and 13 subagents wired for review, security, memory,
   research, design, testing, and eval work.
 - Hook, gate, security, memory, vault, and model-router scripts that can be run
   locally before installing anything globally.
@@ -77,6 +77,20 @@ Validate the install:
 bash scripts/setup/doctor-global.sh
 ```
 
+If the global skill inventory is large enough that Codex truncates the
+model-visible catalog, preview and apply the reversible Codex-only curation:
+
+```bash
+python3 scripts/setup/curate-global-skills.py
+python3 scripts/setup/curate-global-skills.py --apply
+bash scripts/setup/doctor-global.sh --check-discovery
+```
+
+The curator keeps every skill on disk, excludes symlinked project skills from
+disablement, creates a timestamped local backup, and manages one marked block
+in `~/.codex/config.toml`. Undo it with
+`python3 scripts/setup/curate-global-skills.py --remove`.
+
 To remove symlinks created by this repo:
 
 ```bash
@@ -84,7 +98,8 @@ bash scripts/setup/uninstall-global.sh --uninstall --with-agents
 ```
 
 The installer creates symlinks into the user's Codex and agent directories. It
-does not copy vault data and does not edit the user's global Codex config.
+does not copy vault data and does not edit the user's global Codex config; only
+the separately invoked curation helper edits that config.
 
 ## <img src="./docs/assets/branding/heading-capabilities.svg" width="22" alt=""> What It Provides
 

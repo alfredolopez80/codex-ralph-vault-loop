@@ -61,6 +61,7 @@ pass "bash syntax"
 PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
   "$HOOKS/pre_tool_guard.py" \
   "$HOOKS/user_prompt_capture.py" \
+  "$HOOKS/user_prompt_improve.py" \
   "$HOOKS/post_tool_checkpoint.py" \
   "$HOOKS/shared/autoresearch_observer.py" \
   "$HOOKS/shared/context_budget.py" \
@@ -109,6 +110,21 @@ spanish_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-spanish-
 assert_json "$spanish_aristotle"
 printf '%s' "$spanish_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "spanish planning prompt missing Aristotle context"
 pass "prompt spanish Aristotle"
+
+improve_prompt="$(run_python_hook user_prompt_improve.py user-prompt-simple.json)"
+assert_json "$improve_prompt"
+printf '%s' "$improve_prompt" | jq -e \
+  '. | keys == ["hookSpecificOutput"] and .hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains("Improve Prompt Contract"))' \
+  > /dev/null || fail "improve prompt hook emitted unsupported context"
+[[ "${#improve_prompt}" -le 768 ]] || fail "improve prompt hook exceeded compact output budget"
+printf '%s' "$improve_prompt" | grep -q 'Explain what this repository does' && fail "improve prompt hook echoed raw prompt"
+alternate_improve="$(printf '{"hook_event_name":"UserPromptSubmit","prompt":"A different request."}' | python3 "$HOOKS/user_prompt_improve.py")"
+[[ "$alternate_improve" == "$improve_prompt" ]] || fail "improve prompt hook output was not constant"
+empty_improve="$(printf '{"hook_event_name":"UserPromptSubmit","prompt":"   "}' | python3 "$HOOKS/user_prompt_improve.py")"
+assert_empty "$empty_improve" "empty improve prompt hook"
+invalid_improve="$(printf '{invalid-json' | python3 "$HOOKS/user_prompt_improve.py")"
+assert_empty "$invalid_improve" "invalid improve prompt hook"
+pass "prompt improve compact context"
 
 export RALPH_HOME="$STATE/ralph-home"
 export CODEX_MEMORY_HOME="$STATE/codex-memory-empty"

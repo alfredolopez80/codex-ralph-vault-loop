@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ultrathink"
+  short_description: "Deep, careful planning and simplification"
+  default_prompt: "Use $ultrathink to analyze this problem deeply, plan carefully, and validate the result."

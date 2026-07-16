@@ -108,6 +108,12 @@ def global_hook_diff() -> dict[str, Any]:
         if not same:
             mismatches.append(event)
     preserved = {
+        "UserPromptSubmit": [
+            "universal-prompt-classifier.sh",
+            "user_prompt_capture.py",
+            "user_prompt_improve.py",
+            "continuity_prompt_context.py",
+        ],
         "PostToolUse": ["post_tool_extract_memory.py", "post_tool_checkpoint.py", "post_tool_cost_ledger.py"],
         "Stop": ["stop_persist_memory.py", "stop_memory_promotion_review.py"],
     }
@@ -128,6 +134,7 @@ def global_hook_diff() -> dict[str, Any]:
 
 def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
     hook_budgets = {
+        "user_prompt_improve.py": 10,
         "continuity_prompt_context.py": 10,
         "post_tool_checkpoint.py": 10,
         "stop_persist_memory.py": 20,

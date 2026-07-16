@@ -87,6 +87,7 @@ def test_hooks_accept_empty_json(tmp_path: Path) -> None:
     for hook in [
         "session_start_wakeup.py",
         "user_prompt_capture.py",
+        "user_prompt_improve.py",
         "pre_tool_guard.py",
         "file_line_guard.py",
         "shaping_ripple.py",
@@ -110,6 +111,44 @@ def test_user_prompt_capture_runs_task_intake_for_continuation_prompts(tmp_path:
 
         assert result.returncode == 0, result.stderr
         assert "# Ralph Task Intake" in result.stdout
+
+
+def test_user_prompt_improve_emits_constant_compact_context_without_raw_prompt_or_persistence(tmp_path: Path) -> None:
+    sentinel = "RAW_USER_PROMPT_SENTINEL_61927"
+    first = run_hook("user_prompt_improve.py", tmp_path, {"prompt": sentinel + ("x" * 20_000)})
+    second = run_hook("user_prompt_improve.py", tmp_path, {"prompt": "A different prompt-design request."})
+
+    assert first.returncode == second.returncode == 0
+    assert first.stderr == second.stderr == ""
+    assert first.stdout == second.stdout
+    assert sentinel not in first.stdout
+    assert "A different prompt-design request." not in second.stdout
+    assert len(first.stdout.encode("utf-8")) <= 768
+    payload = json.loads(first.stdout)
+    assert set(payload) == {"hookSpecificOutput"}
+    assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "Improve Prompt Contract" in payload["hookSpecificOutput"]["additionalContext"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_user_prompt_improve_is_silent_and_fail_open_without_a_prompt(tmp_path: Path) -> None:
+    for payload in ({}, {"prompt": ""}, {"prompt": " \n\t"}, {"user_prompt": None}):
+        result = run_hook("user_prompt_improve.py", tmp_path, payload)
+        assert result.returncode == 0
+        assert result.stdout == ""
+        assert result.stderr == ""
+
+    invalid = subprocess.run(
+        [sys.executable, str(HOOKS / "user_prompt_improve.py")],
+        cwd=ROOT,
+        input="{invalid-json",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert invalid.returncode == 0
+    assert invalid.stdout == ""
+    assert invalid.stderr == ""
 
 
 def test_pre_tool_guard_blocks_destructive_command(tmp_path: Path) -> None:

@@ -40,6 +40,7 @@ GLOBAL_AGENTS_MD="${HOME}/.codex/AGENTS.md"
 GLOBAL_HOOKS_JSON="${HOME}/.codex/hooks.json"
 FAILURES=0
 WARNINGS=0
+CHECK_DISCOVERY=0
 
 DEFAULT_SKILLS=(
   orchestrator
@@ -75,6 +76,7 @@ DEFAULT_SKILLS=(
   bug-hunt
   bugbot-pr-review
   ultrathink
+  improve-prompt
   make-requirements-great
   framing-doc
   kickoff-doc
@@ -98,6 +100,43 @@ DEFAULT_AGENTS=(
   ralph-slop-reviewer
   thermo-nuclear-code-quality-review
 )
+
+DISCOVERY_REQUIRED_SKILLS=(
+  ultrathink
+  improve-prompt
+)
+
+usage() {
+  cat << 'USAGE'
+Usage:
+  bash scripts/setup/doctor-global.sh [--check-discovery]
+
+Options:
+  --check-discovery  Also verify that required global skills reach the
+                     model-visible Available skills catalog from a neutral cwd.
+  --help             Show this message.
+USAGE
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --check-discovery)
+        CHECK_DISCOVERY=1
+        ;;
+      --help | -h)
+        usage
+        exit 0
+        ;;
+      *)
+        printf 'GLOBAL_DOCTOR_FAIL unknown argument: %s\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+    shift
+  done
+}
 
 ok() {
   printf 'GLOBAL_DOCTOR_OK %s\n' "$1"
@@ -378,6 +417,7 @@ check_global_hooks() {
   fi
   if grep -q "session_start_wakeup.py" "$GLOBAL_HOOKS_JSON" &&
     grep -q "user_prompt_capture.py" "$GLOBAL_HOOKS_JSON" &&
+    grep -q "user_prompt_improve.py" "$GLOBAL_HOOKS_JSON" &&
     grep -q "pre_tool_guard.py" "$GLOBAL_HOOKS_JSON"; then
     ok "global hooks.json includes Ralph lifecycle hooks"
   else
@@ -386,7 +426,19 @@ check_global_hooks() {
 
   check_hook_file_matches_source "session_start_wakeup.py"
   check_hook_file_matches_source "user_prompt_capture.py"
+  check_hook_file_matches_source "user_prompt_improve.py"
   check_hook_file_matches_source "pre_tool_guard.py"
+
+  local improve_payload
+  local improve_output
+  improve_payload='{"hook_event_name":"UserPromptSubmit","prompt":"GLOBAL_DOCTOR_PROMPT_SENTINEL_61927"}'
+  improve_output="$(printf '%s' "$improve_payload" | python3 "${GLOBAL_HOOK_ROOT}/user_prompt_improve.py" 2> /dev/null || true)"
+  if [[ "$improve_output" == *"Improve Prompt Contract"* &&
+    "$improve_output" != *"GLOBAL_DOCTOR_PROMPT_SENTINEL_61927"* ]]; then
+    ok "global improve-prompt hook emits compact context without echoing the prompt"
+  else
+    fail "global improve-prompt hook missing, invalid, or echoed the raw prompt"
+  fi
 
   if grep -q "STALE_WAKEUP_REASON" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null &&
     grep -q "stale_repo_local_wakeup_payload" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null; then
@@ -406,7 +458,31 @@ check_global_hooks() {
   fi
 }
 
+check_skill_discovery() {
+  if ! command -v codex > /dev/null 2>&1; then
+    fail "Codex CLI unavailable for model-visible skill discovery check"
+    return
+  fi
+
+  local probe_root="${TMPDIR:-/tmp}"
+  local prompt_input
+  if ! prompt_input="$(cd "$probe_root" && codex debug prompt-input "Global skill discovery check." 2> /dev/null)"; then
+    fail "Codex could not render prompt input for global skill discovery check"
+    return
+  fi
+
+  local skill
+  for skill in "${DISCOVERY_REQUIRED_SKILLS[@]}"; do
+    if [[ "$prompt_input" == *"- ${skill}: (file:"* ]]; then
+      ok "model-visible global skill $skill"
+    else
+      fail "model-visible global skill missing $skill; run python3 scripts/setup/curate-global-skills.py --apply because the initial skill catalog has a bounded metadata budget"
+    fi
+  done
+}
+
 main() {
+  parse_args "$@"
   check_dir "$GLOBAL_SKILL_ROOT" "global skill directory"
   check_dir "$GLOBAL_CODEX_SKILL_ROOT" "global Codex skill directory"
   check_dir "$GLOBAL_AGENT_ROOT" "global agent directory"
@@ -435,6 +511,9 @@ main() {
   check_hook_marker
   check_global_hooks
   check_agents_policy
+  if [[ "$CHECK_DISCOVERY" -eq 1 ]]; then
+    check_skill_discovery
+  fi
 
   if [[ "$FAILURES" -eq 0 ]]; then
     printf 'GLOBAL_DOCTOR_PASS warnings=%s repo=%s\n' "$WARNINGS" "$REPO_ROOT"
