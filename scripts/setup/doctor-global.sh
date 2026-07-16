@@ -459,21 +459,22 @@ check_global_hooks() {
 }
 
 check_skill_discovery() {
-  if ! command -v codex > /dev/null 2>&1; then
+  local codex_bin="${CODEX_BIN:-codex}"
+  if ! command -v "$codex_bin" > /dev/null 2>&1; then
     fail "Codex CLI unavailable for model-visible skill discovery check"
     return
   fi
 
   local probe_root="${TMPDIR:-/tmp}"
   local prompt_input
-  if ! prompt_input="$(cd "$probe_root" && codex debug prompt-input "Global skill discovery check." 2> /dev/null)"; then
+  if ! prompt_input="$(cd "$probe_root" && "$codex_bin" debug prompt-input "Global skill discovery check." 2> /dev/null)"; then
     fail "Codex could not render prompt input for global skill discovery check"
     return
   fi
 
   local skill
   for skill in "${DISCOVERY_REQUIRED_SKILLS[@]}"; do
-    if [[ "$prompt_input" == *"- ${skill}: (file:"* ]]; then
+    if [[ "$prompt_input" == *"- ${skill}: "*"(file:"* ]]; then
       ok "model-visible global skill $skill"
     else
       fail "model-visible global skill missing $skill; run python3 scripts/setup/curate-global-skills.py --apply because the initial skill catalog has a bounded metadata budget"

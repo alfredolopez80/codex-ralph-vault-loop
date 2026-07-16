@@ -12,9 +12,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run_script(home: Path, script: str, *args: str) -> subprocess.CompletedProcess[str]:
+def run_script(
+    home: Path,
+    script: str,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = str(home)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["bash", str(ROOT / "scripts" / "setup" / script), *args],
         cwd=ROOT,
@@ -221,6 +228,50 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Implementation Notes For Approved Plans" not in agents_text
     assert "SFW Package-Manager Protection" not in agents_text
     assert "Codex Productivity Patterns" not in agents_text
+
+
+def test_global_doctor_checks_described_model_visible_skills(tmp_path: Path) -> None:
+    install = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--with-agents",
+        "--allow-worktree-source",
+    )
+    assert install.returncode == 0, install.stderr
+
+    fake_codex = tmp_path / "fake-codex"
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('- improve-prompt: Improve prompts (file: /tmp/improve-prompt/SKILL.md)')\n"
+        "print('- ultrathink: Think deeply (file: /tmp/ultrathink/SKILL.md)')\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    visible = run_script(
+        tmp_path,
+        "doctor-global.sh",
+        "--check-discovery",
+        extra_env={"CODEX_BIN": str(fake_codex)},
+    )
+    assert visible.returncode == 0, visible.stderr + visible.stdout
+    assert "model-visible global skill ultrathink" in visible.stdout
+    assert "model-visible global skill improve-prompt" in visible.stdout
+
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('- ultrathink: Think deeply (file: /tmp/ultrathink/SKILL.md)')\n",
+        encoding="utf-8",
+    )
+    missing = run_script(
+        tmp_path,
+        "doctor-global.sh",
+        "--check-discovery",
+        extra_env={"CODEX_BIN": str(fake_codex)},
+    )
+    assert missing.returncode != 0
+    assert "model-visible global skill missing improve-prompt" in missing.stdout + missing.stderr
 
 
 def test_global_doctor_fails_when_installed_pre_tool_guard_is_stale(tmp_path: Path) -> None:
