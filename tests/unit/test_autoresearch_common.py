@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "autoresearch"))
 
 from common import default_hard_gates, latest_baseline, parse_metrics, validate_asi  # noqa: E402
+from next import candidate_patch_for  # noqa: E402
 
 
 def run_script(script: str, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -130,6 +131,43 @@ def test_cli_generation_spine_writes_bundle(tmp_path: Path) -> None:
     generation = payload["generation"]
     assert Path(generation["path"]).is_dir()
     assert Path(generation["files"]["hard_gates"]).is_file()
+    improvement = Path(generation["files"]["improvement"]).read_text(encoding="utf-8")
+    asi = json.loads(Path(generation["files"]["asi"]).read_text(encoding="utf-8"))
+    decision = json.loads(Path(generation["files"]["decision"]).read_text(encoding="utf-8"))
+
+    assert "Pending synthesis" not in improvement
+    assert "Recommendation status: harness-only" in improvement
+    assert "## Expected Benefit" in improvement
+    assert "## Validation Needed" in improvement
+    assert payload["candidate_patch"] == {
+        "status": "no_candidate",
+        "reason": "not_git_repository",
+        "decision_required": False,
+    }
+    assert decision["status"] == "pending"
+    assert decision["candidate_patch_status"] == "no_candidate"
+    assert decision["decision_required"] is False
+    assert decision["reason"] == "no_candidate_patch"
+    for field in ("hypothesis", "evidence", "rollback_reason", "next_action_hint", "risk"):
+        assert asi[field]
+    assert asi["risk"] == "harness_only"
+
+
+def test_candidate_patch_state_distinguishes_clean_and_untracked_worktrees(tmp_path: Path) -> None:
+    initialized = subprocess.run(["git", "init", "-q"], cwd=tmp_path, text=True, capture_output=True, check=False)
+    assert initialized.returncode == 0, initialized.stderr
+
+    clean = candidate_patch_for(tmp_path)
+    assert clean["status"] == "no_candidate"
+    assert clean["reason"] == "working_tree_clean"
+    assert clean["decision_required"] is False
+
+    (tmp_path / "candidate.py").write_text("candidate = True\n", encoding="utf-8")
+    captured = candidate_patch_for(tmp_path)
+    assert captured["status"] == "captured"
+    assert captured["reason"] == "working_tree_changes_detected"
+    assert captured["decision_required"] is True
+    assert "candidate.py" in str(captured["content"])
 
 
 def test_cli_crash_can_log_without_metric(tmp_path: Path) -> None:
