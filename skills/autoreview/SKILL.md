@@ -10,7 +10,11 @@ when the reviewed content is safe for the selected reviewer engine.
 
 This local Ralph variant changes the upstream defaults:
 
-- Sensitive content blocks review before any reviewer engine is invoked.
+- `.env`, key, certificate, cookie, keystore and log paths are blocked before
+  their contents are read. Source or test paths whose names merely contain
+  terms such as `credentials`, `token`, `secret`, or `wallet` are first
+  inspected by the trusted local sensitive-content classifier; a `RED` result
+  blocks reviewer execution before any engine call.
 - Web search is disabled by default and requires `--web-search`.
 - Untracked files are excluded by default and require `--include-untracked`.
 - `git fetch` is disabled by default and requires `--fetch`.

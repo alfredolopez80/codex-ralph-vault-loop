@@ -77,6 +77,44 @@ def test_main_requires_declared_review_pass(monkeypatch) -> None:
         raise AssertionError("expected missing review pass to fail closed")
 
 
+def test_main_allows_sensitive_named_source_after_green_content_classification(monkeypatch, tmp_path: Path) -> None:
+    cli = load_module("cli")
+    monkeypatch.setattr(cli, "parse_args", lambda: cli_args())
+    patch_review_setup(monkeypatch, cli, tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "changed_paths",
+        lambda repo, target, target_ref, commit, include_untracked: {"desktop-app/test/credentials.ts"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_codex",
+        lambda args, repo, prompt: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}',
+    )
+
+    assert cli.main() == 0
+
+
+def test_main_blocks_sensitive_named_source_when_content_classifier_is_red(monkeypatch, tmp_path: Path) -> None:
+    cli = load_module("cli")
+    monkeypatch.setattr(cli, "parse_args", lambda: cli_args())
+    patch_review_setup(monkeypatch, cli, tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "changed_paths",
+        lambda repo, target, target_ref, commit, include_untracked: {"desktop-app/test/credentials.ts"},
+    )
+    monkeypatch.setattr(cli, "load_classifier", lambda repo: (lambda prompt, sensitivity: {"classification": "RED", "findings": []}))
+    monkeypatch.setattr(cli, "run_codex", lambda args, repo, prompt: (_ for _ in ()).throw(AssertionError("engine must not run")))
+
+    try:
+        cli.main()
+    except SystemExit as exc:
+        assert "bundle contains sensitive material" in str(exc)
+    else:
+        raise AssertionError("expected RED bundle to block reviewer execution")
+
+
 def test_main_rejects_review_total_over_hard_limit(monkeypatch) -> None:
     cli = load_module("cli")
     monkeypatch.setattr(cli, "parse_args", lambda: cli_args(review_pass=1, review_total=11))
@@ -173,6 +211,6 @@ def patch_review_setup(monkeypatch, cli, repo: Path) -> None:
     monkeypatch.setattr(cli, "choose_target", lambda repo, mode, base: ("branch", "origin/main"))
     monkeypatch.setattr(cli, "load_classifier", lambda repo: (lambda prompt, sensitivity: {"classification": "YELLOW", "findings": []}))
     monkeypatch.setattr(cli, "changed_paths", lambda repo, target, target_ref, commit, include_untracked: {"src/app.py"})
-    monkeypatch.setattr(cli, "sensitive_path_matches", lambda paths: [])
+    monkeypatch.setattr(cli, "hard_sensitive_path_matches", lambda paths: [])
     monkeypatch.setattr(cli, "build_bundle", lambda args, repo, target, target_ref: ("diff", target_ref))
     monkeypatch.setattr(cli, "build_prompt", lambda repo, target, target_ref, bundle, extra_prompt, extra_files: "prompt")

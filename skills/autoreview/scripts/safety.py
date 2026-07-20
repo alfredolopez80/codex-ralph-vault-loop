@@ -88,6 +88,12 @@ def report_findings(report: Any) -> list[dict[str, str]]:
 
 
 def is_path_sensitive(path: str) -> bool:
+    """Return whether an arbitrary explicit input/output path needs blocking."""
+    return is_hard_sensitive_path(path) or has_sensitive_name_hint(path)
+
+
+def is_hard_sensitive_path(path: str) -> bool:
+    """Return whether a path must never be read into a review bundle."""
     lowered = path.replace("\\", "/").lower()
     parts = set(Path(lowered).parts)
     if parts & DENIED_PATH_PARTS:
@@ -96,11 +102,28 @@ def is_path_sensitive(path: str) -> bool:
         return True
     if lowered.endswith(DENIED_PATH_SUFFIXES):
         return True
+    return False
+
+
+def has_sensitive_name_hint(path: str) -> bool:
+    """Return whether a path needs content classification before review."""
+    lowered = path.replace("\\", "/").lower()
     return any(item in lowered for item in DENIED_PATH_SUBSTRINGS)
 
 
 def sensitive_path_matches(paths: set[str]) -> list[str]:
     return sorted(path for path in paths if is_path_sensitive(path))
+
+
+def hard_sensitive_path_matches(paths: set[str]) -> list[str]:
+    """Return changed paths that cannot be safely bundled under any policy.
+
+    A source or test name that merely contains ``credentials``, ``token``,
+    ``secret`` or ``wallet`` is not proof that it contains secret material.
+    Such files are bundled only for the trusted local classifier. A RED result
+    blocks reviewer execution before the engine is invoked.
+    """
+    return sorted(path for path in paths if is_hard_sensitive_path(path))
 
 
 def assert_safe_path(path: str, *, context: str) -> None:

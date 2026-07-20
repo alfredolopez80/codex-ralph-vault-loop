@@ -24,6 +24,19 @@ def test_sensitive_path_guard_blocks_extra_context() -> None:
     assert safety.sensitive_path_matches({"config/prod-token.txt", "src/app.py"}) == ["config/prod-token.txt"]
 
 
+def test_sensitive_named_changed_source_is_content_gated_not_hard_blocked() -> None:
+    safety = load_module("safety")
+    paths = {"desktop-app/test/e2e-playwright/credentials.ts", "src/app.py"}
+    assert safety.hard_sensitive_path_matches(paths) == []
+    assert safety.is_path_sensitive("desktop-app/test/e2e-playwright/credentials.ts")
+
+
+def test_hard_sensitive_changed_paths_remain_blocked_before_content_scan() -> None:
+    safety = load_module("safety")
+    paths = {".env.local", "keys/service.pem", "src/app.py"}
+    assert safety.hard_sensitive_path_matches(paths) == [".env.local", "keys/service.pem"]
+
+
 def test_malformed_classifier_result_fails_closed() -> None:
     safety = load_module("safety")
     try:

@@ -20,7 +20,11 @@ python3 skills/autoreview/scripts/autoreview.py --mode commit --commit HEAD --re
 ```
 
 Defaults are Ralph-safe: web search, `git fetch`, and untracked files are all
-opt-in, and sensitive content blocks reviewer execution before any engine call.
+opt-in. `.env`, key, certificate, cookie, keystore and log paths are blocked
+before their contents are read. Source or test paths whose names merely contain
+terms such as `credentials`, `token`, `secret`, or `wallet` are first examined
+by the trusted local sensitive-content classifier; a `RED` result blocks
+reviewer execution before any engine call.
 Execution is also bounded: choose a pass budget from 1 to 10, run each pass at
 most once with `--review-pass N --review-total M`, stop early on a clean pass,
 and stop at pass M even if residual findings remain. Do not commit one finding

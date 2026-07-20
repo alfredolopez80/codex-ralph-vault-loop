@@ -13,7 +13,7 @@ from typing import Any
 
 from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, fetch_origin, load_extra_files, local_bundle, repo_root
 from review import build_prompt, extract_json, print_report, run_codex, validate_report
-from safety import CLASSIFICATIONS, load_classifier, report_classification, report_findings, resolve_safe_repo_output, sensitive_path_matches
+from safety import CLASSIFICATIONS, hard_sensitive_path_matches, load_classifier, report_classification, report_findings, resolve_safe_repo_output
 
 
 ENGINES = ("codex",)
@@ -94,9 +94,9 @@ def main() -> int:
         fetch_origin(repo)
 
     reviewed_paths = changed_paths(repo, target, target_ref, args.commit, include_untracked=args.include_untracked)
-    sensitive_paths = sensitive_path_matches(reviewed_paths)
-    if sensitive_paths:
-        raise SystemExit("refusing review with sensitive changed paths: " + ", ".join(sensitive_paths))
+    hard_sensitive_paths = hard_sensitive_path_matches(reviewed_paths)
+    if hard_sensitive_paths:
+        raise SystemExit("refusing review with hard-sensitive changed paths: " + ", ".join(hard_sensitive_paths))
     bundle, target_ref = build_bundle(args, repo, target, target_ref)
     prompt_chunks = [bounded_review_instructions(args.review_pass, args.review_total), *(args.prompt or [])]
     extra_prompt = "\n\n".join(chunk for chunk in prompt_chunks if chunk)
