@@ -37,6 +37,13 @@ def test_hard_sensitive_changed_paths_remain_blocked_before_content_scan() -> No
     assert safety.hard_sensitive_path_matches(paths) == [".env.local", "keys/service.pem"]
 
 
+def test_report_redacted_text_requires_a_classifier_owned_change() -> None:
+    safety = load_module("safety")
+    assert safety.report_redacted_text({"changed": True, "redacted_text": "safe"}) == "safe"
+    assert safety.report_redacted_text({"changed": False, "redacted_text": "safe"}) is None
+    assert safety.report_redacted_text({"changed": True, "redacted_text": ""}) is None
+
+
 def test_malformed_classifier_result_fails_closed() -> None:
     safety = load_module("safety")
     try:

@@ -115,6 +115,53 @@ def test_main_blocks_sensitive_named_source_when_content_classifier_is_red(monke
         raise AssertionError("expected RED bundle to block reviewer execution")
 
 
+def test_main_uses_classifier_redacted_prompt_before_engine(monkeypatch, tmp_path: Path) -> None:
+    cli = load_module("cli")
+    monkeypatch.setattr(cli, "parse_args", lambda: cli_args())
+    patch_review_setup(monkeypatch, cli, tmp_path)
+    reports = iter(
+        (
+            {
+                "classification": "RED",
+                "findings": [{"kind": "secret_assignment", "label": "secret_like_assignment"}],
+                "changed": True,
+                "redacted_text": "safe prompt",
+            },
+            {"classification": "YELLOW", "findings": [], "changed": False, "redacted_text": "safe prompt"},
+        )
+    )
+    monkeypatch.setattr(cli, "load_classifier", lambda repo: (lambda prompt, sensitivity: next(reports)))
+    captured: dict[str, str] = {}
+
+    def fake_run_codex(args, repo, prompt):
+        captured["prompt"] = prompt
+        return '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence":1}'
+
+    monkeypatch.setattr(
+        cli,
+        "run_codex",
+        fake_run_codex,
+    )
+
+    assert cli.main() == 0
+    assert captured["prompt"] == "safe prompt"
+
+
+def test_main_blocks_when_red_bundle_has_no_safe_redaction(monkeypatch, tmp_path: Path) -> None:
+    cli = load_module("cli")
+    monkeypatch.setattr(cli, "parse_args", lambda: cli_args())
+    patch_review_setup(monkeypatch, cli, tmp_path)
+    monkeypatch.setattr(cli, "load_classifier", lambda repo: (lambda prompt, sensitivity: {"classification": "RED", "findings": [], "changed": False, "redacted_text": ""}))
+    monkeypatch.setattr(cli, "run_codex", lambda args, repo, prompt: (_ for _ in ()).throw(AssertionError("engine must not run")))
+
+    try:
+        cli.main()
+    except SystemExit as exc:
+        assert "bundle contains sensitive material" in str(exc)
+    else:
+        raise AssertionError("expected unredactable RED bundle to block reviewer execution")
+
+
 def test_main_rejects_review_total_over_hard_limit(monkeypatch) -> None:
     cli = load_module("cli")
     monkeypatch.setattr(cli, "parse_args", lambda: cli_args(review_pass=1, review_total=11))

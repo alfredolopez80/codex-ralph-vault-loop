@@ -13,7 +13,7 @@ from typing import Any
 
 from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, fetch_origin, load_extra_files, local_bundle, repo_root
 from review import build_prompt, extract_json, print_report, run_codex, validate_report
-from safety import CLASSIFICATIONS, hard_sensitive_path_matches, load_classifier, report_classification, report_findings, resolve_safe_repo_output
+from safety import CLASSIFICATIONS, hard_sensitive_path_matches, load_classifier, report_classification, report_findings, report_redacted_text, resolve_safe_repo_output
 
 
 ENGINES = ("codex",)
@@ -111,9 +111,20 @@ def main() -> int:
     prompt = build_prompt(repo, target, target_ref, bundle, extra_prompt, extra_files)
     safety = classifier(prompt, args.sensitivity)
     classification = report_classification(safety)
-    print_status(args, repo, target, classification, report_findings(safety), len(prompt))
     if classification == "RED":
-        raise SystemExit("refusing reviewer execution because bundle contains sensitive material")
+        redacted_prompt = report_redacted_text(safety)
+        if redacted_prompt is None:
+            print_status(args, repo, target, classification, report_findings(safety), len(prompt))
+            raise SystemExit("refusing reviewer execution because bundle contains sensitive material")
+        redacted_safety = classifier(redacted_prompt, args.sensitivity)
+        classification = report_classification(redacted_safety)
+        if classification == "RED":
+            print_status(args, repo, target, classification, report_findings(safety), len(prompt))
+            raise SystemExit("refusing reviewer execution because bundle remains sensitive after local redaction")
+        prompt = redacted_prompt
+        print_status(args, repo, target, classification, report_findings(safety), len(prompt), redacted=True)
+    else:
+        print_status(args, repo, target, classification, report_findings(safety), len(prompt))
     if args.web_search and classification != "GREEN":
         raise SystemExit("refusing web search because classified bundle is not GREEN")
     if args.dry_run:
@@ -148,7 +159,16 @@ def main() -> int:
     return 1 if tests_status != 0 or report["findings"] or report["overall_correctness"] == "patch is incorrect" else 0
 
 
-def print_status(args: argparse.Namespace, repo: Path, target: str, classification: str, findings: list[dict[str, str]], prompt_len: int) -> None:
+def print_status(
+    args: argparse.Namespace,
+    repo: Path,
+    target: str,
+    classification: str,
+    findings: list[dict[str, str]],
+    prompt_len: int,
+    *,
+    redacted: bool = False,
+) -> None:
     print(f"autoreview target: {target}", file=sys.stderr)
     print(f"branch: {current_branch(repo)}", file=sys.stderr)
     print(f"engine: {args.engine}", file=sys.stderr)
@@ -159,6 +179,8 @@ def print_status(args: argparse.Namespace, repo: Path, target: str, classificati
     print(f"safety: {classification}", file=sys.stderr)
     if findings:
         print(f"safety_findings: {json.dumps(findings, sort_keys=True)}", file=sys.stderr)
+    if redacted:
+        print("safety_redaction: applied", file=sys.stderr)
     print(f"bundle: {prompt_len} chars", file=sys.stderr)
 
 

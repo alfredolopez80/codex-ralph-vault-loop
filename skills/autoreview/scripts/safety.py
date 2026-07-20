@@ -87,6 +87,19 @@ def report_findings(report: Any) -> list[dict[str, str]]:
     return findings
 
 
+def report_redacted_text(report: Any) -> str | None:
+    """Return classifier-owned redaction only when the classifier changed it."""
+    if isinstance(report, dict):
+        changed = report.get("changed")
+        redacted = report.get("redacted_text")
+    else:
+        changed = getattr(report, "changed", None)
+        redacted = getattr(report, "redacted_text", None)
+    if changed is not True or not isinstance(redacted, str) or not redacted:
+        return None
+    return redacted
+
+
 def is_path_sensitive(path: str) -> bool:
     """Return whether an arbitrary explicit input/output path needs blocking."""
     return is_hard_sensitive_path(path) or has_sensitive_name_hint(path)
