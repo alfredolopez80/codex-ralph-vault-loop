@@ -114,7 +114,7 @@ pass "prompt spanish Aristotle"
 improve_prompt="$(run_python_hook user_prompt_improve.py user-prompt-simple.json)"
 assert_json "$improve_prompt"
 printf '%s' "$improve_prompt" | jq -e \
-  '. | keys == ["hookSpecificOutput"] and .hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains("Improve Prompt Contract"))' \
+  '. | keys == ["hookSpecificOutput"] and .hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains("Prompt contract:"))' \
   > /dev/null || fail "improve prompt hook emitted unsupported context"
 [[ "${#improve_prompt}" -le 768 ]] || fail "improve prompt hook exceeded compact output budget"
 printf '%s' "$improve_prompt" | grep -q 'Explain what this repository does' && fail "improve prompt hook echoed raw prompt"
@@ -244,7 +244,10 @@ assert_json "$loop"
 printf '%s' "$loop" | jq -e '.decision == "block"' > /dev/null || fail "active loop did not block"
 pass "active loop blocks"
 
-implementation_notes_no_plan="$(run_python_hook implementation_notes_guard.py implementation-notes-no-plan.json)"
+NO_PLAN_REPO="$STATE/no-plan-repo"
+mkdir -p "$NO_PLAN_REPO/.codex"
+git init "$NO_PLAN_REPO" > /dev/null 2>&1 || fail "git init no-plan repo"
+implementation_notes_no_plan="$(jq -n --arg cwd "$NO_PLAN_REPO" '{hook_event_name:"Stop", session_id:"implementation-notes-no-plan", cwd:$cwd, last_assistant_message:"Completed a small task without an implementation plan."}' | python3 "$HOOKS/implementation_notes_guard.py")"
 [[ -z "$implementation_notes_no_plan" ]] || fail "implementation notes guard emitted output for no-plan session"
 pass "implementation notes no-plan skips"
 

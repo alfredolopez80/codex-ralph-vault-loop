@@ -77,11 +77,19 @@ def assert_hook_output_contract(event: str, label: str, result: subprocess.Compl
             raise RuntimeError(f"{label} emitted unsupported Stop fields {sorted(extra)}: {output[:200]}")
 
 
-def hook_basenames(config: dict, event: str) -> list[str]:
+def hook_roles(config: dict, event: str) -> list[str]:
     names: list[str] = []
     for group in config.get("hooks", {}).get(event, []):
         for hook in group.get("hooks", []):
-            matches = re.findall(r"([A-Za-z0-9_.-]+\.(?:py|sh))", str(hook.get("command", "")))
+            command = str(hook.get("command", ""))
+            dispatcher = re.search(r"global_hook_dispatch\.py\s+--event\s+\S+\s+--role\s+([a-z_]+)", command)
+            if dispatcher:
+                names.append(dispatcher.group(1))
+                continue
+            if "file_line_guard.py" in command:
+                names.append("file_line_guard_post_tool" if event == "PostToolUse" else "file_line_guard_stop")
+                continue
+            matches = re.findall(r"([A-Za-z0-9_.-]+\.(?:py|sh))", command)
             if matches:
                 names.append(matches[-1])
     return names
@@ -114,25 +122,25 @@ def main() -> int:
         return 1
     config = json.loads(GLOBAL_HOOKS_JSON.read_text(encoding="utf-8"))
     required = {
-        "SessionStart": ["session_start_wakeup.py"],
+        "SessionStart": ["session_start_wakeup"],
         "UserPromptSubmit": [
-            "universal-prompt-classifier.sh",
-            "user_prompt_capture.py",
-            "user_prompt_improve.py",
-            "continuity_prompt_context.py",
+            "universal_prompt_classifier",
+            "user_prompt_capture",
+            "user_prompt_improve",
+            "continuity_prompt_context",
         ],
-        "PreToolUse": ["pre_tool_guard.py"],
+        "PreToolUse": ["pre_tool_guard"],
         "PostToolUse": [
-            "file_line_guard.py",
-            "shaping_ripple.py",
-            "post_tool_extract_memory.py",
-            "post_tool_checkpoint.py",
-            "post_tool_cost_ledger.py",
+            "file_line_guard_post_tool",
+            "shaping_ripple",
+            "post_tool_extract_memory",
+            "post_tool_checkpoint",
+            "post_tool_cost_ledger",
         ],
-        "Stop": ["stop_persist_memory.py", "stop_memory_promotion_review.py"],
+        "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
     }
     for event, names in required.items():
-        sequence = hook_basenames(config, event)
+        sequence = hook_roles(config, event)
         missing = [name for name in names if name not in sequence]
         if missing:
             print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {event} hooks {missing}", file=sys.stderr)
@@ -174,7 +182,7 @@ def main() -> int:
         expected_context = improve_payload.get("hookSpecificOutput", {})
         if expected_context.get("hookEventName") != "UserPromptSubmit":
             raise RuntimeError("user_prompt_improve.py emitted unsupported hook event")
-        if "Improve Prompt Contract" not in str(expected_context.get("additionalContext", "")):
+        if "Prompt contract:" not in str(expected_context.get("additionalContext", "")):
             raise RuntimeError("user_prompt_improve.py omitted compact prompt contract")
         if improve_sentinel in improve.stdout:
             raise RuntimeError("user_prompt_improve.py echoed the raw prompt")

@@ -39,7 +39,7 @@ def active_context_from_payload(payload: dict[str, Any] | None = None) -> Active
     git_root, branch, sha = git_metadata_for(workspace)
     identity_root = git_root or workspace
     remote_url = git_value(identity_root, "config", "--get", "remote.origin.url") if git_root else ""
-    project_slug = safe_slug(identity_root.name)
+    project_slug = safe_slug(remote_repo_name(remote_url) or identity_root.name)
     workspace_instance_id = hash_text(str(workspace.resolve()))[:16]
     return ActiveContext(
         ralph_code_root=REPO_ROOT.resolve(),

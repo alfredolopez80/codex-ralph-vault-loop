@@ -415,15 +415,17 @@ check_global_hooks() {
     fail "global hooks.json missing at $GLOBAL_HOOKS_JSON"
     return
   fi
-  if grep -q "session_start_wakeup.py" "$GLOBAL_HOOKS_JSON" &&
-    grep -q "user_prompt_capture.py" "$GLOBAL_HOOKS_JSON" &&
-    grep -q "user_prompt_improve.py" "$GLOBAL_HOOKS_JSON" &&
-    grep -q "pre_tool_guard.py" "$GLOBAL_HOOKS_JSON"; then
-    ok "global hooks.json includes Ralph lifecycle hooks"
+  if grep -q "global_hook_dispatch.py" "$GLOBAL_HOOKS_JSON" &&
+    grep -q -- "--role session_start_wakeup" "$GLOBAL_HOOKS_JSON" &&
+    grep -q -- "--role user_prompt_capture" "$GLOBAL_HOOKS_JSON" &&
+    grep -q -- "--role user_prompt_improve" "$GLOBAL_HOOKS_JSON" &&
+    grep -q -- "--role pre_tool_guard" "$GLOBAL_HOOKS_JSON"; then
+    ok "global hooks.json includes dispatcher lifecycle roles"
   else
     fail "global hooks.json missing Ralph lifecycle hooks"
   fi
 
+  check_hook_file_matches_source "global_hook_dispatch.py"
   check_hook_file_matches_source "session_start_wakeup.py"
   check_hook_file_matches_source "user_prompt_capture.py"
   check_hook_file_matches_source "user_prompt_improve.py"
@@ -433,7 +435,7 @@ check_global_hooks() {
   local improve_output
   improve_payload='{"hook_event_name":"UserPromptSubmit","prompt":"GLOBAL_DOCTOR_PROMPT_SENTINEL_61927"}'
   improve_output="$(printf '%s' "$improve_payload" | python3 "${GLOBAL_HOOK_ROOT}/user_prompt_improve.py" 2> /dev/null || true)"
-  if [[ "$improve_output" == *"Improve Prompt Contract"* &&
+  if [[ "$improve_output" == *"Prompt contract:"* &&
     "$improve_output" != *"GLOBAL_DOCTOR_PROMPT_SENTINEL_61927"* ]]; then
     ok "global improve-prompt hook emits compact context without echoing the prompt"
   else

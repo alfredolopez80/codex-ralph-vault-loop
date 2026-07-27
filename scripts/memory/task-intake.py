@@ -1159,12 +1159,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
     lines = [
         "# Ralph Task Intake",
         f"sensitivity={payload['sensitivity']}",
-        f"complexity={payload['complexity']}",
         f"task_type={payload['task_type']}",
-        f"route={payload['route']}",
-        f"clarification_required={payload['clarification_required']}",
         f"CLARIFICATION_REQUIRED={payload['clarification_required']}",
-        f"reason={payload['reason']}",
     ]
     if payload["clarification_required"] == "yes":
         lines.append("clarifying_questions=")
@@ -1177,8 +1173,6 @@ def render_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"PROJECT_SLUG={payload['project']}")
     if payload.get("project_id"):
         lines.append(f"PROJECT_ID={payload['project_id']}")
-    if payload.get("workspace_root"):
-        lines.append(f"WORKSPACE_ROOT={payload['workspace_root']}")
     verbose_recall = recall_verbose_enabled()
     if payload.get("recall_output") and (payload.get("memory_status") == "injected" or verbose_recall):
         lines.extend(["", str(payload["recall_output"]).strip()])

@@ -17,131 +17,45 @@ def q(path: Path) -> str:
     return shlex.quote(str(path))
 
 
+HOOK_ROLES: dict[str, tuple[tuple[str, int], ...]] = {
+    "SessionStart": (("session_start_wakeup", 45),),
+    "UserPromptSubmit": (
+        ("universal_prompt_classifier", 10),
+        ("user_prompt_capture", 10),
+        ("user_prompt_improve", 10),
+        ("continuity_prompt_context", 10),
+    ),
+    "PreToolUse": (("pre_tool_guard", 10),),
+    "PostToolUse": (
+        ("file_line_guard_post_tool", 10),
+        ("shaping_ripple", 10),
+        ("post_tool_extract_memory", 10),
+        ("post_tool_checkpoint", 10),
+        ("post_tool_cost_ledger", 10),
+    ),
+    "Stop": (
+        ("anti_rationalization_stop", 10),
+        ("ralph_stop_quality_gate", 10),
+        ("file_line_guard_stop", 20),
+        ("stop_route_decision_warn", 10),
+        ("implementation_notes_guard", 10),
+        ("stop_persist_memory", 20),
+        ("stop_memory_promotion_review", 20),
+    ),
+}
+
+
+def dispatch_command(event: str, role: str) -> str:
+    dispatcher = q(GLOBAL_HOOK_DIR / "global_hook_dispatch.py")
+    return f"python3 {dispatcher} --event {shlex.quote(event)} --role {shlex.quote(role)}"
+
+
 def hook_config() -> dict:
-    hooks = GLOBAL_HOOK_DIR
     return {
         "hooks": {
-            "SessionStart": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'session_start_wakeup.py')}",
-                            "timeout": 45,
-                        }
-                    ]
-                }
-            ],
-            "UserPromptSubmit": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"bash {q(hooks / 'universal-prompt-classifier.sh')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'user_prompt_capture.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'user_prompt_improve.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'continuity_prompt_context.py')}",
-                            "timeout": 10,
-                        }
-                    ]
-                }
-            ],
-            "PreToolUse": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'pre_tool_guard.py')}",
-                            "timeout": 10,
-                        }
-                    ]
-                }
-            ],
-            "PostToolUse": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'file_line_guard.py')} --event PostToolUse",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'shaping_ripple.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'post_tool_extract_memory.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'post_tool_checkpoint.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'post_tool_cost_ledger.py')}",
-                            "timeout": 10,
-                        },
-                    ]
-                }
-            ],
-            "Stop": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"bash {q(hooks / 'anti-rationalization-stop.sh')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"bash {q(hooks / 'ralph-stop-quality-gate.sh')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'file_line_guard.py')} --event Stop",
-                            "timeout": 20,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'stop_route_decision_warn.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'implementation_notes_guard.py')}",
-                            "timeout": 10,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'stop_persist_memory.py')}",
-                            "timeout": 20,
-                        },
-                        {
-                            "type": "command",
-                            "command": f"python3 {q(hooks / 'stop_memory_promotion_review.py')}",
-                            "timeout": 20,
-                        },
-                    ]
-                }
-            ],
-        },
+            event: [{"hooks": [{"type": "command", "command": dispatch_command(event, role), "timeout": timeout} for role, timeout in roles]}]
+            for event, roles in HOOK_ROLES.items()
+        }
     }
 
 

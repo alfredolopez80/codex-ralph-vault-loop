@@ -159,7 +159,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "$ralph-opportunity-scout" in agents_text
     assert "report-only by default" in agents_text
     assert "Do not use `--yolo`" in agents_text
-    assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
+    hooks_text = hooks_json.read_text(encoding="utf-8")
+    assert "global_hook_dispatch.py" in hooks_text
+    assert "--role pre_tool_guard" in hooks_text
     assert "codex_stop_slop_guard.py" not in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
     assert not (tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py").exists()

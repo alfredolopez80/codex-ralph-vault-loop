@@ -8,11 +8,10 @@ from typing import Any
 
 MAX_OUTPUT_BYTES = 768
 ADDITIONAL_CONTEXT = (
-    "Improve Prompt Contract: internally frame every non-empty request while preserving its task type, user values, "
-    "language, format, scope, and authorization. Infer goal, done evidence, constraints and permissions, relevant "
-    "prerequisites and tools, output, and stop rules only where they change behavior. Never expand scope or authority. "
-    "Answer, review, diagnosis, and planning requests do not authorize changes. Keep trivial work lightweight. "
-    "Do not show, quote, or rewrite the user prompt unless the user asks for one."
+    "Prompt contract: preserve task type, language, format, scope, and authority. Infer goal, evidence, constraints, "
+    "tools, and stop rules only when they change behavior. Do not expand scope or authority: answering, reviewing, "
+    "diagnosing, and planning authorize no changes. Keep trivial work light. Never quote or rewrite the prompt "
+    "unless asked."
 )
 
 
