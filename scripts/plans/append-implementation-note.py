@@ -15,6 +15,7 @@ from implementation_notes_lib import (
     resolve_for_write,
     resolve_roots,
 )
+from implementation_index_lib import refresh_notes_metadata
 
 
 def main() -> int:
@@ -50,6 +51,11 @@ def main() -> int:
         )
         ensure_not_red("rendered implementation note entry", entry)
         append_entry(notes_path, entry, args.category)
+        refresh_notes_metadata(
+            primary_root=roots.primary_repo_root,
+            notes_path=notes_path,
+            active_root=roots.active_worktree_root,
+        )
         print(f"IMPLEMENTATION_NOTE_APPENDED {notes_path}")
         return 0
     except ImplementationNotesError as exc:

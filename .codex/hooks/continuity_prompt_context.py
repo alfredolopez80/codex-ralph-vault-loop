@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,13 @@ from shared.checkpoint_io import content_hash as hash_text
 from shared.checkpoint_io import checkpoint_is_injectable, checkpoint_paths, load_latest, render_checkpoint, update_checkpoint
 from shared.paths import append_jsonl, now_iso, read_hook_input, write_json
 from shared.redaction import is_red, safe_preview
+
+PLANS_DIR = Path(__file__).resolve().parents[2] / "scripts" / "plans"
+if str(PLANS_DIR) not in sys.path:
+    sys.path.insert(0, str(PLANS_DIR))
+
+from implementation_context import render_implementation_context, select_implementation_context, selected_entry_hashes  # noqa: E402
+from implementation_notes_lib import ImplementationNotesError, resolve_roots  # noqa: E402
 
 
 CONTINUATION_PHRASES = (
@@ -40,7 +48,7 @@ def main() -> int:
     context = active_context_from_payload(payload)
     session_id = context.session_id
     if is_continuation(prompt):
-        maybe_inject(session_id, context)
+        maybe_inject(prompt, session_id, context)
         return 0
     try:
         maybe_update_objective(prompt, context)
@@ -95,33 +103,77 @@ def looks_like_new_task(prompt: str) -> bool:
     return True
 
 
-def maybe_inject(session_id: str, context: ActiveContext) -> None:
+def maybe_inject(prompt: str, session_id: str, context: ActiveContext) -> None:
+    sections: list[str] = []
+    has_stable_session = session_id != UNKNOWN_SESSION_ID
     try:
         checkpoint = load_latest(context=context)
     except Exception:
+        checkpoint = None
+    if checkpoint and checkpoint_is_injectable(checkpoint, context):
+        content_hash = str(checkpoint.get("content_hash") or "") or hash_text(render_checkpoint(checkpoint))
+        if not has_stable_session or not already_injected(session_id, content_hash, context):
+            rendered = render_checkpoint(checkpoint, max_words=MAX_CONTEXT_WORDS).strip()
+            if rendered and not is_red(rendered):
+                sections.append("Latest rolling checkpoint:\n" + rendered)
+                if has_stable_session:
+                    record_injection(session_id, content_hash, context)
+
+    implementation = implementation_context(prompt, session_id, context)
+    if implementation:
+        sections.append(implementation)
+    if not sections:
         return
-    if not checkpoint or not checkpoint_is_injectable(checkpoint, context):
-        return
-    content_hash = str(checkpoint.get("content_hash") or "")
-    if not content_hash:
-        content_hash = hash_text(render_checkpoint(checkpoint))
-    has_stable_session = session_id != UNKNOWN_SESSION_ID
-    if has_stable_session and already_injected(session_id, content_hash, context):
-        return
-    rendered = render_checkpoint(checkpoint, max_words=MAX_CONTEXT_WORDS).strip()
-    if not rendered or is_red(rendered):
-        return
-    if has_stable_session:
-        record_injection(session_id, content_hash, context)
     write_json(
         {
             "continue": True,
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
-                "additionalContext": "Latest rolling checkpoint:\n" + rendered,
+                "additionalContext": "\n\n".join(sections),
             },
         }
     )
+
+
+def implementation_context(prompt: str, session_id: str, context: ActiveContext) -> str:
+    explicit = "implementation" in normalize(prompt) and ("context" in normalize(prompt) or "notes" in normalize(prompt))
+    try:
+        roots = resolve_roots(context.workspace_root)
+        selection = select_implementation_context(
+            active_root=roots.active_worktree_root,
+            primary_root=roots.primary_repo_root,
+            session_id=session_id,
+            explicit_plan=None,
+        )
+        if selection is None:
+            return ""
+        if not explicit and session_id != UNKNOWN_SESSION_ID and already_injected(
+            session_id, selection.notes_content_hash, context, key="last_implementation_context_hash"
+        ):
+            return ""
+        rendered = render_implementation_context(selection=selection)
+        if not rendered or is_red(rendered):
+            return ""
+        if session_id != UNKNOWN_SESSION_ID:
+            record_injection(session_id, selection.notes_content_hash, context, key="last_implementation_context_hash")
+        append_jsonl(
+            project_runtime_root(context) / "traces" / "implementation-context.jsonl",
+            {
+                "timestamp": now_iso(),
+                "project_id": context.project_id,
+                "workspace_instance_id": selection.workspace_instance_id,
+                "session_id": session_id,
+                "plan_slug": selection.plan_path.stem,
+                "selection_reason": selection.selection_reason,
+                "selected_entry_hashes": selected_entry_hashes(selection),
+                "output_chars": len(rendered),
+                "estimated_context_units": (len(rendered) + 3) // 4,
+                "deduplicated": False,
+            },
+        )
+        return rendered
+    except (ImplementationNotesError, OSError, ValueError):
+        return ""
 
 
 def injection_state_path(context: ActiveContext) -> Path:
@@ -139,15 +191,15 @@ def read_injection_state(context: ActiveContext) -> dict[str, Any]:
     return data if isinstance(data, dict) else {"sessions": {}}
 
 
-def already_injected(session_id: str, content_hash: str, context: ActiveContext) -> bool:
+def already_injected(session_id: str, content_hash: str, context: ActiveContext, key: str = "last_hash") -> bool:
     sessions = read_injection_state(context).get("sessions", {})
     if not isinstance(sessions, dict):
         return False
     state = sessions.get(session_id, {})
-    return isinstance(state, dict) and state.get("last_hash") == content_hash
+    return isinstance(state, dict) and state.get(key) == content_hash
 
 
-def record_injection(session_id: str, content_hash: str, context: ActiveContext) -> None:
+def record_injection(session_id: str, content_hash: str, context: ActiveContext, key: str = "last_hash") -> None:
     path = injection_state_path(context)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = read_injection_state(context)
@@ -155,7 +207,11 @@ def record_injection(session_id: str, content_hash: str, context: ActiveContext)
     if not isinstance(sessions, dict):
         sessions = {}
         data["sessions"] = sessions
-    sessions[session_id] = {"last_hash": content_hash, "injected_at": now_iso(), "project_id": context.project_id}
+    state = sessions.get(session_id, {}) if isinstance(sessions.get(session_id, {}), dict) else {}
+    state[key] = content_hash
+    state[f"{key}_injected_at"] = now_iso()
+    state["project_id"] = context.project_id
+    sessions[session_id] = state
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 

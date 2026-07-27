@@ -16,13 +16,17 @@ from _memory_common import LAYER_FILES, compact_words, ensure_runtime, project_r
 
 MAX_WAKEUP_WORDS = 1_500
 CHECKPOINT_WAKEUP_WORDS = 500
+MAX_IMPLEMENTATION_CONTEXT_WORDS = 250
 HANDOFF_TTL_HOURS = 24
 HANDOFF_FUTURE_SKEW_MINUTES = 5
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = REPO_ROOT / ".codex" / "hooks"
+PLANS_DIR = REPO_ROOT / "scripts" / "plans"
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
+if str(PLANS_DIR) not in sys.path:
+    sys.path.insert(0, str(PLANS_DIR))
 
 from shared.checkpoint_io import (  # noqa: E402
     CheckpointError,
@@ -33,8 +37,10 @@ from shared.checkpoint_io import (  # noqa: E402
     render_checkpoint,
 )
 from shared.active_context import active_context_from_payload  # noqa: E402
-from shared.paths import now_iso  # noqa: E402
+from shared.paths import append_jsonl, now_iso  # noqa: E402
 from shared.redaction import is_red, redact_text  # noqa: E402
+from implementation_context import render_implementation_context, select_implementation_context, selected_entry_hashes  # noqa: E402
+from implementation_notes_lib import ImplementationNotesError, resolve_roots  # noqa: E402
 
 
 def build_context(project_id: str = "", workspace_root: str = "", project: str = "") -> str:
@@ -46,6 +52,10 @@ def build_context(project_id: str = "", workspace_root: str = "", project: str =
         layer_root = global_root if project_id and layer in {"L0", "L1"} else root
         text = read_text(layer_root / "layers" / filename, limit_chars=2_500).strip()
         sections.extend([f"## {layer}", text or "No content.", ""])
+        if layer == "L2":
+            implementation_context = render_implementation_for_wakeup(root, workspace_root, project_id)
+            if implementation_context:
+                sections.extend([implementation_context, ""])
     handoff, handoff_budget = render_handoff_for_wakeup(root, project_id=project_id, workspace_root=workspace_root)
     if handoff:
         sections.extend(["## Latest Handoff", handoff_budget, "", handoff, ""])
@@ -53,6 +63,44 @@ def build_context(project_id: str = "", workspace_root: str = "", project: str =
     if checkpoint:
         sections.extend(["## Latest Rolling Checkpoint", checkpoint, ""])
     return compact_words("\n".join(sections).strip() + "\n", MAX_WAKEUP_WORDS)
+
+
+def render_implementation_for_wakeup(root: Path, workspace_root: str, project_id: str) -> str:
+    session_id = current_session_id()
+    if not workspace_root or not session_id:
+        return ""
+    try:
+        roots = resolve_roots(workspace_root)
+        selection = select_implementation_context(
+            active_root=roots.active_worktree_root,
+            primary_root=roots.primary_repo_root,
+            session_id=session_id,
+            explicit_plan=None,
+        )
+        if selection is None or already_injected(root, session_id, selection.notes_content_hash, key="last_implementation_context_hash"):
+            return ""
+        rendered = render_implementation_context(selection=selection, max_words=MAX_IMPLEMENTATION_CONTEXT_WORDS)
+        if not rendered or is_red(rendered):
+            return ""
+        record_injection(root, session_id, selection.notes_content_hash, key="last_implementation_context_hash")
+        append_jsonl(
+            root / "traces" / "implementation-context.jsonl",
+            {
+                "timestamp": now_iso(),
+                "project_id": project_id,
+                "workspace_instance_id": selection.workspace_instance_id,
+                "session_id": session_id,
+                "plan_slug": selection.plan_path.stem,
+                "selection_reason": selection.selection_reason,
+                "selected_entry_hashes": selected_entry_hashes(selection),
+                "output_chars": len(rendered),
+                "estimated_context_units": (len(rendered) + 3) // 4,
+                "deduplicated": False,
+            },
+        )
+        return rendered
+    except (ImplementationNotesError, OSError, ValueError):
+        return ""
 
 
 def wakeup_active_context(project_id: str = "", workspace_root: str = "", project: str = ""):

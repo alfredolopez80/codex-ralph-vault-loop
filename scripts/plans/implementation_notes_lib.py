@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import os
 import re
@@ -176,6 +177,7 @@ def write_implementation_plan_state(roots: Roots, session_id: str, plan_path: Pa
         "implementation_notes_path": str(notes_path),
         "primary_repo_root": str(roots.primary_repo_root),
         "active_worktree_root": str(roots.active_worktree_root),
+        "workspace_instance_id": hashlib.sha256(str(roots.active_worktree_root.resolve()).encode("utf-8")).hexdigest()[:16],
         "updated_at": now_local(),
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
