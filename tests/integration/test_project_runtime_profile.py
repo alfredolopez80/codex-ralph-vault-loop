@@ -13,5 +13,7 @@ def test_project_runtime_profile_uses_terra_high_with_bounded_multi_agent() -> N
     assert config["model"] == "gpt-5.6-terra"
     assert config["model_reasoning_effort"] == "high"
     assert config["features"]["multi_agent"] is True
+    assert config["features"]["hooks"] is True
+    assert "codex_hooks" not in config["features"]
     assert config["agents"]["max_threads"] == 4
     assert config["agents"]["max_depth"] == 1
