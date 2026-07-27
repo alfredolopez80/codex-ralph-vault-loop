@@ -114,10 +114,12 @@ def invoke_child(event: str, role: str, raw: str, workspace: Path) -> int:
     script = HOOK_DIR / child[0]
     command = ["bash", str(script), *child[1:]] if script.suffix == ".sh" else [sys.executable, str(script), *child[1:]]
     try:
+        child_env = os.environ.copy()
+        child_env["RALPH_HOOK_SCOPE"] = "global"
         completed = subprocess.run(
             command,
             cwd=workspace if workspace.is_dir() else None,
-            env=os.environ.copy(),
+            env=child_env,
             input=raw,
             text=True,
             capture_output=True,
