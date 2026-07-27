@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
-from implementation_notes_lib import ImplementationNotesError, ensure_not_red, now_local, resolve_for_write, run_git
+from implementation_notes_lib import ImplementationNotesError, ensure_not_red, now_local, resolve_for_write, run_git, valid_non_initial_entries
 
 
 INDEX_JSON_NAME = "implementation-index.json"
@@ -74,6 +75,30 @@ def _md_cell(value: object) -> str:
     return str(value or "").replace("\n", " ").replace("|", "\\|")
 
 
+def workspace_instance_id(active_root: Path) -> str:
+    return hashlib.sha256(str(active_root.resolve()).encode("utf-8")).hexdigest()[:16]
+
+
+def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
+    try:
+        entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"))
+    except (ImplementationNotesError, OSError):
+        return {}
+    if not entries:
+        return {}
+    entry = max(entries, key=lambda item: item.fields.get("Timestamp", ""))
+    category = entry.category
+    timestamp = entry.fields.get("Timestamp", "")
+    decision = entry.fields.get("Decision", "")
+    status = entry.fields.get("Status", "")
+    material = "\n".join((category, timestamp, decision, status))
+    return {
+        "latest_entry_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
+        "latest_entry_category": category,
+        "latest_entry_at": timestamp,
+    }
+
+
 def upsert_plan_entry(
     *,
     primary_root: Path,
@@ -107,6 +132,7 @@ def upsert_plan_entry(
             "session_id": session_id,
             "created_at": timestamp,
             "updated_at": timestamp,
+            "workspace_instance_id": workspace_instance_id(active_root),
         }
         data["plans"].append(entry)
     else:
@@ -116,6 +142,7 @@ def upsert_plan_entry(
         entry["pr"] = pr or entry.get("pr", "")
         entry["session_id"] = session_id or entry.get("session_id", "")
         entry["updated_at"] = timestamp
+        entry["workspace_instance_id"] = workspace_instance_id(active_root)
         entry.setdefault("commits", [])
 
     if commit:
@@ -123,6 +150,20 @@ def upsert_plan_entry(
     latest = git_meta["commit"]
     if latest:
         entry["latest_git_sha"] = latest
+    entry.update(latest_entry_metadata(notes_path))
+    write_index(primary_root, data)
+    return entry
+
+
+def refresh_notes_metadata(*, primary_root: Path, notes_path: Path, active_root: Path) -> dict[str, Any] | None:
+    data = load_index(primary_root)
+    notes_rel = _rel(notes_path, primary_root)
+    entry = next((item for item in data["plans"] if isinstance(item, dict) and item.get("notes") == notes_rel), None)
+    if entry is None:
+        return None
+    entry["workspace_instance_id"] = workspace_instance_id(active_root)
+    entry["updated_at"] = now_local()
+    entry.update(latest_entry_metadata(notes_path))
     write_index(primary_root, data)
     return entry
 

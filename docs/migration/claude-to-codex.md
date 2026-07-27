@@ -6,6 +6,16 @@ To use the overlay in Codex App, open this repository as the working folder. Con
 
 The main runtime differences are deliberate. Codex main remains OpenAI-backed and owns final decisions. Z.ai and MiniMax are not configured as completion backends. The migration explicitly rejects direct `model_provider` entries for those vendors because the supported path is MCP tool use with sanitized GREEN or YELLOW context.
 
+## Runtime Posture
+
+The project default is `gpt-5.6-terra` with high reasoning. Multi-agent work
+remains enabled with four concurrent threads and one delegation level.
+
+For complexity 7-8 work, recommend `gpt-5.6-sol` with medium reasoning at the
+task or session level. The overlay may recommend that escalation but does not
+claim to switch the active main-thread model automatically. Complexity 9-10 or
+Sol reasoning above medium requires an explicit user decision.
+
 Claude concepts that relied on broad team-style coordination or teammate lifecycle events were rewritten as Codex subagents, hooks, gates, ledgers, and handoff files. External model output is advisory. Local implementation happens through Codex main or a narrow coder/tester subagent.
 
 Related phases: [PHASE_02](checkpoints/PHASE_02.md), [PHASE_03](checkpoints/PHASE_03.md), [PHASE_08](checkpoints/PHASE_08.md), [PHASE_15](checkpoints/PHASE_15.md), [PHASE_16](checkpoints/PHASE_16.md).

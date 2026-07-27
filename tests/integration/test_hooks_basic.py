@@ -127,7 +127,7 @@ def test_user_prompt_improve_emits_constant_compact_context_without_raw_prompt_o
     payload = json.loads(first.stdout)
     assert set(payload) == {"hookSpecificOutput"}
     assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-    assert "Improve Prompt Contract" in payload["hookSpecificOutput"]["additionalContext"]
+    assert "Prompt contract:" in payload["hookSpecificOutput"]["additionalContext"]
     assert list(tmp_path.iterdir()) == []
 
 
@@ -1333,13 +1333,14 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
     config = json.loads(result.stdout[json_start:])
     post_commands = [hook["command"] for hook in config["hooks"]["PostToolUse"][0]["hooks"]]
     stop_commands = [hook["command"] for hook in config["hooks"]["Stop"][0]["hooks"]]
-    assert any("file_line_guard.py --event PostToolUse" in command for command in post_commands)
-    assert any("shaping_ripple.py" in command for command in post_commands)
-    assert any("file_line_guard.py --event Stop" in command for command in stop_commands)
+    assert all("global_hook_dispatch.py" in command for command in post_commands + stop_commands)
+    assert any("--role file_line_guard_post_tool" in command for command in post_commands)
+    assert any("--role shaping_ripple" in command for command in post_commands)
+    assert any("--role file_line_guard_stop" in command for command in stop_commands)
     assert not any("codex_stop_slop_guard.py" in command for command in stop_commands)
-    assert any("stop_memory_promotion_review.py" in command for command in stop_commands)
-    assert next(i for i, command in enumerate(stop_commands) if "file_line_guard.py --event Stop" in command) < next(
-        i for i, command in enumerate(stop_commands) if "stop_route_decision_warn.py" in command
+    assert any("--role stop_memory_promotion_review" in command for command in stop_commands)
+    assert next(i for i, command in enumerate(stop_commands) if "--role file_line_guard_stop" in command) < next(
+        i for i, command in enumerate(stop_commands) if "--role stop_route_decision_warn" in command
     )
 
 

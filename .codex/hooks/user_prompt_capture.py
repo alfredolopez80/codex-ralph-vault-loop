@@ -43,7 +43,7 @@ def capture_safe_prompt(prompt: str, context: ActiveContext) -> None:
             },
         )
     except Exception:
-        print("RALPH_USER_PROMPT_CAPTURE_STATUS=failed")
+        return
 
 
 def run_task_intake(payload: dict, context: ActiveContext) -> None:

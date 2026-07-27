@@ -9,7 +9,7 @@ from shared.redaction import is_red, safe_preview
 from shared.vault_io import save_learning, write_handoff
 
 
-CHECKPOINT_HANDOFF_WORDS = 350
+CHECKPOINT_HANDOFF_WORDS = 180
 MEMORY_TRACE_KEYS = ("selected_memory_ids", "memory_rejected", "recall_status", "fallback_used")
 
 
@@ -55,7 +55,7 @@ def main() -> int:
             return 0
         if is_red(message):
             return 0
-        text = safe_preview(message, limit=6_000)
+        text = safe_preview(message, limit=2_000)
         checkpoint_section, next_step = checkpoint_for_handoff(context)
         memory_trace = memory_trace_for_handoff(payload)
         sections = [section for section in (checkpoint_section, memory_trace, f"## Final Assistant Message\n\n{text}") if section]

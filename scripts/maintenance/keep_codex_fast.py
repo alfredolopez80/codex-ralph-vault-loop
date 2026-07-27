@@ -237,6 +237,7 @@ def report_context_health(codex_home: Path, details: bool, verbose: bool) -> Non
             oversized.append((path, estimate))
 
     report("context_health")
+    report("context_measurement_scope local_estimate_not_subscription_usage")
     report(f"context_handoff_latest_count {len(handoffs)}")
     report(f"context_handoff_recent_count {len(recent_handoffs)}")
     report(f"context_handoff_latest_total_kb {sum(path.stat().st_size for path in handoffs) / 1024:.1f}")
@@ -244,6 +245,8 @@ def report_context_health(codex_home: Path, details: bool, verbose: bool) -> Non
     report(f"context_handoff_recent_oversized_count {len(oversized)}")
     if latest_handoff:
         report(f"context_handoff_latest_kb {latest_handoff.stat().st_size / 1024:.1f}")
+        report(f"context_handoff_latest_chars {latest_estimate['chars']}")
+        report(f"context_handoff_latest_words {latest_estimate['words']}")
         report(f"context_handoff_latest_estimated_tokens {latest_estimate['estimated_tokens']}")
         if details:
             report(f"context_handoff_latest_path {latest_handoff}")

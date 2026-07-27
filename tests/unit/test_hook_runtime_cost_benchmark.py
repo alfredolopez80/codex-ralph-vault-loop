@@ -36,6 +36,28 @@ def test_hook_runtime_cost_benchmark_emits_metrics_contract(tmp_path: Path) -> N
     assert report["iterations"] == 1
     assert {case["payload"] for case in report["cases"]} >= {"simple", "implementation", "continuation"}
     assert "user_prompt_improve" in {case["hook"] for case in report["cases"]}
+    assert {case["effective_config"] for case in report["cases"]} == {
+        "project_only",
+        "global_only",
+        "global_plus_project",
+    }
+    assert {case["source_scope"] for case in report["cases"]} >= {"project", "global", "suppressed_global"}
+    required_case_fields = {
+        "event",
+        "role",
+        "stdout_chars",
+        "estimated_context_units",
+        "runtime_p50_ms",
+        "runtime_p95_ms",
+        "block_count",
+        "continuation_count",
+        "persisted_bytes",
+    }
+    assert all(required_case_fields <= set(case) for case in report["cases"])
+    assert report["duplicate_roles"] == []
+    assert len(report["suppressed_roles"]) == 18
+    assert report["successful_post_tool_stdout_chars"] == 0
+    assert report["successful_stop_stdout_chars"] == 0
     assert "METRIC hook_cost_score=" in result.stdout
     assert "METRIC hook_total_p50_ms=" in result.stdout
     assert "METRIC hook_output_context_units=" in result.stdout

@@ -549,7 +549,7 @@ def test_memory_trace_records_scope_counts_rejections_and_injection() -> None:
         assert project == "codex-ralph-vault-loop"
         assert current_branch in query
         assert project_id == "p-trace"
-        assert workspace_root.endswith("codex-ralph-vault-loop")
+        assert Path(workspace_root).resolve() == REPO_ROOT.resolve()
         assert limit == 6
         return (
             "ran",

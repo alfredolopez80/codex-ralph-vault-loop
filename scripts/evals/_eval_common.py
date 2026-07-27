@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +25,8 @@ from diagnostic_json import write_json as write_sanitized_json  # noqa: E402
 from sensitive_content import is_red  # noqa: E402
 
 SCORECARD_DIR = REPO_ROOT / "config" / "scorecards"
-REPORT_DIR = REPO_ROOT / ".ralph-codex" / "reports" / "evals"
+DEFAULT_RUNTIME_ROOT = Path(os.environ.get("RALPH_HOME", str(REPO_ROOT / ".ralph-codex"))).expanduser()
+REPORT_DIR = Path(os.environ.get("RALPH_EVAL_REPORT_DIR", str(DEFAULT_RUNTIME_ROOT / "reports" / "evals"))).expanduser()
 RASS_WEIGHTS = {
     "effectiveness": 0.35,
     "efficiency": 0.20,

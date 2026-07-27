@@ -68,6 +68,20 @@ The lifecycle is:
 - Commits without an approved plan can be registered as `loose_commit` entries
   through `scripts/plans/update-implementation-index.py`.
 
+## Bounded Recovery Context
+
+The HTML notes remain durable human history and are never injected wholesale
+into prompt context. `scripts/plans/read-implementation-context.py` selects one
+matching approved active plan from explicit state, the current session, or the
+current workspace instance index, then renders only the objective and the latest
+material decisions, deviations, open questions, and validation findings.
+
+The rendered recovery context is capped at 2,000 characters, 250 words, and an
+estimated 500 context units. Wakeup and continuation inject it only once per
+session and content hash. Their trace records selected entry hashes and the
+budget figures, never the rendered note content. This preserves implementation
+history as a recovery aid without turning it into repeated full-session context.
+
 ## What To Record
 
 Record timestamped entries for:

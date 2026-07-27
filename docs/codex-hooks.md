@@ -129,6 +129,24 @@ writes. Set
 | Compact lifecycle        | `PreCompact` / `PostCompact`                                                                               | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                                              |
 | Weekly validation        | Codex App automation                                                                                       | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                                                    |
 
+## Effective Registration And Cost Attribution
+
+Global installation registers the allowlisted `global_hook_dispatch.py` roles,
+not a second independent lifecycle. The dispatcher first checks the active
+project `.codex/hooks.json`; a project role suppresses its global equivalent.
+When the project has no semantic equivalent, the dispatcher runs the global
+child with `RALPH_HOOK_SCOPE=global`. This preserves hook behavior while
+preventing duplicate prompt context, checkpoint writes, and Stop persistence.
+
+`post_tool_cost_ledger.py` writes only compact local attribution: hook event and
+role, source scope, an explicit duplicate-suppressed flag for the emitted
+observer, tool and route families, response-character count, truncation marker,
+and a four-characters per estimated-context-unit heuristic. It never persists the measured output or
+claims to measure Codex Pro subscription usage. Use the Codex usage surface for
+actual subscription data; use the ledger and
+`python3 scripts/maintenance/keep_codex_fast.py --context-health` to compare
+local operational context pressure before and after a change.
+
 ## Manual Tests
 
 Run the local hook smoke suite:

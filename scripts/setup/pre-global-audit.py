@@ -45,13 +45,41 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def hook_role(event: str, command: str) -> str:
+    dispatcher = re.search(r"global_hook_dispatch\.py\s+--event\s+\S+\s+--role\s+([a-z_]+)", command)
+    if dispatcher:
+        return dispatcher.group(1)
+    if "file_line_guard.py" in command:
+        return "file_line_guard_post_tool" if event == "PostToolUse" else "file_line_guard_stop"
+    matches = re.findall(r"([A-Za-z0-9_.-]+\.(?:py|sh))", command)
+    basename = matches[-1] if matches else command
+    roles = {
+        "session_start_wakeup.py": "session_start_wakeup",
+        "universal-prompt-classifier.sh": "universal_prompt_classifier",
+        "user_prompt_capture.py": "user_prompt_capture",
+        "user_prompt_improve.py": "user_prompt_improve",
+        "continuity_prompt_context.py": "continuity_prompt_context",
+        "pre_tool_guard.py": "pre_tool_guard",
+        "shaping_ripple.py": "shaping_ripple",
+        "post_tool_extract_memory.py": "post_tool_extract_memory",
+        "post_tool_checkpoint.py": "post_tool_checkpoint",
+        "post_tool_cost_ledger.py": "post_tool_cost_ledger",
+        "anti-rationalization-stop.sh": "anti_rationalization_stop",
+        "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
+        "stop_route_decision_warn.py": "stop_route_decision_warn",
+        "implementation_notes_guard.py": "implementation_notes_guard",
+        "stop_persist_memory.py": "stop_persist_memory",
+        "stop_memory_promotion_review.py": "stop_memory_promotion_review",
+    }
+    return roles.get(basename, basename)
+
+
 def basename_pairs(config: dict[str, Any], event: str) -> list[dict[str, Any]]:
     pairs: list[dict[str, Any]] = []
     for group in config.get("hooks", {}).get(event, []):
         for hook in group.get("hooks", []):
             command = str(hook.get("command", ""))
-            matches = re.findall(r"([A-Za-z0-9_.-]+\.(?:py|sh))", command)
-            pairs.append({"basename": matches[-1] if matches else command, "timeout": int(hook.get("timeout", 0))})
+            pairs.append({"basename": hook_role(event, command), "timeout": int(hook.get("timeout", 0))})
     return pairs
 
 
@@ -109,13 +137,13 @@ def global_hook_diff() -> dict[str, Any]:
             mismatches.append(event)
     preserved = {
         "UserPromptSubmit": [
-            "universal-prompt-classifier.sh",
-            "user_prompt_capture.py",
-            "user_prompt_improve.py",
-            "continuity_prompt_context.py",
+            "universal_prompt_classifier",
+            "user_prompt_capture",
+            "user_prompt_improve",
+            "continuity_prompt_context",
         ],
-        "PostToolUse": ["post_tool_extract_memory.py", "post_tool_checkpoint.py", "post_tool_cost_ledger.py"],
-        "Stop": ["stop_persist_memory.py", "stop_memory_promotion_review.py"],
+        "PostToolUse": ["post_tool_extract_memory", "post_tool_checkpoint", "post_tool_cost_ledger"],
+        "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
     }
     order_failures: list[str] = []
     for event, names in preserved.items():
@@ -134,12 +162,12 @@ def global_hook_diff() -> dict[str, Any]:
 
 def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
     hook_budgets = {
-        "user_prompt_improve.py": 10,
-        "continuity_prompt_context.py": 10,
-        "post_tool_checkpoint.py": 10,
-        "stop_persist_memory.py": 20,
-        "stop_memory_promotion_review.py": 20,
-        "session_start_wakeup.py": 45,
+        "user_prompt_improve": 10,
+        "continuity_prompt_context": 10,
+        "post_tool_checkpoint": 10,
+        "stop_persist_memory": 20,
+        "stop_memory_promotion_review": 20,
+        "session_start_wakeup": 45,
     }
     entries: list[dict[str, Any]] = []
     failures: list[str] = []

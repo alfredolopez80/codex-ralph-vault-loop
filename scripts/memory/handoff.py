@@ -13,7 +13,7 @@ from classify_learning import classify_learning
 
 
 MAX_HOOK_SUMMARY_CHARS = 2_000
-CHECKPOINT_HANDOFF_WORDS = 350
+CHECKPOINT_HANDOFF_WORDS = 180
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = REPO_ROOT / ".codex" / "hooks"
@@ -21,6 +21,7 @@ if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 from shared.checkpoint_io import CheckpointError, classify_payload, load_latest, render_checkpoint  # noqa: E402
+from shared.handoff_compaction import DEFAULT_HANDOFF_MAX_WORDS, compact_handoff_summary  # noqa: E402
 from shared.redaction import is_red, safe_preview  # noqa: E402
 
 
@@ -65,6 +66,11 @@ def write_handoff(
     if classify_learning(summary) == "RED" or (next_step and classify_learning(next_step) == "RED"):
         return None
     root = ensure_runtime(root)
+    try:
+        max_words = int(os.environ.get("RALPH_HANDOFF_MAX_WORDS", DEFAULT_HANDOFF_MAX_WORDS))
+    except ValueError:
+        max_words = DEFAULT_HANDOFF_MAX_WORDS
+    summary = compact_handoff_summary(summary, next_step=next_step, max_words=max_words)
     metadata = {
         "created_at": now_iso(),
         "status": status,

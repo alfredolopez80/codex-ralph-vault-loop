@@ -159,7 +159,9 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "$ralph-opportunity-scout" in agents_text
     assert "report-only by default" in agents_text
     assert "Do not use `--yolo`" in agents_text
-    assert "pre_tool_guard.py" in hooks_json.read_text(encoding="utf-8")
+    hooks_text = hooks_json.read_text(encoding="utf-8")
+    assert "global_hook_dispatch.py" in hooks_text
+    assert "--role pre_tool_guard" in hooks_text
     assert "codex_stop_slop_guard.py" not in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
     assert not (tmp_path / ".codex" / "hooks" / "codex_stop_slop_guard.py").exists()
@@ -377,7 +379,8 @@ def test_router_global_installer_dry_run_includes_agents_and_hooks(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     assert ".codex/agents/ralph-coder.toml" in result.stdout
     assert ".codex/hooks.json" in result.stdout
-    assert "stop_route_decision_warn.py" in result.stdout
+    assert "global_hook_dispatch.py" in result.stdout
+    assert "--role stop_route_decision_warn" in result.stdout
     assert not (tmp_path / ".codex").exists()
 
 

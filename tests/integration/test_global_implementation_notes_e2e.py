@@ -67,7 +67,9 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
     hooks_json = home / ".codex" / "hooks.json"
     agents_md = home / ".codex" / "AGENTS.md"
     assert installed_hook.is_file()
-    assert str(installed_hook) in hooks_json.read_text(encoding="utf-8")
+    hooks_text = hooks_json.read_text(encoding="utf-8")
+    assert "global_hook_dispatch.py" in hooks_text
+    assert "--role implementation_notes_guard" in hooks_text
     assert "implementation-index.json" in agents_md.read_text(encoding="utf-8")
     assert (home / ".codex" / "hooks" / ".ralph-repo-root").read_text(encoding="utf-8").strip() == str(ROOT)
 
