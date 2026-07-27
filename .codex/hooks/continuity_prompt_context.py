@@ -10,10 +10,10 @@ from typing import Any
 from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
 from shared.checkpoint_io import content_hash as hash_text
 from shared.checkpoint_io import checkpoint_is_injectable, checkpoint_paths, load_latest, render_checkpoint, update_checkpoint
-from shared.paths import append_jsonl, now_iso, read_hook_input, write_json
+from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input, write_json
 from shared.redaction import is_red, safe_preview
 
-PLANS_DIR = Path(__file__).resolve().parents[2] / "scripts" / "plans"
+PLANS_DIR = REPO_ROOT / "scripts" / "plans"
 if str(PLANS_DIR) not in sys.path:
     sys.path.insert(0, str(PLANS_DIR))
 
@@ -36,7 +36,7 @@ CONTINUATION_PHRASES = (
     "pick it up",
 )
 EXACT_CONTINUATION_PROMPTS = {"resume"}
-MAX_CONTEXT_WORDS = 300
+MAX_CONTEXT_WORDS = 180
 UNKNOWN_SESSION_ID = "unknown"
 
 

@@ -109,6 +109,34 @@ def test_stop_handoff_falls_back_without_checkpoint(tmp_path: Path) -> None:
     assert "## Rolling Checkpoint" not in text
 
 
+def test_stop_handoff_compacts_oversized_checkpoint_and_final_message(tmp_path: Path) -> None:
+    update = run_checkpoint(
+        tmp_path,
+        "--update",
+        "--objective",
+        "Implement bounded lifecycle handoff.",
+        "--current-phase",
+        "Phase 5",
+        "--last-verified-state",
+        " ".join(f"verified{i}" for i in range(700)),
+        "--next-action",
+        "Run compact lifecycle validation.",
+        "--validation-status",
+        "partial",
+        *project_checkpoint_args(),
+    )
+    assert update.returncode == 0, update.stderr
+
+    result = run_stop_hook(tmp_path, {"last_assistant_message": " ".join(f"message{i}" for i in range(1_200))})
+
+    assert result.returncode == 0, result.stderr
+    text = latest_handoff(tmp_path)
+    assert "## Rolling Checkpoint" in text
+    assert "message1199" not in text
+    assert "verified699" not in text
+    assert len(text) <= 9_500
+
+
 def test_stop_handoff_skips_red_final_message(tmp_path: Path) -> None:
     red_text = "token" + "=abc123"
     result = run_stop_hook(tmp_path, {"last_assistant_message": red_text})
