@@ -80,3 +80,29 @@ def test_render_implementation_context_preserves_required_sections_within_budget
     assert rendered.index("### Open Questions") < rendered.index("### Validation")
     assert "Source notes:" in rendered
     assert "Preserve material implementation decisions" in rendered
+
+
+def test_render_implementation_context_reserves_structure_before_long_entry_details(tmp_path: Path) -> None:
+    selection = selection_fixture(tmp_path)
+    for index, category in enumerate(("decision", "decision", "deviation", "deviation", "open-question", "open-question", "validation")):
+        append_entry(
+            selection.notes_path,
+            entry_html(
+                category=category,
+                decision=(f"{category} {index} " + "detail " * 180).strip(),
+                reason="reason " * 120,
+                impact="impact " * 100,
+                related_files=["scripts/plans/read-implementation-context.py"],
+                status="active",
+                timestamp=f"2026-07-27T10:{10 + index:02d}:00+00:00",
+            ),
+            category,
+        )
+
+    rendered = render_implementation_context(selection=selection)
+
+    assert len(rendered) <= 2_000
+    assert len(rendered.split()) <= 250
+    for heading in ("### Decisions", "### Deviations", "### Open Questions", "### Validation"):
+        assert heading in rendered
+    assert f"Source notes: {selection.notes_path}" in rendered

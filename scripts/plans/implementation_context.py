@@ -134,18 +134,34 @@ def render_implementation_context(
     text = selection.notes_path.read_text(encoding="utf-8")
     entries = valid_non_initial_entries(text)
     status, objective = plan_identity(selection.plan_path)
-    lines = [
+    header = [
         "## Active Implementation Context",
         f"Plan: {plan_title(selection.plan_path)}",
         f"Status: {status or 'active'}",
         f"Objective: {objective}",
     ]
-    append_entries(lines, "### Decisions", entries_for(entries, "decision", 3), include_reason=True)
-    append_entries(lines, "### Deviations", entries_for(entries, "deviation", 2, unresolved=True), include_reason=False)
-    append_entries(lines, "### Open Questions", entries_for(entries, "open-question", 3, unresolved=True), include_reason=False)
-    append_entries(lines, "### Validation", entries_for(entries, "validation", 2), include_reason=False)
-    lines.append(f"Source notes: {selection.notes_path}")
-    return enforce_budget("\n".join(lines), max_chars, max_words, max_context_units)
+    sections = [
+        ("### Decisions", entries_for(entries, "decision", 3), True),
+        ("### Deviations", entries_for(entries, "deviation", 2, unresolved=True), False),
+        ("### Open Questions", entries_for(entries, "open-question", 3, unresolved=True), False),
+        ("### Validation", entries_for(entries, "validation", 2), False),
+    ]
+    selected_lines: list[list[str]] = [[] for _heading, _entries, _reason in sections]
+    source = f"Source notes: {selection.notes_path}"
+
+    for section_index, (_heading, section_entries, include_reason) in enumerate(sections):
+        for entry in section_entries:
+            full = entry_line(entry, include_reason=include_reason)
+            compact = entry_line(entry, include_reason=False)
+            for candidate in (full, compact, compact_entry_line(entry)):
+                proposed = [*selected_lines[section_index], candidate]
+                trial = [*selected_lines]
+                trial[section_index] = proposed
+                if within_budget(render_context_lines(header, sections, trial, source), max_chars, max_words, max_context_units):
+                    selected_lines[section_index] = proposed
+                    break
+
+    return render_context_lines(header, sections, selected_lines, source)
 
 
 def selected_entry_hashes(selection: ImplementationContextSelection) -> list[str]:
@@ -205,20 +221,33 @@ def entry_order(entry: ParsedEntry) -> tuple[datetime, str]:
         return datetime.min, value
 
 
-def append_entries(lines: list[str], heading: str, entries: list[ParsedEntry], include_reason: bool) -> None:
-    lines.append(heading)
-    if not entries:
-        lines.append("- None recorded.")
-        return
-    for entry in entries:
-        decision = compact_field(entry.fields.get("Decision", ""), 220)
-        impact = compact_field(entry.fields.get("Impact", ""), 160)
-        detail = f"- {decision}"
-        if include_reason:
-            detail += f"; reason: {compact_field(entry.fields.get('Reason', ''), 170)}"
-        if impact:
-            detail += f"; impact: {impact}"
-        lines.append(detail)
+def entry_line(entry: ParsedEntry, *, include_reason: bool) -> str:
+    decision = compact_field(entry.fields.get("Decision", ""), 220)
+    impact = compact_field(entry.fields.get("Impact", ""), 160)
+    detail = f"- {decision}"
+    if include_reason:
+        detail += f"; reason: {compact_field(entry.fields.get('Reason', ''), 170)}"
+    if impact:
+        detail += f"; impact: {impact}"
+    return detail
+
+
+def compact_entry_line(entry: ParsedEntry) -> str:
+    return f"- {compact_field(entry.fields.get('Decision', ''), 96)}"
+
+
+def render_context_lines(
+    header: list[str],
+    sections: list[tuple[str, list[ParsedEntry], bool]],
+    selected_lines: list[list[str]],
+    source: str,
+) -> str:
+    lines = [*header]
+    for (heading, entries, _include_reason), section_lines in zip(sections, selected_lines, strict=True):
+        lines.append(heading)
+        lines.extend(section_lines or (["- None recorded."] if not entries else []))
+    lines.append(source)
+    return "\n".join(lines)
 
 
 def compact_field(value: str, limit: int) -> str:
@@ -226,22 +255,8 @@ def compact_field(value: str, limit: int) -> str:
     return normalized if len(normalized) <= limit else normalized[: limit - 3].rstrip() + "..."
 
 
-def enforce_budget(text: str, max_chars: int, max_words: int, max_units: int) -> str:
-    char_limit = min(max_chars, max_units * 4)
-    output: list[str] = []
-    words = 0
-    chars = 0
-    for line in text.splitlines():
-        line_words = len(line.split())
-        separator = 1 if output else 0
-        if chars + len(line) + separator > char_limit or words + line_words > max_words:
-            continue
-        output.append(line)
-        chars += len(line) + separator
-        words += line_words
-    rendered = "\n".join(output).strip()
-    if "Source notes:" not in rendered:
-        source = next((line for line in text.splitlines() if line.startswith("Source notes:")), "")
-        if source and len(rendered) + len(source) + 1 <= char_limit:
-            rendered = f"{rendered}\n{source}".strip()
-    return rendered
+def within_budget(text: str, max_chars: int, max_words: int, max_units: int) -> bool:
+    return (
+        len(text) <= min(max_chars, max_units * 4)
+        and len(text.split()) <= max_words
+    )
