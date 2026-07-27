@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,31 @@ def vault_dir() -> Path:
 
 
 def default_project() -> str:
-    return sanitize_slug(os.environ.get("VAULT_PROJECT") or Path.cwd().name or "default")
+    explicit = os.environ.get("VAULT_PROJECT")
+    if explicit:
+        return sanitize_slug(explicit)
+    return sanitize_slug(remote_project_name(Path.cwd()) or Path.cwd().name or "default")
+
+
+def remote_project_name(cwd: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=2,
+        )
+    except OSError:
+        return ""
+    if result.returncode != 0:
+        return ""
+    remote = result.stdout.strip().rstrip("/")
+    if not remote:
+        return ""
+    name = remote.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return name[:-4] if name.endswith(".git") else name
 
 
 def default_agent() -> str:
