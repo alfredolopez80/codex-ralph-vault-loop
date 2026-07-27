@@ -22,6 +22,17 @@ govern the session.
 | `/permissions`              | Do not adopt                     | Existing sandbox and Ralph guardrails govern permissions.                                     |
 | `--yolo`                    | Do not adopt                     | It conflicts with shared work and production or private local workflows.                      |
 
+## Runtime Posture
+
+Use `gpt-5.6-terra` with high reasoning as the project default. Keep
+`multi_agent = true`, use at most four concurrent threads, and keep
+`max_depth = 1` so delegated agents cannot create another delegation layer.
+
+For complexity 7-8 work, recommend `gpt-5.6-sol` with medium reasoning. For
+complexity 9-10 work or reasoning above Sol/medium, ask the user to choose the
+model and reasoning level explicitly. Routing guidance is advisory; it does
+not switch the active main-thread model.
+
 ## Prompt Templates
 
 Use `Done when:` for any task where the stopping point could be ambiguous:
