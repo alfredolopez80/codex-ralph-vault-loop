@@ -18,8 +18,10 @@ live in [`docs/codex-productivity-patterns.md`](./codex-productivity-patterns.md
 | Global Codex path | `~/.codex/skills/ultrathink` | `~/.codex/skills/improve-prompt` |
 | Automatic behavior | Default design-minded workflow from global policy | Compact internal request framing from `user_prompt_improve.py` |
 
-`improve-prompt` converts prompt stacks into lean outcome contracts for GPT-5.6
-Sol and the GPT-5.6 family. The global prompt hook applies only its compact,
+`improve-prompt` converts prompt stacks into lean outcome contracts for the
+GPT-5.6 family. Terra with high reasoning remains the project default; Sol with
+medium reasoning is an advisory choice for scoped complexity 7-8 work. The
+global prompt hook applies only its compact,
 safe framing to every non-empty user request: preserve task type and explicit
 values, infer the completion contract where useful, never expand authority, and
 do not expose or persist a rewritten prompt. Explicit `$improve-prompt` use

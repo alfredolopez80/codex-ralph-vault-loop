@@ -26,6 +26,13 @@ if str(SECURITY_DIR) not in sys.path:
 from sensitive_content import is_red  # noqa: E402
 
 
+ADVISOR_OUTPUT_CONTRACT = "Return concise sections: verdict, findings, evidence, risk, next_action, confidence."
+ZAI_DEEP_DEFAULT_MAX_TOKENS = 3000
+ZAI_FAST_DEFAULT_MAX_TOKENS = 1500
+MINIMAX_FAST_DEFAULT_MAX_TOKENS = 1500
+MINIMAX_STANDARD_DEFAULT_MAX_TOKENS = 2000
+
+
 class ModelResult(BaseModel):
     provider: str
     model: str
@@ -254,8 +261,8 @@ def validate_coding_models() -> dict[str, Any]:
 @mcp.tool()
 def zai_coding_deep(
     prompt: str,
-    system: str = "You are GLM-5.1 acting as a strong engineering counterpart to Codex. Analyze deeply, identify risks, and propose concrete next steps.",
-    max_tokens: int = 6000,
+    system: str = "You are GLM-5.1 acting as a strong engineering counterpart to Codex. Analyze deeply, identify risks, and propose concrete next steps. " + ADVISOR_OUTPUT_CONTRACT,
+    max_tokens: int = ZAI_DEEP_DEFAULT_MAX_TOKENS,
     sensitivity: Literal["green", "yellow", "red"] = "yellow",
 ) -> dict[str, Any]:
     guard(prompt, sensitivity)
@@ -272,8 +279,8 @@ def zai_coding_deep(
 @mcp.tool()
 def zai_coding_fast(
     prompt: str,
-    system: str = "You are GLM-5-Turbo optimized for fast OpenClaw-like coding tasks. Follow commands, keep state, and return concise actionable output.",
-    max_tokens: int = 3000,
+    system: str = "You are GLM-5-Turbo optimized for fast OpenClaw-like coding tasks. Follow commands, keep state, and return concise actionable output. " + ADVISOR_OUTPUT_CONTRACT,
+    max_tokens: int = ZAI_FAST_DEFAULT_MAX_TOKENS,
     sensitivity: Literal["green", "yellow", "red"] = "yellow",
 ) -> dict[str, Any]:
     guard(prompt, sensitivity)
@@ -290,8 +297,8 @@ def zai_coding_fast(
 @mcp.tool()
 def minimax_agentic_fast(
     prompt: str,
-    system: str = "You are MiniMax-M2.7-highspeed. Handle fast agentic coding support, logs, diffs, test ideas, and concise implementation advice.",
-    max_tokens: int = 4000,
+    system: str = "You are MiniMax-M2.7-highspeed. Handle fast agentic coding support, logs, diffs, test ideas, and concise implementation advice. " + ADVISOR_OUTPUT_CONTRACT,
+    max_tokens: int = MINIMAX_FAST_DEFAULT_MAX_TOKENS,
     sensitivity: Literal["green", "yellow", "red"] = "yellow",
 ) -> dict[str, Any]:
     guard(prompt, sensitivity)
@@ -307,8 +314,8 @@ def minimax_agentic_fast(
 @mcp.tool()
 def minimax_agentic(
     prompt: str,
-    system: str = "You are MiniMax-M2.7. Provide concise agentic coding support.",
-    max_tokens: int = 4000,
+    system: str = "You are MiniMax-M2.7. Provide concise agentic coding support. " + ADVISOR_OUTPUT_CONTRACT,
+    max_tokens: int = MINIMAX_STANDARD_DEFAULT_MAX_TOKENS,
     sensitivity: Literal["green", "yellow", "red"] = "yellow",
 ) -> dict[str, Any]:
     guard(prompt, sensitivity)

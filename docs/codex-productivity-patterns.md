@@ -33,6 +33,13 @@ complexity 9-10 work or reasoning above Sol/medium, ask the user to choose the
 model and reasoning level explicitly. Routing guidance is advisory; it does
 not switch the active main-thread model.
 
+External MCP advisors retain their intent-first routing but default to bounded
+answers: 3,000 output tokens for deep Z.ai analysis, 1,500 for fast Z.ai or
+MiniMax work, and 2,000 for standard MiniMax work. Their response contract is
+verdict, findings, evidence, risk, next action, and confidence. A caller may
+raise a specific request's ceiling when justified; the defaults avoid using an
+advisor as an unbounded second main thread.
+
 ## Prompt Templates
 
 Use `Done when:` for any task where the stopping point could be ambiguous:
