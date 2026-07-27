@@ -63,6 +63,30 @@ def fixture_repo(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, str]]:
     )
     assert created.returncode == 0, created.stderr
     notes = primary / ".ralph" / "plans" / "context-plan-implementation-notes.html"
+    append_note(
+        active=active,
+        primary=primary,
+        env=env,
+        notes=notes,
+        category="decision",
+        decision="Keep automatic retrieval bounded and deterministic.",
+        reason="Ambiguous context can mislead recovery.",
+        impact="Only one matching active plan can be selected automatically.",
+    )
+    return primary, active, plan, env
+
+
+def append_note(
+    *,
+    active: Path,
+    primary: Path,
+    env: dict[str, str],
+    notes: Path,
+    category: str,
+    decision: str,
+    reason: str,
+    impact: str,
+) -> None:
     appended = run(
         [
             sys.executable,
@@ -70,13 +94,13 @@ def fixture_repo(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, str]]:
             "--notes",
             str(notes),
             "--category",
-            "decision",
+            category,
             "--decision",
-            "Keep automatic retrieval bounded and deterministic.",
+            decision,
             "--reason",
-            "Ambiguous context can mislead recovery.",
+            reason,
             "--impact",
-            "Only one matching active plan can be selected automatically.",
+            impact,
             "--active-root",
             str(active),
             "--primary-root",
@@ -86,7 +110,6 @@ def fixture_repo(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, str]]:
         env,
     )
     assert appended.returncode == 0, appended.stderr
-    return primary, active, plan, env
 
 
 def test_implementation_context_selection_and_reader_are_bounded(tmp_path: Path) -> None:
@@ -169,3 +192,107 @@ def test_wakeup_injects_active_implementation_context_once(tmp_path: Path) -> No
     assert first.returncode == second.returncode == 0
     assert "## Active Implementation Context" in first.stdout
     assert "## Active Implementation Context" not in second.stdout
+
+
+def test_automatic_recovery_matches_explicit_lookup_without_wrong_plan_selection(tmp_path: Path) -> None:
+    primary, active, plan, env = fixture_repo(tmp_path)
+    notes = primary / ".ralph" / "plans" / "context-plan-implementation-notes.html"
+    recovery_entries = [
+        ("deviation", "Keep recovery injection limited to lifecycle entry points."),
+        ("open-question", "Global activation remains pending explicit approval."),
+        ("validation", "Bounded recovery fixture passed with no raw note body persisted."),
+    ]
+    for category, decision in recovery_entries:
+        append_note(
+            active=active,
+            primary=primary,
+            env=env,
+            notes=notes,
+            category=category,
+            decision=decision,
+            reason="Recovery must preserve material state without broad context injection.",
+            impact="A fresh agent can continue from the active plan context.",
+        )
+
+    explicit = run(
+        [
+            sys.executable,
+            str(READER),
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+            "--session-id",
+            "explicit-recovery",
+            "--plan",
+            str(plan),
+            "--format",
+            "json",
+        ],
+        ROOT,
+        env,
+    )
+    automatic = run(
+        [
+            sys.executable,
+            str(READER),
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+            "--session-id",
+            "fresh-recovery",
+            "--format",
+            "json",
+        ],
+        ROOT,
+        env,
+    )
+    assert explicit.returncode == automatic.returncode == 0
+    explicit_payload = json.loads(explicit.stdout)
+    automatic_payload = json.loads(automatic.stdout)
+    assert explicit_payload["selection"]["selection_reason"] == "explicit"
+    assert automatic_payload["selection"]["selection_reason"] == "active_index"
+    expected_facts = [
+        "Recover implementation choices without reading full notes.",
+        "Keep automatic retrieval bounded and deterministic.",
+        "Keep recovery injection limited to lifecycle entry points.",
+        "Global activation remains pending explicit approval.",
+        "Bounded recovery fixture passed with no raw note body persisted.",
+    ]
+    for fact in expected_facts:
+        assert fact in explicit_payload["text"]
+        assert fact in automatic_payload["text"]
+    assert len(automatic_payload["text"].split()) <= 250
+    assert len(automatic_payload["text"]) <= 2_000
+    assert len(automatic_payload["text"]) / 4 <= 500
+
+    unrelated_plan = active / ".ralph" / "plans" / "unrelated-plan.md"
+    unrelated_plan.write_text(
+        "# Unrelated Plan\n\nImplementation notes required: yes\nImplementation notes status: active\nPlan approval status: approved\n",
+        encoding="utf-8",
+    )
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(unrelated_plan), "--active-root", str(active), "--primary-root", str(primary)],
+        ROOT,
+        env,
+    )
+    assert created.returncode == 0, created.stderr
+    ambiguous = run(
+        [
+            sys.executable,
+            str(READER),
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+            "--session-id",
+            "ambiguous-recovery",
+            "--format",
+            "json",
+        ],
+        ROOT,
+        env,
+    )
+    assert ambiguous.returncode == 0, ambiguous.stderr
+    assert json.loads(ambiguous.stdout) == {"selection": None, "text": ""}
