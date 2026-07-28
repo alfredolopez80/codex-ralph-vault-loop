@@ -216,10 +216,20 @@ def preview_for(query: str, text: str) -> str:
     return preview
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Return text without YAML frontmatter; frontmatter metadata inflates classification."""
+    if not text.startswith("---"):
+        return text
+    for index, line in enumerate(text.splitlines()[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(text.splitlines()[index + 1 :])
+    return text
+
+
 def safe_text_for_output(text: str, classifier) -> tuple[str | None, bool]:
     if classifier is None:
         return text, False
-    report = classifier(text)
+    report = classifier(_strip_frontmatter(text))
     if getattr(report, "classification", "GREEN") == "RED":
         return None, True
     return getattr(report, "redacted_text", text), getattr(report, "changed", False)

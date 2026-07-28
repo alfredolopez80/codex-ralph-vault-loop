@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install pytest pyyaml
+
+      - name: Python compile check
+        run: python3 -c "import py_compile, glob; [py_compile.compile(f, doraise=True) for f in glob.glob('**/*.py', recursive=True)]"
+
+      - name: Python unit tests
+        run: python3 -m pytest tests/unit/ -q
+
+      - name: Regression guards
+        run: python3 -m pytest tests/unit/test_regression_guards.py -v
