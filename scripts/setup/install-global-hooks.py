@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import shlex
+import shutil
 from pathlib import Path
-
 
 REPO = Path(__file__).resolve().parents[2]
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"

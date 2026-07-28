@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "evals" / "fixtures" / "autoresearch_toy_speed"
 SCRIPT = ROOT / "scripts" / "evals" / "autoresearch_dry_run.py"

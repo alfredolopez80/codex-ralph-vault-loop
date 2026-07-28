@@ -6,29 +6,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.handoff_compaction import SECTION_ORDER, compact_handoff_summary, word_count  # noqa: E402
-from shared import vault_io  # noqa: E402
+from shared import vault_io
+from shared.handoff_compaction import SECTION_ORDER, compact_handoff_summary, word_count
 
 
 def test_compact_handoff_summary_removes_repeated_dead_ends_and_raw_output() -> None:
-    summary = "\n".join(
-        [
-            "Task: Improve runtime handoff compaction.",
-            "Decision: Runtime handoff stays under project handoffs latest path.",
-            "Decision: Runtime handoff stays under project handoffs latest path.",
-            "dead end: tried dumping raw tool output and discarded it",
-            "Traceback (most recent call last):",
-            "diff --git a/huge.py b/huge.py",
-            "python3 scripts/gates/run-gates.py --minimal",
-            "Validation passed: focused handoff tests.",
-            "selected_memory_ids=['node-a'] fallback_used=false",
-            "Next action: run validate-ralph-memory-flow.",
-        ]
-    )
+    summary = "Task: Improve runtime handoff compaction.\nDecision: Runtime handoff stays under project handoffs latest path.\nDecision: Runtime handoff stays under project handoffs latest path.\ndead end: tried dumping raw tool output and discarded it\nTraceback (most recent call last):\ndiff --git a/huge.py b/huge.py\npython3 scripts/gates/run-gates.py --minimal\nValidation passed: focused handoff tests.\nselected_memory_ids=['node-a'] fallback_used=false\nNext action: run validate-ralph-memory-flow."
 
     handoff = compact_handoff_summary(summary)
 

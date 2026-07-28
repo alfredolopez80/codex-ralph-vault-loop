@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Iterable
+from collections.abc import Iterable
 
-from .redaction import is_red, safe_preview
 from .context_budget import text_is_toxic
-
+from .redaction import is_red, safe_preview
 
 LEARNING_KEYWORDS = (
     "learned",
@@ -105,11 +104,9 @@ def extract_validated_learning(text: str) -> str | None:
     validated: list[str] = []
     for line in lines:
         normalized = normalize_learning_text(line)
-        if SECTION_PATTERN.search(normalized):
-            validated.append(line)
-        elif any(marker in normalized for marker in ("validated", "validado", "pass", "passed", "paso")) and any(
+        if SECTION_PATTERN.search(normalized) or (any(marker in normalized for marker in ("validated", "validado", "pass", "passed", "paso")) and any(
             marker in normalized for marker in ("decision", "fact", "root cause", "causa raiz", "conclusion", "resultado")
-        ):
+        )):
             validated.append(line)
     if not validated:
         return None

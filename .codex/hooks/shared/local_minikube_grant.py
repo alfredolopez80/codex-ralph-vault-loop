@@ -6,9 +6,8 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-
 
 PATCH_PATH_RE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.MULTILINE)
 PATCH_MOVE_RE = re.compile(r"^\*\*\* Move to: (.+)$", re.MULTILINE)
@@ -44,7 +43,7 @@ def marker_allows(marker_name: str) -> bool:
             return False
         if marker_path.is_symlink() or marker_path.stat().st_mode & 0o077:
             return False
-        age = datetime.now(timezone.utc).timestamp() - marker_path.stat().st_mtime
+        age = datetime.now(UTC).timestamp() - marker_path.stat().st_mtime
         if age < 0 or age > MARKER_TTL_SECONDS or marker_path.stat().st_size != 0:
             return False
         marker_path.unlink()

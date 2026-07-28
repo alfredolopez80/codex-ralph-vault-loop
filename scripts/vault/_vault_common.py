@@ -6,10 +6,9 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-from typing import Iterable
-
 
 DEFAULT_VAULT_DIR = Path("~/Documents/Obsidian/MiVault").expanduser()
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +18,8 @@ SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import classify_text, redact_text as redact_sensitive_text  # noqa: E402
+from sensitive_content import classify_text
+from sensitive_content import redact_text as redact_sensitive_text
 
 
 def vault_dir() -> Path:
@@ -51,7 +51,7 @@ def remote_project_name(cwd: Path) -> str:
     if not remote:
         return ""
     name = remote.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
-    return name[:-4] if name.endswith(".git") else name
+    return name.removesuffix(".git")
 
 
 def default_agent() -> str:
@@ -92,7 +92,7 @@ def yaml_scalar(value: object) -> str:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def required_dirs(project: str | None = None, agent: str | None = None) -> list[Path]:

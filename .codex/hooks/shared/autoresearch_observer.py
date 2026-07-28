@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -10,7 +11,6 @@ from typing import Any
 from .active_context import ActiveContext, active_context_from_payload
 from .paths import now_iso, ralph_home
 from .redaction import is_red, safe_preview
-
 
 METRIC_RE = re.compile(r"^\s*METRIC\s+([A-Za-z_][A-Za-z0-9_.-]*)=([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$")
 SAFE_PROJECT_ID_RE = re.compile(r"^p-[a-f0-9]{16}$")
@@ -136,10 +136,8 @@ def safe_observation_path(root: Path, filename: str) -> Path:
 
 def append_atomic_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-    try:
+    with contextlib.suppress(OSError):
         path.parent.chmod(0o700)
-    except OSError:
-        pass
     data = json.dumps(payload, ensure_ascii=True, sort_keys=True)
     if is_red(data):
         raise AutoResearchObserverError("pending observation is RED-sensitive")
@@ -151,10 +149,8 @@ def append_atomic_jsonl(path: Path, payload: dict[str, Any]) -> None:
         os.write(fd, (data + "\n").encode("utf-8"))
     finally:
         os.close(fd)
-        try:
+        with contextlib.suppress(OSError):
             path.chmod(0o600)
-        except OSError:
-            pass
 
 
 def active_cwd(payload: dict[str, Any], context: ActiveContext) -> Path:

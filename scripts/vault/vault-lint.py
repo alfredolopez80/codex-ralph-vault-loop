@@ -5,7 +5,6 @@ import argparse
 
 from _vault_common import iter_markdown_files, parse_frontmatter, sensitive_findings, vault_dir
 
-
 REQUIRED_FRONTMATTER = {"title", "classification", "scope", "hash", "created_at"}
 
 

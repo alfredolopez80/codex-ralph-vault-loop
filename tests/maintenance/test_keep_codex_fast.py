@@ -5,15 +5,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import importlib.util
+import io
 import os
 import sqlite3
 import sys
 import tempfile
 import time
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "maintenance" / "keep_codex_fast.py"
@@ -242,7 +241,7 @@ def assert_session_alias_detection(module) -> None:
         except OSError:
             return
 
-        paths = make_fake_home(real_root)
+        make_fake_home(real_root)
         alias_home = alias_root / ".codex"
         conn = module.sqlite_connect(alias_home / "state_5.sqlite", readonly=True)
         try:

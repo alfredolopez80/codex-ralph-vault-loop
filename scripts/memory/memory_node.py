@@ -4,9 +4,8 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
-
 
 SCHEMA_VERSION = "ralph_memory_node_v2"
 ALLOWED_SENSITIVITY = {"GREEN", "YELLOW"}
@@ -25,7 +24,7 @@ class MemoryNodeValidationError(MemoryNodeError):
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def sha256_text(value: str) -> str:
@@ -72,9 +71,7 @@ def contains_red_material(value: object) -> bool:
             return True
     if re.search(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b", text):
         return True
-    if re.search(r"(?i)\bbearer\b\s*[:=]?\s*[A-Za-z0-9_.-]{16,}", text):
-        return True
-    return False
+    return bool(re.search(r"(?i)\bbearer\b\s*[:=]?\s*[A-Za-z0-9_.-]{16,}", text))
 
 
 def assert_not_red(value: object, label: str) -> None:
@@ -130,7 +127,7 @@ class MemoryNode:
     compaction_reason: str = ""
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "MemoryNode":
+    def from_dict(cls, payload: dict[str, Any]) -> MemoryNode:
         data = dict(payload)
         data.setdefault("schema_version", SCHEMA_VERSION)
         data.setdefault("node_id", deterministic_node_id(data))

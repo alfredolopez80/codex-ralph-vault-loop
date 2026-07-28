@@ -3,11 +3,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "security"))
 
-from sensitive_content import classify_text, is_red, redact_text  # noqa: E402
+from sensitive_content import classify_text, is_red, redact_text
 
 
 def private_key_fixture() -> str:

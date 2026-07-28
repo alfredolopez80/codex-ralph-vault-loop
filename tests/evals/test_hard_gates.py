@@ -7,7 +7,6 @@ from pathlib import Path
 
 from scripts.evals._eval_common import detect_eval_gaming_text, detect_secret_leak, hard_gate_status, score_run
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

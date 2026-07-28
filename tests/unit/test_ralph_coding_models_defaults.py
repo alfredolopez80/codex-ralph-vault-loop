@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-from pathlib import Path
 import sys
 import types
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "scripts" / "model-router" / "ralph_coding_models_mcp.py"
@@ -120,16 +119,7 @@ def router_module(monkeypatch: pytest.MonkeyPatch):
 )
 def test_each_advisor_lane_returns_compact_contract_without_retry(router_module, monkeypatch, lane: str, provider_function: str) -> None:
     calls: list[dict[str, object]] = []
-    structured_text = "\n".join(
-        [
-            "verdict: keep",
-            "findings: fixture is healthy",
-            "evidence: deterministic local provider stub",
-            "risk: none",
-            "next_action: continue local validation",
-            "confidence: high",
-        ]
-    )
+    structured_text = "verdict: keep\nfindings: fixture is healthy\nevidence: deterministic local provider stub\nrisk: none\nnext_action: continue local validation\nconfidence: high"
 
     def fake_provider(**kwargs):
         calls.append(kwargs)

@@ -8,7 +8,6 @@ from shared.paths import read_hook_input
 from shared.redaction import is_red, safe_preview
 from shared.vault_io import save_learning, write_handoff
 
-
 CHECKPOINT_HANDOFF_WORDS = 180
 MEMORY_TRACE_KEYS = ("selected_memory_ids", "memory_rejected", "recall_status", "fallback_used")
 

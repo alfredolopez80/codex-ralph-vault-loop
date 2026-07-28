@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 RESEARCH = ROOT / "scripts" / "evals" / "research_eval.py"
 VISION = ROOT / "scripts" / "evals" / "vision_eval.py"
@@ -67,16 +66,16 @@ def test_coding_model_eval_mock_scores_routing_and_red_block(tmp_path: Path) -> 
     assert report["metrics"]["acceptance_rate"] == 1.0
     assert report["metrics"]["rework_rate"] < 0.1
     assert report["metrics"]["sensitive_externalization_incidents"] == 0
-    red_detail = [item for item in report["details"] if item["id"] == "red-block"][0]
+    red_detail = next(item for item in report["details"] if item["id"] == "red-block")
     assert red_detail["blocked"] is True
     assert red_detail["externalized"] is False
-    secret_detail = [item for item in report["details"] if item["id"] == "secret-content-block"][0]
+    secret_detail = next(item for item in report["details"] if item["id"] == "secret-content-block")
     assert secret_detail["blocked"] is True
     assert secret_detail["externalized"] is False
-    research_detail = [item for item in report["details"] if item["id"] == "research-search"][0]
+    research_detail = next(item for item in report["details"] if item["id"] == "research-search")
     assert research_detail["actual_lane"] == "zai-search"
     assert research_detail["actual_tool"] == "zai_web_search.web_search_prime"
-    unknown_detail = [item for item in report["details"] if item["id"] == "unknown-local"][0]
+    unknown_detail = next(item for item in report["details"] if item["id"] == "unknown-local")
     assert unknown_detail["actual_lane"] == "local"
     assert unknown_detail["actual_tool"] is None
 

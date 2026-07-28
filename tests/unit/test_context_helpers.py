@@ -5,18 +5,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CONTEXT_DIR = ROOT / "scripts" / "context"
 FIXTURES = ROOT / "tests" / "fixtures" / "context_helpers"
 sys.path.insert(0, str(CONTEXT_DIR))
 
-import compact_logs  # noqa: E402
-import context_common  # noqa: E402
-import repo_map  # noqa: E402
-import scan_errors  # noqa: E402
-import summarize_data  # noqa: E402
-import summarize_json  # noqa: E402
+import compact_logs
+import context_common
+import repo_map
+import scan_errors
+import summarize_data
+import summarize_json
 
 
 def test_context_scripts_have_help() -> None:

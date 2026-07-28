@@ -3,17 +3,16 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 SECURITY_DIR = Path(__file__).resolve().parents[1] / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import classify_text, redact_text as redact_sensitive_text  # noqa: E402
-
+from sensitive_content import classify_text
+from sensitive_content import redact_text as redact_sensitive_text
 
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
 SENSITIVITIES = {"GREEN", "YELLOW", "RED"}
@@ -105,7 +104,7 @@ LANE_TO_ROLE = {
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def ralph_home() -> Path:

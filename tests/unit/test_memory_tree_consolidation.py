@@ -9,9 +9,9 @@ MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-from consolidate_tree import consolidate_tree  # noqa: E402
-from recall_v2 import Context, recall  # noqa: E402
-from tree_store import TreeStore, atomic_write_json  # noqa: E402
+from consolidate_tree import consolidate_tree
+from recall_v2 import Context, recall
+from tree_store import TreeStore, atomic_write_json
 
 PROJECT = "p-consolidation"
 WORKSPACE = "workspace-consolidation"

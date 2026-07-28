@@ -7,7 +7,7 @@ from safety import assert_safe_repo_file
 
 
 def run(args: list[str], cwd: Path, *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(args, cwd=cwd, input=input_text, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(args, cwd=cwd, input=input_text, text=True, capture_output=True)
     if check and result.returncode != 0:
         raise SystemExit(f"command failed ({result.returncode}): {' '.join(args)}\n{result.stderr or result.stdout}")
     return result
@@ -90,12 +90,11 @@ def local_bundle(repo: Path, *, include_untracked: bool) -> str:
         git(repo, "diff", "--stat"),
         git(repo, "diff", "--patch", "--find-renames"),
     ]
-    if include_untracked:
-        if untracked:
-            parts.append("# Untracked Files")
-            for rel in untracked:
-                safe_path = assert_safe_repo_file(repo, rel, context="untracked")
-                parts.append(f"## {rel}\n{read_text(safe_path)}")
+    if include_untracked and untracked:
+        parts.append("# Untracked Files")
+        for rel in untracked:
+            safe_path = assert_safe_repo_file(repo, rel, context="untracked")
+            parts.append(f"## {rel}\n{read_text(safe_path)}")
     return "\n\n".join(parts)
 
 

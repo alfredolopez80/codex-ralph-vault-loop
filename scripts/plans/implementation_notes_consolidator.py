@@ -18,7 +18,6 @@ from implementation_notes_lib import (
     valid_non_initial_entries,
 )
 
-
 LEGACY_ENTRY_RE = re.compile(r"<(?:article|section)\b", re.IGNORECASE)
 UNSAFE_NOTES_HTML_RE = re.compile(
     r"(?is)"

@@ -3,11 +3,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.cloud_operation_gate import ContextVerification, assess_command  # noqa: E402
+from shared.cloud_operation_gate import ContextVerification, assess_command
 
 
 def verified_minikube(context: str, kubeconfig: str = "") -> ContextVerification:

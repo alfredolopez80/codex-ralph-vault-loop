@@ -7,7 +7,6 @@ from shared.paths import read_hook_input
 from shared.redaction import is_red
 from shared.vault_io import save_learning
 
-
 LEARNING_FIELDS = ("output", "output_preview", "outputPreview", "result")
 
 

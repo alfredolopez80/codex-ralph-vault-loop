@@ -8,7 +8,6 @@ from shared.file_line_candidates import candidate_paths, workspace_root
 from shared.file_line_policy import SENSITIVE_PATH_RE
 from shared.paths import append_jsonl, ensure_runtime, now_iso, read_hook_input, write_json
 
-
 MAX_FRONTMATTER_BYTES = 4096
 MAX_FRONTMATTER_LINES = 40
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 
@@ -69,7 +69,7 @@ def main() -> int:
     packets_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    now = datetime.now(UTC).replace(microsecond=0).isoformat()
     state = {
         "title": args.title,
         "slug": slug,

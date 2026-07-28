@@ -5,7 +5,6 @@ import re
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / ".codex" / "agents"
 
@@ -49,7 +48,7 @@ def agent_files() -> list[Path]:
 
 def test_required_agents_exist() -> None:
     names = {path.stem for path in agent_files()}
-    assert REQUIRED_AGENTS <= names
+    assert names >= REQUIRED_AGENTS
 
 
 def test_agent_toml_shape_and_names() -> None:

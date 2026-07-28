@@ -5,12 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "autoresearch"))
 
-from common import default_hard_gates, latest_baseline, parse_metrics, validate_asi  # noqa: E402
-from next import candidate_patch_for  # noqa: E402
+from common import default_hard_gates, latest_baseline, parse_metrics, validate_asi
+from next import candidate_patch_for
 
 
 def run_script(script: str, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:

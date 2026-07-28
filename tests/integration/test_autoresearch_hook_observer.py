@@ -4,16 +4,15 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.autoresearch_observer import (  # noqa: E402
+from shared.autoresearch_observer import (
     AutoResearchObserverError,
     observe_post_tool_payload,
+    safe_observation_path,
     safe_observe_post_tool_payload,
     safe_project_autoresearch_root,
-    safe_observation_path,
 )
 
 

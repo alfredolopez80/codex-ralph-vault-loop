@@ -13,7 +13,6 @@ from typing import Any
 
 from shared.active_context import active_context_from_payload
 
-
 HOOK_DIR = Path(__file__).resolve().parent
 ROLE_COMMANDS: dict[tuple[str, str], tuple[str, ...]] = {
     ("SessionStart", "session_start_wakeup"): ("session_start_wakeup.py",),

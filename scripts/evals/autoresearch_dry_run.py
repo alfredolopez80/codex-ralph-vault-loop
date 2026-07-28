@@ -8,8 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from _eval_common import REPORT_DIR, REPO_ROOT, load_json, load_scorecard, now_iso, score_run, write_json
-
+from _eval_common import REPO_ROOT, REPORT_DIR, load_json, load_scorecard, now_iso, score_run, write_json
 
 DEFAULT_FIXTURE = REPO_ROOT / "tests" / "evals" / "fixtures" / "autoresearch_toy_speed"
 DEFAULT_SCORECARD = REPO_ROOT / "config" / "scorecards" / "ralph_autoresearch_v1.yaml"

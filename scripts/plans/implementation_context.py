@@ -20,7 +20,6 @@ from implementation_notes_lib import (
     valid_non_initial_entries,
 )
 
-
 MAX_CONTEXT_CHARS = 2_000
 MAX_CONTEXT_WORDS = 250
 MAX_CONTEXT_UNITS = 500
@@ -216,9 +215,9 @@ def entries_for(entries: list[ParsedEntry], category: str, limit: int, unresolve
 def entry_order(entry: ParsedEntry) -> tuple[datetime, str]:
     value = entry.fields.get("Timestamp", "")
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")), value
+        return datetime.fromisoformat(value), value
     except ValueError:
-        return datetime.min, value
+        return datetime.min.replace(tzinfo=datetime.UTC), value
 
 
 def entry_line(entry: ParsedEntry, *, include_reason: bool) -> str:

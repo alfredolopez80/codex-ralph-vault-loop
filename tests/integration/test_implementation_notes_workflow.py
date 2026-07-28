@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CREATE = ROOT / "scripts" / "plans" / "create-implementation-notes.py"
 APPEND = ROOT / "scripts" / "plans" / "append-implementation-note.py"
@@ -249,7 +248,7 @@ def test_implementation_notes_workflow_survives_worktree_cleanup(tmp_path: Path)
 
 
 def test_guard_extracts_plan_from_markdown_link_target(tmp_path: Path) -> None:
-    primary, active, env = make_repo_with_worktree(tmp_path)
+    _primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "linked-plan.md"
     write_plan(plan)
 

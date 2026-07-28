@@ -17,7 +17,6 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
-
 # Resolve from this script so the audit can run from a cloned public checkout
 # without embedding the maintainer's local filesystem layout.
 REPO = Path(__file__).resolve().parents[2]
@@ -25,7 +24,7 @@ SECURITY_DIR = REPO / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import redact_text  # noqa: E402
+from sensitive_content import redact_text
 
 
 def scrub(value: Any) -> Any:
@@ -76,10 +75,9 @@ class McpServer:
                 read,
                 write,
                 _session_id,
-            ):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    yield session
+            ), ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
             return
 
         env = os.environ.copy()
@@ -92,10 +90,9 @@ class McpServer:
             env=env,
             cwd=self.cwd,
         )
-        async with stdio_client(params, errlog=open(os.devnull, "w")) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+        async with stdio_client(params, errlog=open(os.devnull, "w")) as (read, write), ClientSession(read, write) as session:
+            await session.initialize()
+            yield session
 
 
 def required_env(name: str) -> str:
@@ -174,7 +171,7 @@ def schema_args(tool: str, schema: dict[str, Any]) -> dict[str, Any]:
             args[name] = "https://example.com/"
         elif lname in {"repo", "repository", "repo_name"}:
             args[name] = "openai/codex"
-        elif lname in {"owner"}:
+        elif lname == "owner":
             args[name] = "openai"
         elif lname in {"path", "file_path", "filepath"}:
             args[name] = "README.md"
@@ -192,17 +189,15 @@ def schema_args(tool: str, schema: dict[str, Any]) -> dict[str, Any]:
             args[name] = 256
         elif lname == "temperature":
             args[name] = 0.1
-        elif lname in {"image_url", "image", "input_image", "image_path", "image_source"}:
-            args[name] = "/tmp/mcp-audit-image.png"
-        elif lname in {"expected_image_source", "actual_image_source"}:
+        elif lname in {"image_url", "image", "input_image", "image_path", "image_source"} or lname in {"expected_image_source", "actual_image_source"}:
             args[name] = "/tmp/mcp-audit-image.png"
         elif lname in {"video_source", "video_url", "video"}:
             args[name] = "https://filesamples.com/samples/video/mp4/sample_640x360.mp4"
-        elif lname in {"output_type"}:
+        elif lname == "output_type":
             args[name] = "description"
-        elif lname in {"return_format"}:
+        elif lname == "return_format":
             args[name] = "text"
-        elif lname in {"language"}:
+        elif lname == "language":
             args[name] = "en"
         elif prop.get("default") is not None:
             continue

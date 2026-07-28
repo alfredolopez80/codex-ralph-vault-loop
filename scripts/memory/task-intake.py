@@ -11,10 +11,9 @@ import signal
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STOPWORDS = {
@@ -532,11 +531,11 @@ def parse_memory_time(memory: dict[str, Any]) -> float:
     if not value:
         return 0.0
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return 0.0
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed.timestamp()
 
 
@@ -613,13 +612,7 @@ def render_selected_memory_line(memory: dict[str, Any]) -> str:
 
 def memory_context_overhead_tokens() -> int:
     return estimate_tokens(
-        "\n".join(
-            [
-                MEMORY_CONTEXT_BEGIN,
-                MEMORY_CONTEXT_NOTICE,
-                MEMORY_CONTEXT_END,
-            ]
-        )
+        f"{MEMORY_CONTEXT_BEGIN}\n{MEMORY_CONTEXT_NOTICE}\n{MEMORY_CONTEXT_END}"
     )
 
 
@@ -855,7 +848,8 @@ def run_memory_tree_shadow(
         memory_dir = REPO_ROOT / "scripts" / "memory"
         if str(memory_dir) not in sys.path:
             sys.path.insert(0, str(memory_dir))
-        from recall_v2 import BUDGET_KEY, context_for, recall as tree_recall  # type: ignore
+        from recall_v2 import BUDGET_KEY, context_for  # type: ignore
+        from recall_v2 import recall as tree_recall
 
         root = Path(workspace_root).expanduser().resolve() if workspace_root else REPO_ROOT
         ralph_home = Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser()
@@ -915,7 +909,8 @@ def run_memory_tree_report(
     memory_dir = REPO_ROOT / "scripts" / "memory"
     if str(memory_dir) not in sys.path:
         sys.path.insert(0, str(memory_dir))
-    from recall_v2 import context_for, recall as tree_recall  # type: ignore
+    from recall_v2 import context_for  # type: ignore
+    from recall_v2 import recall as tree_recall
 
     root = Path(workspace_root).expanduser().resolve() if workspace_root else REPO_ROOT
     ralph_home = Path(os.environ.get("RALPH_HOME", "~/.ralph-codex")).expanduser()
@@ -1094,7 +1089,7 @@ def build_task_intake_payload(
                 prompt,
                 selected_memories,
                 recall_status,
-                tree_fallback_reason if tree_fallback_reason else "" if recall_status in {"ran", "skipped"} else recall_output,
+                tree_fallback_reason or ("" if recall_status in {"ran", "skipped"} else recall_output),
                 len(recalled_memories),
             )
             if tree_fallback_reason:

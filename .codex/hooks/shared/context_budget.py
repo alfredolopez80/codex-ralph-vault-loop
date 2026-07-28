@@ -9,9 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .redaction import is_red
 from .paths import append_jsonl, ensure_runtime, now_iso
-
+from .redaction import is_red
 
 DATA_IMAGE_RE = re.compile(r"data:image/[^;,\s]+;base64,", re.IGNORECASE)
 BASE64_RE = re.compile(r"(?:data:[a-zA-Z0-9.+/-]+/[a-zA-Z0-9.+/-]+;base64,)?[A-Za-z0-9+/]{4000,}={0,2}")

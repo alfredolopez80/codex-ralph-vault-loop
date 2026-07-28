@@ -6,8 +6,16 @@ import re
 from pathlib import Path
 from typing import Any
 
-from _vault_common import classify_note, content_hash, init_vault, now_iso, parse_frontmatter, sanitize_slug, vault_dir, yaml_scalar
-
+from _vault_common import (
+    classify_note,
+    content_hash,
+    init_vault,
+    now_iso,
+    parse_frontmatter,
+    sanitize_slug,
+    vault_dir,
+    yaml_scalar,
+)
 
 REPORT_REL = Path("reports/vault-inbox-review")
 TARGET_DIRS = ("wiki", "decisions", "sessions", "handoffs")

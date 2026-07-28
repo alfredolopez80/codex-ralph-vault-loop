@@ -7,12 +7,11 @@ import json
 import os
 import sys
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from _memory_common import LAYER_FILES, compact_words, ensure_runtime, project_runtime_root, ralph_home, read_text
-
 
 MAX_WAKEUP_WORDS = 1_500
 CHECKPOINT_WAKEUP_WORDS = 500
@@ -28,7 +27,14 @@ if str(HOOKS_DIR) not in sys.path:
 if str(PLANS_DIR) not in sys.path:
     sys.path.insert(0, str(PLANS_DIR))
 
-from shared.checkpoint_io import (  # noqa: E402
+from implementation_context import (
+    render_implementation_context,
+    select_implementation_context,
+    selected_entry_hashes,
+)
+from implementation_notes_lib import ImplementationNotesError, resolve_roots
+from shared.active_context import active_context_from_payload
+from shared.checkpoint_io import (
     CheckpointError,
     checkpoint_is_injectable,
     checkpoint_paths,
@@ -36,11 +42,8 @@ from shared.checkpoint_io import (  # noqa: E402
     load_latest,
     render_checkpoint,
 )
-from shared.active_context import active_context_from_payload  # noqa: E402
-from shared.paths import append_jsonl, now_iso  # noqa: E402
-from shared.redaction import is_red, redact_text  # noqa: E402
-from implementation_context import render_implementation_context, select_implementation_context, selected_entry_hashes  # noqa: E402
-from implementation_notes_lib import ImplementationNotesError, resolve_roots  # noqa: E402
+from shared.paths import append_jsonl, now_iso
+from shared.redaction import is_red, redact_text
 
 
 def build_context(project_id: str = "", workspace_root: str = "", project: str = "") -> str:
@@ -186,9 +189,7 @@ def handoff_is_injectable(metadata: dict[str, str], body: str, project_id: str =
     created_at = metadata.get("created_at", "")
     if project_id and not created_at:
         return False
-    if created_at and handoff_is_stale(created_at):
-        return False
-    return True
+    return not (created_at and handoff_is_stale(created_at))
 
 
 def workspace_instance_id(workspace_root: str) -> str:
@@ -206,7 +207,7 @@ def handoff_is_stale(created_at: str) -> bool:
     parsed = parse_time(created_at)
     if parsed is None:
         return True
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if parsed - now > timedelta(minutes=HANDOFF_FUTURE_SKEW_MINUTES):
         return True
     ttl_hours = env_int("RALPH_HANDOFF_TTL_HOURS", HANDOFF_TTL_HOURS)
@@ -216,12 +217,12 @@ def handoff_is_stale(created_at: str) -> bool:
 
 def parse_time(value: str) -> datetime | None:
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def reinjection_budget(max_context_words: int = MAX_WAKEUP_WORDS) -> int:

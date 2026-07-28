@@ -10,7 +10,6 @@ from typing import Any
 
 from .paths import REPO_ROOT, ralph_home
 
-
 PROJECT_ID_PREFIX = "p"
 
 
@@ -132,7 +131,7 @@ def project_id_for(identity_root: Path, remote_url: str = "") -> str:
 
 def remote_repo_name(remote_url: str) -> str:
     tail = remote_url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
-    return tail[:-4] if tail.endswith(".git") else tail
+    return tail.removesuffix(".git")
 
 
 def project_runtime_root(context: ActiveContext, root: Path | None = None) -> Path:

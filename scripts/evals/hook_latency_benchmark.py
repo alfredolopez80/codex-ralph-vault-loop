@@ -10,21 +10,20 @@ import tempfile
 import time
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS_ROOT = REPO_ROOT / ".codex" / "hooks"
 if str(HOOKS_ROOT) not in sys.path:
     sys.path.insert(0, str(HOOKS_ROOT))
 
-from shared.active_context import active_context_from_payload  # noqa: E402
-from shared.autoresearch_observer import observe_post_tool_payload  # noqa: E402
+from shared.active_context import active_context_from_payload
+from shared.autoresearch_observer import observe_post_tool_payload
 
 
 def percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round((pct / 100.0) * (len(ordered) - 1))))
+    index = min(len(ordered) - 1, round((pct / 100.0) * (len(ordered) - 1)))
     return ordered[index]
 
 

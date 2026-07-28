@@ -4,9 +4,8 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-
 
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
 CLASSIFICATIONS = {"GREEN", "YELLOW", "RED"}
@@ -24,7 +23,7 @@ def ralph_home() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def normalize_classification(value: str) -> str:

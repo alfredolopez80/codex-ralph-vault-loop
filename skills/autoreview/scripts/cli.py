@@ -11,10 +11,27 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from git_bundle import branch_bundle, changed_paths, choose_target, commit_bundle, current_branch, fetch_origin, load_extra_files, local_bundle, repo_root
+from git_bundle import (
+    branch_bundle,
+    changed_paths,
+    choose_target,
+    commit_bundle,
+    current_branch,
+    fetch_origin,
+    load_extra_files,
+    local_bundle,
+    repo_root,
+)
 from review import build_prompt, extract_json, print_report, run_codex, validate_report
-from safety import CLASSIFICATIONS, hard_sensitive_path_matches, load_classifier, report_classification, report_findings, report_redacted_text, resolve_safe_repo_output
-
+from safety import (
+    CLASSIFICATIONS,
+    hard_sensitive_path_matches,
+    load_classifier,
+    report_classification,
+    report_findings,
+    report_redacted_text,
+    resolve_safe_repo_output,
+)
 
 ENGINES = ("codex",)
 MAX_REVIEW_TOTAL = 10
@@ -172,7 +189,7 @@ def print_status(
     print(f"autoreview target: {target}", file=sys.stderr)
     print(f"branch: {current_branch(repo)}", file=sys.stderr)
     print(f"engine: {args.engine}", file=sys.stderr)
-    print(f"review_pass: {args.review_pass if args.review_pass else 'unspecified'} of {args.review_total}", file=sys.stderr)
+    print(f"review_pass: {args.review_pass or 'unspecified'} of {args.review_total}", file=sys.stderr)
     print(f"web_search: {'on' if args.web_search else 'off'}", file=sys.stderr)
     print(f"fetch: {'on' if args.fetch else 'off'}", file=sys.stderr)
     print(f"include_untracked: {'on' if args.include_untracked else 'off'}", file=sys.stderr)

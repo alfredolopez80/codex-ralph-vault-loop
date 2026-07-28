@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / ".codex" / "hooks" / "post_tool_cost_ledger.py"
 DISPATCHER = ROOT / ".codex" / "hooks" / "global_hook_dispatch.py"

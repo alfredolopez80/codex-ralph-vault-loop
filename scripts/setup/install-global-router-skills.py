@@ -5,9 +5,8 @@ import argparse
 import importlib.util
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-
 
 REPO = Path(__file__).resolve().parents[2]
 HOOK_INSTALLER = REPO / "scripts" / "setup" / "install-global-hooks.py"
@@ -21,7 +20,7 @@ SKILLS = ("cost-router", "model-router")
 
 
 def timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def hook_config() -> dict:

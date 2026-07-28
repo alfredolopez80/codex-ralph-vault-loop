@@ -3,7 +3,19 @@ from __future__ import annotations
 
 import argparse
 
-from common import add_common_args, baseline_policy_from_config, detect_upstream_backend, direction_delta, fail_result, latest_baseline, latest_config, print_result, read_ledger, resolve_cwd, session_paths
+from common import (
+    add_common_args,
+    baseline_policy_from_config,
+    detect_upstream_backend,
+    direction_delta,
+    fail_result,
+    latest_baseline,
+    latest_config,
+    print_result,
+    read_ledger,
+    resolve_cwd,
+    session_paths,
+)
 
 
 def summarize(cwd_raw: str | None, compact: bool) -> dict:

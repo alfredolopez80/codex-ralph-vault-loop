@@ -37,7 +37,7 @@ class TestScriptExecPermissions(unittest.TestCase):
         "scripts/memory/graduate-rules.py",
         "scripts/vault/vault-graduate.py",
         "scripts/memory/promote_branch_memory.py",
-        "scripts/vault/_vault_graduation.py",
+        # scripts/vault/_vault_graduation.py is a library (no shebang), not a CLI script.
     ]
 
     def test_critical_scripts_are_executable(self):

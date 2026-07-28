@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CONSOLIDATE = ROOT / "scripts" / "plans" / "consolidate-implementation-notes.py"
 

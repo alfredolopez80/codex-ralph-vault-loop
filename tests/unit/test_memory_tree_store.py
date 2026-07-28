@@ -7,15 +7,13 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-from memory_node import MemoryNode, MemoryNodeValidationError, deterministic_node_id  # noqa: E402
-from tree_store import TreeStore, TreeStoreError, TreeStorePathError  # noqa: E402
-
+from memory_node import MemoryNode, MemoryNodeValidationError, deterministic_node_id
+from tree_store import TreeStore, TreeStoreError, TreeStorePathError
 
 PROJECT = "p-test-project"
 OTHER_PROJECT = "p-other-project"

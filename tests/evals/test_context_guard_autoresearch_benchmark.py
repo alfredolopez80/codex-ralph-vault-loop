@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "evals" / "fixtures" / "context_guard_compaction"
 SCRIPT = ROOT / "scripts" / "evals" / "context_guard_autoresearch_benchmark.py"

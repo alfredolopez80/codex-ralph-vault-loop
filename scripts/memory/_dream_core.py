@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
-import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from _memory_common import LAYER_FILES, content_hash, read_text
@@ -14,8 +14,7 @@ SECURITY_DIR = Path(__file__).resolve().parents[1] / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import public_findings  # noqa: E402
-
+from sensitive_content import public_findings
 
 MARKERS = (
     "decision",
@@ -122,7 +121,7 @@ def parse_created_at(text: str) -> datetime | None:
         if line.startswith("created_at:"):
             value = line.split(":", 1)[1].strip().strip('"')
             try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return datetime.fromisoformat(value)
             except ValueError:
                 return None
     return None
@@ -229,7 +228,7 @@ def source_paths(root: Path) -> list[SourcePath]:
 
 
 def collect_sources(root: Path, since_days: int | None, max_items: int) -> tuple[list[SourceItem], list[dict[str, object]]]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days) if since_days else None
+    cutoff = datetime.now(UTC) - timedelta(days=since_days) if since_days else None
     sources: list[SourceItem] = []
     skipped: list[dict[str, object]] = []
     for source_path in source_paths(root):

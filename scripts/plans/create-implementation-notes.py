@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from implementation_index_lib import upsert_plan_entry
 from implementation_notes_lib import (
     ImplementationNotesError,
     ensure_not_red,
@@ -23,7 +24,6 @@ from implementation_notes_lib import (
     sync_plan_to_primary,
     write_implementation_plan_state,
 )
-from implementation_index_lib import upsert_plan_entry
 
 
 def main() -> int:

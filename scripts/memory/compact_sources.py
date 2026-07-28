@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-
 MAX_SOURCE_BYTES = 60_000
 DEFAULT_VAULT_DIR = Path("~/Documents/Obsidian/MiVault").expanduser()
 FORBIDDEN_PARTS = {"raw", "inbox"}

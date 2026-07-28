@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -8,8 +9,8 @@ import sys
 from pathlib import Path
 
 from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
-from shared.paths import REPO_ROOT, read_hook_input
 from shared.learning import should_persist_learning
+from shared.paths import REPO_ROOT, read_hook_input
 
 
 def run_assisted_promotion(context: ActiveContext) -> None:
@@ -163,10 +164,8 @@ def local_notes_roots(context: ActiveContext) -> list[Path]:
     if github_root.exists():
         repo_name = workspace.name
         roots.append(github_root / repo_name / ".local-notes")
-        try:
+        with contextlib.suppress(OSError):
             roots.extend(github_root.glob(f"*/{repo_name}/.local-notes"))
-        except OSError:
-            pass
     return roots
 
 

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 from shared.minikube_context import ContextVerification, verify_minikube_context
 from shared.script_operation_inspector import script_cloud_commands, script_path, wrapper_script_path
-
 
 CLOUD_TOOLS = {"aws", "gcloud", "helm", "kubectl", "minikube", "terraform"}
 READ_ACTIONS = {
@@ -62,7 +62,7 @@ def _segments(command: str) -> list[list[str]]:
             escaped = True
             continue
         if char in {"'", '"'}:
-            quote = "" if quote == char else char if not quote else quote
+            quote = "" if quote == char else quote or char
         normalized.append(";" if char == "\n" and not quote else char)
     lexer = shlex.shlex("".join(normalized), posix=True, punctuation_chars=";&|")
     lexer.whitespace_split = True

@@ -3,13 +3,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 VAULT = ROOT / "scripts" / "vault"
 if str(VAULT) not in sys.path:
     sys.path.insert(0, str(VAULT))
 
-from _vault_common import default_project  # noqa: E402
+from _vault_common import default_project
 
 
 def test_default_project_uses_remote_repository_identity_from_worktree(monkeypatch) -> None:

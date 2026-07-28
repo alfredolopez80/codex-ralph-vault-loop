@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +13,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from memory_node import contains_red_material  # noqa: E402
-from recall_v2 import context_for, provenance_complete  # noqa: E402
-from tree_store import TreeStore  # noqa: E402
+from memory_node import contains_red_material
+from recall_v2 import context_for, provenance_complete
+from tree_store import TreeStore
 
 
 def compact(value: object) -> str:
@@ -85,7 +85,7 @@ def promotion_skip_reasons(node: dict[str, Any], source_branch: str, main_nodes:
 
 
 def snapshot_id() -> str:
-    return "promotion_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return "promotion_" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def promoted_evidence(node: dict[str, Any], source_branch: str, target_branch: str) -> dict[str, Any]:
@@ -94,7 +94,7 @@ def promoted_evidence(node: dict[str, Any], source_branch: str, target_branch: s
         {
             "promoted_from_branch": source_branch,
             "promoted_to_branch": target_branch,
-            "promoted_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "promoted_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         }
     )
     return evidence

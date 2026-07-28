@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,15 +16,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from memory_node import contains_red_material, sha256_text  # noqa: E402
-from tree_store import TreeStore, ensure_within, fsync_dir  # noqa: E402
+from memory_node import contains_red_material, sha256_text
+from tree_store import TreeStore, ensure_within, fsync_dir
 
 SCHEMA_VERSION = "ralph_memory_usage_v1"
 SAFE_VALUE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def query_hash(query: object) -> str:

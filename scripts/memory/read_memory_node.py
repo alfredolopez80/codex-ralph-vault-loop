@@ -14,9 +14,9 @@ for import_dir in (SCRIPT_DIR, REPO_ROOT / "scripts" / "security"):
     if str(import_dir) not in sys.path:
         sys.path.insert(0, str(import_dir))
 
-from recall_v2 import context_for, hard_reject_reason  # noqa: E402
-from sensitive_content import redact_text  # noqa: E402
-from tree_store import TreeStore, TreeStorePathError  # noqa: E402
+from recall_v2 import context_for, hard_reject_reason
+from sensitive_content import redact_text
+from tree_store import TreeStore, TreeStorePathError
 
 
 def confidence(node: dict[str, Any]) -> object:

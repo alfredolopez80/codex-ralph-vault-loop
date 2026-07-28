@@ -7,7 +7,6 @@ from pathlib import Path
 
 from _memory_common import LAYER_FILES, render_frontmatter
 
-
 DREAM_STATE_MIN_CONFIDENCE = 0.6
 DREAM_STATE_MAX_CANDIDATES = 12
 DEFAULT_VAULT_DIR = Path("~/Documents/Obsidian/MiVault").expanduser()

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
-from implementation_notes_lib import ImplementationNotesError, ensure_not_red, now_local, resolve_for_write, run_git, valid_non_initial_entries
-
+from implementation_notes_lib import (
+    ImplementationNotesError,
+    ensure_not_red,
+    now_local,
+    resolve_for_write,
+    run_git,
+    valid_non_initial_entries,
+)
 
 INDEX_JSON_NAME = "implementation-index.json"
 INDEX_MD_NAME = "implementation-index.md"
@@ -91,7 +97,7 @@ def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
     timestamp = entry.fields.get("Timestamp", "")
     decision = entry.fields.get("Decision", "")
     status = entry.fields.get("Status", "")
-    material = "\n".join((category, timestamp, decision, status))
+    material = f"{category}\n{timestamp}\n{decision}\n{status}"
     return {
         "latest_entry_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
         "latest_entry_category": category,
@@ -179,7 +185,7 @@ def record_loose_commit(
 ) -> dict[str, Any]:
     if not commit.strip():
         raise ImplementationNotesError("loose commit is required")
-    ensure_not_red("loose commit index entry", "\n".join([commit, reason, branch, notes]))
+    ensure_not_red("loose commit index entry", f"{commit}\n{reason}\n{branch}\n{notes}")
     data = load_index(primary_root)
     timestamp = now_local()
     git_meta = current_git_metadata(active_root)

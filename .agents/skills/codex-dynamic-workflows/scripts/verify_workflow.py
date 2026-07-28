@@ -7,7 +7,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 REQUIRED_FILES = ("plan.md", "state.json", "orchestration.md", "final-report.md")
 REQUIRED_DIRS = ("packets", "results")
 

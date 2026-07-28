@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 
 from _vault_common import (
-    content_hash,
     classify_note,
+    content_hash,
     default_agent,
     default_project,
     init_vault,
