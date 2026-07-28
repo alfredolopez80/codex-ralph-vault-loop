@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 STOP_HOOK = ROOT / ".codex" / "hooks" / "stop_persist_memory.py"
 CHECKPOINT = ROOT / "scripts" / "memory" / "checkpoint.py"
@@ -14,7 +13,7 @@ HOOKS = ROOT / ".codex" / "hooks"
 if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
-from shared.active_context import active_context_from_payload  # noqa: E402
+from shared.active_context import active_context_from_payload
 
 
 def env_for(ralph_home: Path) -> dict[str, str]:

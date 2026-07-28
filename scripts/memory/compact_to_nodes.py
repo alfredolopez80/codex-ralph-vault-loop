@@ -7,7 +7,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,14 +17,14 @@ for import_dir in (SCRIPT_DIR, REPO_ROOT / ".codex" / "hooks", REPO_ROOT / "scri
     if str(import_dir) not in sys.path:
         sys.path.insert(0, str(import_dir))
 
-from classify_learning import classify_learning  # noqa: E402
-from compact_sources import DEFAULT_VAULT_DIR, Source, discover_sources, read_source, skip_source  # noqa: E402
-from memory_node import SCHEMA_VERSION, contains_red_material, deterministic_node_id, sha256_text  # noqa: E402
-from sensitive_content import public_findings  # noqa: E402
-from tree_store import TreeStore, TreeStoreError, compute_project_id  # noqa: E402
+from classify_learning import classify_learning
+from compact_sources import DEFAULT_VAULT_DIR, Source, discover_sources, read_source, skip_source
+from memory_node import SCHEMA_VERSION, contains_red_material, deterministic_node_id, sha256_text
+from sensitive_content import public_findings
+from tree_store import TreeStore, TreeStoreError, compute_project_id
 
 try:
-    from shared.active_context import active_context_from_payload  # type: ignore  # noqa: E402
+    from shared.active_context import active_context_from_payload  # type: ignore
 except Exception:  # pragma: no cover
     active_context_from_payload = None
 
@@ -53,7 +53,7 @@ class Candidate:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def compact_space(value: object) -> str:

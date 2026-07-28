@@ -1,19 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
-import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def run_memory(name: str, ralph_home: Path, *args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -194,7 +193,7 @@ def test_wakeup_skips_stale_handoff(tmp_path: Path) -> None:
     project_id = "p-active"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    old = (datetime.now(timezone.utc) - timedelta(days=3)).replace(microsecond=0).isoformat()
+    old = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0).isoformat()
     write_project_handoff(tmp_path, project_id, workspace, "safe stale marker", created_at=old)
 
     result = run_project_wakeup(tmp_path, project_id, workspace)
@@ -251,7 +250,7 @@ def test_wakeup_skips_future_dated_handoff(tmp_path: Path) -> None:
     project_id = "p-active"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    future = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat()
+    future = (datetime.now(UTC) + timedelta(hours=1)).replace(microsecond=0).isoformat()
     write_project_handoff(tmp_path, project_id, workspace, "safe future marker", created_at=future)
 
     result = run_project_wakeup(tmp_path, project_id, workspace)

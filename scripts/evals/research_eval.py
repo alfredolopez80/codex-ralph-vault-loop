@@ -6,9 +6,17 @@ from pathlib import Path
 from typing import Any
 
 from _eval_common import REPO_ROOT, emit_json, now_iso
-from _mcp_eval_common import append_eval_jsonl, live_skip_report, load_json, load_response
-from _mcp_eval_common import mean, ratio, red_is_blocked, text_has_secret, write_eval_report
-
+from _mcp_eval_common import (
+    append_eval_jsonl,
+    live_skip_report,
+    load_json,
+    load_response,
+    mean,
+    ratio,
+    red_is_blocked,
+    text_has_secret,
+    write_eval_report,
+)
 
 DEFAULT_FIXTURE = REPO_ROOT / "tests" / "evals" / "fixtures" / "research_citation" / "manifest.json"
 
@@ -65,7 +73,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     no_secret = not text_has_secret(response)
     metrics = score_research(fixture, response)
     safety_ok = red_blocked and no_secret
-    score = mean(list(metrics.values()) + [1.0 if safety_ok else 0.0])
+    score = mean([*list(metrics.values()), 1.0 if safety_ok else 0.0])
     report = {
         "created_at": now_iso(),
         "suite": suite,

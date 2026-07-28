@@ -8,14 +8,12 @@ from pathlib import Path
 
 from _memory_common import content_hash, ralph_home
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import public_findings  # noqa: E402
-
+from sensitive_content import public_findings
 
 LEGACY_DIRS = ("checkpoints", "handoffs", "ledgers", "layers", "reports")
 TEXT_SUFFIXES = {".md", ".json", ".jsonl", ".txt"}

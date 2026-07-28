@@ -5,7 +5,6 @@ import argparse
 import shutil
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / ".codex" / "agents"
 TARGET = Path.home() / ".codex" / "agents"

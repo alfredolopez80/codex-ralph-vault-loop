@@ -8,7 +8,6 @@ import sys
 import uuid
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 DISPATCHER = HOOKS / "global_hook_dispatch.py"

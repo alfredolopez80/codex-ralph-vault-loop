@@ -6,7 +6,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from common import add_common_args, assert_not_red, fail_result, latest_config, print_result, read_ledger, resolve_cwd, session_paths, write_json
+from common import (
+    add_common_args,
+    assert_not_red,
+    fail_result,
+    latest_config,
+    print_result,
+    read_ledger,
+    resolve_cwd,
+    session_paths,
+    write_json,
+)
 
 
 def safe_line(value: object, limit: int = 240) -> str:

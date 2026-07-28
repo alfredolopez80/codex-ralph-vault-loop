@@ -3,7 +3,20 @@ from __future__ import annotations
 
 import argparse
 
-from common import add_common_args, baseline_policy_from_config, detect_upstream_backend, fail_result, fingerprint, git_state, latest_config, load_scorecard_info, print_result, read_ledger, resolve_cwd, session_paths
+from common import (
+    add_common_args,
+    baseline_policy_from_config,
+    detect_upstream_backend,
+    fail_result,
+    fingerprint,
+    git_state,
+    latest_config,
+    load_scorecard_info,
+    print_result,
+    read_ledger,
+    resolve_cwd,
+    session_paths,
+)
 
 
 def build_doctor(cwd_raw: str | None) -> dict:

@@ -4,9 +4,8 @@ import json
 import os
 from pathlib import Path
 
-from _memory_common import LAYER_FILES, content_hash, now_iso, read_text
 from _dream_core import normalize_candidate
-
+from _memory_common import LAYER_FILES, content_hash, now_iso, read_text
 
 AUTO_PROMOTE_MIN_CONFIDENCE = 0.8
 REVIEW_MIN_CONFIDENCE = 0.6
@@ -63,10 +62,7 @@ def append_to_layer(root: Path, candidate: dict[str, object]) -> None:
         ]
     )
     heading = "## Auto-Promoted Learnings"
-    if heading not in current:
-        current = current + f"\n\n{heading}\n\n{block}"
-    else:
-        current = current + f"\n\n{block}"
+    current = current + f"\n\n{heading}\n\n{block}" if heading not in current else current + f"\n\n{block}"
     layer.write_text(current.rstrip() + "\n", encoding="utf-8")
 
 

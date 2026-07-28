@@ -4,7 +4,6 @@ from __future__ import annotations
 from shared.paths import append_jsonl, ensure_runtime, now_iso, read_hook_input
 from shared.redaction import is_red
 
-
 ROUTE_MARKER = "ROUTE_DECISION"
 
 

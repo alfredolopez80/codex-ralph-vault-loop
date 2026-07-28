@@ -4,13 +4,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
-from shared.active_context import active_context_from_payload  # noqa: E402
+from shared.active_context import active_context_from_payload
 
 
 def init_git(path: Path, remote: str | None = None) -> None:

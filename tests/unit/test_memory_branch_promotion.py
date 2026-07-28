@@ -8,9 +8,9 @@ MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-from promote_branch_memory import promote_branch_memory  # noqa: E402
-from recall_v2 import Context, recall  # noqa: E402
-from tree_store import TreeStore  # noqa: E402
+from promote_branch_memory import promote_branch_memory
+from recall_v2 import Context, recall
+from tree_store import TreeStore
 
 PROJECT = "p-branch-promotion"
 WORKSPACE = "workspace-branch"

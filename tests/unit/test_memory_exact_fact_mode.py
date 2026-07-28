@@ -11,7 +11,7 @@ MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-from tree_store import TreeStore  # noqa: E402
+from tree_store import TreeStore
 
 PROJECT = "p-exact-mode"
 BRANCH = "main"

@@ -4,7 +4,21 @@ from __future__ import annotations
 import argparse
 import re
 
-from common import DEFAULT_BASELINE_POLICY, SUPPORTED_BASELINE_POLICIES, add_common_args, append_jsonl, assert_not_red, default_hard_gates, fail_result, load_scorecard_info, now_iso, print_result, required_entry_fields, resolve_cwd, session_paths
+from common import (
+    DEFAULT_BASELINE_POLICY,
+    SUPPORTED_BASELINE_POLICIES,
+    add_common_args,
+    append_jsonl,
+    assert_not_red,
+    default_hard_gates,
+    fail_result,
+    load_scorecard_info,
+    now_iso,
+    print_result,
+    required_entry_fields,
+    resolve_cwd,
+    session_paths,
+)
 
 
 def slug(value: str) -> str:

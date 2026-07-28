@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL = ROOT / "scripts" / "setup" / "install-global.sh"
 CREATE = ROOT / "scripts" / "plans" / "create-implementation-notes.py"

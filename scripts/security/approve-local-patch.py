@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.local_minikube_grant import create_patch_marker, patch_grant_from_request  # noqa: E402
+from shared.local_minikube_grant import create_patch_marker, patch_grant_from_request
 
 
 def main() -> int:

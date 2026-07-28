@@ -10,7 +10,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
 GLOBAL_HOOKS_JSON = Path.home() / ".codex" / "hooks.json"
 
@@ -323,4 +322,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as exc:
         print(f"GLOBAL_HOOKS_SMOKE_FAIL {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc

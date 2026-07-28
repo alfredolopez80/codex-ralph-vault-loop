@@ -5,14 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = ROOT / "scripts" / "plans"
 if str(PLANS) not in sys.path:
     sys.path.insert(0, str(PLANS))
 
-from implementation_index_lib import load_index, record_loose_commit, render_markdown, upsert_plan_entry  # noqa: E402
-from implementation_notes_lib import ImplementationNotesError  # noqa: E402
+from implementation_index_lib import load_index, record_loose_commit, render_markdown, upsert_plan_entry
+from implementation_notes_lib import ImplementationNotesError
 
 
 def git(cwd: Path, *args: str) -> str:

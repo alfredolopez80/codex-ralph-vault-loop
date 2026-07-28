@@ -6,11 +6,10 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time, timezone
 from pathlib import Path
 
 from _memory_common import ensure_runtime, now_iso, project_runtime_root, read_text
-
 
 STATE_FILE = Path("reports/memory/dream-scheduler.json")
 LEARNING_EVENTS_FILE = Path("ledgers/learning-events.jsonl")
@@ -28,7 +27,7 @@ def parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
 
@@ -85,8 +84,8 @@ def hours_since(value: datetime | None, now: datetime) -> float | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return (now.astimezone(timezone.utc) - value.astimezone(timezone.utc)).total_seconds() / 3600
+        value = value.replace(tzinfo=UTC)
+    return (now.astimezone(UTC) - value.astimezone(UTC)).total_seconds() / 3600
 
 
 def should_run(state: dict[str, object], target: time, now: datetime, force: bool, learning_event_count: int) -> tuple[bool, str]:

@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from _cost_common import estimate_context, redaction_report, redact_text
+from _cost_common import estimate_context, redact_text, redaction_report
 
 
 def main() -> int:

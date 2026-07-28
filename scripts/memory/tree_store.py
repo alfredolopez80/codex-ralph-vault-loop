@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -7,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,7 @@ SHA256_RE = re.compile(r"[a-f0-9]{64}")
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def default_ralph_home() -> Path:
@@ -210,10 +211,8 @@ def atomic_write_text(path: Path, text: str) -> None:
         os.replace(tmp_path, path)
         fsync_dir(path.parent)
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             tmp_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:

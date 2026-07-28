@@ -8,7 +8,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,17 +18,19 @@ for import_dir in (SCRIPT_DIR, REPO_ROOT / ".codex" / "hooks"):
     if str(import_dir) not in sys.path:
         sys.path.insert(0, str(import_dir))
 
-from memory_node import MemoryNode, MemoryNodeValidationError, contains_red_material, sha256_text  # noqa: E402
-from tree_store import (  # noqa: E402
+from memory_node import MemoryNode, MemoryNodeValidationError, contains_red_material, sha256_text
+from tree_store import (
     TreeStore,
     compute_project_id,
     default_memory_home,
+)
+from tree_store import (
     workspace_instance_id as canonical_workspace_instance_id,
 )
-from usage_ledger import record_usage  # noqa: E402
+from usage_ledger import record_usage
 
 try:
-    from shared.active_context import active_context_from_payload  # type: ignore  # noqa: E402
+    from shared.active_context import active_context_from_payload  # type: ignore
 except Exception:  # pragma: no cover
     active_context_from_payload = None
 
@@ -289,11 +291,11 @@ def text_score(query_terms: list[str], text: object, weight: int) -> int:
 
 def parse_time(value: object) -> datetime | None:
     try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value))
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -308,7 +310,7 @@ def score_node(node: dict[str, Any], analysis: dict[str, Any]) -> tuple[float, d
     if summary_score + trigger_score + entity_path_score <= 0:
         return 0.0, {"summary_score": summary_score, "trigger_score": trigger_score, "entity_path_score": entity_path_score}
     updated = parse_time(node.get("updated_at")) or parse_time(node.get("created_at"))
-    recency_score = 2.0 if updated and (datetime.now(timezone.utc) - updated).days <= 30 else 0.5 if updated else 0.0
+    recency_score = 2.0 if updated and (datetime.now(UTC) - updated).days <= 30 else 0.5 if updated else 0.0
     salience = node.get("salience") if isinstance(node.get("salience"), dict) else {}
     salience_score = round(sum(float(value) for value in salience.values() if isinstance(value, (int, float))) * 2, 2)
     graph_bonus = min(len(node.get("links", [])) if isinstance(node.get("links"), list) else 0, 3)

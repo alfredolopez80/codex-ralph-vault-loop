@@ -23,8 +23,7 @@ SECURITY_DIR = Path(__file__).resolve().parents[1] / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import is_red  # noqa: E402
-
+from sensitive_content import is_red
 
 ADVISOR_OUTPUT_CONTRACT = "Return concise sections: verdict, findings, evidence, risk, next_action, confidence."
 ZAI_DEEP_DEFAULT_MAX_TOKENS = 3000

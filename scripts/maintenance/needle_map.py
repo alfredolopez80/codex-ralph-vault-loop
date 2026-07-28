@@ -13,14 +13,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import redact_text as redact_sensitive_text  # noqa: E402
-
+from sensitive_content import redact_text as redact_sensitive_text
 
 SKIP_DIRS = {
     ".cache",

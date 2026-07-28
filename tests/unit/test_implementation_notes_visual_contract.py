@@ -5,19 +5,18 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = ROOT / "scripts" / "plans"
 if str(PLANS) not in sys.path:
     sys.path.insert(0, str(PLANS))
 
-from consolidated_notes_artifacts import (  # noqa: E402
+from consolidated_notes_artifacts import (
     ConsolidatedEntry,
     ConsolidatedPlanSection,
     append_consolidated_artifacts,
     resolve_consolidated_paths,
 )
-from implementation_notes_lib import CATEGORY_ORDER, ImplementationNotesError, Roots, html_document  # noqa: E402
+from implementation_notes_lib import CATEGORY_ORDER, ImplementationNotesError, Roots, html_document
 
 
 def test_generated_notes_html_carries_static_visual_contract(tmp_path: Path) -> None:

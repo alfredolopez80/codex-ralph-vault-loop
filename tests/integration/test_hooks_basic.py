@@ -7,7 +7,6 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 
@@ -358,8 +357,8 @@ def test_pre_tool_guard_blocks_protected_env_exposure(tmp_path: Path) -> None:
         f"printf %s ${tk_name}",
         f"python3 -c 'import os; print(os.environ.get(\"{tk_name}\"))'",
         f"python3 -c 'import os; print(os.{environ_attr}[\"{tk_name}\"])'",
-        f"node -e 'console.log(process." + f"env.{tk_name})'",
-        f"node -e 'console.log(process." + f"{env_attr}[\"{tk_name}\"])'",
+        "node -e 'console.log(process." + f"env.{tk_name})'",
+        "node -e 'console.log(process." + f"{env_attr}[\"{tk_name}\"])'",
         "node -e 'console.log(process." + env_attr + "[`" + tk_name + "`])'",
     ]
 
@@ -899,13 +898,7 @@ def test_post_tool_memory_deduplicates_learning_events(tmp_path: Path) -> None:
 
 
 def test_does_not_persist_raw_agent_response(tmp_path: Path) -> None:
-    raw_response = "\n".join(
-        [
-            "I inspected several files and here is a verbose raw response.",
-            "Decision: persist only validated memory facts.",
-            "Raw agent trailer should not become trusted memory.",
-        ]
-    )
+    raw_response = "I inspected several files and here is a verbose raw response.\nDecision: persist only validated memory facts.\nRaw agent trailer should not become trusted memory."
 
     result = run_hook("post_tool_extract_memory.py", tmp_path, {"cwd": str(ROOT), "session_id": "test-session", "output": raw_response})
 
@@ -917,13 +910,7 @@ def test_does_not_persist_raw_agent_response(tmp_path: Path) -> None:
 
 
 def test_persists_only_validated_facts(tmp_path: Path) -> None:
-    output = "\n".join(
-        [
-            "Unvalidated narrative should not be saved.",
-            "Validated fact: hook memory stores only scoped facts.",
-            "Another unvalidated sentence should not be saved.",
-        ]
-    )
+    output = "Unvalidated narrative should not be saved.\nValidated fact: hook memory stores only scoped facts.\nAnother unvalidated sentence should not be saved."
 
     result = run_hook("post_tool_extract_memory.py", tmp_path, {"cwd": str(ROOT), "session_id": "test-session", "output": output})
 
@@ -1129,15 +1116,14 @@ def test_file_line_guard_does_not_treat_plan_named_source_as_document(tmp_path: 
 
 
 def test_file_line_guard_uses_existing_source_limit_for_tracked_files(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     existing = tmp_path / "existing_service.py"
     existing.write_text("\n".join(f"value_{i} = {i}" for i in range(800)) + "\n", encoding="utf-8")
-    subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, capture_output=True, check=True)
     subprocess.run(
         ["git", "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "add existing"],
         cwd=tmp_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
     )
 
@@ -1148,15 +1134,14 @@ def test_file_line_guard_uses_existing_source_limit_for_tracked_files(tmp_path: 
 
 
 def test_file_line_guard_allows_tracked_source_over_existing_refactor_threshold(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     existing = tmp_path / "existing_service.py"
     existing.write_text("\n".join(f"value_{i} = {i}" for i in range(1001)) + "\n", encoding="utf-8")
-    subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "add", "existing_service.py"], cwd=tmp_path, capture_output=True, check=True)
     subprocess.run(
         ["git", "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "add existing"],
         cwd=tmp_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
     )
 
@@ -1167,10 +1152,10 @@ def test_file_line_guard_allows_tracked_source_over_existing_refactor_threshold(
 
 
 def test_file_line_guard_blocks_staged_new_source_over_base_limit(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     staged_new = tmp_path / "staged_new_service.py"
     staged_new.write_text("\n".join(f"value_{i} = {i}" for i in range(351)) + "\n", encoding="utf-8")
-    subprocess.run(["git", "add", "staged_new_service.py"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "add", "staged_new_service.py"], cwd=tmp_path, capture_output=True, check=True)
 
     result = run_hook("file_line_guard.py", tmp_path, {"tool_input": {"path": str(staged_new), "cwd": str(tmp_path)}})
 
@@ -1257,7 +1242,7 @@ def test_file_line_guard_detects_apply_patch_payload(tmp_path: Path) -> None:
 
 
 def test_file_line_guard_stop_scans_changed_git_files_when_enabled(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     large = tmp_path / "large_service.py"
     large.write_text("\n".join(f"value_{i} = {i}" for i in range(351)) + "\n", encoding="utf-8")
 
@@ -1282,7 +1267,7 @@ def test_file_line_guard_stop_scans_changed_git_files_when_enabled(tmp_path: Pat
 
 
 def test_file_line_guard_stop_ignores_unowned_dirty_files_by_default(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     large = tmp_path / "preexisting_dirty_skill.md"
     large.write_text("\n".join(f"line {i}" for i in range(500)) + "\n", encoding="utf-8")
 

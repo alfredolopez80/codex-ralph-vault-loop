@@ -4,10 +4,9 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPORT_DIR = Path(os.environ.get("GATES_REPORT_DIR", ".ralph-codex/reports/gates"))
@@ -15,7 +14,7 @@ MODES = {"minimal", "standard", "full", "critical"}
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def command_exists(command: str) -> bool:

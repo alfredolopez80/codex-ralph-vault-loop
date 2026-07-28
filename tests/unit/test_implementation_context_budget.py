@@ -3,18 +3,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = ROOT / "scripts" / "plans"
 if str(PLANS) not in sys.path:
     sys.path.insert(0, str(PLANS))
 
-from implementation_context import (  # noqa: E402
+from implementation_context import (
     ImplementationContextSelection,
     notes_hash,
     render_implementation_context,
 )
-from implementation_notes_lib import Roots, append_entry, entry_html, html_document  # noqa: E402
+from implementation_notes_lib import Roots, append_entry, entry_html, html_document
 
 
 def selection_fixture(tmp_path: Path) -> ImplementationContextSelection:

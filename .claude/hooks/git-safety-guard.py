@@ -188,10 +188,7 @@ BLOCKED_PATTERNS = [
 
 def is_safe_pattern(command: str) -> bool:
     """Check if command matches a known safe pattern."""
-    for pattern in SAFE_PATTERNS:
-        if re.search(pattern, command, re.IGNORECASE):
-            return True
-    return False
+    return any(re.search(pattern, command, re.IGNORECASE) for pattern in SAFE_PATTERNS)
 
 
 def check_confirmation_pattern(command: str) -> tuple[bool, str]:

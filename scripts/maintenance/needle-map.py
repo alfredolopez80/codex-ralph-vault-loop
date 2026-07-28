@@ -5,6 +5,5 @@ import sys
 
 from needle_map import main
 
-
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

@@ -16,7 +16,6 @@ from implementation_notes_lib import (
     valid_non_initial_entries,
 )
 
-
 CONSOLIDATED_HTML_NAME = "implementation-notes-consolidated.html"
 CONSOLIDATED_MD_NAME = "implementation-notes-consolidated.md"
 HTML_ANCHOR = "    <!-- CONSOLIDATED_IMPLEMENTATION_NOTES_APPEND_ANCHOR -->"
@@ -92,20 +91,12 @@ def consolidated_items(sections: list[ConsolidatedPlanSection]) -> list[Consolid
     items: list[ConsolidatedItem] = []
     for section in sections:
         if section.schema == "legacy":
-            rows = common_rows(section) + (("Legacy text", section.legacy_excerpt),)
+            rows = (*common_rows(section), ("Legacy text", section.legacy_excerpt))
             key = item_key([section.slug, "legacy", section.source_sha256, section.legacy_excerpt])
             items.append(ConsolidatedItem(key, section, "legacy", "", "Legacy Notes", rows))
             continue
         for entry in section.entries:
-            rows = common_rows(section) + (
-                ("Timestamp", entry.timestamp or "n/a"),
-                ("Category", entry.category),
-                ("Decision", entry.decision or "n/a"),
-                ("Reason", entry.reason or "n/a"),
-                ("Impact", entry.impact or "n/a"),
-                ("Related files", entry.related_files or "n/a"),
-                ("Entry status", entry.status or "n/a"),
-            )
+            rows = (*common_rows(section), ("Timestamp", entry.timestamp or "n/a"), ("Category", entry.category), ("Decision", entry.decision or "n/a"), ("Reason", entry.reason or "n/a"), ("Impact", entry.impact or "n/a"), ("Related files", entry.related_files or "n/a"), ("Entry status", entry.status or "n/a"))
             key = item_key([section.slug, entry.category, entry.timestamp, entry.decision, entry.reason, entry.impact, entry.related_files, entry.status])
             title = CATEGORY_LABELS.get(entry.category, entry.category)
             items.append(ConsolidatedItem(key, section, entry.category, entry.timestamp, title, rows))

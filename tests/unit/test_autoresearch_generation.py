@@ -4,12 +4,11 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "autoresearch"))
 
-from common import AutoResearchError  # noqa: E402
-from generation import REQUIRED_JSON_ARTIFACTS, REQUIRED_TEXT_ARTIFACTS, safe_id, write_generation_bundle  # noqa: E402
+from common import AutoResearchError
+from generation import REQUIRED_JSON_ARTIFACTS, REQUIRED_TEXT_ARTIFACTS, safe_id, write_generation_bundle
 
 
 def test_generation_bundle_writes_required_scanned_files(tmp_path: Path) -> None:

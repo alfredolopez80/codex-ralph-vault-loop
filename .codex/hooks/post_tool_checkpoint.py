@@ -10,7 +10,6 @@ from shared.context_budget import text_is_toxic
 from shared.paths import append_jsonl, now_iso, read_hook_input
 from shared.redaction import is_red, safe_preview
 
-
 TEST_MARKERS = ("test", "pytest", "pnpm test", "npm test", "make test")
 BUILD_MARKERS = ("build", "typecheck", "lint")
 GIT_MARKERS = ("git ", "git-")

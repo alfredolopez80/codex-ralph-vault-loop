@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import os
 import re
 import tempfile
-import hashlib
 from pathlib import Path
 from typing import Any
 
 from common import AutoResearchError, assert_not_red, now_iso
-
 
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
 DEFAULT_PREVIEW_BYTES = 65_536
@@ -90,10 +90,8 @@ def atomic_write_text(path: Path, text: str) -> dict[str, Any]:
             handle.write(text)
         os.replace(tmp_name, path)
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
     return artifact_record(path, text)
 
 
@@ -126,10 +124,8 @@ def write_generation_bundle(cwd: Path, segment_id: str, payload: dict[str, Any])
     target = generation_dir(cwd, segment_id, str(generation_id))
     target.mkdir(parents=True, exist_ok=True)
     for directory in (cwd / "autoresearch.runs", target.parent, target):
-        try:
+        with contextlib.suppress(OSError):
             directory.chmod(0o700)
-        except OSError:
-            pass
 
     files: dict[str, str] = {}
     scan_records: dict[str, dict[str, Any]] = {}

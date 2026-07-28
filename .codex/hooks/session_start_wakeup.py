@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 
 from shared.active_context import active_context_from_payload
 from shared.paths import REPO_ROOT, ensure_runtime, read_hook_input
-
-import subprocess
-import sys
 
 
 def main() -> int:

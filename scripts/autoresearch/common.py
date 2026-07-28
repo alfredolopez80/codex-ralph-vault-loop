@@ -9,10 +9,9 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALS_DIR = REPO_ROOT / "scripts" / "evals"
@@ -22,10 +21,9 @@ if str(EVALS_DIR) not in sys.path:
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from _eval_common import load_scorecard  # noqa: E402
-from diagnostic_json import append_jsonl, emit_json, safe_json_text, write_json  # noqa: E402
-from sensitive_content import is_red  # noqa: E402
-
+from _eval_common import load_scorecard
+from diagnostic_json import append_jsonl, emit_json, safe_json_text, write_json
+from sensitive_content import is_red
 
 DEFAULT_SCORECARD = REPO_ROOT / "config" / "scorecards" / "ralph_autoresearch_v1.yaml"
 SESSION_DOC = "autoresearch.md"
@@ -52,7 +50,7 @@ class AutoResearchError(RuntimeError):
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def resolve_cwd(raw: str | None) -> Path:

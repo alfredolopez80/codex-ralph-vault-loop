@@ -3,9 +3,9 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
-
+from typing import Any
 
 CLASSIFICATIONS = ("GREEN", "YELLOW", "RED")
 ENV_PREFIX = "." + "env"
@@ -23,9 +23,7 @@ def load_classifier(repo: Path) -> Callable[[object, str | None], Any]:
             candidate = root / "scripts" / "security" / "sensitive_content.py"
             resolved = candidate.resolve()
             resolved_repo = repo.resolve()
-            if not is_within(resolved, resolved_repo):
-                candidates.append(candidate)
-            elif classifier_is_unchanged(repo, resolved):
+            if not is_within(resolved, resolved_repo) or classifier_is_unchanged(repo, resolved):
                 candidates.append(candidate)
             else:
                 return fail_closed_classifier
@@ -48,10 +46,10 @@ def classifier_is_unchanged(repo: Path, candidate: Path) -> bool:
         rel = candidate.relative_to(repo.resolve())
     except ValueError:
         return False
-    status = subprocess.run(["git", "status", "--porcelain", "--", str(rel)], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    status = subprocess.run(["git", "status", "--porcelain", "--", str(rel)], cwd=repo, text=True, capture_output=True)
     if status.returncode != 0 or status.stdout.strip():
         return False
-    diff = subprocess.run(["git", "diff", "--name-only", "origin/main...HEAD", "--", str(rel)], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    diff = subprocess.run(["git", "diff", "--name-only", "origin/main...HEAD", "--", str(rel)], cwd=repo, text=True, capture_output=True)
     return diff.returncode == 0 and not diff.stdout.strip()
 
 
@@ -60,10 +58,7 @@ def fail_closed_classifier(_text: object, _requested: str | None = None) -> dict
 
 
 def report_classification(report: Any) -> str:
-    if isinstance(report, dict):
-        raw = report.get("classification")
-    else:
-        raw = getattr(report, "classification", None)
+    raw = report.get("classification") if isinstance(report, dict) else getattr(report, "classification", None)
     classification = str(raw).upper() if raw is not None else ""
     if classification not in CLASSIFICATIONS:
         raise SystemExit("refusing reviewer execution after malformed sensitive-content classifier result")
@@ -113,9 +108,7 @@ def is_hard_sensitive_path(path: str) -> bool:
         return True
     if Path(lowered).name.startswith(ENV_PREFIX + "."):
         return True
-    if lowered.endswith(DENIED_PATH_SUFFIXES):
-        return True
-    return False
+    return bool(lowered.endswith(DENIED_PATH_SUFFIXES))
 
 
 def has_sensitive_name_hint(path: str) -> bool:

@@ -4,9 +4,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTINUITY = ROOT / ".codex" / "hooks" / "continuity_prompt_context.py"
@@ -253,7 +252,7 @@ def test_session_start_handoff_is_workspace_scoped_for_same_remote_project(tmp_p
     scheduler_state.write_text(
         json.dumps(
             {
-                "last_success_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                "last_success_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
                 "last_processed_learning_event_count": 0,
             },
             sort_keys=True,

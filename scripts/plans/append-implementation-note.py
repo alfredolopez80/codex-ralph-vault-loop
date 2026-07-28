@@ -4,18 +4,18 @@ from __future__ import annotations
 import argparse
 import sys
 
+from implementation_index_lib import refresh_notes_metadata
 from implementation_notes_lib import (
     ALLOWED_CATEGORIES,
     ImplementationNotesError,
     append_entry,
-    entry_html,
     ensure_not_red,
+    entry_html,
     is_codex_worktree,
     now_local,
     resolve_for_write,
     resolve_roots,
 )
-from implementation_index_lib import refresh_notes_metadata
 
 
 def main() -> int:

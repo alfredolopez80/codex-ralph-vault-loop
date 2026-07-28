@@ -16,10 +16,10 @@ for path in (ROOT, MEMORY_DIR, ROOT / "scripts" / "evals"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from _eval_common import detect_eval_gaming_text, detect_secret_leak, write_json  # noqa: E402
-from memory_node import SCHEMA_VERSION  # noqa: E402
-from recall_v2 import BUDGET_KEY, Context, recall  # noqa: E402
-from tree_store import TreeStore, atomic_write_json  # noqa: E402
+from _eval_common import detect_eval_gaming_text, detect_secret_leak, write_json
+from memory_node import SCHEMA_VERSION
+from recall_v2 import BUDGET_KEY, Context, recall
+from tree_store import TreeStore, atomic_write_json
 
 STAMP = "2026-06-07T00:00:00+00:00"
 
@@ -119,10 +119,7 @@ def trace_matches(trace: dict[str, Any], reasons: dict[str, str], expected: dict
     for key in ("risk_level", "raw_recommended", "raw_included"):
         if key in expected and trace.get(key) != expected[key]:
             return False
-    for node_id, reason in expected.get("rejected", {}).items():
-        if reasons.get(node_id) != reason:
-            return False
-    return True
+    return all(reasons.get(node_id) == reason for node_id, reason in expected.get("rejected", {}).items())
 
 
 def mean(values: list[bool | float]) -> float:

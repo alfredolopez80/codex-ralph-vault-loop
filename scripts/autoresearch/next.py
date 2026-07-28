@@ -5,9 +5,25 @@ import argparse
 import os
 from pathlib import Path
 
-from common import add_common_args, baseline_policy_from_config, direction_delta, fail_result, fingerprint, git_value, hard_gates_for_packet, latest_baseline, latest_config, parse_metrics, print_result, read_ledger, resolve_cwd, run_shell, session_paths, write_json
+from common import (
+    add_common_args,
+    baseline_policy_from_config,
+    direction_delta,
+    fail_result,
+    fingerprint,
+    git_value,
+    hard_gates_for_packet,
+    latest_baseline,
+    latest_config,
+    parse_metrics,
+    print_result,
+    read_ledger,
+    resolve_cwd,
+    run_shell,
+    session_paths,
+    write_json,
+)
 from generation import write_generation_bundle
-
 
 NO_CANDIDATE_PATCH = "No candidate patch captured.\n"
 

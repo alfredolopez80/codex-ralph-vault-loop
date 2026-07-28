@@ -7,13 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "codex-ralph-vault-loop"
 
 
 def project_id_for_path(path: Path) -> str:
-    material = f"path:{path.resolve()}".encode("utf-8")
+    material = f"path:{path.resolve()}".encode()
     return f"p-{hashlib.sha256(material).hexdigest()[:16]}"
 
 

@@ -10,11 +10,11 @@ import tempfile
 import time
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 sys.path.insert(0, str(HOOKS))
 from global_hook_dispatch import ROLE_COMMANDS
+
 USER_PROMPT_HOOKS = (
     ("universal_prompt_classifier", ["bash", str(HOOKS / "universal-prompt-classifier.sh")]),
     ("user_prompt_capture", [sys.executable, str(HOOKS / "user_prompt_capture.py")]),
@@ -39,7 +39,7 @@ def percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round((pct / 100.0) * (len(ordered) - 1))))
+    index = min(len(ordered) - 1, round((pct / 100.0) * (len(ordered) - 1)))
     return ordered[index]
 
 

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from .paths import write_json
 
-
 DEFAULT_LINE_LIMIT = 350
 EXISTING_SOURCE_LINE_LIMIT = 1000
 DOCUMENT_LINE_LIMIT = 5000

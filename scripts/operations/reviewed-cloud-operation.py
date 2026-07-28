@@ -5,7 +5,7 @@ import argparse
 import hashlib
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 DRY_RUN_TTL_SECONDS = 900
@@ -47,7 +47,7 @@ def consume_marker(path: Path) -> None:
         raise SystemExit("REFUSED: a successful dry-run is required")
     if root.is_symlink() or root.stat().st_mode & 0o077 or path.is_symlink() or path.stat().st_mode & 0o077:
         raise SystemExit("REFUSED: insecure dry-run marker")
-    age = datetime.now(timezone.utc).timestamp() - path.stat().st_mtime
+    age = datetime.now(UTC).timestamp() - path.stat().st_mtime
     if age < 0 or age > DRY_RUN_TTL_SECONDS or path.stat().st_size != 0:
         path.unlink(missing_ok=True)
         raise SystemExit("REFUSED: dry-run marker is stale or invalid")

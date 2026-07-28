@@ -6,14 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = ROOT / "scripts" / "plans"
 if str(PLANS) not in sys.path:
     sys.path.insert(0, str(PLANS))
 
-from implementation_context import select_implementation_context  # noqa: E402
-
+from implementation_context import select_implementation_context
 
 CREATE = PLANS / "create-implementation-notes.py"
 APPEND = PLANS / "append-implementation-note.py"

@@ -7,11 +7,10 @@ import json
 import os
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CLAUDE_ROOT = Path("~/.claude/projects").expanduser()
@@ -80,7 +79,7 @@ def load_sensitive_classifier():
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def yaml_scalar(value: object) -> str:
@@ -160,8 +159,8 @@ def path_is_sensitive(path: Path) -> bool:
 def within_since(path: Path, since_days: int | None) -> bool:
     if since_days is None:
         return True
-    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
-    modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+    cutoff = datetime.now(UTC) - timedelta(days=since_days)
+    modified = datetime.fromtimestamp(path.stat().st_mtime, UTC)
     return modified >= cutoff
 
 

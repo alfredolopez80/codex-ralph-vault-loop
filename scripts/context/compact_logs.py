@@ -53,9 +53,7 @@ def matches(record: dict[str, Any], keywords: list[str], regex: re.Pattern[str] 
         return True
     if regex and regex.search(text):
         return True
-    if not keywords and regex is None and DEFAULT_INTERESTING_RE.search(text):
-        return True
-    return False
+    return bool(not keywords and regex is None and DEFAULT_INTERESTING_RE.search(text))
 
 
 def compact(paths: list[Path], hours: int | None, keywords: list[str], regex_text: str | None, limit: int) -> dict[str, Any]:

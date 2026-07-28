@@ -7,8 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from _eval_common import REPO_ROOT, now_iso
-from _mcp_eval_common import append_eval_jsonl, live_skip_report, load_json, load_response, mean, ratio, red_is_blocked, text_has_secret, write_eval_report
-
+from _mcp_eval_common import (
+    append_eval_jsonl,
+    live_skip_report,
+    load_json,
+    load_response,
+    mean,
+    ratio,
+    red_is_blocked,
+    text_has_secret,
+    write_eval_report,
+)
 
 DEFAULT_FIXTURE = REPO_ROOT / "tests" / "evals" / "fixtures" / "vision_analysis" / "manifest.json"
 

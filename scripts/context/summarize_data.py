@@ -53,7 +53,7 @@ def read_rows(path: Path, limit_rows: int) -> tuple[str, list[dict[str, Any]], b
 
 def summarize(path: Path, limit_rows: int, sample: int) -> dict[str, Any]:
     kind, rows, truncated = read_rows(path, limit_rows)
-    columns = sorted({str(key) for row in rows for key in row.keys()})
+    columns = sorted({str(key) for row in rows for key in row})
     empty_counts = {
         column: sum(1 for row in rows if row.get(column) in {None, ""})
         for column in columns

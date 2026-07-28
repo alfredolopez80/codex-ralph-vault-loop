@@ -123,18 +123,14 @@ def _shell_tokens(command: str) -> list[tuple[str, int, int]] | None:
                 fd_end += 1
             if fd_end < len(command) and command[fd_end] in "<>":
                 redirection_end = fd_end + 1
-                if command.startswith((">>", "<<", "<>"), fd_end):
-                    redirection_end = fd_end + 2
-                elif command.startswith((">&", "<&"), fd_end):
+                if command.startswith((">>", "<<", "<>"), fd_end) or command.startswith((">&", "<&"), fd_end):
                     redirection_end = fd_end + 2
                 tokens.append((command[index:redirection_end], index, redirection_end))
                 index = redirection_end
                 continue
         if command[index] in "<>":
             end = index + 1
-            if command.startswith((">>", "<<", "<>"), index):
-                end = index + 2
-            elif command.startswith((">&", "<&"), index):
+            if command.startswith((">>", "<<", "<>"), index) or command.startswith((">&", "<&"), index):
                 end = index + 2
             tokens.append((command[index:end], index, end))
             index = end
@@ -471,10 +467,7 @@ def classify_text(text: object, requested: str | None = None) -> SensitiveReport
     requested_classification = normalize_classification(requested)
     findings = scan_text(value)
     redacted, changed = redact_text(value)
-    if requested_classification == "RED" or findings:
-        classification = "RED"
-    else:
-        classification = requested_classification or "GREEN"
+    classification = "RED" if requested_classification == "RED" or findings else requested_classification or "GREEN"
     return SensitiveReport(
         classification=classification,
         findings=findings,

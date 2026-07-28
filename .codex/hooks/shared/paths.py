@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
 
@@ -31,7 +30,7 @@ def ralph_home() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def ensure_runtime() -> Path:

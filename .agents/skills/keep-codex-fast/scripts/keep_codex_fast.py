@@ -7,6 +7,7 @@ Default mode is a read-only, privacy-safe report. Use --apply to archive/move/no
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import platform
@@ -20,15 +21,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-
 THREAD_ID_RE = re.compile(
     r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
-    re.I,
+    re.IGNORECASE,
 )
 PROJECT_HEADER_RE = re.compile(r"^\[projects\.([\"'])(.+)\1\]\s*$")
 TEMP_PROJECT_RE = re.compile(
     r"(\\AppData\\Local\\Temp\\|/AppData/Local/Temp/|\\Temp\\codex-|/Temp/codex-|\\Temp\\spark-|/Temp/spark-)",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -103,10 +103,8 @@ def size_bytes(path: Path) -> int:
     total = 0
     for item in path.rglob("*"):
         if item.is_file():
-            try:
+            with contextlib.suppress(OSError):
                 total += item.stat().st_size
-            except OSError:
-                pass
     return total
 
 

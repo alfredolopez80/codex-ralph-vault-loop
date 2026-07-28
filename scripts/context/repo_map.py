@@ -24,9 +24,9 @@ def surface_bucket(path: Path, rel_path: str) -> str | None:
         return "hook_surfaces"
     if parts[:2] == (".codex", "tests"):
         return "test_surfaces"
-    if parts and parts[0] == "tests" or name.startswith("test_"):
+    if (parts and parts[0] == "tests") or name.startswith("test_"):
         return "test_surfaces"
-    if parts and parts[0] == "docs" or name in {"README.md", "AGENTS.md"}:
+    if (parts and parts[0] == "docs") or name in {"README.md", "AGENTS.md"}:
         return "docs_surfaces"
     if name in {"AGENTS.md", "README.md", "pyproject.toml"} or parts[:1] == ("scripts",):
         return "entry_points"

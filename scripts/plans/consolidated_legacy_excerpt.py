@@ -3,12 +3,13 @@ from __future__ import annotations
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import ClassVar
 
 from implementation_notes_lib import ensure_not_red
 
 
 class PlainTextHTMLParser(HTMLParser):
-    SKIP_TAGS = {"head", "script", "style", "svg", "math", "noscript"}
+    SKIP_TAGS: ClassVar[set[str]] = {"head", "script", "style", "svg", "math", "noscript"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)

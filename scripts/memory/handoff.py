@@ -11,7 +11,6 @@ from pathlib import Path
 from _memory_common import ensure_runtime, now_iso, project_runtime_root, render_frontmatter
 from classify_learning import classify_learning
 
-
 MAX_HOOK_SUMMARY_CHARS = 2_000
 CHECKPOINT_HANDOFF_WORDS = 180
 
@@ -20,9 +19,9 @@ HOOKS_DIR = REPO_ROOT / ".codex" / "hooks"
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-from shared.checkpoint_io import CheckpointError, classify_payload, load_latest, render_checkpoint  # noqa: E402
-from shared.handoff_compaction import DEFAULT_HANDOFF_MAX_WORDS, compact_handoff_summary  # noqa: E402
-from shared.redaction import is_red, safe_preview  # noqa: E402
+from shared.checkpoint_io import CheckpointError, classify_payload, load_latest, render_checkpoint
+from shared.handoff_compaction import DEFAULT_HANDOFF_MAX_WORDS, compact_handoff_summary
+from shared.redaction import is_red, safe_preview
 
 
 def checkpoint_for_handoff(root: Path | None = None) -> tuple[str, str]:

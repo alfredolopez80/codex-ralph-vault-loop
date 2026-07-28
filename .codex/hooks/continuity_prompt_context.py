@@ -8,8 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
+from shared.checkpoint_io import (
+    checkpoint_is_injectable,
+    checkpoint_paths,
+    load_latest,
+    render_checkpoint,
+    update_checkpoint,
+)
 from shared.checkpoint_io import content_hash as hash_text
-from shared.checkpoint_io import checkpoint_is_injectable, checkpoint_paths, load_latest, render_checkpoint, update_checkpoint
 from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input, write_json
 from shared.redaction import is_red, safe_preview
 
@@ -17,9 +23,12 @@ PLANS_DIR = REPO_ROOT / "scripts" / "plans"
 if str(PLANS_DIR) not in sys.path:
     sys.path.insert(0, str(PLANS_DIR))
 
-from implementation_context import render_implementation_context, select_implementation_context, selected_entry_hashes  # noqa: E402
-from implementation_notes_lib import ImplementationNotesError, resolve_roots  # noqa: E402
-
+from implementation_context import (
+    render_implementation_context,
+    select_implementation_context,
+    selected_entry_hashes,
+)
+from implementation_notes_lib import ImplementationNotesError, resolve_roots
 
 CONTINUATION_PHRASES = (
     "continua",
@@ -98,9 +107,7 @@ def looks_like_new_task(prompt: str) -> bool:
     words = prompt.split()
     if len(words) < 4:
         return False
-    if prompt.strip().endswith("?") and not any(marker in normalize(prompt) for marker in ("haz", "crea", "implement", "fix", "revisa")):
-        return False
-    return True
+    return not (prompt.strip().endswith("?") and not any(marker in normalize(prompt) for marker in ("haz", "crea", "implement", "fix", "revisa")))
 
 
 def maybe_inject(prompt: str, session_id: str, context: ActiveContext) -> None:

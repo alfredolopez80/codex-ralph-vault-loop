@@ -9,7 +9,6 @@ from _dream_outputs import write_dream_state, write_reports, write_vault_inbox
 from _memory_common import ensure_runtime, now_iso, project_runtime_root
 from _promotion import summarize_promotions
 
-
 DEFAULT_MAX_ITEMS = 10_000
 
 

@@ -6,13 +6,13 @@ import json
 import sys
 from pathlib import Path
 
-from consolidation_report import append_and_index, render_report
 from consolidated_notes_artifacts import (
     CONSOLIDATED_HTML_NAME,
     CONSOLIDATED_MD_NAME,
     resolve_consolidated_paths,
     validate_consolidated_targets,
 )
+from consolidation_report import append_and_index, render_report
 from implementation_index_lib import load_index
 from implementation_notes_consolidator import (
     analyze_record,

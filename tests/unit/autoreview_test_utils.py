@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from types import SimpleNamespace
 from pathlib import Path
-
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = ROOT / "skills" / "autoreview" / "scripts"

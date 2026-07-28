@@ -14,7 +14,8 @@ SCRIPTS_PLANS = ROOT / "scripts" / "plans"
 if str(SCRIPTS_PLANS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_PLANS))
 
-from implementation_notes_lib import (  # noqa: E402
+from implementation_index_lib import current_git_metadata, upsert_plan_entry
+from implementation_notes_lib import (
     ImplementationNotesError,
     canonical_plan_path,
     ensure_plan_path_allowed,
@@ -28,8 +29,6 @@ from implementation_notes_lib import (  # noqa: E402
     resolve_roots,
     safe_session_id,
 )
-from implementation_index_lib import current_git_metadata, upsert_plan_entry  # noqa: E402
-
 
 PLAN_PATH_CHARS = r"[^\s`()\[\]]"
 MARKDOWN_PLAN_LINK_RE = re.compile(

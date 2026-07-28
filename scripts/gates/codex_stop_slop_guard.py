@@ -9,11 +9,11 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
-
+from typing import Any
 
 DEFAULT_THRESHOLD = 60
 MIN_WORDS = 10

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 ROOT = Path(__file__).resolve().parents[2]
 REPORT_DIR = Path(os.environ.get("PRE_GLOBAL_AUDIT_REPORT_DIR", ROOT / "reports" / "pre-global-audit"))
@@ -21,7 +21,7 @@ WORKTREE_AWARE_FAIL = "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL"
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def run_command(args: list[str], env: dict[str, str] | None = None) -> dict[str, Any]:
@@ -148,7 +148,7 @@ def global_hook_diff() -> dict[str, Any]:
     order_failures: list[str] = []
     for event, names in preserved.items():
         sequence = [pair["basename"] for pair in comparisons.get(event, {}).get("local", [])]
-        for left, right in zip(names, names[1:]):
+        for left, right in itertools.pairwise(names):
             if left not in sequence or right not in sequence or sequence.index(left) >= sequence.index(right):
                 order_failures.append(f"{event}:{left}>{right}")
     return {

@@ -7,7 +7,6 @@ import os
 
 from _gate_common import detect_project, result, run_command
 
-
 PYTEST_ENV = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
 
 

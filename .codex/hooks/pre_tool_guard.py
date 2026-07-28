@@ -8,7 +8,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from shared.paths import REPO_ROOT, read_hook_input, write_json
+from shared.cloud_operation_gate import assess_command
 from shared.context_budget import (
     classify_command,
     classify_local_notes_patch_payload,
@@ -18,11 +18,11 @@ from shared.context_budget import (
     payload_patch_text,
     record_patch_payload_shape,
 )
-from shared.cloud_operation_gate import assess_command
-from shared.redaction import is_red, sensitivity_report
-from shared.local_minikube_grant import allows_command, allows_patch, digest as approval_digest, patch_grant
+from shared.local_minikube_grant import allows_command, allows_patch, patch_grant
+from shared.local_minikube_grant import digest as approval_digest
 from shared.local_minikube_grant import targets as local_patch_targets
-
+from shared.paths import REPO_ROOT, read_hook_input, write_json
+from shared.redaction import is_red, sensitivity_report
 
 DESTRUCTIVE_PATTERNS = [
     re.compile(r"\brm\s+-rf\s+(/|~|\$HOME|\.)"),

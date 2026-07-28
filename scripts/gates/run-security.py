@@ -9,7 +9,6 @@ from pathlib import Path
 
 from _gate_common import detect_project, result, run_command
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

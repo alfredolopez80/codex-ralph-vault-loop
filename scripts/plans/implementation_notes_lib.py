@@ -1,26 +1,24 @@
 from __future__ import annotations
 
-import html
 import hashlib
+import html
 import json
 import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Iterable
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SECURITY_ROOT = ROOT / "scripts" / "security"
 if str(SECURITY_ROOT) not in sys.path:
     sys.path.insert(0, str(SECURITY_ROOT))
 
-from sensitive_content import classify_text  # noqa: E402
-
+from sensitive_content import classify_text
 
 CODEX_WORKTREE_ROOT = Path.home() / ".codex" / "worktrees"
 IMPLEMENTATION_NOTES_SUFFIX = "-implementation-notes.html"

@@ -6,7 +6,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,15 +14,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from memory_node import MemoryNode, MemoryNodeValidationError, contains_red_material, sha256_text  # noqa: E402
-from recall_v2 import context_for  # noqa: E402
-from tree_store import TreeStore  # noqa: E402
+from memory_node import MemoryNode, MemoryNodeValidationError, contains_red_material, sha256_text
+from recall_v2 import context_for
+from tree_store import TreeStore
 
 LINK_RELATIONS = {"supports", "contradicts", "updates", "supersedes", "same_topic", "depends_on"}
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def norm(value: object) -> str:
@@ -231,7 +231,7 @@ def apply_plan(store: TreeStore, report: dict[str, Any]) -> dict[str, Any]:
     if not mutating:
         report.pop("_hub_payloads", None)
         return report
-    report["snapshot_id"] = store.snapshot_tree(project_id, "consolidation_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
+    report["snapshot_id"] = store.snapshot_tree(project_id, "consolidation_" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ"))
     try:
         for item in report["duplicates"]:
             duplicate = store.load_node(project_id, item["duplicate"])

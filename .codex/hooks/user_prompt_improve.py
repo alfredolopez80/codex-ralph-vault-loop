@@ -5,7 +5,6 @@ import json
 import sys
 from typing import Any
 
-
 MAX_OUTPUT_BYTES = 768
 ADDITIONAL_CONTEXT = (
     "Prompt contract: preserve task type, language, format, scope, and authority. Infer goal, evidence, constraints, "

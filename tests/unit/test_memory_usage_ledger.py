@@ -12,9 +12,9 @@ MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-import usage_ledger  # noqa: E402
-from recall_v2 import context_for, recall  # noqa: E402
-from tree_store import TreeStore  # noqa: E402
+import usage_ledger
+from recall_v2 import context_for, recall
+from tree_store import TreeStore
 
 LEDGER = ROOT / "scripts" / "memory" / "usage_ledger.py"
 PROJECT = "p-ledger-test"

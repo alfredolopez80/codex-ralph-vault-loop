@@ -8,7 +8,6 @@ import html
 import json
 from pathlib import Path
 
-
 MARKERS = (
     "Accepted",
     "Rejected",

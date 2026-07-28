@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-
 MAX_MEASURED_OUTPUT_CHARS = 12_000
 OUTPUT_FIELDS = ("output", "stdout", "stderr", "result", "message")
 

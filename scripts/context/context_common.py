@@ -4,18 +4,17 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from sensitive_content import redact_text as redact_sensitive_text  # noqa: E402
-
+from sensitive_content import redact_text as redact_sensitive_text
 
 SKIP_DIRS = {
     ".cache",
@@ -206,8 +205,8 @@ def parse_timestamp(value: object) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def compact_json_loads(line: str) -> dict[str, Any] | None:

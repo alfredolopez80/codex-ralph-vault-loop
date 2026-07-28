@@ -12,8 +12,8 @@ MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-from recall_v2 import context_for  # noqa: E402
-from tree_store import TreeStore  # noqa: E402
+from recall_v2 import context_for
+from tree_store import TreeStore
 
 PROJECT = "codex-ralph-vault-loop"
 PROJECT_ID = "p-golden-memory-block"

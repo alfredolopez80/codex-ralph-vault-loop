@@ -4,7 +4,6 @@ from pathlib import Path
 
 from scripts.evals._eval_common import HARD_GATES, RASS_WEIGHTS, load_scorecard, load_yaml_mapping
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCORECARDS = ROOT / "config" / "scorecards"
 

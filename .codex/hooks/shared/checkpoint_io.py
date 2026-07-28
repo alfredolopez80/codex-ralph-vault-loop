@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
-import hashlib
 import tempfile
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager, suppress
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,6 @@ except ImportError:  # pragma: no cover - non-POSIX compatibility.
 from .active_context import ActiveContext, ensure_project_runtime, project_metadata
 from .paths import append_jsonl, now_iso, ralph_home
 from .redaction import redact_text, sensitivity_report
-
 
 CHECKPOINT_VERSION = 1
 CHECKPOINT_DIR = "checkpoints"
@@ -132,10 +131,8 @@ def checkpoint_lock(paths: dict[str, Path]):
 def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = None) -> None:
     paths = ensure_checkpoint_runtime(root, context)
     for key in ("latest_json", "latest_md"):
-        try:
+        with suppress(FileNotFoundError):
             paths[key].unlink()
-        except FileNotFoundError:
-            pass
     append_jsonl(paths["events"], {"created_at": now_iso(), "event": "cleared"})
 
 
@@ -197,10 +194,8 @@ def atomic_write_text(path: Path, text: str) -> None:
             os.fsync(handle.fileno())
         os.replace(tmp_path, path)
     finally:
-        try:
+        with suppress(FileNotFoundError):
             tmp_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:
@@ -384,9 +379,7 @@ def checkpoint_is_injectable(checkpoint: dict[str, Any], context: ActiveContext 
         return False
     if is_stale(checkpoint):
         return False
-    if classify_payload(checkpoint)["classification"] == "RED":
-        return False
-    return True
+    return classify_payload(checkpoint)["classification"] != "RED"
 
 
 def is_stale(checkpoint: dict[str, Any]) -> bool:
@@ -394,17 +387,17 @@ def is_stale(checkpoint: dict[str, Any]) -> bool:
     if updated_at is None:
         return True
     ttl_hours = SESSION_START_ACTIVE_TTL_HOURS if checkpoint.get("status") == "active" else SESSION_START_INACTIVE_TTL_HOURS
-    return datetime.now(timezone.utc) - updated_at > timedelta(hours=ttl_hours)
+    return datetime.now(UTC) - updated_at > timedelta(hours=ttl_hours)
 
 
 def parse_time(value: str) -> datetime | None:
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def append_line(lines: list[str], label: str, value: object) -> None:

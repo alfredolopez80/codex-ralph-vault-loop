@@ -4,9 +4,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -256,7 +255,7 @@ def test_wakeup_omits_stale_checkpoint(tmp_path: Path) -> None:
     assert update.returncode == 0, update.stderr
     checkpoint_path = tmp_path / "checkpoints" / "latest.json"
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-    checkpoint["updated_at"] = (datetime.now(timezone.utc) - timedelta(days=3)).replace(microsecond=0).isoformat()
+    checkpoint["updated_at"] = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0).isoformat()
     checkpoint_path.write_text(json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     wakeup = run_memory("wakeup.py", tmp_path)

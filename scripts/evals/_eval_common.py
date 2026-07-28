@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +20,9 @@ SECURITY_DIR = REPO_ROOT / "scripts" / "security"
 if str(SECURITY_DIR) not in sys.path:
     sys.path.insert(0, str(SECURITY_DIR))
 
-from diagnostic_json import emit_json, safe_json_text  # noqa: E402
-from diagnostic_json import write_json as write_sanitized_json  # noqa: E402
-from sensitive_content import is_red  # noqa: E402
+from diagnostic_json import emit_json, safe_json_text
+from diagnostic_json import write_json as write_sanitized_json
+from sensitive_content import is_red
 
 SCORECARD_DIR = REPO_ROOT / "config" / "scorecards"
 DEFAULT_RUNTIME_ROOT = Path(os.environ.get("RALPH_HOME", str(REPO_ROOT / ".ralph-codex"))).expanduser()
@@ -51,7 +51,7 @@ def required_hard_gates(scorecard: dict[str, Any] | None = None) -> set[str]:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def parse_scalar(value: str) -> Any:

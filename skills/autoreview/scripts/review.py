@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 MAX_OVERALL_EXPLANATION = 3200
 STRICT_CHANGED_PATHS_NOTE = "All findings were outside the changed path set under --strict-changed-paths."
 
@@ -184,11 +183,11 @@ def extract_json(raw: str) -> dict[str, Any]:
     text = raw.strip()
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1 or end <= start:
-            raise SystemExit("review output did not contain a JSON object")
+            raise SystemExit("review output did not contain a JSON object") from exc
         parsed = json.loads(text[start : end + 1])
     if not isinstance(parsed, dict):
         raise SystemExit("review JSON must be an object")

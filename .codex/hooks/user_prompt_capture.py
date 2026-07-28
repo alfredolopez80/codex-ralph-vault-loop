@@ -11,7 +11,6 @@ from shared.context_budget import classify_prompt
 from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input, write_json
 from shared.redaction import is_red
 
-
 TASK_INTAKE_TIMEOUT_SECONDS = 12
 
 

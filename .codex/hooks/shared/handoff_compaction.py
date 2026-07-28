@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from collections import OrderedDict
-from typing import Iterable
+from collections.abc import Iterable
 
 from .redaction import redact_text
 

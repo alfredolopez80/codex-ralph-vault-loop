@@ -7,15 +7,13 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MEMORY_DIR = ROOT / "scripts" / "memory"
 if str(MEMORY_DIR) not in sys.path:
     sys.path.insert(0, str(MEMORY_DIR))
 
-from memory_node import MemoryNodeValidationError  # noqa: E402
-from tree_store import TreeStore, TreeStorePathError  # noqa: E402
-
+from memory_node import MemoryNodeValidationError
+from tree_store import TreeStore, TreeStorePathError
 
 PROJECT = "p-threat-model-project"
 OTHER_PROJECT = "p-threat-model-other"

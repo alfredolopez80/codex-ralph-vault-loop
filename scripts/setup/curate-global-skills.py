@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import stat
@@ -9,10 +10,9 @@ import sys
 import tempfile
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Literal
-
 
 BEGIN_MARKER = "# BEGIN RALPH GLOBAL SKILL CURATION"
 END_MARKER = "# END RALPH GLOBAL SKILL CURATION"
@@ -257,16 +257,14 @@ def atomic_write(path: Path, text: str, *, mode: int) -> None:
         os.replace(temporary, path)
         _fsync_directory(path.parent)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.close(descriptor)
-        except OSError:
-            pass
         temporary.unlink(missing_ok=True)
         raise
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
 
 
 def apply_plan(paths: CurationPaths, plan: CurationPlan) -> tuple[bool, Path | None]:

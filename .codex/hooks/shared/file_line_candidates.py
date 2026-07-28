@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
 PATCH_FILE_RE = re.compile(r"^\*\*\* (?:Add|Update) File: (.+)$|^\*\*\* Move to: (.+)$", re.MULTILINE)
 PATHISH_KEY_RE = re.compile(r"(?i)(^|_)(file|files|filename|path|paths|target|output)(_path|_file|$)")
 

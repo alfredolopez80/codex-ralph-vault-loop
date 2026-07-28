@@ -9,23 +9,24 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = REPO_ROOT / ".codex" / "hooks"
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-from shared.checkpoint_io import (  # noqa: E402
+from shared.active_context import active_context_from_payload
+from shared.checkpoint_io import (
     CheckpointError,
     checkpoint_paths,
     clear_checkpoint,
-    doctor as shared_doctor,
     load_latest,
     render_checkpoint,
     update_checkpoint,
 )
-from shared.active_context import active_context_from_payload  # noqa: E402
-from shared.paths import ralph_home  # noqa: E402
+from shared.checkpoint_io import (
+    doctor as shared_doctor,
+)
+from shared.paths import ralph_home
 
 
 def main() -> int:

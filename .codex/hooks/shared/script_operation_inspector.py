@@ -4,7 +4,6 @@ import hashlib
 import re
 from pathlib import Path
 
-
 SCRIPT_INTERPRETERS = {"bash", "node", "perl", "python", "python3", "ruby", "sh", "zsh"}
 SCRIPT_SUFFIXES = {".bash", ".js", ".mjs", ".pl", ".py", ".rb", ".sh", ".zsh"}
 PYTHON_VALUE_OPTIONS = {"-W", "-X", "--check-hash-based-pycs"}

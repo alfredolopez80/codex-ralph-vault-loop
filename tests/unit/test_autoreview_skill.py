@@ -1,7 +1,7 @@
 import subprocess
 import sys
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 from autoreview_test_utils import load_module
 
