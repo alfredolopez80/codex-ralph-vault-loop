@@ -49,6 +49,7 @@ DEFAULT_SKILLS=(
   ralph-objective-prep
   ralph-memory-dream
   keep-codex-fast
+  canvas
   visual-explainer
   human-e2e-recorder
   bug-hunt

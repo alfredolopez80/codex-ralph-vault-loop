@@ -66,6 +66,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     plugin_codex_skill = tmp_path / ".codex" / "skills" / "telegram-app-integration"
     workflow_skill = tmp_path / ".agents" / "skills" / "codex-dynamic-workflows"
     workflow_codex_skill = tmp_path / ".codex" / "skills" / "codex-dynamic-workflows"
+    canvas_skill = tmp_path / ".agents" / "skills" / "canvas"
+    canvas_codex_skill = tmp_path / ".codex" / "skills" / "canvas"
     scout_skill = tmp_path / ".agents" / "skills" / "ralph-opportunity-scout"
     scout_codex_skill = tmp_path / ".codex" / "skills" / "ralph-opportunity-scout"
     ultrathink_skill = tmp_path / ".agents" / "skills" / "ultrathink"
@@ -87,6 +89,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert plugin_codex_skill.is_symlink()
     assert workflow_skill.is_symlink()
     assert workflow_codex_skill.is_symlink()
+    assert canvas_skill.is_symlink()
+    assert canvas_codex_skill.is_symlink()
     assert scout_skill.is_symlink()
     assert scout_codex_skill.is_symlink()
     assert ultrathink_skill.is_symlink()
@@ -109,6 +113,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(plugin_codex_skill) == str(ROOT / "plugins" / "telegram-app-integration")
     assert os.readlink(workflow_skill) == str(ROOT / ".agents" / "skills" / "codex-dynamic-workflows")
     assert os.readlink(workflow_codex_skill) == str(ROOT / ".agents" / "skills" / "codex-dynamic-workflows")
+    assert os.readlink(canvas_skill) == str(ROOT / ".agents" / "skills" / "canvas")
+    assert os.readlink(canvas_codex_skill) == str(ROOT / ".agents" / "skills" / "canvas")
     assert os.readlink(scout_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(scout_codex_skill) == str(ROOT / ".agents" / "skills" / "ralph-opportunity-scout")
     assert os.readlink(ultrathink_skill) == str(ROOT / ".agents" / "skills" / "ultrathink")
@@ -195,6 +201,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not workflow_skill.is_symlink()
     assert not workflow_codex_skill.exists()
     assert not workflow_codex_skill.is_symlink()
+    assert not canvas_skill.exists()
+    assert not canvas_skill.is_symlink()
+    assert not canvas_codex_skill.exists()
+    assert not canvas_codex_skill.is_symlink()
     assert not scout_skill.exists()
     assert not scout_skill.is_symlink()
     assert not scout_codex_skill.exists()
