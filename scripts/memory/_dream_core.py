@@ -241,7 +241,9 @@ def collect_sources(root: Path, since_days: int | None, max_items: int) -> tuple
         if cutoff and created_at and created_at < cutoff:
             continue
         digest = content_hash(text)
-        classification = classify_learning(text)
+        # Classify the body only; YAML frontmatter metadata (e.g. ``project:``)
+        # inflates classification via YELLOW_MARKERS. See align-codex-2026-07-28.
+        classification = classify_learning(strip_frontmatter(text))
         if classification == "RED":
             findings = public_findings(text) or [{"kind": "classification", "label": "classified_red", "severity": "RED"}]
             skipped.append({"hash": digest, "reason": "RED", "findings": findings})

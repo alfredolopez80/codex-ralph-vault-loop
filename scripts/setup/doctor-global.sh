@@ -71,6 +71,7 @@ DEFAULT_SKILLS=(
   ralph-objective-prep
   ralph-memory-dream
   keep-codex-fast
+  canvas
   visual-explainer
   human-e2e-recorder
   bug-hunt
@@ -517,6 +518,34 @@ main() {
   if [[ "$CHECK_DISCOVERY" -eq 1 ]]; then
     check_skill_discovery
   fi
+
+  # ─── Memory engine health checks ─────────────────────────────────────────
+  printf 'Checking memory engine scripts...\n'
+  MEM_SCRIPTS=(
+    "scripts/vault/vault-save.py"
+    "scripts/memory/dream.py"
+    "scripts/memory/graduate-rules.py"
+    "scripts/vault/vault-graduate.py"
+    "scripts/memory/promote_branch_memory.py"
+    "scripts/vault/_vault_graduation.py"
+  )
+  for script in "${MEM_SCRIPTS[@]}"; do
+    if [[ -f "$REPO_ROOT/$script" ]]; then
+      if [[ ! -x "$REPO_ROOT/$script" ]]; then
+        printf '  WARN: %s is not executable (hooks will skip it)\n' "$script"
+        WARNINGS=$((WARNINGS + 1))
+      fi
+    fi
+  done
+  if ! grep -q "strip_frontmatter" "$REPO_ROOT/scripts/memory/_dream_core.py" 2> /dev/null; then
+    printf '  WARN: _dream_core.py missing strip_frontmatter (frontmatter over-classification)\n'
+    WARNINGS=$((WARNINGS + 1))
+  fi
+  if ! grep -q "strip_frontmatter\|_strip_frontmatter" "$REPO_ROOT/scripts/memory/ralph-recall.py" 2> /dev/null; then
+    printf '  WARN: ralph-recall.py missing strip_frontmatter (frontmatter over-classification)\n'
+    WARNINGS=$((WARNINGS + 1))
+  fi
+  printf 'Memory engine checks complete.\n'
 
   if [[ "$FAILURES" -eq 0 ]]; then
     printf 'GLOBAL_DOCTOR_PASS warnings=%s repo=%s\n' "$WARNINGS" "$REPO_ROOT"
