@@ -52,4 +52,8 @@ ignore = ["E501", "BLE001", "DTZ005", "B008", "SIM102", "SIM103", "SIM115", "E70
 ".codex/hooks/*.py" = ["E402"]
 ".codex/hooks/shared/*.py" = ["E402"]
 ".agents/skills/*/scripts/*.py" = ["E402"]
+# Este test depende del orden de imports: scripts.autoresearch.common hace sys.path
+# antes de que diagnostic_json sea importable. I001 (block-level) no se puede
+# silenciar con noqa por línea, y E402 no aplica (no están después de código).
+"tests/evals/test_diagnostic_sanitization.py" = ["I001", "RUF100"]
 

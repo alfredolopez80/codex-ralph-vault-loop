@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.autoresearch import common as autoresearch_common  # noqa: I001  # sets sys.path for diagnostic_json
+from scripts.autoresearch import common as autoresearch_common  # sets sys.path for diagnostic_json below
 from scripts.evals import _eval_common
-import diagnostic_json  # noqa: I001  # must follow the sys.path setup above
+import diagnostic_json  # must follow the sys.path setup above
 
 
 @dataclass(frozen=True)
