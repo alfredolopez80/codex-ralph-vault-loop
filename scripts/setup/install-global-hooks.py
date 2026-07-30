@@ -240,7 +240,8 @@ def main() -> int:
 
     if args.verify_migration:
         print(f"GLOBAL_HOOKS_MIGRATION_PREFLIGHT_PASS repo={REPO}")
-        return 0
+        if not args.dry_run:
+            return 0
 
     data = hook_config()
     if args.dry_run:

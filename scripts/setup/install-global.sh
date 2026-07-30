@@ -275,17 +275,23 @@ install_hooks() {
     args+=(--allow-worktree-source)
   fi
   if [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]]; then
-    migration_manifest="$(mktemp)"
-    printf 'source_root=%s\n' "$REPO_ROOT" > "$migration_manifest"
-    local skill
-    for skill in "${SKILLS[@]}"; do
-      printf 'skill=%s\n' "$skill" >> "$migration_manifest"
-    done
-    local agent
-    for agent in "${AGENTS[@]}"; do
-      printf 'agent=%s.toml\n' "$agent" >> "$migration_manifest"
-    done
-    args+=(--migration-manifest "$migration_manifest")
+    # A dry run validates the existing source but cannot complete migration:
+    # it intentionally leaves global symlinks unchanged.
+    if [[ "$MODE" == "dry-run" ]]; then
+      args+=(--verify-migration)
+    else
+      migration_manifest="$(mktemp)"
+      printf 'source_root=%s\n' "$REPO_ROOT" > "$migration_manifest"
+      local skill
+      for skill in "${SKILLS[@]}"; do
+        printf 'skill=%s\n' "$skill" >> "$migration_manifest"
+      done
+      local agent
+      for agent in "${AGENTS[@]}"; do
+        printf 'agent=%s.toml\n' "$agent" >> "$migration_manifest"
+      done
+      args+=(--migration-manifest "$migration_manifest")
+    fi
   fi
   if ! python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"; then
     [[ -z "$migration_manifest" ]] || rm -f "$migration_manifest"

@@ -576,6 +576,33 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert os.readlink(global_helper) == str(ROOT / "scripts" / "autoresearch")
 
 
+def test_global_migration_dry_run_validates_preflight_without_requiring_relinked_targets(tmp_path: Path) -> None:
+    old_root = tmp_path / "old-source"
+    marker = tmp_path / ".codex" / "hooks" / ".ralph-repo-root"
+    marker.parent.mkdir(parents=True)
+    marker.write_text(f"{old_root}\n", encoding="utf-8")
+
+    old_canvas = old_root / ".agents" / "skills" / "canvas"
+    old_canvas.mkdir(parents=True)
+    global_canvas = tmp_path / ".agents" / "skills" / "canvas"
+    global_canvas.parent.mkdir(parents=True)
+    global_canvas.symlink_to(old_canvas)
+
+    dry_run = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--dry-run",
+        "--with-agents",
+        "--migrate-global-source",
+        "--allow-worktree-source",
+    )
+
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert "GLOBAL_HOOKS_MIGRATION_PREFLIGHT_PASS" in dry_run.stdout
+    assert marker.read_text(encoding="utf-8") == f"{old_root}\n"
+    assert os.readlink(global_canvas) == str(old_canvas)
+
+
 def test_global_hooks_refuse_direct_source_migration(tmp_path: Path) -> None:
     legacy = run_python_script(tmp_path, "install-global-hooks.py", "--migrate-global-source")
 
