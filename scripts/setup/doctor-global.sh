@@ -76,6 +76,7 @@ DEFAULT_SKILLS=(
   human-e2e-recorder
   bug-hunt
   bugbot-pr-review
+  review-pr
   ultrathink
   improve-prompt
   make-requirements-great
@@ -103,6 +104,7 @@ DEFAULT_AGENTS=(
 )
 
 DISCOVERY_REQUIRED_SKILLS=(
+  review-pr
   ultrathink
   improve-prompt
 )

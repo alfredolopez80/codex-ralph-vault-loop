@@ -71,6 +71,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     ultrathink_codex_skill = tmp_path / ".codex" / "skills" / "ultrathink"
     improve_prompt_skill = tmp_path / ".agents" / "skills" / "improve-prompt"
     improve_prompt_codex_skill = tmp_path / ".codex" / "skills" / "improve-prompt"
+    review_pr_skill = tmp_path / ".agents" / "skills" / "review-pr"
+    review_pr_codex_skill = tmp_path / ".codex" / "skills" / "review-pr"
     agent = tmp_path / ".codex" / "agents" / "ralph-coder.toml"
     helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     reviewed_operation = tmp_path / ".ralph-codex" / "bin" / "reviewed-cloud-operation"
@@ -94,6 +96,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert ultrathink_codex_skill.is_symlink()
     assert improve_prompt_skill.is_symlink()
     assert improve_prompt_codex_skill.is_symlink()
+    assert review_pr_skill.is_symlink()
+    assert review_pr_codex_skill.is_symlink()
     assert agent.is_symlink()
     assert helper.is_symlink()
     assert reviewed_operation.is_symlink()
@@ -118,6 +122,8 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert os.readlink(ultrathink_codex_skill) == str(ROOT / ".agents" / "skills" / "ultrathink")
     assert os.readlink(improve_prompt_skill) == str(ROOT / ".agents" / "skills" / "improve-prompt")
     assert os.readlink(improve_prompt_codex_skill) == str(ROOT / ".agents" / "skills" / "improve-prompt")
+    assert os.readlink(review_pr_skill) == str(ROOT / ".agents" / "skills" / "review-pr")
+    assert os.readlink(review_pr_codex_skill) == str(ROOT / ".agents" / "skills" / "review-pr")
     assert os.readlink(agent) == str(ROOT / ".codex" / "agents" / "ralph-coder.toml")
     assert os.readlink(helper) == str(ROOT / "scripts" / "autoresearch")
     assert os.readlink(reviewed_operation) == str(ROOT / "scripts" / "operations" / "reviewed-cloud-operation.py")
@@ -253,6 +259,7 @@ def test_global_doctor_checks_described_model_visible_skills(tmp_path: Path) -> 
     fake_codex.write_text(
         "#!/usr/bin/env python3\n"
         "print('- improve-prompt: Improve prompts (file: /tmp/improve-prompt/SKILL.md)')\n"
+        "print('- review-pr: Review pull requests (file: /tmp/review-pr/SKILL.md)')\n"
         "print('- ultrathink: Think deeply (file: /tmp/ultrathink/SKILL.md)')\n",
         encoding="utf-8",
     )
@@ -267,6 +274,7 @@ def test_global_doctor_checks_described_model_visible_skills(tmp_path: Path) -> 
     assert visible.returncode == 0, visible.stderr + visible.stdout
     assert "model-visible global skill ultrathink" in visible.stdout
     assert "model-visible global skill improve-prompt" in visible.stdout
+    assert "model-visible global skill review-pr" in visible.stdout
 
     fake_codex.write_text(
         "#!/usr/bin/env python3\n"
@@ -434,6 +442,30 @@ def test_limited_global_install_omits_scout_policy_when_scout_not_selected(tmp_p
     agents_text = (tmp_path / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
     assert "Codex Productivity Patterns" in agents_text
     assert "$ralph-opportunity-scout" not in agents_text
+
+
+def test_limited_global_install_keeps_scout_policy_when_scout_is_already_global(tmp_path: Path) -> None:
+    first = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "ralph-opportunity-scout",
+        "--allow-worktree-source",
+    )
+    second = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "ralph-objective-prep",
+        "--allow-worktree-source",
+    )
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    agents_text = (tmp_path / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+    assert "$ralph-opportunity-scout" in agents_text
 
 
 def test_global_install_rejects_symlinked_agents_md_and_unbalanced_markers(tmp_path: Path) -> None:

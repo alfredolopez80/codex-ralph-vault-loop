@@ -57,6 +57,7 @@ DEFAULT_SKILLS=(
   human-e2e-recorder
   bug-hunt
   bugbot-pr-review
+  review-pr
   ultrathink
   improve-prompt
   make-requirements-great
@@ -693,7 +694,7 @@ PY
   start="<!-- BEGIN RALPH PRODUCTIVITY PATTERNS POLICY -->"
   end="<!-- END RALPH PRODUCTIVITY PATTERNS POLICY -->"
   policy_file="$(mktemp)"
-  if selected_skill ralph-opportunity-scout; then
+  if selected_skill ralph-opportunity-scout || globally_installed_skill ralph-opportunity-scout; then
     productivity_patterns_policy_block 1 > "$policy_file"
   else
     productivity_patterns_policy_block 0 > "$policy_file"
@@ -737,6 +738,14 @@ selected_skill() {
     fi
   done
   return 1
+}
+
+globally_installed_skill() {
+  local name="$1"
+  local source
+  local target="${GLOBAL_SKILL_ROOT}/${name}"
+  source="$(resolve_skill_source "$name")"
+  [[ -L "$target" && "$(readlink "$target")" == "$source" ]]
 }
 
 main() {
