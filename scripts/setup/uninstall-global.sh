@@ -131,8 +131,19 @@ remove_link() {
   fi
 
   if [[ "$(readlink "$target")" != "$source" ]]; then
-    printf 'GLOBAL_UNINSTALL_SKIP foreign-symlink %s\n' "$target"
-    return 0
+    local resolved_target
+    resolved_target="$(
+      python3 - "$target" << 'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).resolve(strict=False))
+PY
+    )"
+    if [[ "$resolved_target" != "$source" ]]; then
+      printf 'GLOBAL_UNINSTALL_SKIP foreign-symlink %s\n' "$target"
+      return 0
+    fi
   fi
 
   if [[ "$MODE" == "dry-run" ]]; then

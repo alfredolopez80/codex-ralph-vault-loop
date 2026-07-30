@@ -688,6 +688,20 @@ def test_global_uninstall_canonicalizes_a_symlinked_checkout_source(tmp_path: Pa
     assert not (tmp_path / ".codex" / "skills" / "review-pr").exists()
 
 
+def test_global_uninstall_removes_legacy_alias_based_link(tmp_path: Path) -> None:
+    linked_checkout = tmp_path / "linked-checkout"
+    linked_checkout.symlink_to(ROOT, target_is_directory=True)
+    uninstall = linked_checkout / "scripts" / "setup" / "uninstall-global.sh"
+    legacy_link = tmp_path / ".agents" / "skills" / "review-pr"
+    legacy_link.parent.mkdir(parents=True)
+    legacy_link.symlink_to(linked_checkout / ".agents" / "skills" / "review-pr")
+
+    removed = run_script(tmp_path, uninstall, "--uninstall", "--skills", "review-pr")
+
+    assert removed.returncode == 0, removed.stderr
+    assert not legacy_link.exists()
+
+
 def test_review_pr_skill_treats_fetched_github_content_as_untrusted() -> None:
     skill_text = (ROOT / ".agents" / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
 
