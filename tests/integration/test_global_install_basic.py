@@ -535,6 +535,22 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert marker.read_text(encoding="utf-8") == f"{ROOT}\n"
 
 
+def test_global_hooks_refuse_direct_migration_with_stale_managed_skill(tmp_path: Path) -> None:
+    marker = tmp_path / ".codex" / "hooks" / ".ralph-repo-root"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("/another/canonical/checkout\n", encoding="utf-8")
+    stale_source = tmp_path / "another" / "orchestrator"
+    stale_source.mkdir(parents=True)
+    stale_target = tmp_path / ".agents" / "skills" / "orchestrator"
+    stale_target.parent.mkdir(parents=True)
+    stale_target.symlink_to(stale_source)
+
+    result = run_python_script(tmp_path, "install-global-hooks.py", "--migrate-global-source")
+
+    assert result.returncode != 0
+    assert "GLOBAL_HOOKS_REFUSED_SKILL_SOURCE_MISMATCH" in result.stderr
+
+
 def test_review_pr_skill_treats_fetched_github_content_as_untrusted() -> None:
     skill_text = (ROOT / ".agents" / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
 

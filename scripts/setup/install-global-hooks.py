@@ -10,6 +10,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
+GLOBAL_SKILL_ROOTS = (Path.home() / ".agents" / "skills", Path.home() / ".codex" / "skills")
+MANAGED_SKILL_SOURCE_ROOTS = (REPO / ".agents" / "skills", REPO / "plugins")
+GLOBAL_AGENT_ROOT = Path.home() / ".codex" / "agents"
+MANAGED_AGENT_SOURCE_ROOT = REPO / ".codex" / "agents"
 
 
 def q(path: Path) -> str:
@@ -76,6 +80,30 @@ def validate_source_repo(allow_worktree_source: bool) -> None:
         )
 
 
+def validate_managed_links_match_source() -> None:
+    for global_root in GLOBAL_SKILL_ROOTS:
+        for source_root in MANAGED_SKILL_SOURCE_ROOTS:
+            if not source_root.is_dir():
+                continue
+            for source in source_root.iterdir():
+                target = global_root / source.name
+                if target.is_symlink() and target.resolve() != source.resolve():
+                    raise SystemExit(
+                        "GLOBAL_HOOKS_REFUSED_SKILL_SOURCE_MISMATCH "
+                        f"target={target} expected={source} actual={target.resolve()}"
+                    )
+
+    if not MANAGED_AGENT_SOURCE_ROOT.is_dir():
+        return
+    for source in MANAGED_AGENT_SOURCE_ROOT.iterdir():
+        target = GLOBAL_AGENT_ROOT / source.name
+        if target.is_symlink() and target.resolve() != source.resolve():
+            raise SystemExit(
+                "GLOBAL_HOOKS_REFUSED_AGENT_SOURCE_MISMATCH "
+                f"target={target} expected={source} actual={target.resolve()}"
+            )
+
+
 def validate_global_source(migrate_global_source: bool) -> None:
     marker = GLOBAL_HOOK_DIR / ".ralph-repo-root"
     if not marker.exists():
@@ -85,11 +113,13 @@ def validate_global_source(migrate_global_source: bool) -> None:
     installed_root = marker.read_text(encoding="utf-8").strip()
     if not installed_root:
         raise SystemExit(f"GLOBAL_HOOKS_REFUSED_EMPTY_SOURCE_MARKER marker={marker}")
-    if installed_root != str(REPO) and not migrate_global_source:
-        raise SystemExit(
-            "GLOBAL_HOOKS_REFUSED_SOURCE_MISMATCH "
-            f"marker={marker} hint=run the global installer with --migrate-global-source"
-        )
+    if installed_root != str(REPO):
+        if not migrate_global_source:
+            raise SystemExit(
+                "GLOBAL_HOOKS_REFUSED_SOURCE_MISMATCH "
+                f"marker={marker} hint=run the global installer with --migrate-global-source"
+            )
+        validate_managed_links_match_source()
 
 
 def reject_symlink_target(path: Path, label: str) -> None:
