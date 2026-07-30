@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -499,9 +500,10 @@ def test_limited_global_install_keeps_scout_policy_when_scout_is_already_global(
 
 
 def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None:
+    old_root = tmp_path / "old-source"
     marker = tmp_path / ".codex" / "hooks" / ".ralph-repo-root"
     marker.parent.mkdir(parents=True)
-    marker.write_text("/another/canonical/checkout\n", encoding="utf-8")
+    marker.write_text(f"{old_root}\n", encoding="utf-8")
 
     refused = run_script(
         tmp_path,
@@ -538,6 +540,26 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert restricted_agents.returncode != 0
     assert "requires the full default skill set and --with-agents" in restricted_agents.stderr
 
+    old_canvas = old_root / ".agents" / "skills" / "canvas"
+    old_canvas.mkdir(parents=True)
+    old_agent = old_root / ".codex" / "agents" / "ralph-reviewer.toml"
+    old_agent.parent.mkdir(parents=True)
+    old_agent.write_text("old agent\n", encoding="utf-8")
+    old_helper = old_root / "scripts" / "autoresearch"
+    old_helper.mkdir(parents=True)
+    agent_canvas = tmp_path / ".agents" / "skills" / "canvas"
+    codex_canvas = tmp_path / ".codex" / "skills" / "canvas"
+    agent_canvas.parent.mkdir(parents=True)
+    codex_canvas.parent.mkdir(parents=True)
+    agent_canvas.symlink_to(old_canvas)
+    codex_canvas.symlink_to(old_canvas)
+    global_agent = tmp_path / ".codex" / "agents" / "ralph-reviewer.toml"
+    global_agent.parent.mkdir(parents=True, exist_ok=True)
+    global_agent.symlink_to(old_agent)
+    global_helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
+    global_helper.parent.mkdir(parents=True)
+    global_helper.symlink_to(old_helper)
+
     migration = run_script(
         tmp_path,
         "install-global.sh",
@@ -548,13 +570,43 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     )
     assert migration.returncode == 0, migration.stderr
     assert marker.read_text(encoding="utf-8") == f"{ROOT}\n"
+    assert os.readlink(agent_canvas) == str(ROOT / ".agents" / "skills" / "canvas")
+    assert os.readlink(codex_canvas) == str(ROOT / ".agents" / "skills" / "canvas")
+    assert os.readlink(global_agent) == str(ROOT / ".codex" / "agents" / "ralph-reviewer.toml")
+    assert os.readlink(global_helper) == str(ROOT / "scripts" / "autoresearch")
 
 
 def test_global_hooks_refuse_direct_source_migration(tmp_path: Path) -> None:
-    result = run_python_script(tmp_path, "install-global-hooks.py", "--migrate-global-source")
+    legacy = run_python_script(tmp_path, "install-global-hooks.py", "--migrate-global-source")
 
-    assert result.returncode != 0
-    assert "unrecognized arguments: --migrate-global-source" in result.stderr
+    assert legacy.returncode != 0
+    assert "unrecognized arguments: --migrate-global-source" in legacy.stderr
+
+    old_root = tmp_path / "old-source"
+    marker = tmp_path / ".codex" / "hooks" / ".ralph-repo-root"
+    marker.parent.mkdir(parents=True)
+    marker.write_text(f"{old_root}\n", encoding="utf-8")
+    module_path = ROOT / "scripts" / "setup" / "install-global-hooks.py"
+    spec = importlib.util.spec_from_file_location("install_global_hooks", module_path)
+    assert spec is not None and spec.loader is not None
+    hooks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hooks)
+    manifest = tmp_path / "complete-migration.manifest"
+    manifest.write_text(
+        "\n".join(
+            [f"source_root={ROOT}"]
+            + [f"skill={name}" for name in sorted(hooks.DEFAULT_SKILLS)]
+            + [f"agent={name}" for name in sorted(hooks.DEFAULT_AGENTS)]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    direct = run_python_script(tmp_path, "install-global-hooks.py", "--migration-manifest", str(manifest))
+
+    assert direct.returncode != 0
+    assert "GLOBAL_HOOKS_REFUSED_INCOMPLETE_MIGRATION" in direct.stderr
+    assert marker.read_text(encoding="utf-8") == f"{old_root}\n"
 
 
 def test_global_migration_preflight_prevents_partial_mutation(tmp_path: Path) -> None:
@@ -592,6 +644,21 @@ def test_global_install_canonicalizes_a_symlinked_checkout_source(tmp_path: Path
 
     assert first.returncode == 0, first.stderr
     assert second.returncode == 0, second.stderr
+
+
+def test_global_uninstall_canonicalizes_a_symlinked_checkout_source(tmp_path: Path) -> None:
+    linked_checkout = tmp_path / "linked-checkout"
+    linked_checkout.symlink_to(ROOT, target_is_directory=True)
+    install = linked_checkout / "scripts" / "setup" / "install-global.sh"
+    uninstall = linked_checkout / "scripts" / "setup" / "uninstall-global.sh"
+
+    installed = run_script(tmp_path, install, "--install", "--skills", "review-pr", "--allow-worktree-source")
+    removed = run_script(tmp_path, uninstall, "--uninstall", "--skills", "review-pr")
+
+    assert installed.returncode == 0, installed.stderr
+    assert removed.returncode == 0, removed.stderr
+    assert not (tmp_path / ".agents" / "skills" / "review-pr").exists()
+    assert not (tmp_path / ".codex" / "skills" / "review-pr").exists()
 
 
 def test_review_pr_skill_treats_fetched_github_content_as_untrusted() -> None:

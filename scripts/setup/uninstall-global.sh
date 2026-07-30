@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"

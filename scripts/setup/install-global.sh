@@ -267,6 +267,7 @@ install_operation_helpers() {
 
 install_hooks() {
   local args=()
+  local migration_manifest=""
   if [[ "$MODE" == "dry-run" ]]; then
     args+=(--dry-run)
   fi
@@ -274,9 +275,23 @@ install_hooks() {
     args+=(--allow-worktree-source)
   fi
   if [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]]; then
-    args+=(--complete-migration)
+    migration_manifest="$(mktemp)"
+    printf 'source_root=%s\n' "$REPO_ROOT" > "$migration_manifest"
+    local skill
+    for skill in "${SKILLS[@]}"; do
+      printf 'skill=%s\n' "$skill" >> "$migration_manifest"
+    done
+    local agent
+    for agent in "${AGENTS[@]}"; do
+      printf 'agent=%s.toml\n' "$agent" >> "$migration_manifest"
+    done
+    args+=(--migration-manifest "$migration_manifest")
   fi
-  python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
+  if ! python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"; then
+    [[ -z "$migration_manifest" ]] || rm -f "$migration_manifest"
+    return 1
+  fi
+  [[ -z "$migration_manifest" ]] || rm -f "$migration_manifest"
 }
 
 preflight_global_source_migration() {
