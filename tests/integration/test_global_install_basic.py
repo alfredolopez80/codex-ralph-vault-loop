@@ -547,6 +547,8 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     old_agent.write_text("old agent\n", encoding="utf-8")
     old_helper = old_root / "scripts" / "autoresearch"
     old_helper.mkdir(parents=True)
+    old_optional = old_root / ".agents" / "skills" / "adversarial"
+    old_optional.mkdir(parents=True)
     agent_canvas = tmp_path / ".agents" / "skills" / "canvas"
     codex_canvas = tmp_path / ".codex" / "skills" / "canvas"
     agent_canvas.parent.mkdir(parents=True)
@@ -559,6 +561,8 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     global_helper = tmp_path / ".ralph-codex" / "bin" / "autoresearch"
     global_helper.parent.mkdir(parents=True)
     global_helper.symlink_to(old_helper)
+    global_optional = tmp_path / ".agents" / "skills" / "adversarial"
+    global_optional.symlink_to(old_optional)
 
     migration = run_script(
         tmp_path,
@@ -574,6 +578,7 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert os.readlink(codex_canvas) == str(ROOT / ".agents" / "skills" / "canvas")
     assert os.readlink(global_agent) == str(ROOT / ".codex" / "agents" / "ralph-reviewer.toml")
     assert os.readlink(global_helper) == str(ROOT / "scripts" / "autoresearch")
+    assert os.readlink(global_optional) == str(ROOT / ".agents" / "skills" / "adversarial")
 
 
 def test_global_migration_dry_run_validates_preflight_without_requiring_relinked_targets(tmp_path: Path) -> None:

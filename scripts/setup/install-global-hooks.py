@@ -116,8 +116,7 @@ def expected_skill_sources() -> dict[str, Path]:
         if source_root.is_dir():
             for source in source_root.iterdir():
                 if source.is_dir():
-                    if source.name in DEFAULT_SKILLS:
-                        sources[source.name] = source.resolve()
+                    sources[source.name] = source.resolve()
     return sources
 
 
@@ -154,8 +153,10 @@ def validate_link(target: Path, source: Path, old_root: str | None, kind: str, r
         )
 
 
-def validate_managed_links_match_source(old_root: str | None = None, require_current: bool = False) -> None:
+def validate_managed_links_match_source(old_root: str | None = None, require_current: bool = False, skill_names: set[str] | None = None) -> None:
     skill_sources = expected_skill_sources()
+    if skill_names is not None:
+        skill_sources = {name: source for name, source in skill_sources.items() if name in skill_names}
     for global_root in GLOBAL_SKILL_ROOTS:
         for name, source in skill_sources.items():
             validate_link(global_root / name, source, old_root, "skill", require_current)
@@ -189,9 +190,9 @@ def read_migration_manifest(path: Path) -> tuple[set[str], set[str]]:
         raise SystemExit(f"GLOBAL_HOOKS_REFUSED_INVALID_MIGRATION_MANIFEST manifest={path}")
     expected_skills = set(expected_skill_sources())
     expected_agents = set(expected_agent_sources())
-    if set(skills) != expected_skills or set(agents) != expected_agents:
+    if not set(DEFAULT_SKILLS).issubset(skills) or not set(skills).issubset(expected_skills) or set(agents) != expected_agents:
         raise SystemExit(f"GLOBAL_HOOKS_REFUSED_INCOMPLETE_MIGRATION manifest={path}")
-    return expected_skills, expected_agents
+    return set(skills), expected_agents
 
 
 def validate_global_source(migration_phase: str | None, migration_manifest: Path | None) -> None:
@@ -212,8 +213,8 @@ def validate_global_source(migration_phase: str | None, migration_manifest: Path
         if migration_phase == "preflight":
             validate_managed_links_match_source(installed_root)
         elif migration_phase == "complete" and migration_manifest is not None:
-            read_migration_manifest(migration_manifest)
-            validate_managed_links_match_source(require_current=True)
+            skills, _agents = read_migration_manifest(migration_manifest)
+            validate_managed_links_match_source(require_current=True, skill_names=skills)
         else:
             raise SystemExit("GLOBAL_HOOKS_REFUSED_INVALID_MIGRATION_PHASE")
 

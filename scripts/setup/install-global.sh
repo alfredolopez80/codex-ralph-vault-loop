@@ -25,6 +25,7 @@ ALLOW_WORKTREE_SOURCE=0
 MIGRATE_GLOBAL_SOURCE=0
 SKILLS_EXPLICIT=0
 AGENTS_EXPLICIT=0
+MIGRATION_SKILLS=()
 
 DEFAULT_SKILLS=(
   orchestrator
@@ -237,6 +238,42 @@ install_skill() {
   install_link "$source" "${GLOBAL_CODEX_SKILL_ROOT}/${name}"
 }
 
+discover_legacy_migration_skills() {
+  [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]] || return 0
+  local marker="${HOME}/.codex/hooks/.ralph-repo-root"
+  [[ -f "$marker" ]] || return 0
+  local old_root
+  IFS= read -r old_root < "$marker" || true
+  [[ -n "$old_root" && "$old_root" != "$REPO_ROOT" ]] || return 0
+  while IFS= read -r skill; do
+    MIGRATION_SKILLS+=("$skill")
+  done < <(
+    python3 - "$REPO_ROOT" "$old_root" "$GLOBAL_SKILL_ROOT" "$GLOBAL_CODEX_SKILL_ROOT" << 'PY'
+from pathlib import Path
+import sys
+
+repo, old_root, *roots = map(Path, sys.argv[1:])
+sources = {}
+for source_root in (repo / ".agents" / "skills", repo / "plugins"):
+    if source_root.is_dir():
+        for source in source_root.iterdir():
+            if source.is_dir():
+                sources[source.name] = source.resolve()
+found = set()
+for root in roots:
+    if not root.is_dir():
+        continue
+    for target in root.iterdir():
+        source = sources.get(target.name)
+        if source is None or not target.is_symlink():
+            continue
+        if target.resolve() == (old_root / source.relative_to(repo)).resolve():
+            found.add(target.name)
+print("\n".join(sorted(found)))
+PY
+  )
+}
+
 resolve_skill_source() {
   local name="$1"
   if [[ -e "${SKILL_SOURCE_ROOT}/${name}" ]]; then
@@ -283,7 +320,7 @@ install_hooks() {
       migration_manifest="$(mktemp)"
       printf 'source_root=%s\n' "$REPO_ROOT" > "$migration_manifest"
       local skill
-      for skill in "${SKILLS[@]}"; do
+      for skill in "${SKILLS[@]}" "${MIGRATION_SKILLS[@]}"; do
         printf 'skill=%s\n' "$skill" >> "$migration_manifest"
       done
       local agent
@@ -877,6 +914,7 @@ main() {
   validate_source_repo
   validate_global_source
   preflight_global_source_migration
+  discover_legacy_migration_skills
 
   ensure_dir "$GLOBAL_SKILL_ROOT"
   ensure_dir "$GLOBAL_CODEX_SKILL_ROOT"
@@ -886,6 +924,11 @@ main() {
   local skill
   for skill in "${SKILLS[@]}"; do
     install_skill "$skill"
+  done
+  for skill in "${MIGRATION_SKILLS[@]}"; do
+    if ! selected_skill "$skill"; then
+      install_skill "$skill"
+    fi
   done
 
   if [[ "$WITH_AGENTS" -eq 1 ]]; then
