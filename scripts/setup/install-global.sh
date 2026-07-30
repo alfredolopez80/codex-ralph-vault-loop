@@ -26,6 +26,7 @@ MIGRATE_GLOBAL_SOURCE=0
 SKILLS_EXPLICIT=0
 AGENTS_EXPLICIT=0
 MIGRATION_SKILLS=()
+STALE_MIGRATION_SKILLS=()
 
 DEFAULT_SKILLS=(
   orchestrator
@@ -245,8 +246,11 @@ discover_legacy_migration_skills() {
   local old_root
   IFS= read -r old_root < "$marker" || true
   [[ -n "$old_root" && "$old_root" != "$REPO_ROOT" ]] || return 0
-  while IFS= read -r skill; do
-    MIGRATION_SKILLS+=("$skill")
+  while IFS= read -r entry; do
+    case "$entry" in
+      relink=*) MIGRATION_SKILLS+=("${entry#relink=}") ;;
+      stale=*) STALE_MIGRATION_SKILLS+=("${entry#stale=}") ;;
+    esac
   done < <(
     python3 - "$REPO_ROOT" "$old_root" "$GLOBAL_SKILL_ROOT" "$GLOBAL_CODEX_SKILL_ROOT" << 'PY'
 from pathlib import Path
@@ -264,12 +268,18 @@ for root in roots:
     if not root.is_dir():
         continue
     for target in root.iterdir():
-        source = sources.get(target.name)
-        if source is None or not target.is_symlink():
+        if not target.is_symlink() or not target.resolve().is_relative_to(old_root):
             continue
-        if target.resolve() == (old_root / source.relative_to(repo)).resolve():
+        source = sources.get(target.name)
+        if source is None:
+            found.add(("stale", target.name))
+        elif target.resolve() == (old_root / source.relative_to(repo)).resolve():
             found.add(target.name)
-print("\n".join(sorted(found)))
+for item in sorted(found, key=str):
+    if isinstance(item, tuple):
+        print(f"{item[0]}={item[1]}")
+    else:
+        print(f"relink={item}")
 PY
   )
 }
@@ -920,6 +930,11 @@ main() {
   ensure_dir "$GLOBAL_CODEX_SKILL_ROOT"
   ensure_dir "$GLOBAL_AGENT_ROOT"
   ensure_dir "$GLOBAL_HELPER_ROOT"
+
+  for skill in "${STALE_MIGRATION_SKILLS[@]}"; do
+    backup_existing "${GLOBAL_SKILL_ROOT}/${skill}"
+    backup_existing "${GLOBAL_CODEX_SKILL_ROOT}/${skill}"
+  done
 
   local skill
   for skill in "${SKILLS[@]}"; do

@@ -563,6 +563,10 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     global_helper.symlink_to(old_helper)
     global_optional = tmp_path / ".agents" / "skills" / "adversarial"
     global_optional.symlink_to(old_optional)
+    old_retired = old_root / ".agents" / "skills" / "global-goal"
+    old_retired.mkdir(parents=True)
+    global_retired = tmp_path / ".agents" / "skills" / "global-goal"
+    global_retired.symlink_to(old_retired)
 
     migration = run_script(
         tmp_path,
@@ -579,6 +583,8 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert os.readlink(global_agent) == str(ROOT / ".codex" / "agents" / "ralph-reviewer.toml")
     assert os.readlink(global_helper) == str(ROOT / "scripts" / "autoresearch")
     assert os.readlink(global_optional) == str(ROOT / ".agents" / "skills" / "adversarial")
+    assert not global_retired.exists()
+    assert not global_retired.is_symlink()
 
 
 def test_global_migration_dry_run_validates_preflight_without_requiring_relinked_targets(tmp_path: Path) -> None:
