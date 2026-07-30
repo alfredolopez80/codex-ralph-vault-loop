@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def run_script(
     home: Path,
-    script: str,
+    script: str | Path,
     *args: str,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -21,8 +21,11 @@ def run_script(
     env["HOME"] = str(home)
     if extra_env:
         env.update(extra_env)
+    script_path = Path(script)
+    if not script_path.is_absolute():
+        script_path = ROOT / "scripts" / "setup" / script_path
     return subprocess.run(
-        ["bash", str(ROOT / "scripts" / "setup" / script), *args],
+        ["bash", str(script_path), *args],
         cwd=ROOT,
         env=env,
         text=True,
@@ -523,6 +526,18 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert incomplete_migration.returncode != 0
     assert "requires the full default skill set and --with-agents" in incomplete_migration.stderr
 
+    restricted_agents = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--agents",
+        "ralph-coder",
+        "--migrate-global-source",
+        "--allow-worktree-source",
+    )
+    assert restricted_agents.returncode != 0
+    assert "requires the full default skill set and --with-agents" in restricted_agents.stderr
+
     migration = run_script(
         tmp_path,
         "install-global.sh",
@@ -535,20 +550,48 @@ def test_global_install_refuses_partial_source_migration(tmp_path: Path) -> None
     assert marker.read_text(encoding="utf-8") == f"{ROOT}\n"
 
 
-def test_global_hooks_refuse_direct_migration_with_stale_managed_skill(tmp_path: Path) -> None:
-    marker = tmp_path / ".codex" / "hooks" / ".ralph-repo-root"
-    marker.parent.mkdir(parents=True)
-    marker.write_text("/another/canonical/checkout\n", encoding="utf-8")
-    stale_source = tmp_path / "another" / "orchestrator"
-    stale_source.mkdir(parents=True)
-    stale_target = tmp_path / ".agents" / "skills" / "orchestrator"
-    stale_target.parent.mkdir(parents=True)
-    stale_target.symlink_to(stale_source)
-
+def test_global_hooks_refuse_direct_source_migration(tmp_path: Path) -> None:
     result = run_python_script(tmp_path, "install-global-hooks.py", "--migrate-global-source")
 
     assert result.returncode != 0
+    assert "unrecognized arguments: --migrate-global-source" in result.stderr
+
+
+def test_global_migration_preflight_prevents_partial_mutation(tmp_path: Path) -> None:
+    marker = tmp_path / ".codex" / "hooks" / ".ralph-repo-root"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("/another/canonical/checkout\n", encoding="utf-8")
+    stale_source = tmp_path / "another" / "canvas"
+    stale_source.mkdir(parents=True)
+    stale_target = tmp_path / ".agents" / "skills" / "canvas"
+    stale_target.parent.mkdir(parents=True)
+    stale_target.symlink_to(stale_source)
+
+    result = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--with-agents",
+        "--migrate-global-source",
+        "--allow-worktree-source",
+    )
+
+    assert result.returncode != 0
     assert "GLOBAL_HOOKS_REFUSED_SKILL_SOURCE_MISMATCH" in result.stderr
+    assert marker.read_text(encoding="utf-8") == "/another/canonical/checkout\n"
+    assert not (tmp_path / ".agents" / "skills" / "orchestrator").exists()
+
+
+def test_global_install_canonicalizes_a_symlinked_checkout_source(tmp_path: Path) -> None:
+    linked_checkout = tmp_path / "linked-checkout"
+    linked_checkout.symlink_to(ROOT, target_is_directory=True)
+    script = linked_checkout / "scripts" / "setup" / "install-global.sh"
+
+    first = run_script(tmp_path, script, "--install", "--skills", "ralph-objective-prep", "--allow-worktree-source")
+    second = run_script(tmp_path, script, "--install", "--skills", "ralph-objective-prep", "--allow-worktree-source")
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
 
 
 def test_review_pr_skill_treats_fetched_github_content_as_untrusted() -> None:

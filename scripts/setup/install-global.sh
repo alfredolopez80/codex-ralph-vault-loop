@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
@@ -24,6 +24,7 @@ WITH_AGENTS=0
 ALLOW_WORKTREE_SOURCE=0
 MIGRATE_GLOBAL_SOURCE=0
 SKILLS_EXPLICIT=0
+AGENTS_EXPLICIT=0
 
 DEFAULT_SKILLS=(
   orchestrator
@@ -166,7 +167,7 @@ validate_global_source() {
     printf 'GLOBAL_INSTALL_HINT rerun from the active source or use --migrate-global-source with a full install and --with-agents\n' >&2
     return 1
   fi
-  if [[ "$SKILLS_EXPLICIT" -eq 1 || "$WITH_AGENTS" -ne 1 ]]; then
+  if [[ "$SKILLS_EXPLICIT" -eq 1 || "$AGENTS_EXPLICIT" -eq 1 || "$WITH_AGENTS" -ne 1 ]]; then
     printf 'GLOBAL_INSTALL_FAIL global source migration requires the full default skill set and --with-agents\n' >&2
     return 1
   fi
@@ -273,7 +274,16 @@ install_hooks() {
     args+=(--allow-worktree-source)
   fi
   if [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]]; then
-    args+=(--migrate-global-source)
+    args+=(--complete-migration)
+  fi
+  python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
+}
+
+preflight_global_source_migration() {
+  local args=(--verify-migration)
+  [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]] || return 0
+  if [[ "$ALLOW_WORKTREE_SOURCE" -eq 1 ]]; then
+    args+=(--allow-worktree-source)
   fi
   python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
 }
@@ -817,6 +827,7 @@ main() {
         fi
         WITH_AGENTS=1
         IFS=',' read -r -a AGENTS <<< "$1"
+        AGENTS_EXPLICIT=1
         validate_selectors "${AGENTS[@]}"
         ;;
       --allow-worktree-source)
@@ -844,6 +855,7 @@ main() {
   fi
   validate_source_repo
   validate_global_source
+  preflight_global_source_migration
 
   ensure_dir "$GLOBAL_SKILL_ROOT"
   ensure_dir "$GLOBAL_CODEX_SKILL_ROOT"

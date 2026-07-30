@@ -117,7 +117,7 @@ def validate_global_source(migrate_global_source: bool) -> None:
         if not migrate_global_source:
             raise SystemExit(
                 "GLOBAL_HOOKS_REFUSED_SOURCE_MISMATCH "
-                f"marker={marker} hint=run the global installer with --migrate-global-source"
+                f"marker={marker} hint=run the full global installer migration"
             )
         validate_managed_links_match_source()
 
@@ -131,12 +131,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Install global Codex hooks for Ralph memory.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--allow-worktree-source", action="store_true", help="Development-only override for installing from a Codex worktree.")
-    parser.add_argument("--migrate-global-source", action="store_true", help="Accept a source change authorized by a full global installer migration.")
+    parser.add_argument("--verify-migration", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--complete-migration", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.verify_migration and args.complete_migration:
+        raise SystemExit("GLOBAL_HOOKS_REFUSED_INVALID_MIGRATION_PHASE")
     validate_source_repo(args.allow_worktree_source)
-    validate_global_source(args.migrate_global_source)
+    migration_requested = args.verify_migration or args.complete_migration
+    validate_global_source(migration_requested)
     reject_symlink_target(GLOBAL_HOOKS, "hooks_json")
     reject_symlink_target(GLOBAL_HOOK_DIR, "hooks_dir")
+
+    if args.verify_migration:
+        print(f"GLOBAL_HOOKS_MIGRATION_PREFLIGHT_PASS repo={REPO}")
+        return 0
 
     data = hook_config()
     if args.dry_run:
