@@ -25,6 +25,8 @@ ALLOW_WORKTREE_SOURCE=0
 MIGRATE_GLOBAL_SOURCE=0
 SKILLS_EXPLICIT=0
 AGENTS_EXPLICIT=0
+MIGRATION_SKILLS=()
+STALE_MIGRATION_SKILLS=()
 
 DEFAULT_SKILLS=(
   orchestrator
@@ -237,6 +239,51 @@ install_skill() {
   install_link "$source" "${GLOBAL_CODEX_SKILL_ROOT}/${name}"
 }
 
+discover_legacy_migration_skills() {
+  [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]] || return 0
+  local marker="${HOME}/.codex/hooks/.ralph-repo-root"
+  [[ -f "$marker" ]] || return 0
+  local old_root
+  IFS= read -r old_root < "$marker" || true
+  [[ -n "$old_root" && "$old_root" != "$REPO_ROOT" ]] || return 0
+  while IFS= read -r entry; do
+    case "$entry" in
+      relink=*) MIGRATION_SKILLS+=("${entry#relink=}") ;;
+      stale=*) STALE_MIGRATION_SKILLS+=("${entry#stale=}") ;;
+    esac
+  done < <(
+    python3 - "$REPO_ROOT" "$old_root" "$GLOBAL_SKILL_ROOT" "$GLOBAL_CODEX_SKILL_ROOT" << 'PY'
+from pathlib import Path
+import sys
+
+repo, old_root, *roots = map(Path, sys.argv[1:])
+sources = {}
+for source_root in (repo / ".agents" / "skills", repo / "plugins"):
+    if source_root.is_dir():
+        for source in source_root.iterdir():
+            if source.is_dir():
+                sources[source.name] = source.resolve()
+found = set()
+for root in roots:
+    if not root.is_dir():
+        continue
+    for target in root.iterdir():
+        if not target.is_symlink() or not target.resolve().is_relative_to(old_root):
+            continue
+        source = sources.get(target.name)
+        if source is None:
+            found.add(("stale", target.name))
+        elif target.resolve() == (old_root / source.relative_to(repo)).resolve():
+            found.add(target.name)
+for item in sorted(found, key=str):
+    if isinstance(item, tuple):
+        print(f"{item[0]}={item[1]}")
+    else:
+        print(f"relink={item}")
+PY
+  )
+}
+
 resolve_skill_source() {
   local name="$1"
   if [[ -e "${SKILL_SOURCE_ROOT}/${name}" ]]; then
@@ -267,6 +314,7 @@ install_operation_helpers() {
 
 install_hooks() {
   local args=()
+  local migration_manifest=""
   if [[ "$MODE" == "dry-run" ]]; then
     args+=(--dry-run)
   fi
@@ -274,9 +322,29 @@ install_hooks() {
     args+=(--allow-worktree-source)
   fi
   if [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]]; then
-    args+=(--complete-migration)
+    # A dry run validates the existing source but cannot complete migration:
+    # it intentionally leaves global symlinks unchanged.
+    if [[ "$MODE" == "dry-run" ]]; then
+      args+=(--verify-migration)
+    else
+      migration_manifest="$(mktemp)"
+      printf 'source_root=%s\n' "$REPO_ROOT" > "$migration_manifest"
+      local skill
+      for skill in "${SKILLS[@]}" "${MIGRATION_SKILLS[@]}"; do
+        printf 'skill=%s\n' "$skill" >> "$migration_manifest"
+      done
+      local agent
+      for agent in "${AGENTS[@]}"; do
+        printf 'agent=%s.toml\n' "$agent" >> "$migration_manifest"
+      done
+      args+=(--migration-manifest "$migration_manifest")
+    fi
   fi
-  python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
+  if ! python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"; then
+    [[ -z "$migration_manifest" ]] || rm -f "$migration_manifest"
+    return 1
+  fi
+  [[ -z "$migration_manifest" ]] || rm -f "$migration_manifest"
 }
 
 preflight_global_source_migration() {
@@ -856,15 +924,26 @@ main() {
   validate_source_repo
   validate_global_source
   preflight_global_source_migration
+  discover_legacy_migration_skills
 
   ensure_dir "$GLOBAL_SKILL_ROOT"
   ensure_dir "$GLOBAL_CODEX_SKILL_ROOT"
   ensure_dir "$GLOBAL_AGENT_ROOT"
   ensure_dir "$GLOBAL_HELPER_ROOT"
 
+  for skill in "${STALE_MIGRATION_SKILLS[@]}"; do
+    [[ ! -e "${GLOBAL_SKILL_ROOT}/${skill}" && ! -L "${GLOBAL_SKILL_ROOT}/${skill}" ]] || backup_existing "${GLOBAL_SKILL_ROOT}/${skill}"
+    [[ ! -e "${GLOBAL_CODEX_SKILL_ROOT}/${skill}" && ! -L "${GLOBAL_CODEX_SKILL_ROOT}/${skill}" ]] || backup_existing "${GLOBAL_CODEX_SKILL_ROOT}/${skill}"
+  done
+
   local skill
   for skill in "${SKILLS[@]}"; do
     install_skill "$skill"
+  done
+  for skill in "${MIGRATION_SKILLS[@]}"; do
+    if ! selected_skill "$skill"; then
+      install_skill "$skill"
+    fi
   done
 
   if [[ "$WITH_AGENTS" -eq 1 ]]; then

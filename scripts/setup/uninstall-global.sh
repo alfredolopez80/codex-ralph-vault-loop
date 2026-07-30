@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 SKILL_SOURCE_ROOT="${REPO_ROOT}/.agents/skills"
 PLUGIN_SKILL_SOURCE_ROOT="${REPO_ROOT}/plugins"
 AGENT_SOURCE_ROOT="${REPO_ROOT}/.codex/agents"
@@ -131,8 +131,19 @@ remove_link() {
   fi
 
   if [[ "$(readlink "$target")" != "$source" ]]; then
-    printf 'GLOBAL_UNINSTALL_SKIP foreign-symlink %s\n' "$target"
-    return 0
+    local resolved_target
+    resolved_target="$(
+      python3 - "$target" << 'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).resolve(strict=False))
+PY
+    )"
+    if [[ "$resolved_target" != "$source" ]]; then
+      printf 'GLOBAL_UNINSTALL_SKIP foreign-symlink %s\n' "$target"
+      return 0
+    fi
   fi
 
   if [[ "$MODE" == "dry-run" ]]; then
