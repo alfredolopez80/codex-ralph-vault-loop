@@ -932,8 +932,8 @@ main() {
   ensure_dir "$GLOBAL_HELPER_ROOT"
 
   for skill in "${STALE_MIGRATION_SKILLS[@]}"; do
-    backup_existing "${GLOBAL_SKILL_ROOT}/${skill}"
-    backup_existing "${GLOBAL_CODEX_SKILL_ROOT}/${skill}"
+    [[ ! -e "${GLOBAL_SKILL_ROOT}/${skill}" && ! -L "${GLOBAL_SKILL_ROOT}/${skill}" ]] || backup_existing "${GLOBAL_SKILL_ROOT}/${skill}"
+    [[ ! -e "${GLOBAL_CODEX_SKILL_ROOT}/${skill}" && ! -L "${GLOBAL_CODEX_SKILL_ROOT}/${skill}" ]] || backup_existing "${GLOBAL_CODEX_SKILL_ROOT}/${skill}"
   done
 
   local skill
