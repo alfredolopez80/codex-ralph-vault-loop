@@ -10,6 +10,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
+GLOBAL_SKILL_ROOTS = (Path.home() / ".agents" / "skills", Path.home() / ".codex" / "skills")
+MANAGED_SKILL_SOURCE_ROOTS = (REPO / ".agents" / "skills", REPO / "plugins")
+GLOBAL_AGENT_ROOT = Path.home() / ".codex" / "agents"
+MANAGED_AGENT_SOURCE_ROOT = REPO / ".codex" / "agents"
 
 
 def q(path: Path) -> str:
@@ -76,6 +80,48 @@ def validate_source_repo(allow_worktree_source: bool) -> None:
         )
 
 
+def validate_managed_links_match_source() -> None:
+    for global_root in GLOBAL_SKILL_ROOTS:
+        for source_root in MANAGED_SKILL_SOURCE_ROOTS:
+            if not source_root.is_dir():
+                continue
+            for source in source_root.iterdir():
+                target = global_root / source.name
+                if target.is_symlink() and target.resolve() != source.resolve():
+                    raise SystemExit(
+                        "GLOBAL_HOOKS_REFUSED_SKILL_SOURCE_MISMATCH "
+                        f"target={target} expected={source} actual={target.resolve()}"
+                    )
+
+    if not MANAGED_AGENT_SOURCE_ROOT.is_dir():
+        return
+    for source in MANAGED_AGENT_SOURCE_ROOT.iterdir():
+        target = GLOBAL_AGENT_ROOT / source.name
+        if target.is_symlink() and target.resolve() != source.resolve():
+            raise SystemExit(
+                "GLOBAL_HOOKS_REFUSED_AGENT_SOURCE_MISMATCH "
+                f"target={target} expected={source} actual={target.resolve()}"
+            )
+
+
+def validate_global_source(migrate_global_source: bool) -> None:
+    marker = GLOBAL_HOOK_DIR / ".ralph-repo-root"
+    if not marker.exists():
+        return
+    if marker.is_symlink() or not marker.is_file():
+        raise SystemExit(f"GLOBAL_HOOKS_REFUSED_INVALID_SOURCE_MARKER marker={marker}")
+    installed_root = marker.read_text(encoding="utf-8").strip()
+    if not installed_root:
+        raise SystemExit(f"GLOBAL_HOOKS_REFUSED_EMPTY_SOURCE_MARKER marker={marker}")
+    if installed_root != str(REPO):
+        if not migrate_global_source:
+            raise SystemExit(
+                "GLOBAL_HOOKS_REFUSED_SOURCE_MISMATCH "
+                f"marker={marker} hint=run the full global installer migration"
+            )
+        validate_managed_links_match_source()
+
+
 def reject_symlink_target(path: Path, label: str) -> None:
     if path.is_symlink():
         raise SystemExit(f"GLOBAL_HOOKS_REFUSED_SYMLINK_TARGET {label}={path}")
@@ -85,10 +131,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Install global Codex hooks for Ralph memory.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--allow-worktree-source", action="store_true", help="Development-only override for installing from a Codex worktree.")
+    parser.add_argument("--verify-migration", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--complete-migration", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.verify_migration and args.complete_migration:
+        raise SystemExit("GLOBAL_HOOKS_REFUSED_INVALID_MIGRATION_PHASE")
     validate_source_repo(args.allow_worktree_source)
+    migration_requested = args.verify_migration or args.complete_migration
+    validate_global_source(migration_requested)
     reject_symlink_target(GLOBAL_HOOKS, "hooks_json")
     reject_symlink_target(GLOBAL_HOOK_DIR, "hooks_dir")
+
+    if args.verify_migration:
+        print(f"GLOBAL_HOOKS_MIGRATION_PREFLIGHT_PASS repo={REPO}")
+        return 0
 
     data = hook_config()
     if args.dry_run:

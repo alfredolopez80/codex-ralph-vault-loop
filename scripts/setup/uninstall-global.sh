@@ -54,6 +54,7 @@ DEFAULT_SKILLS=(
   human-e2e-recorder
   bug-hunt
   bugbot-pr-review
+  review-pr
   ultrathink
   improve-prompt
   make-requirements-great

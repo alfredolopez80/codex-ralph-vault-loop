@@ -9,14 +9,14 @@ The safe operator templates for `Done when:`, native `/goal`,
 references, worktrees, continuity, notifications, and report-only automations
 live in [`docs/codex-productivity-patterns.md`](./codex-productivity-patterns.md).
 
-## Always-visible prompt skills
+## Always-visible global skills
 
-| Field | `ultrathink` | `improve-prompt` |
+| Field | `ultrathink` | `improve-prompt` | `review-pr` | `canvas` |
 |---|---|---|
-| Repo source | `.agents/skills/ultrathink` | `.agents/skills/improve-prompt` |
-| Global agent path | `~/.agents/skills/ultrathink` | `~/.agents/skills/improve-prompt` |
-| Global Codex path | `~/.codex/skills/ultrathink` | `~/.codex/skills/improve-prompt` |
-| Automatic behavior | Default design-minded workflow from global policy | Compact internal request framing from `user_prompt_improve.py` |
+| Repo source | `.agents/skills/ultrathink` | `.agents/skills/improve-prompt` | `.agents/skills/review-pr` | `.agents/skills/canvas` |
+| Global agent path | `~/.agents/skills/ultrathink` | `~/.agents/skills/improve-prompt` | `~/.agents/skills/review-pr` | `~/.agents/skills/canvas` |
+| Global Codex path | `~/.codex/skills/ultrathink` | `~/.codex/skills/improve-prompt` | `~/.codex/skills/review-pr` | `~/.codex/skills/canvas` |
+| Primary behavior | Default design-minded workflow | Compact internal request framing | Read-only PR review | Standalone local HTML reports |
 
 `improve-prompt` converts prompt stacks into lean outcome contracts for the
 GPT-5.6 family. Terra with high reasoning remains the project default; Sol with
@@ -27,10 +27,10 @@ values, infer the completion contract where useful, never expand authority, and
 do not expose or persist a rewritten prompt. Explicit `$improve-prompt` use
 loads the full skill for prompt audits, rewrites, migrations, and eval design.
 
-Install or refresh both skills and the global hooks from the canonical checkout:
+Install or refresh the always-visible skills and global hooks from the canonical checkout:
 
 ```bash
-bash scripts/setup/install-global.sh --install --skills ultrathink,improve-prompt
+bash scripts/setup/install-global.sh --install --skills ultrathink,improve-prompt,review-pr,canvas
 ```
 
 Codex gives initial skill metadata a bounded context budget. A very large
