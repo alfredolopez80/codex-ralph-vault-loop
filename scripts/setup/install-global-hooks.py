@@ -76,6 +76,22 @@ def validate_source_repo(allow_worktree_source: bool) -> None:
         )
 
 
+def validate_global_source(migrate_global_source: bool) -> None:
+    marker = GLOBAL_HOOK_DIR / ".ralph-repo-root"
+    if not marker.exists():
+        return
+    if marker.is_symlink() or not marker.is_file():
+        raise SystemExit(f"GLOBAL_HOOKS_REFUSED_INVALID_SOURCE_MARKER marker={marker}")
+    installed_root = marker.read_text(encoding="utf-8").strip()
+    if not installed_root:
+        raise SystemExit(f"GLOBAL_HOOKS_REFUSED_EMPTY_SOURCE_MARKER marker={marker}")
+    if installed_root != str(REPO) and not migrate_global_source:
+        raise SystemExit(
+            "GLOBAL_HOOKS_REFUSED_SOURCE_MISMATCH "
+            f"marker={marker} hint=run the global installer with --migrate-global-source"
+        )
+
+
 def reject_symlink_target(path: Path, label: str) -> None:
     if path.is_symlink():
         raise SystemExit(f"GLOBAL_HOOKS_REFUSED_SYMLINK_TARGET {label}={path}")
@@ -85,8 +101,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Install global Codex hooks for Ralph memory.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--allow-worktree-source", action="store_true", help="Development-only override for installing from a Codex worktree.")
+    parser.add_argument("--migrate-global-source", action="store_true", help="Accept a source change authorized by a full global installer migration.")
     args = parser.parse_args()
     validate_source_repo(args.allow_worktree_source)
+    validate_global_source(args.migrate_global_source)
     reject_symlink_target(GLOBAL_HOOKS, "hooks_json")
     reject_symlink_target(GLOBAL_HOOK_DIR, "hooks_dir")
 

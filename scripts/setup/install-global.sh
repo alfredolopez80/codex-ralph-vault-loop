@@ -22,6 +22,8 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 MODE=""
 WITH_AGENTS=0
 ALLOW_WORKTREE_SOURCE=0
+MIGRATE_GLOBAL_SOURCE=0
+SKILLS_EXPLICIT=0
 
 DEFAULT_SKILLS=(
   orchestrator
@@ -101,6 +103,10 @@ Options:
   --agents a,b,c     Limit installed agents and enable --with-agents.
   --allow-worktree-source
                      Development-only override for installing from a Codex worktree.
+  --migrate-global-source
+                     Replace an existing global source with this checkout. Requires a
+                     full installation with --with-agents; it cannot be combined with
+                     --skills.
   --help             Show this message.
 
 Safety:
@@ -135,6 +141,33 @@ validate_source_repo() {
   if is_codex_worktree_source && [[ "$ALLOW_WORKTREE_SOURCE" -ne 1 ]]; then
     printf 'GLOBAL_INSTALL_FAIL refusing worktree source: %s\n' "$REPO_ROOT" >&2
     printf 'GLOBAL_INSTALL_HINT run from the canonical checkout or pass --allow-worktree-source for development only\n' >&2
+    return 1
+  fi
+}
+
+validate_global_source() {
+  local marker="${HOME}/.codex/hooks/.ralph-repo-root"
+  local installed_root
+
+  [[ ! -e "$marker" ]] && return 0
+  if [[ -L "$marker" || ! -f "$marker" ]]; then
+    printf 'GLOBAL_INSTALL_FAIL refusing invalid global source marker: %s\n' "$marker" >&2
+    return 1
+  fi
+  IFS= read -r installed_root < "$marker" || true
+  if [[ -z "$installed_root" ]]; then
+    printf 'GLOBAL_INSTALL_FAIL refusing empty global source marker: %s\n' "$marker" >&2
+    return 1
+  fi
+  [[ "$installed_root" == "$REPO_ROOT" ]] && return 0
+
+  if [[ "$MIGRATE_GLOBAL_SOURCE" -ne 1 ]]; then
+    printf 'GLOBAL_INSTALL_FAIL active global source differs: %s\n' "$marker" >&2
+    printf 'GLOBAL_INSTALL_HINT rerun from the active source or use --migrate-global-source with a full install and --with-agents\n' >&2
+    return 1
+  fi
+  if [[ "$SKILLS_EXPLICIT" -eq 1 || "$WITH_AGENTS" -ne 1 ]]; then
+    printf 'GLOBAL_INSTALL_FAIL global source migration requires the full default skill set and --with-agents\n' >&2
     return 1
   fi
 }
@@ -238,6 +271,9 @@ install_hooks() {
   fi
   if [[ "$ALLOW_WORKTREE_SOURCE" -eq 1 ]]; then
     args+=(--allow-worktree-source)
+  fi
+  if [[ "$MIGRATE_GLOBAL_SOURCE" -eq 1 ]]; then
+    args+=(--migrate-global-source)
   fi
   python3 "${REPO_ROOT}/scripts/setup/install-global-hooks.py" "${args[@]}"
 }
@@ -770,6 +806,7 @@ main() {
           return 2
         fi
         IFS=',' read -r -a SKILLS <<< "$1"
+        SKILLS_EXPLICIT=1
         validate_selectors "${SKILLS[@]}"
         ;;
       --agents)
@@ -784,6 +821,9 @@ main() {
         ;;
       --allow-worktree-source)
         ALLOW_WORKTREE_SOURCE=1
+        ;;
+      --migrate-global-source)
+        MIGRATE_GLOBAL_SOURCE=1
         ;;
       --help)
         usage
@@ -803,6 +843,7 @@ main() {
     return 2
   fi
   validate_source_repo
+  validate_global_source
 
   ensure_dir "$GLOBAL_SKILL_ROOT"
   ensure_dir "$GLOBAL_CODEX_SKILL_ROOT"
