@@ -104,6 +104,7 @@ DEFAULT_AGENTS=(
 )
 
 DISCOVERY_REQUIRED_SKILLS=(
+  canvas
   review-pr
   ultrathink
   improve-prompt
@@ -479,10 +480,12 @@ check_skill_discovery() {
 
   local skill
   for skill in "${DISCOVERY_REQUIRED_SKILLS[@]}"; do
-    if [[ "$prompt_input" == *"- ${skill}: "*"(file:"* ]]; then
+    local source
+    source="$(resolve_skill_source "$skill")/SKILL.md"
+    if [[ "$prompt_input" == *"- ${skill}: "*"(file: ${source})"* ]]; then
       ok "model-visible global skill $skill"
     else
-      fail "model-visible global skill missing $skill; run python3 scripts/setup/curate-global-skills.py --apply because the initial skill catalog has a bounded metadata budget"
+      fail "model-visible global skill missing or shadowed $skill; run python3 scripts/setup/curate-global-skills.py --apply because the initial skill catalog has a bounded metadata budget"
     fi
   done
 }

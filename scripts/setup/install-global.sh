@@ -743,9 +743,12 @@ selected_skill() {
 globally_installed_skill() {
   local name="$1"
   local source
-  local target="${GLOBAL_SKILL_ROOT}/${name}"
+  local agent_target="${GLOBAL_SKILL_ROOT}/${name}"
+  local codex_target="${GLOBAL_CODEX_SKILL_ROOT}/${name}"
   source="$(resolve_skill_source "$name")"
-  [[ -L "$target" && "$(readlink "$target")" == "$source" ]]
+  [[ -e "$source" &&
+    -L "$agent_target" && "$(readlink "$agent_target")" == "$source" &&
+    -L "$codex_target" && "$(readlink "$codex_target")" == "$source" ]]
 }
 
 main() {

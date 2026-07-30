@@ -208,6 +208,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert not canvas_skill.is_symlink()
     assert not canvas_codex_skill.exists()
     assert not canvas_codex_skill.is_symlink()
+    assert not review_pr_skill.exists()
+    assert not review_pr_skill.is_symlink()
+    assert not review_pr_codex_skill.exists()
+    assert not review_pr_codex_skill.is_symlink()
     assert not scout_skill.exists()
     assert not scout_skill.is_symlink()
     assert not scout_codex_skill.exists()
@@ -256,11 +260,16 @@ def test_global_doctor_checks_described_model_visible_skills(tmp_path: Path) -> 
     assert install.returncode == 0, install.stderr
 
     fake_codex = tmp_path / "fake-codex"
+    canvas_source = ROOT / ".agents" / "skills" / "canvas" / "SKILL.md"
+    review_pr_source = ROOT / ".agents" / "skills" / "review-pr" / "SKILL.md"
+    ultrathink_source = ROOT / ".agents" / "skills" / "ultrathink" / "SKILL.md"
+    improve_prompt_source = ROOT / ".agents" / "skills" / "improve-prompt" / "SKILL.md"
     fake_codex.write_text(
         "#!/usr/bin/env python3\n"
-        "print('- improve-prompt: Improve prompts (file: /tmp/improve-prompt/SKILL.md)')\n"
-        "print('- review-pr: Review pull requests (file: /tmp/review-pr/SKILL.md)')\n"
-        "print('- ultrathink: Think deeply (file: /tmp/ultrathink/SKILL.md)')\n",
+        f"print('- canvas: Create reports (file: {canvas_source})')\n"
+        f"print('- improve-prompt: Improve prompts (file: {improve_prompt_source})')\n"
+        f"print('- review-pr: Review pull requests (file: {review_pr_source})')\n"
+        f"print('- ultrathink: Think deeply (file: {ultrathink_source})')\n",
         encoding="utf-8",
     )
     fake_codex.chmod(0o755)
@@ -275,10 +284,28 @@ def test_global_doctor_checks_described_model_visible_skills(tmp_path: Path) -> 
     assert "model-visible global skill ultrathink" in visible.stdout
     assert "model-visible global skill improve-prompt" in visible.stdout
     assert "model-visible global skill review-pr" in visible.stdout
+    assert "model-visible global skill canvas" in visible.stdout
 
     fake_codex.write_text(
         "#!/usr/bin/env python3\n"
-        "print('- ultrathink: Think deeply (file: /tmp/ultrathink/SKILL.md)')\n",
+        f"print('- canvas: Create reports (file: {canvas_source})')\n"
+        f"print('- improve-prompt: Improve prompts (file: {improve_prompt_source})')\n"
+        "print('- review-pr: Review pull requests (file: /tmp/foreign-review-pr/SKILL.md)')\n"
+        f"print('- ultrathink: Think deeply (file: {ultrathink_source})')\n",
+        encoding="utf-8",
+    )
+    shadowed = run_script(
+        tmp_path,
+        "doctor-global.sh",
+        "--check-discovery",
+        extra_env={"CODEX_BIN": str(fake_codex)},
+    )
+    assert shadowed.returncode != 0
+    assert "model-visible global skill missing or shadowed review-pr" in shadowed.stdout + shadowed.stderr
+
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        f"print('- ultrathink: Think deeply (file: {ultrathink_source})')\n",
         encoding="utf-8",
     )
     missing = run_script(
@@ -288,7 +315,7 @@ def test_global_doctor_checks_described_model_visible_skills(tmp_path: Path) -> 
         extra_env={"CODEX_BIN": str(fake_codex)},
     )
     assert missing.returncode != 0
-    assert "model-visible global skill missing improve-prompt" in missing.stdout + missing.stderr
+    assert "model-visible global skill missing or shadowed improve-prompt" in missing.stdout + missing.stderr
 
 
 def test_global_doctor_fails_when_installed_pre_tool_guard_is_stale(tmp_path: Path) -> None:
@@ -466,6 +493,32 @@ def test_limited_global_install_keeps_scout_policy_when_scout_is_already_global(
     assert second.returncode == 0, second.stderr
     agents_text = (tmp_path / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
     assert "$ralph-opportunity-scout" in agents_text
+
+
+def test_limited_global_install_omits_scout_policy_when_global_scout_is_incomplete(tmp_path: Path) -> None:
+    first = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "ralph-opportunity-scout",
+        "--allow-worktree-source",
+    )
+    assert first.returncode == 0, first.stderr
+    scout_codex_skill = tmp_path / ".codex" / "skills" / "ralph-opportunity-scout"
+    scout_codex_skill.unlink()
+    second = run_script(
+        tmp_path,
+        "install-global.sh",
+        "--install",
+        "--skills",
+        "ralph-objective-prep",
+        "--allow-worktree-source",
+    )
+
+    assert second.returncode == 0, second.stderr
+    agents_text = (tmp_path / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+    assert "$ralph-opportunity-scout" not in agents_text
 
 
 def test_global_install_rejects_symlinked_agents_md_and_unbalanced_markers(tmp_path: Path) -> None:
