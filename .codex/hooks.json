@@ -21,6 +21,11 @@
           },
           {
             "type": "command",
+            "command": "python3 .codex/hooks/sol_advisor_prompt_state.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "python3 .codex/hooks/user_prompt_capture.py",
             "timeout": 10
           },
@@ -43,6 +48,11 @@
           {
             "type": "command",
             "command": "python3 .codex/hooks/pre_tool_guard.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/sol_advisor_pretool_guard.py",
             "timeout": 10
           }
         ]
@@ -73,7 +83,34 @@
           },
           {
             "type": "command",
+            "command": "python3 .codex/hooks/sol_advisor_observer.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "python3 .codex/hooks/post_tool_cost_ledger.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/sol_advisor_subagent_context.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/sol_advisor_subagent_stop.py",
             "timeout": 10
           }
         ]
@@ -105,6 +142,11 @@
           {
             "type": "command",
             "command": "python3 .codex/hooks/implementation_notes_guard.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/sol_advisor_stop_guard.py",
             "timeout": 10
           },
           {

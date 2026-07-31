@@ -71,6 +71,7 @@ DEFAULT_SKILLS=(
   ralph-opportunity-scout
   thermo-nuclear-code-quality-review
   telegram-app-integration
+  sol-advisor
 )
 
 DEFAULT_AGENTS=(
@@ -87,6 +88,7 @@ DEFAULT_AGENTS=(
   ralph-evaluator
   ralph-slop-reviewer
   thermo-nuclear-code-quality-review
+  sol-advisor
 )
 
 SKILLS=("${DEFAULT_SKILLS[@]}")

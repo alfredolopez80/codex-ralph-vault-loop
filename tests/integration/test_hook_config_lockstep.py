@@ -23,18 +23,24 @@ def hook_role(event: str, command: str) -> str:
     roles = {
         "session_start_wakeup.py": "session_start_wakeup",
         "universal-prompt-classifier.sh": "universal_prompt_classifier",
+        "sol_advisor_prompt_state.py": "sol_advisor_prompt_state",
         "user_prompt_capture.py": "user_prompt_capture",
         "user_prompt_improve.py": "user_prompt_improve",
         "continuity_prompt_context.py": "continuity_prompt_context",
         "pre_tool_guard.py": "pre_tool_guard",
+        "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
         "shaping_ripple.py": "shaping_ripple",
         "post_tool_extract_memory.py": "post_tool_extract_memory",
         "post_tool_checkpoint.py": "post_tool_checkpoint",
+        "sol_advisor_observer.py": "sol_advisor_observer",
+        "sol_advisor_subagent_context.py": "sol_advisor_subagent_context",
+        "sol_advisor_subagent_stop.py": "sol_advisor_subagent_stop",
         "post_tool_cost_ledger.py": "post_tool_cost_ledger",
         "anti-rationalization-stop.sh": "anti_rationalization_stop",
         "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
         "stop_route_decision_warn.py": "stop_route_decision_warn",
         "implementation_notes_guard.py": "implementation_notes_guard",
+        "sol_advisor_stop_guard.py": "sol_advisor_stop_guard",
         "stop_persist_memory.py": "stop_persist_memory",
         "stop_memory_promotion_review.py": "stop_memory_promotion_review",
     }
@@ -154,12 +160,13 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
     assert set(local) == {"hooks"}
     assert set(global_config) == {"hooks"}
 
-    for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"):
+    for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "Stop"):
         assert hook_pairs(global_config, event) == hook_pairs(local, event)
 
     user_prompt = [name for name, _timeout in hook_pairs(local, "UserPromptSubmit")]
     assert user_prompt == [
         "universal_prompt_classifier",
+        "sol_advisor_prompt_state",
         "user_prompt_capture",
         "user_prompt_improve",
         "continuity_prompt_context",
@@ -169,9 +176,11 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
     post_tool = [name for name, _timeout in hook_pairs(local, "PostToolUse")]
     assert post_tool.index("post_tool_extract_memory") < post_tool.index("post_tool_checkpoint")
     assert post_tool.index("post_tool_checkpoint") < post_tool.index("post_tool_cost_ledger")
+    assert post_tool.index("post_tool_checkpoint") < post_tool.index("sol_advisor_observer")
 
     stop = [name for name, _timeout in hook_pairs(local, "Stop")]
     assert "implementation_notes_guard" in stop
+    assert "sol_advisor_stop_guard" in stop
     assert stop.index("stop_persist_memory") < stop.index("stop_memory_promotion_review")
 
 
@@ -266,6 +275,18 @@ def test_configured_prompt_and_pre_hooks_exit_cleanly_with_supported_output(tmp_
             "cwd": str(ROOT),
             "tool_name": "exec_command",
             "tool_input": {"cmd": "git status --short --branch", "workdir": str(ROOT)},
+        },
+        "SubagentStart": {
+            "hook_event_name": "SubagentStart",
+            "session_id": f"subagent-contract-{uuid.uuid4()}",
+            "cwd": str(ROOT),
+            "agent_name": "sol-advisor",
+        },
+        "SubagentStop": {
+            "hook_event_name": "SubagentStop",
+            "session_id": f"subagent-stop-contract-{uuid.uuid4()}",
+            "cwd": str(ROOT),
+            "agent_name": "sol-advisor",
         },
     }
 
