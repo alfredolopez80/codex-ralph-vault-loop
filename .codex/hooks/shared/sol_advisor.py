@@ -31,6 +31,7 @@ STATE_FILE = "sol-advisor.json"
 STATE_VERSION = 2
 MAX_FAILURE_FINGERPRINTS = 4
 MAX_CONSULTATIONS = 2
+RESERVATION_TTL_SECONDS = 120
 CONSULTATION_PHASES = frozenset({"plan", "stuck", "final"})
 HIGH_IMPACT_RE = re.compile(
     r"\b(architecture|authorization|auth|schema|database|migration|rollout|deploy|"
@@ -195,6 +196,72 @@ def _routing_bool(
     # Explicit malformed gate evidence fails closed. In particular, a bogus
     # hard_gates_pass value cannot reactivate a previously rejected route.
     return parsed if parsed is not None else False
+
+
+def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, object]]:
+    """Keep short-lived, bounded reservations for an about-to-start Sol spawn."""
+    raw = state.get("phase_reservations")
+    if not isinstance(raw, dict):
+        state["phase_reservations"] = {}
+        return {}
+    now = int(time.time())
+    normalized: dict[str, dict[str, object]] = {}
+    for phase, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        normalized_phase = normalize_phase(phase)
+        fingerprint = _bounded_text(value.get("fingerprint"), limit=64)
+        try:
+            reserved_at = int(value.get("reserved_at", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if (
+            not normalized_phase
+            or not fingerprint
+            or reserved_at < now - RESERVATION_TTL_SECONDS
+            or reserved_at > now + RESERVATION_TTL_SECONDS
+        ):
+            continue
+        normalized[normalized_phase] = {"fingerprint": fingerprint, "reserved_at": reserved_at}
+    state["phase_reservations"] = normalized
+    return normalized
+
+
+def _state_budget_remaining(state: dict[str, Any]) -> int:
+    try:
+        budget = int(state["consultation_budget"])
+        count = int(state["consultation_count"])
+        stored = int(state["budget_remaining"])
+    except (KeyError, TypeError, ValueError):
+        return 0
+    if budget < 0 or count < 0 or stored < 0 or count > budget:
+        return 0
+    return max(0, min(stored, budget - count))
+
+
+def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: str) -> tuple[bool, str]:
+    """Atomically reserve one Sol phase without consuming budget before start."""
+    normalized_phase = normalize_phase(phase)
+    if not normalized_phase or not fingerprint:
+        return False, "Sol consultation reservation lacks a valid phase or decision fingerprint."
+    with locked_state(payload) as state:
+        ensure_state_shape(state, payload)
+        if not isinstance(state.get("routing"), dict):
+            return False, "Subagent routing state is unavailable; the spawn was blocked for safety."
+        reservations = _normalize_phase_reservations(state)
+        consulted_phases = state.get("consulted_phases")
+        if isinstance(consulted_phases, dict) and consulted_phases.get(normalized_phase):
+            return False, "A Sol consultation has already been started for this lifecycle phase."
+        if normalized_phase in reservations:
+            return False, "A Sol consultation is already reserved for this lifecycle phase."
+        if _state_budget_remaining(state) <= 0:
+            return False, "Sol consultation budget is exhausted; do not create another advisor spawn."
+        reservations[normalized_phase] = {
+            "fingerprint": _bounded_text(fingerprint, limit=64),
+            "reserved_at": int(time.time()),
+        }
+        state["phase_reservations"] = reservations
+        return True, ""
 
 
 def _infer_intent(prompt: str, payload: dict[str, Any]) -> str:
@@ -618,6 +685,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
         if normalized_phase and fingerprint:
             normalized_phases[normalized_phase] = str(fingerprint)
     state["consulted_phases"] = normalized_phases
+    state.setdefault("phase_reservations", {})
+    _normalize_phase_reservations(state)
     state.setdefault("prior_verdict_ref", "")
     state.setdefault("prior_verdict_fingerprint", "")
     state["prior_verdict_phase"] = normalize_phase(state.get("prior_verdict_phase"))
@@ -788,6 +857,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "budget_remaining": MAX_CONSULTATIONS,
                 "consulted_fingerprints": [],
                 "consulted_phases": {},
+                "phase_reservations": {},
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
                 "prior_verdict_phase": "",
@@ -816,6 +886,16 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
         return dict(state)
 
 
+def _is_native_spawn_payload(payload: dict[str, Any]) -> bool:
+    for key in ("tool_name", "toolName", "tool"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            final_name = value.strip().lower().replace("-", "_").rsplit(".", 1)[-1]
+            if final_name in {"spawn_agent", "spawnagent"}:
+                return True
+    return "spawn_agent" in command_text(payload).lower()
+
+
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
     success = success_from_payload(payload)
     if success is not False:
@@ -826,6 +906,11 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
     fingerprint = hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:16]
     with locked_state(payload) as state:
         ensure_state_shape(state, payload)
+        if _is_native_spawn_payload(payload):
+            # A failed native spawn never reaches SubagentStart. Release its
+            # short-lived reservation so a bounded retry can be attempted;
+            # the consultation budget is consumed only after actual start.
+            state["phase_reservations"] = {}
         failures = state.setdefault("failure_fingerprints", [])
         if not isinstance(failures, list):
             failures = []
@@ -938,6 +1023,9 @@ def mark_advisor(payload: dict[str, Any], *, completed: bool) -> dict[str, Any]:
             state["advisor_started"] = True
             consulted_phases = state["consulted_phases"]
             consulted_fingerprints = state["consulted_fingerprints"]
+            reservations = _normalize_phase_reservations(state)
+            reservations.pop(phase, None)
+            state["phase_reservations"] = reservations
             if fingerprint in consulted_fingerprints or phase in consulted_phases:
                 state["advisor_reused"] = True
                 state["last_consultation_phase"] = phase
@@ -1015,8 +1103,11 @@ def executor_context(state: dict[str, Any]) -> str:
     if route == "terra-implementation":
         return (
             "Subagent route: Terra implementation is eligible. Codex main may invoke native `spawn_agent` "
-            "with task_name=`terra_implementation`, model=`gpt-5.6-terra`, "
-            "reasoning_effort=`high`, and fork_turns=`none`; keep the brief bounded and retain final ownership. "
+            f"with agent_type=`{arguments.get('agent_type', 'ralph-coder')}`, "
+            f"task_name=`{arguments.get('task_name', 'terra_implementation')}`, "
+            f"model=`{arguments.get('model', 'gpt-5.6-terra')}`, "
+            f"reasoning_effort=`{arguments.get('reasoning_effort', 'high')}`, "
+            f"and fork_turns=`{arguments.get('fork_turns', 'none')}`; keep the brief bounded and retain final ownership. "
             f"Basis: effective={routing.get('effective_complexity', state.get('complexity', 1))}/10; "
             f"intent={routing.get('intent', 'implementation')}; executor={routing.get('configured_executor_model', LUNA_MODEL)} "
             f"({routing.get('configured_executor_effort', LUNA_DEFAULT_EFFORT)})."

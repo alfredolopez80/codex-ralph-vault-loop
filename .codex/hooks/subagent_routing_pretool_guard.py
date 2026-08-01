@@ -6,7 +6,7 @@ from typing import Any
 
 from shared.paths import read_hook_input, write_json
 from shared.redaction import is_red
-from shared.sol_advisor import read_state
+from shared.sol_advisor import read_state, reserve_sol_consultation
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
@@ -262,6 +262,15 @@ def main() -> int:
         if requested_fork not in NO_HISTORY_VALUES:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
+        if expected_route in {"sol-advisor", "sol-active-analysis"}:
+            reserved, reservation_reason = reserve_sol_consultation(
+                payload,
+                _phase(state),
+                str(routing.get("decision_fingerprint") or ""),
+            )
+            if not reserved:
+                _block(reservation_reason)
+                return 0
     except Exception:
         # Ordinary tools remain fail-open, but once a native spawn has been
         # identified, a validation failure must fail closed at this trust

@@ -685,6 +685,7 @@ def test_executor_context_exposes_the_bounded_terra_implementation_contract() ->
     )
 
     assert "Terra implementation is eligible" in context
+    assert "agent_type=`ralph-coder`" in context
     assert "task_name=`terra_implementation`" in context
     assert "model=`gpt-5.6-terra`" in context
     assert "reasoning_effort=`high`" in context

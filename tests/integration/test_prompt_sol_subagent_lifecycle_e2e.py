@@ -537,6 +537,52 @@ def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -
     assert_sources_unchanged(snapshot)
 
 
+def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-phase-reservation"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    _, decision = routing_state(env, session_id)
+    spawn = {
+        **dict(decision["spawn_arguments"]),
+        "message": "Review this bounded decision and return a compact verdict.",
+    }
+    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
+    base = {
+        "hook_event_name": "PreToolUse",
+        "session_id": session_id,
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+        "tool_input": spawn,
+    }
+
+    first = run_command(guard, base, env)
+    assert blocking_payload(first.stdout) is None
+    first_state, _ = routing_state(env, session_id)
+    assert first_state["consultation_count"] == 0
+    assert first_state["phase_reservations"]["plan"]
+
+    duplicate = run_command(guard, base, env)
+    duplicate_block = blocking_payload(duplicate.stdout)
+    assert duplicate_block is not None
+    assert "already reserved" in str(duplicate_block["reason"])
+
+    run_command(
+        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "success": False,
+            "command": "spawn_agent failed before start",
+        },
+        env,
+    )
+
+    retry = run_command(guard, base, env)
+    assert blocking_payload(retry.stdout) is None
+
+
 def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     snapshot = immutable_source_snapshot()
