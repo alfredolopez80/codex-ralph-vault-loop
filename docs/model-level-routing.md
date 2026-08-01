@@ -74,9 +74,10 @@ inconsistent state is blocked rather than silently delegated.
 Precedence is: safety, sensitivity, and platform constraints; task override;
 session override; Aristotle result; repository default; global default. Task
 overrides expire with the task and session overrides expire with the session.
-The policy records requested, effective, rejected, and expired values with a
-reason. Unsupported, unsafe, or capability-unproven routes reduce to local
-work. An override never changes the configured executor.
+The policy records selected requested/effective values plus per-scope rejected
+and expired values with a reason. An expired task override no longer masks a
+valid session override. Unsupported, unsafe, or capability-unproven routes
+reduce to local work. An override never changes the configured executor.
 
 ## Budget and context limits
 

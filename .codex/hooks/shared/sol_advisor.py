@@ -294,6 +294,7 @@ def _routing_decision(
         "override_requested": dict(decision.override_requested),
         "override_effective": dict(decision.override_effective),
         "override_rejection_reason": decision.override_rejection_reason,
+        "override_rejections": dict(decision.override_rejections),
         "override_expiry": decision.override_expiry,
         "budget_remaining": decision.budget_remaining,
         "decision_fingerprint": decision.decision_fingerprint,

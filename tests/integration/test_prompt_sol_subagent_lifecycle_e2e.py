@@ -261,15 +261,21 @@ def test_routing_guard_ignores_unrelated_tools_with_spawn_like_fields(tmp_path: 
     assert result.stdout == ""
 
 
-def test_routing_guard_allows_unmanaged_native_spawns_without_routing_state(tmp_path: Path) -> None:
+def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
-    for index, agent_type in enumerate(("ralph-reviewer", "ralph-tester", "ralph-security")):
+    managed_session = "managed-recommendation-with-unrelated-spawns"
+    run_configured_event(
+        "UserPromptSubmit",
+        prompt_payload(managed_session, high_complexity_prompt()),
+        env,
+    )
+    for index, agent_type in enumerate(("ralph-reviewer", "ralph-tester", "ralph-security", "ralph-coder")):
         result = run_command(
             guard,
             {
                 "hook_event_name": "PreToolUse",
-                "session_id": f"unmanaged-native-spawn-{index}",
+                "session_id": managed_session,
                 "cwd": str(ROOT),
                 "tool_name": "spawn_agent",
                 "tool_input": {
@@ -311,6 +317,66 @@ def test_routing_guard_blocks_managed_spawn_without_routing_state(tmp_path: Path
     block = blocking_payload(result.stdout)
     assert block is not None
     assert "routing state" in str(block["reason"])
+
+
+def test_routing_guard_blocks_sol_spawn_after_live_budget_exhaustion(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-budget-exhausted"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    _, decision = routing_state(env, session_id)
+    spawn_arguments = dict(decision["spawn_arguments"])
+
+    for phase, agent_id in (("plan", "sol-budget-plan"), ("stuck", "sol-budget-stuck")):
+        if phase == "stuck":
+            for command in ("pytest --first-failure", "pytest --second-failure"):
+                run_configured_event(
+                    "PostToolUse",
+                    {
+                        "hook_event_name": "PostToolUse",
+                        "session_id": session_id,
+                        "cwd": str(ROOT),
+                        "success": False,
+                        "command": command,
+                    },
+                    env,
+                )
+        run_configured_event(
+            "SubagentStart",
+            {
+                "hook_event_name": "SubagentStart",
+                "session_id": session_id,
+                "cwd": str(ROOT),
+                "phase": phase,
+                "agent_id": agent_id,
+                **spawn_arguments,
+            },
+            env,
+        )
+
+    exhausted_state, _ = routing_state(env, session_id)
+    assert exhausted_state["consultation_count"] == 2
+    assert exhausted_state["budget_remaining"] == 0
+
+    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
+    result = run_command(
+        guard,
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                **spawn_arguments,
+                "message": "This third consultation must be rejected.",
+            },
+        },
+        env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "budget" in str(block["reason"]).lower()
 
 
 def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: Path) -> None:

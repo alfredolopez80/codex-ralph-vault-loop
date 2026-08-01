@@ -49,6 +49,21 @@ def _is_managed_spawn(
     )
 
 
+def _live_budget_remaining(state: dict[str, Any]) -> int:
+    """Return the conservative live Sol allowance, or zero if malformed."""
+    try:
+        consultation_budget = int(state["consultation_budget"])
+        consultation_count = int(state["consultation_count"])
+        stored_remaining = int(state["budget_remaining"])
+    except (KeyError, TypeError, ValueError):
+        return 0
+    if consultation_budget < 0 or consultation_count < 0 or stored_remaining < 0:
+        return 0
+    if consultation_count > consultation_budget:
+        return 0
+    return max(0, min(stored_remaining, consultation_budget - consultation_count))
+
+
 def main() -> int:
     normalized_tool = ""
     managed_spawn = False
@@ -81,15 +96,9 @@ def main() -> int:
         routing = state.get("routing")
         if not managed_spawn:
             # Existing reviewer, tester, security, explorer, and custom native
-            # profiles remain under their existing controls.  If the persisted
-            # lifecycle is already a managed Terra/Sol route, classify even a
-            # malformed payload so the expected model/profile checks still run.
-            managed_spawn = bool(
-                isinstance(routing, dict)
-                and routing.get("spawn_required")
-                and routing.get("subagent_route") in MANAGED_ROUTES
-            )
-        if not managed_spawn:
+            # profiles remain under their existing controls. A pending managed
+            # recommendation does not reserve the native spawn tool for its
+            # own route; only the requested spawn identity enters this guard.
             return 0
         if not isinstance(routing, dict):
             _block("Subagent routing state is missing; the spawn must be classified before it is created.")
@@ -102,6 +111,9 @@ def main() -> int:
         expected_model = str(routing.get("subagent_model") or "")
         expected_effort = str(routing.get("subagent_effort") or "")
         expected_args = routing.get("spawn_arguments")
+        if expected_route in {"sol-advisor", "sol-active-analysis"} and _live_budget_remaining(state) <= 0:
+            _block("Sol consultation budget is exhausted; do not create another advisor spawn.")
+            return 0
         if not isinstance(expected_args, dict) or not routing.get("spawn_required"):
             active_requested = route_requested == "sol-active-analysis" or task_name == "sol_active_analysis"
             if active_requested and str(routing.get("active_analysis_rejection_reason") or ""):

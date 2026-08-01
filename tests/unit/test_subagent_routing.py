@@ -146,7 +146,52 @@ def test_expired_task_override_is_auditable_and_falls_back_to_local_policy() -> 
     assert decision.override_expiry == 42
     assert dict(decision.override_requested) == {"model": SOL_MODEL}
     assert decision.override_rejection_reason == "override-expired"
+    assert dict(decision.override_rejections)["task"] == {
+        "requested": {"model": SOL_MODEL},
+        "expires_at": 42,
+        "reason": "override-expired",
+    }
     assert decision.subagent_route == "none"
+
+
+def test_expired_task_override_falls_back_to_valid_session_override() -> None:
+    decision = resolve(
+        raw_complexity=1,
+        intent="routine",
+        current_epoch=42,
+        task_override=SubagentOverride(model=SOL_MODEL, expires_at=42),
+        session_override=SubagentOverride(model=TERRA_MODEL, reasoning_effort="high", expires_at=100),
+    )
+
+    assert decision.override_scope == "session"
+    assert dict(decision.override_requested) == {"model": TERRA_MODEL, "reasoning_effort": "high"}
+    assert decision.override_expiry == 100
+    assert decision.override_rejection_reason is None
+    assert dict(decision.override_rejections)["task"] == {
+        "requested": {"model": SOL_MODEL},
+        "expires_at": 42,
+        "reason": "override-expired",
+    }
+    assert dict(decision.override_effective) == {
+        "model": TERRA_MODEL,
+        "reasoning_effort": "high",
+        "route": "terra-implementation",
+    }
+    assert decision.subagent_route == "terra-implementation"
+
+
+def test_expired_task_and_session_overrides_preserve_both_rejections() -> None:
+    decision = resolve(
+        raw_complexity=1,
+        intent="routine",
+        current_epoch=42,
+        task_override=SubagentOverride(model=SOL_MODEL, expires_at=42),
+        session_override=SubagentOverride(model=TERRA_MODEL, expires_at=42),
+    )
+
+    assert decision.subagent_route == "none"
+    assert set(dict(decision.override_rejections)) == {"task", "session"}
+    assert dict(decision.override_rejections)["session"]["expires_at"] == 42
 
 
 @pytest.mark.parametrize(

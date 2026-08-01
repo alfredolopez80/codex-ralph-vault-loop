@@ -106,6 +106,7 @@ class RoutingDecision:
     override_requested: Mapping[str, object]
     override_effective: Mapping[str, object]
     override_rejection_reason: str | None
+    override_rejections: Mapping[str, object]
     override_expiry: int | None
     budget_remaining: int
     decision_fingerprint: str
@@ -121,7 +122,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
     executor, executor_source = _executor_defaults(request)
     effective = 4 if raw <= 3 and impact == "material" else raw
     active_ok, active_reason = _active_analysis_status(request, effective, sensitivity)
-    override, scope, requested, expiry, override_error = _selected_override(request)
+    override, scope, requested, expiry, override_error, override_rejections = _selected_override(request)
 
     route, model, mode, effort, reason = _base_route(raw, effective, intent, sensitivity)
     effective_override: Mapping[str, object] = _frozen_map()
@@ -135,6 +136,13 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         )
         if routed[0] is None:
             override_error = routed[4]
+            override_rejections = _record_override_rejection(
+                override_rejections,
+                scope=scope,
+                requested=requested,
+                expiry=override.expires_at,
+                reason=override_error,
+            )
         else:
             route, model, mode, effort, reason = routed[:5]
             effective_override = _frozen_map(
@@ -146,12 +154,28 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         effective_override = _frozen_map()
         if requested:
             override_error = "red-local-only"
+            if override is not None:
+                override_rejections = _record_override_rejection(
+                    override_rejections,
+                    scope=scope,
+                    requested=requested,
+                    expiry=override.expires_at,
+                    reason=override_error,
+                )
 
     if route != "none" and not request.capabilities.spawn_model_effort:
         route, model, mode, effort = "none", None, "none", None
         reason = "platform-spawn-model-effort-unavailable"
         effective_override = _frozen_map()
         override_error = override_error or "platform-spawn-model-effort-unavailable"
+        if override is not None and override_error:
+            override_rejections = _record_override_rejection(
+                override_rejections,
+                scope=scope,
+                requested=requested,
+                expiry=override.expires_at,
+                reason=override_error,
+            )
         spawn_required, spawn_arguments = False, _frozen_map()
     else:
         spawn_required = route != "none" and (route == "terra-implementation" or request.budget.remaining > 0)
@@ -176,6 +200,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         active_ok=active_ok,
         active_reason=active_reason,
         override_error=override_error,
+        override_rejections=override_rejections,
         override_expiry=expiry,
         capabilities=request.capabilities,
         explicit_budget=request.budget.explicit_class,
@@ -204,6 +229,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         override_requested=requested,
         override_effective=effective_override,
         override_rejection_reason=override_error,
+        override_rejections=_frozen_map(override_rejections),
         override_expiry=expiry,
         budget_remaining=max(0, request.budget.remaining),
         decision_fingerprint=fingerprint,
@@ -249,16 +275,82 @@ def _base_route(raw: int, effective: int, intent: str, sensitivity: str) -> tupl
     return "none", None, "none", None, "intent-does-not-qualify-for-automatic-subagent"
 
 
-def _selected_override(request: RoutingRequest) -> tuple[SubagentOverride | None, str, Mapping[str, object], int | None, str | None]:
-    candidate, scope = (request.task_override, "task") if request.task_override else (request.session_override, "session")
-    if candidate is None:
-        return None, "none", _frozen_map(), None, None
-    requested = _frozen_map(
-        {key: value for key, value in {"model": candidate.model, "reasoning_effort": candidate.reasoning_effort, "route": candidate.route}.items() if value is not None}
-    )
-    if candidate.expires_at is not None and candidate.expires_at <= request.current_epoch:
-        return None, scope, requested, candidate.expires_at, "override-expired"
-    return candidate, scope, requested, candidate.expires_at, None
+def _record_override_rejection(
+    existing: Mapping[str, object],
+    *,
+    scope: str,
+    requested: Mapping[str, object],
+    expiry: int | None,
+    reason: str,
+) -> Mapping[str, object]:
+    merged = dict(existing)
+    merged[scope] = {
+        "requested": dict(requested),
+        "expires_at": expiry,
+        "reason": reason,
+    }
+    return merged
+
+
+def _selected_override(
+    request: RoutingRequest,
+) -> tuple[
+    SubagentOverride | None,
+    str,
+    Mapping[str, object],
+    int | None,
+    str | None,
+    Mapping[str, object],
+]:
+    def requested_values(candidate: SubagentOverride) -> Mapping[str, object]:
+        return _frozen_map(
+            {
+                key: value
+                for key, value in {
+                    "model": candidate.model,
+                    "reasoning_effort": candidate.reasoning_effort,
+                    "route": candidate.route,
+                }.items()
+                if value is not None
+            }
+        )
+
+    task = request.task_override
+    if task is not None:
+        task_requested = requested_values(task)
+        task_expired = task.expires_at is not None and task.expires_at <= request.current_epoch
+        if not task_expired:
+            return task, "task", task_requested, task.expires_at, None, _frozen_map()
+
+        session = request.session_override
+        rejected = _record_override_rejection(
+            {}, scope="task", requested=task_requested, expiry=task.expires_at, reason="override-expired"
+        )
+        if session is not None:
+            session_expired = session.expires_at is not None and session.expires_at <= request.current_epoch
+            if not session_expired:
+                # Preserve the expired task fact while applying the valid
+                # lower-precedence session policy.
+                return session, "session", requested_values(session), session.expires_at, None, rejected
+            rejected = _record_override_rejection(
+                rejected,
+                scope="session",
+                requested=requested_values(session),
+                expiry=session.expires_at,
+                reason="override-expired",
+            )
+        return None, "task", task_requested, task.expires_at, "override-expired", rejected
+
+    session = request.session_override
+    if session is None:
+        return None, "none", _frozen_map(), None, None, _frozen_map()
+    requested = requested_values(session)
+    if session.expires_at is not None and session.expires_at <= request.current_epoch:
+        rejected = _record_override_rejection(
+            {}, scope="session", requested=requested, expiry=session.expires_at, reason="override-expired"
+        )
+        return None, "session", requested, session.expires_at, "override-expired", rejected
+    return session, "session", requested, session.expires_at, None, _frozen_map()
 
 
 def _active_analysis_status(request: RoutingRequest, effective: int, sensitivity: str) -> tuple[bool, str | None]:
