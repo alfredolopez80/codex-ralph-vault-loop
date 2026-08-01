@@ -77,15 +77,20 @@ a full-history fork: the advisor needs only the minimized brief.
 Every Sol invocation uses a fresh, no-history fork.
 
 Hooks may classify, persist bounded routing metadata, annotate, and guard those
-arguments. They never initiate a spawn or silently repair unsupported arguments.
+arguments. The native pre-tool guard applies strict checks only to a spawn that
+requests the managed Terra/Sol model, task, route, or typed Sol profile; generic
+reviewer, tester, security, explorer, and custom profiles remain under their
+existing controls. Managed calls with missing or inconsistent state are blocked.
+Hooks never initiate a spawn or silently repair unsupported arguments.
 
 ## Use the answer
 
 Sol returns a compact verdict, not an instruction to execute. Verify the proposed next check locally, then state whether Codex accepted or rejected the advice and why.
 
-If advisory state is missing or corrupt, hooks fail open and the executor
-continues with the normal local route. If the bounded consultation budget is
-exhausted without an equivalent verdict, hooks do not loop or invoke Sol
-automatically; Codex remains responsible for deciding whether more advice is
-justified. Hooks never persist the brief, raw advisor output, or a conversation
-dump.
+If advisory state is missing or corrupt, ordinary lifecycle persistence remains
+fail-open and the executor continues with the normal local route. A spawn that
+explicitly targets the managed Terra/Sol boundary fails closed until it has a
+valid route state. If the bounded consultation budget is exhausted without an
+equivalent verdict, hooks do not loop or invoke Sol automatically; Codex remains
+responsible for deciding whether more advice is justified. Hooks never persist
+the brief, raw advisor output, or a conversation dump.

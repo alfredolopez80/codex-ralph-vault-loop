@@ -9,6 +9,9 @@ from shared.sol_advisor import read_state
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
+MANAGED_ROUTES = {"terra-implementation", "sol-advisor", "sol-active-analysis"}
+MANAGED_TASK_NAMES = {"terra_implementation", "sol_advisor", "sol_active_analysis"}
+MANAGED_AGENT_TYPES = {"sol-advisor"}
 NO_HISTORY_VALUES = {"none", "fresh", "no-history", "no_history"}
 
 
@@ -34,8 +37,21 @@ def _block(reason: str) -> None:
     write_json({"decision": "block", "reason": reason})
 
 
+def _is_managed_spawn(
+    *, model: str, task_name: str, route_requested: str, agent_type: str
+) -> bool:
+    """Return whether this spawn belongs to the Terra/Sol policy boundary."""
+    return bool(
+        model in SUPPORTED_MODELS
+        or task_name in MANAGED_TASK_NAMES
+        or route_requested in MANAGED_ROUTES
+        or agent_type in MANAGED_AGENT_TYPES
+    )
+
+
 def main() -> int:
     normalized_tool = ""
+    managed_spawn = False
     try:
         payload = read_hook_input()
         # This guard is only for the native subagent-spawn tool.  Other
@@ -47,10 +63,34 @@ def main() -> int:
             return 0
         model = str(_value(payload, "model", "model_name", "modelName") or "").strip().lower()
         task_name = str(_value(payload, "task_name", "taskName") or "").strip().lower().replace("-", "_")
-        route_requested = str(_value(payload, "subagent_route", "subagentRoute", "route") or "").strip().lower()
+        route_requested = str(_value(payload, "subagent_route", "subagentRoute") or "").strip().lower()
+        requested_agent_type = (
+            str(_value(payload, "agent_type", "agentType") or "")
+            .strip()
+            .lower()
+            .replace("_", "-")
+        )
+        managed_spawn = _is_managed_spawn(
+            model=model,
+            task_name=task_name,
+            route_requested=route_requested,
+            agent_type=requested_agent_type,
+        )
 
         state = read_state(payload)
         routing = state.get("routing")
+        if not managed_spawn:
+            # Existing reviewer, tester, security, explorer, and custom native
+            # profiles remain under their existing controls.  If the persisted
+            # lifecycle is already a managed Terra/Sol route, classify even a
+            # malformed payload so the expected model/profile checks still run.
+            managed_spawn = bool(
+                isinstance(routing, dict)
+                and routing.get("spawn_required")
+                and routing.get("subagent_route") in MANAGED_ROUTES
+            )
+        if not managed_spawn:
+            return 0
         if not isinstance(routing, dict):
             _block("Subagent routing state is missing; the spawn must be classified before it is created.")
             return 0
@@ -100,7 +140,6 @@ def main() -> int:
 
         requested_model = model
         requested_effort = str(_value(payload, "reasoning_effort", "reasoningEffort", "effort") or "").strip().lower()
-        requested_agent_type = str(_value(payload, "agent_type", "agentType") or "").strip().lower().replace("_", "-")
         requested_task = task_name
         requested_fork = str(_value(payload, "fork_turns", "forkTurns", "history_mode", "historyMode") or "").strip().lower()
         if requested_model != expected_model:
@@ -124,7 +163,7 @@ def main() -> int:
         # Ordinary tools remain fail-open, but once a native spawn has been
         # identified, a validation failure must fail closed at this trust
         # boundary instead of silently bypassing routing and RED controls.
-        if normalized_tool in {"spawn_agent", "spawnagent"}:
+        if normalized_tool in {"spawn_agent", "spawnagent"} and managed_spawn:
             try:
                 _block("Subagent routing validation failed; the spawn was blocked for safety.")
             except Exception:

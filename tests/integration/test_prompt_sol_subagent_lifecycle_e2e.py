@@ -261,19 +261,46 @@ def test_routing_guard_ignores_unrelated_tools_with_spawn_like_fields(tmp_path: 
     assert result.stdout == ""
 
 
-def test_routing_guard_blocks_an_unclassified_native_spawn(tmp_path: Path) -> None:
+def test_routing_guard_allows_unmanaged_native_spawns_without_routing_state(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
+    for index, agent_type in enumerate(("ralph-reviewer", "ralph-tester", "ralph-security")):
+        result = run_command(
+            guard,
+            {
+                "hook_event_name": "PreToolUse",
+                "session_id": f"unmanaged-native-spawn-{index}",
+                "cwd": str(ROOT),
+                "tool_name": "spawn_agent",
+                "tool_input": {
+                    "agent_type": agent_type,
+                    "task_name": "unclassified_lane",
+                    "fork_turns": "none",
+                    "route": "other",
+                },
+            },
+            env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+
+
+def test_routing_guard_blocks_managed_spawn_without_routing_state(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
     result = run_command(
         guard,
         {
             "hook_event_name": "PreToolUse",
-            "session_id": "unclassified-native-spawn",
+            "session_id": "managed-native-spawn-without-state",
             "cwd": str(ROOT),
             "tool_name": "spawn_agent",
             "tool_input": {
-                "agent_type": "ralph-reviewer",
-                "task_name": "unclassified_lane",
+                "agent_type": "sol-advisor",
+                "task_name": "sol_advisor",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
                 "fork_turns": "none",
             },
         },
@@ -283,7 +310,7 @@ def test_routing_guard_blocks_an_unclassified_native_spawn(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
     block = blocking_payload(result.stdout)
     assert block is not None
-    assert "classified" in str(block["reason"])
+    assert "routing state" in str(block["reason"])
 
 
 def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: Path) -> None:

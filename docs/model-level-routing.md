@@ -64,6 +64,13 @@ All routed subagents use `fork_turns=none` and receive a minimized brief. The
 persisted route/mode, rather than an invented spawn field, distinguishes active
 analysis from advisory Sol work.
 
+The pre-tool guard owns only this managed Terra/Sol boundary: a supported model,
+managed task name, supported `subagent_route`, or the typed `sol-advisor` profile
+marks a spawn for strict routing validation. Existing reviewer, tester, security,
+explorer, and custom native profiles remain under their existing controls when
+they do not request a managed Terra/Sol lane. A managed spawn with missing or
+inconsistent state is blocked rather than silently delegated.
+
 Precedence is: safety, sensitivity, and platform constraints; task override;
 session override; Aristotle result; repository default; global default. Task
 overrides expire with the task and session overrides expire with the session.
