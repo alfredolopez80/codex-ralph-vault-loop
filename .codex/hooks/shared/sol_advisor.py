@@ -582,6 +582,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 )
             )
             _refresh_routing(state, payload, prompt)
+            state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
         state.clear()
         state.update(

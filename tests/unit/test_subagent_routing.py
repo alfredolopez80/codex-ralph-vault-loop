@@ -22,6 +22,7 @@ from shared.subagent_routing import (
     SubagentOverride,
     resolve_subagent_routing,
 )
+import subagent_routing_pretool_guard as routing_guard
 
 REPOSITORY_DEFAULT = ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT)
 
@@ -266,3 +267,25 @@ def test_executor_precedence_is_repository_then_global_and_never_mutates_inputs(
     assert (repository.configured_executor_model, repository.configured_executor_source) == (LUNA_MODEL, "repository")
     assert (global_only.configured_executor_model, global_only.configured_executor_source) == ("global-model", "global")
     assert original == {"model": repo_default.model, "reasoning_effort": repo_default.reasoning_effort}
+
+
+def test_native_spawn_guard_fails_closed_when_validation_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    output: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        routing_guard,
+        "read_hook_input",
+        lambda: {
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "task_name": "sol_advisor",
+                "model": SOL_MODEL,
+                "reasoning_effort": "high",
+                "fork_turns": "none",
+            },
+        },
+    )
+    monkeypatch.setattr(routing_guard, "read_state", lambda _payload: (_ for _ in ()).throw(RuntimeError("state read")))
+    monkeypatch.setattr(routing_guard, "write_json", output.append)
+
+    assert routing_guard.main() == 0
+    assert output == [{"decision": "block", "reason": "Subagent routing validation failed; the spawn was blocked for safety."}]

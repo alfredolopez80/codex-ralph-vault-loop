@@ -35,6 +35,7 @@ def _block(reason: str) -> None:
 
 
 def main() -> int:
+    normalized_tool = ""
     try:
         payload = read_hook_input()
         # This guard is only for the native subagent-spawn tool.  Other
@@ -117,8 +118,14 @@ def main() -> int:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
     except Exception:
-        # Guard failures must not interrupt ordinary execution; an absent or
-        # malformed route is handled by the explicit block paths above.
+        # Ordinary tools remain fail-open, but once a native spawn has been
+        # identified, a validation failure must fail closed at this trust
+        # boundary instead of silently bypassing routing and RED controls.
+        if normalized_tool in {"spawn_agent", "spawnagent"}:
+            try:
+                _block("Subagent routing validation failed; the spawn was blocked for safety.")
+            except Exception:
+                pass
         return 0
     return 0
 

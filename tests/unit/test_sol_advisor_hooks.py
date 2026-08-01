@@ -24,6 +24,7 @@ from shared.sol_advisor import (
     has_completion_evidence,
     has_fork_metadata,
     has_no_history_fork,
+    decision_fingerprint,
 )
 from shared.tool_result import success_from_payload
 
@@ -126,6 +127,7 @@ def test_continuation_keeps_existing_consultation_budget(tmp_path: Path, monkeyp
     assert continued is not None
     assert continued["consultation_count"] == 1
     assert continued["advisor_started"] is True
+    assert continued["decision_fingerprint"] == decision_fingerprint(continued)
 
 
 def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatch) -> None:
