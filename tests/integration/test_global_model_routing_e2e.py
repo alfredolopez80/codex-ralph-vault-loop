@@ -86,7 +86,7 @@ def test_global_dispatcher_routes_the_same_policy_in_a_neutral_workspace(tmp_pat
         outputs.append(result.stdout)
 
     state, decision = state_for(env, session_id)
-    assert decision["policy_version"] == "subagent-routing-v1"
+    assert decision["policy_version"] == "subagent-routing-v2"
     assert decision["configured_executor_model"] == "gpt-5.6-luna"
     assert decision["configured_executor_effort"] == "max"
     assert decision["subagent_route"] == "sol-advisor"

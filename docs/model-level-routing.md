@@ -14,27 +14,28 @@ routing policy; this document does not create a direct non-OpenAI provider.
 
 ## Deterministic policy
 
-The pure `subagent-routing-v1` helper accepts an Aristotle classification,
+The pure `subagent-routing-v2` helper accepts an Aristotle classification,
 intent, impact class, sensitivity, bounded overrides, proven capabilities, and
 remaining budget. It returns an inspectable recommendation without filesystem,
 hook, clock, or configuration I/O.
 
-| Aristotle result        | Current executor | New-subagent recommendation               |
-| ----------------------- | ---------------- | ----------------------------------------- |
-| 1-3 routine or low-risk | Luna / Max       | None by default                           |
-| 4-6 implementation      | Luna / Max       | Terra implementation / High               |
-| 7                       | Luna / Max       | No automatic subagent; guarded transition |
-| 8 deep decision         | Luna / Max       | Sol advisor / High                        |
-| 9 deep decision         | Luna / Max       | Sol advisor / XHigh by default            |
-| 10 exceptional decision | Luna / Max       | Sol advisor / Max by default              |
+| Aristotle result        | Current executor | New-subagent recommendation    |
+| ----------------------- | ---------------- | ------------------------------ |
+| 1-3 routine or low-risk | Luna / Max       | None by default                |
+| 4-6 implementation      | Luna / Max       | Terra implementation / High    |
+| 7-8                     | Luna / Max       | Sol advisor / High             |
+| 9 deep decision         | Luna / Max       | Sol advisor / XHigh by default |
+| 10 exceptional decision | Luna / Max       | Sol advisor / Max by default   |
 
-The route also depends on intent. A routine task does not qualify only because
-its prompt is long. A material impact signal can promote raw 1-3 work into the
+Intent and sensitivity remain additional guards for the higher lanes. The
+effective 7-8 band deliberately qualifies for a read-only Sol advisor once the
+input is non-RED; complexity 9-10 still requires a deep intent for automatic
+advisor routing. A material impact signal can promote raw 1-3 work into the
 effective 4-6 review band, but it does not automatically delegate to Terra or
 Sol. RED input always stays local.
 
 The Sol advisor and active-analysis routes are separate. Advisor is the default
-Sol route at effective 8-10. Active analysis is never automatic and is only
+Sol route at effective 7-10. Active analysis is never automatic and is only
 eligible at effective 9-10 when it is explicitly requested and all gates pass:
 non-RED classification, compatibility-proven capability, bounded scope, local
 verification availability, explicit budget class, and remaining allowance. It
@@ -83,8 +84,8 @@ or rejects that advice only after local verification.
    local Codex session.
 2. Keep active analysis disabled until that proof exists. Add the pure policy,
    bounded hook metadata, spawn guards, and focused tests repository-locally.
-3. Exercise Luna, Terra, Sol advisor, transition-7, override, RED, and active
-   analysis rejection cases in repository-local fresh sessions.
+3. Exercise Luna, Terra, Sol advisor 7-8, override, RED, and active analysis
+   rejection cases in repository-local fresh sessions.
 4. Only with separate explicit approval, install the source-parity-verified
    hooks and agents globally, then verify fresh App, CLI, and neutral-workspace
    sessions.

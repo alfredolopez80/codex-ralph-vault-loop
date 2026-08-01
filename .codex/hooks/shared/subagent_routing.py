@@ -13,7 +13,7 @@ from json import dumps
 from types import MappingProxyType
 from typing import Mapping
 
-POLICY_VERSION = "subagent-routing-v1"
+POLICY_VERSION = "subagent-routing-v2"
 LUNA_MODEL = "gpt-5.6-luna"
 TERRA_MODEL = "gpt-5.6-terra"
 SOL_MODEL = "gpt-5.6-sol"
@@ -241,8 +241,8 @@ def _base_route(raw: int, effective: int, intent: str, sensitivity: str) -> tupl
         return "none", None, "none", None, "routine-luna-only"
     if effective in range(4, 7) and intent == "implementation":
         return "terra-implementation", TERRA_MODEL, "implementation", TERRA_EFFORT, "implementation-4-6"
-    if effective == 7:
-        return "none", None, "none", None, "transition-7-no-automatic-subagent"
+    if effective in range(7, 9):
+        return "sol-advisor", SOL_MODEL, "advisor", SOL_EFFORTS[8], "sol-advisor-7-8"
     if effective >= 8 and intent in DEEP_INTENTS:
         effort = SOL_EFFORTS[min(effective, 10)]
         return "sol-advisor", SOL_MODEL, "advisor", effort, f"sol-advisor-{effective}"

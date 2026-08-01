@@ -18,6 +18,7 @@ from prompt_sol_lifecycle_support import (
     run_command,
     run_configured_event,
     routing_state,
+    seven_complexity_prompt,
     state_path,
 )
 
@@ -45,7 +46,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
     }
     assert_decision_fields(
         decision,
-        policy_version="subagent-routing-v1",
+        policy_version="subagent-routing-v2",
         raw_complexity=8,
         effective_complexity=8,
         sensitivity="GREEN",
@@ -137,6 +138,45 @@ def test_configured_lifecycle_keeps_routine_work_local_without_sol(tmp_path: Pat
     assert decision["spawn_required"] is False
     assert state["consultation_count"] == 0
     assert not any("Sol advisor eligibility: yes" in context for context in context_values(results))
+    assert_sources_unchanged(snapshot)
+
+
+def test_configured_lifecycle_routes_complexity_seven_to_the_same_sol_advisor_lane(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    snapshot = immutable_source_snapshot()
+    session_id = "sol-seventh-band"
+    prompt = seven_complexity_prompt()
+
+    results = run_configured_event("UserPromptSubmit", prompt_payload(session_id, prompt), env)
+    classifier = next(json_payloads(results[0].stdout))
+    assert "complexity=7/10" in classifier["hookSpecificOutput"]["additionalContext"]
+
+    state, decision = routing_state(env, session_id)
+    assert_decision_fields(
+        decision,
+        policy_version="subagent-routing-v2",
+        raw_complexity=7,
+        effective_complexity=7,
+        subagent_route="sol-advisor",
+        subagent_mode="advisor",
+        subagent_model="gpt-5.6-sol",
+        subagent_effort="high",
+        spawn_required=True,
+        reason_code="sol-advisor-7-8",
+    )
+    assert prompt not in json.dumps(state)
+    assert any("subagent_route=sol-advisor" in context for context in context_values(results))
+
+    spawn_arguments = dict(decision["spawn_arguments"])
+    pretool_payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": session_id,
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+        "tool_input": {**spawn_arguments, "message": "Return a compact advisory verdict."},
+    }
+    pretool_results = run_configured_event("PreToolUse", pretool_payload, env)
+    assert all(blocking_payload(result.stdout) is None for result in pretool_results)
     assert_sources_unchanged(snapshot)
 
 

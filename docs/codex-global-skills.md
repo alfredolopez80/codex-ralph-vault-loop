@@ -11,16 +11,18 @@ live in [`docs/codex-productivity-patterns.md`](./codex-productivity-patterns.md
 
 ## Always-visible global skills
 
-| Field | `ultrathink` | `improve-prompt` | `review-pr` | `canvas` |
-|---|---|---|
-| Repo source | `.agents/skills/ultrathink` | `.agents/skills/improve-prompt` | `.agents/skills/review-pr` | `.agents/skills/canvas` |
-| Global agent path | `~/.agents/skills/ultrathink` | `~/.agents/skills/improve-prompt` | `~/.agents/skills/review-pr` | `~/.agents/skills/canvas` |
-| Global Codex path | `~/.codex/skills/ultrathink` | `~/.codex/skills/improve-prompt` | `~/.codex/skills/review-pr` | `~/.codex/skills/canvas` |
-| Primary behavior | Default design-minded workflow | Compact internal request framing | Read-only PR review | Standalone local HTML reports |
+| Field             | `ultrathink`                   | `improve-prompt`                  | `review-pr`                  | `canvas`                      |
+| ----------------- | ------------------------------ | --------------------------------- | ---------------------------- | ----------------------------- |
+| Repo source       | `.agents/skills/ultrathink`    | `.agents/skills/improve-prompt`   | `.agents/skills/review-pr`   | `.agents/skills/canvas`       |
+| Global agent path | `~/.agents/skills/ultrathink`  | `~/.agents/skills/improve-prompt` | `~/.agents/skills/review-pr` | `~/.agents/skills/canvas`     |
+| Global Codex path | `~/.codex/skills/ultrathink`   | `~/.codex/skills/improve-prompt`  | `~/.codex/skills/review-pr`  | `~/.codex/skills/canvas`      |
+| Primary behavior  | Default design-minded workflow | Compact internal request framing  | Read-only PR review          | Standalone local HTML reports |
 
 `improve-prompt` converts prompt stacks into lean outcome contracts for the
-GPT-5.6 family. Terra with high reasoning remains the project default; Sol with
-medium reasoning is an advisory choice for scoped complexity 7-8 work. The
+GPT-5.6 family. Luna with max reasoning remains the project default; Terra with
+high reasoning handles implementation at 4-6, and Sol with high reasoning is
+the advisory choice for scoped complexity 7-8 work. Sol XHigh/Max remains
+reserved for eligible complexity 9-10 work. The
 global prompt hook applies only its compact,
 safe framing to every non-empty user request: preserve task type and explicit
 values, infer the completion contract where useful, never expand authority, and
@@ -58,12 +60,12 @@ the runtime reloads discovery and hook configuration.
 
 ## ralph-objective-prep
 
-| Field | Value |
-|---|---|
-| Skill name | `ralph-objective-prep` |
-| Repo source | `.agents/skills/ralph-objective-prep` |
-| Global agent path | `~/.agents/skills/ralph-objective-prep` |
-| Global Codex path | `~/.codex/skills/ralph-objective-prep` |
+| Field              | Value                                                          |
+| ------------------ | -------------------------------------------------------------- |
+| Skill name         | `ralph-objective-prep`                                         |
+| Repo source        | `.agents/skills/ralph-objective-prep`                          |
+| Global agent path  | `~/.agents/skills/ralph-objective-prep`                        |
+| Global Codex path  | `~/.codex/skills/ralph-objective-prep`                         |
 | Runtime dependency | Codex App standard Goals feature or App Server `thread/goal/*` |
 
 Use `$ralph-objective-prep` when a Goal-like request needs preparation before
@@ -154,14 +156,14 @@ conversation-context fallback.
 
 ## ralph-autoresearch-global-v2
 
-| Field | Value |
-|---|---|
-| Skill name | `autoresearch` |
-| Repo source | `.agents/skills/autoresearch` |
-| Global agent path | `~/.agents/skills/autoresearch` |
-| Global Codex path | `~/.codex/skills/autoresearch` |
-| Helper path | `~/.ralph-codex/bin/autoresearch` |
-| Primary output | Target-repo `autoresearch.md`, `autoresearch.jsonl`, `autoresearch.ideas.md`, and `autoresearch.last-run.json` |
+| Field             | Value                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| Skill name        | `autoresearch`                                                                                                 |
+| Repo source       | `.agents/skills/autoresearch`                                                                                  |
+| Global agent path | `~/.agents/skills/autoresearch`                                                                                |
+| Global Codex path | `~/.codex/skills/autoresearch`                                                                                 |
+| Helper path       | `~/.ralph-codex/bin/autoresearch`                                                                              |
+| Primary output    | Target-repo `autoresearch.md`, `autoresearch.jsonl`, `autoresearch.ideas.md`, and `autoresearch.last-run.json` |
 
 Use `$autoresearch` when a project needs a measurable improvement loop. Codex
 should follow this lifecycle:
@@ -222,14 +224,14 @@ agent flow.
 
 ## keep-codex-fast
 
-| Field | Value |
-|---|---|
-| Skill name | `keep-codex-fast` |
-| Repo source | `.agents/skills/keep-codex-fast` |
-| Global agent path | `~/.agents/skills/keep-codex-fast` |
-| Global Codex path | `~/.codex/skills/keep-codex-fast` |
-| Helper path | `~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py` after global install; `scripts/maintenance/keep_codex_fast.py` in this repo |
-| Primary output | Report lines for local Codex state; optional private backup/archive manifests when manually applied |
+| Field             | Value                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill name        | `keep-codex-fast`                                                                                                                        |
+| Repo source       | `.agents/skills/keep-codex-fast`                                                                                                         |
+| Global agent path | `~/.agents/skills/keep-codex-fast`                                                                                                       |
+| Global Codex path | `~/.codex/skills/keep-codex-fast`                                                                                                        |
+| Helper path       | `~/.codex/skills/keep-codex-fast/scripts/keep_codex_fast.py` after global install; `scripts/maintenance/keep_codex_fast.py` in this repo |
+| Primary output    | Report lines for local Codex state; optional private backup/archive manifests when manually applied                                      |
 
 Use `$keep-codex-fast` when Codex App or CLI feels slow after long sessions, many terminals, large local logs, old worktrees, or repeated resumes from large chats.
 
@@ -277,14 +279,14 @@ Suggested schedules are weekly for heavy Codex use or biweekly for lighter use. 
 
 ## fireworks-tech-graph
 
-| Field | Value |
-|---|---|
-| Global path | `~/.codex/skills/fireworks-tech-graph` |
-| Source | `https://github.com/yizhiyanhua-ai/fireworks-tech-graph` |
-| Installed ref | `main` at `a1afa9d892df6239b4f5614d87afe5bbbef2d762` |
-| Installed on | `2026-04-26` |
-| Primary output | SVG diagrams plus PNG exports |
-| Runtime dependency | `rsvg-convert` from `librsvg` |
+| Field              | Value                                                    |
+| ------------------ | -------------------------------------------------------- |
+| Global path        | `~/.codex/skills/fireworks-tech-graph`                   |
+| Source             | `https://github.com/yizhiyanhua-ai/fireworks-tech-graph` |
+| Installed ref      | `main` at `a1afa9d892df6239b4f5614d87afe5bbbef2d762`     |
+| Installed on       | `2026-04-26`                                             |
+| Primary output     | SVG diagrams plus PNG exports                            |
+| Runtime dependency | `rsvg-convert` from `librsvg`                            |
 
 Use this skill when the user asks Codex to generate, draw, or visualize technical
 diagrams: architecture diagrams, data flows, flowcharts, sequence diagrams,
@@ -320,28 +322,28 @@ The skill currently ships **7 visual styles** and **10 SVG template families**.
 The common "7 or 8 templates" shorthand usually refers to the visual styles, not
 the template files.
 
-| Style | Reference |
-|---|---|
-| 1 | `references/style-1-flat-icon.md` |
-| 2 | `references/style-2-dark-terminal.md` |
-| 3 | `references/style-3-blueprint.md` |
-| 4 | `references/style-4-notion-clean.md` |
-| 5 | `references/style-5-glassmorphism.md` |
-| 6 | `references/style-6-claude-official.md` |
-| 7 | `references/style-7-openai.md` |
+| Style | Reference                               |
+| ----- | --------------------------------------- |
+| 1     | `references/style-1-flat-icon.md`       |
+| 2     | `references/style-2-dark-terminal.md`   |
+| 3     | `references/style-3-blueprint.md`       |
+| 4     | `references/style-4-notion-clean.md`    |
+| 5     | `references/style-5-glassmorphism.md`   |
+| 6     | `references/style-6-claude-official.md` |
+| 7     | `references/style-7-openai.md`          |
 
-| Template | Best use |
-|---|---|
-| `architecture.svg` | General service/system architecture |
-| `agent-architecture.svg` | Agentic systems, tools, memory, orchestrators |
-| `data-flow.svg` | RAG, ETL, ingestion, retrieval, context pipelines |
-| `flowchart.svg` | Process or decision workflows |
-| `sequence.svg` | Request/response interaction timelines |
-| `state-machine.svg` | Lifecycle and status transitions |
-| `timeline.svg` | Rollouts, migrations, phased plans |
-| `comparison-matrix.svg` | Option comparisons and capability matrices |
-| `er-diagram.svg` | Database/domain relationships |
-| `use-case.svg` | Actors and system boundaries |
+| Template                 | Best use                                          |
+| ------------------------ | ------------------------------------------------- |
+| `architecture.svg`       | General service/system architecture               |
+| `agent-architecture.svg` | Agentic systems, tools, memory, orchestrators     |
+| `data-flow.svg`          | RAG, ETL, ingestion, retrieval, context pipelines |
+| `flowchart.svg`          | Process or decision workflows                     |
+| `sequence.svg`           | Request/response interaction timelines            |
+| `state-machine.svg`      | Lifecycle and status transitions                  |
+| `timeline.svg`           | Rollouts, migrations, phased plans                |
+| `comparison-matrix.svg`  | Option comparisons and capability matrices        |
+| `er-diagram.svg`         | Database/domain relationships                     |
+| `use-case.svg`           | Actors and system boundaries                      |
 
 Recommended architecture selection:
 

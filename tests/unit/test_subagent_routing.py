@@ -43,8 +43,9 @@ def resolve(**changes: object):
         (3, "implementation", "none", None, False, "routine-luna-only"),
         (4, "implementation", "terra-implementation", "high", True, "implementation-4-6"),
         (6, "implementation", "terra-implementation", "high", True, "implementation-4-6"),
-        (7, "implementation", "none", None, False, "transition-7-no-automatic-subagent"),
-        (8, "architecture", "sol-advisor", "high", True, "sol-advisor-8"),
+        (7, "routine", "sol-advisor", "high", True, "sol-advisor-7-8"),
+        (8, "routine", "sol-advisor", "high", True, "sol-advisor-7-8"),
+        (8, "architecture", "sol-advisor", "high", True, "sol-advisor-7-8"),
         (9, "migration", "sol-advisor", "xhigh", True, "sol-advisor-9"),
         (10, "security", "sol-advisor", "max", True, "sol-advisor-10"),
     ],
@@ -64,12 +65,14 @@ def test_default_bands_are_deterministic(
     assert decision.configured_executor_effort == LUNA_DEFAULT_EFFORT
 
 
-def test_routine_prompt_at_effective_eight_never_qualifies_by_score_alone() -> None:
-    decision = resolve(raw_complexity=8, intent="routine")
+def test_complexity_seven_and_eight_share_the_sol_advisor_lane() -> None:
+    seven = resolve(raw_complexity=7, intent="routine")
+    eight = resolve(raw_complexity=8, intent="routine")
 
-    assert decision.subagent_route == "none"
-    assert decision.spawn_required is False
-    assert decision.reason_code == "intent-does-not-qualify-for-automatic-subagent"
+    assert seven.subagent_route == eight.subagent_route == "sol-advisor"
+    assert seven.subagent_effort == eight.subagent_effort == "high"
+    assert seven.reason_code == eight.reason_code == "sol-advisor-7-8"
+    assert seven.spawn_required is eight.spawn_required is True
 
 
 def test_material_low_score_promotes_effective_band_without_automatic_delegation() -> None:

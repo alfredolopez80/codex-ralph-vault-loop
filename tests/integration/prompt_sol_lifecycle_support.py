@@ -146,3 +146,10 @@ def high_complexity_prompt() -> str:
         "Design an architecture migration for a system. Audit multiple validation steps and plan antes de modificar. "
         "Keep evidence bounded, locally verifiable, and focused on the intended transition. "
     ) * 3
+
+
+def seven_complexity_prompt() -> str:
+    return (
+        "Design an architecture migration for a system. Audit multiple validation steps and plan antes de modificar. "
+        "Keep evidence bounded, locally verifiable, and focused on the intended transition."
+    )

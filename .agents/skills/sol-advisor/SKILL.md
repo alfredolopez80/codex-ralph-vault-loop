@@ -1,6 +1,6 @@
 ---
 name: sol-advisor
-description: Escalate an eligible complexity-8+ decision from GPT-5.6 Terra or Luna to the read-only GPT-5.6 Sol advisor.
+description: Escalate an eligible complexity-7+ decision from GPT-5.6 Terra or Luna to the read-only GPT-5.6 Sol advisor.
 ---
 
 # Sol Advisor
@@ -22,19 +22,18 @@ edit `.codex/config.toml` during a turn.
 
 Use the native `sol-advisor` agent only when the routing decision marks a new
 subagent eligible or when the user makes a supported explicit subagent request.
-Automatic advisor routing starts at effective complexity 8 for deep intent:
+Automatic advisor routing starts at effective complexity 7:
 
 | Effective complexity | Default Sol lane | Effort |
 | -------------------- | ---------------- | ------ |
-| 8                    | Advisor          | High   |
+| 7-8                  | Advisor          | High   |
 | 9                    | Advisor          | XHigh  |
 | 10                   | Advisor          | Max    |
 
-Complexity 7 is a guarded transition with no automatic subagent. Complexity
-4-6 implementation routes to a Terra implementation subagent, not Sol.
-Complexity 1-3 stays Luna-only by default. A material impact signal may promote
-raw 1-3 work into the effective 4-6 review band, but never automatically calls
-Sol.
+Complexity 4-6 implementation routes to a Terra implementation subagent, not
+Sol. Complexity 1-3 stays Luna-only by default. A material impact signal may
+promote raw 1-3 work into the effective 4-6 review band, but never
+automatically calls Sol.
 
 Typical Sol decisions are architecture, authorization, schema, migration,
 rollout, external-interface, security, or difficult-to-reverse choices. Routine
