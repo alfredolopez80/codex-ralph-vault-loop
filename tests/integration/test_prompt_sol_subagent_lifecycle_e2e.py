@@ -144,14 +144,6 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
     assert completed_state["advisor_completed"] is True
     assert completed_state["prior_verdict_fingerprint"] == completed_state["decision_fingerprint"]
 
-    phase_shift = run_configured_event(
-        "SubagentStart",
-        {**subagent_start, "phase": "final", "agent_id": "equivalent-phase-start"},
-        env,
-    )
-    assert all(blocking_payload(result.stdout) is None for result in phase_shift)
-    phase_state, _ = routing_state(env, session_id)
-    assert phase_state["phase"] == "final", phase_state
     equivalent_results = run_configured_event("PreToolUse", pretool_payload, env, stop_on_block=True)
     equivalent_block = next(
         (blocking_payload(result.stdout) for result in equivalent_results if blocking_payload(result.stdout)),
@@ -482,6 +474,20 @@ def test_routing_guard_blocks_sol_spawn_after_live_budget_exhaustion(tmp_path: P
                     env,
                 )
         run_configured_event(
+            "PreToolUse",
+            {
+                "hook_event_name": "PreToolUse",
+                "session_id": session_id,
+                "cwd": str(ROOT),
+                "tool_name": "spawn_agent",
+                "tool_input": {
+                    **spawn_arguments,
+                    "message": f"Start the bounded {phase} consultation.",
+                },
+            },
+            env,
+        )
+        run_configured_event(
             "SubagentStart",
             {
                 "hook_event_name": "SubagentStart",
@@ -606,6 +612,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     _, decision = routing_state(env, session_id)
     spawn = {
         **dict(decision["spawn_arguments"]),
+        "invocation_id": "sol-phase-reservation-1",
         "message": "Review this bounded decision and return a compact verdict.",
     }
     base = {
@@ -673,6 +680,27 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     )
     assert still_reserved_block is not None
     assert "already reserved" in str(still_reserved_block["reason"])
+
+    no_identity_failure = {
+        "hook_event_name": "PostToolUse",
+        "session_id": session_id,
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+        "success": False,
+        "command": "spawn_agent unrelated failure",
+        "tool_input": {key: value for key, value in spawn.items() if key != "invocation_id"},
+    }
+    run_command(configured_command("PostToolUse", "sol_advisor_observer.py"), no_identity_failure, env)
+    no_identity_state, _ = routing_state(env, session_id)
+    assert no_identity_state["phase_reservations"], no_identity_state
+    no_identity_retry = run_pretool(base)
+    no_identity_block = next(
+        (blocking_payload(result.stdout) for result in no_identity_retry if blocking_payload(result.stdout)),
+        None,
+    )
+    retry_state, _ = routing_state(env, session_id)
+    assert no_identity_block is not None, retry_state["phase_reservations"]
+    assert "already reserved" in str(no_identity_block["reason"])
 
     run_command(
         configured_command("PostToolUse", "sol_advisor_observer.py"),

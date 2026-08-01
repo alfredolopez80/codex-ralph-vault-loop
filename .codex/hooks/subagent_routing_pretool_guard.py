@@ -217,6 +217,14 @@ def main() -> int:
         if expected_route in {"sol-advisor", "sol-active-analysis"} and _live_budget_remaining(state) <= 0:
             _block("Sol consultation budget is exhausted; do not create another advisor spawn.")
             return 0
+        if (
+            expected_route in {"sol-advisor", "sol-active-analysis"}
+            and state.get("advisor_completed")
+            and state.get("prior_verdict_fingerprint")
+            and state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
+        ):
+            _block("An equivalent Sol verdict is already complete; reuse it unless the evidence changes.")
+            return 0
         if expected_route in {"sol-advisor", "sol-active-analysis"}:
             phase = _phase(state)
             consulted_phases = state.get("consulted_phases")
@@ -278,14 +286,6 @@ def main() -> int:
             return 0
         if requested_fork not in NO_HISTORY_VALUES:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
-            return 0
-        if (
-            expected_route in {"sol-advisor", "sol-active-analysis"}
-            and state.get("advisor_completed")
-            and state.get("prior_verdict_fingerprint")
-            and state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
-        ):
-            _block("An equivalent Sol verdict is already complete; reuse it unless the evidence changes.")
             return 0
         # This is deliberately the last mutation in the contract validator.
         # PreToolUse hooks continue after a block, so reserving in a later Sol

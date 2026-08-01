@@ -253,7 +253,16 @@ def _spawn_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _spawn_metadata(payload: dict[str, Any]) -> tuple[str, str]:
     """Return stable spawn shape and optional exact invocation identity."""
-    invocation_keys = ("tool_call_id", "toolCallId", "call_id", "callId", "invocation_id", "invocationId")
+    invocation_keys = (
+        "tool_call_id",
+        "toolCallId",
+        "tool_use_id",
+        "toolUseId",
+        "call_id",
+        "callId",
+        "invocation_id",
+        "invocationId",
+    )
     invocation_id = ""
     for source in _spawn_sources(payload):
         for key in invocation_keys:
@@ -1035,12 +1044,12 @@ def _is_native_spawn_payload(payload: dict[str, Any]) -> bool:
 
 
 def _reservation_matches_failure(reservation: dict[str, object], payload: dict[str, Any]) -> bool:
-    shape, invocation_id = _spawn_metadata(payload)
+    _shape, invocation_id = _spawn_metadata(payload)
     recorded_invocation = _bounded_text(reservation.get("invocation_id"), limit=80)
-    recorded_shape = _bounded_text(reservation.get("spawn_shape"), limit=64)
-    if recorded_invocation and invocation_id:
-        return recorded_invocation == invocation_id
-    return bool(recorded_shape and shape and recorded_shape == shape)
+    # A profile shape is intentionally not a release token: all Sol calls in
+    # one lane share it. If the lifecycle did not carry an exact invocation
+    # identity, keep the reservation until an explicit new task resets state.
+    return bool(recorded_invocation and invocation_id and recorded_invocation == invocation_id)
 
 
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1158,20 +1167,21 @@ def has_completion_evidence(payload: dict[str, Any]) -> bool:
     return any(source.get(key) for source in sources for key in identity_keys)
 
 
-def mark_advisor(payload: dict[str, Any], *, completed: bool) -> dict[str, Any]:
+def mark_advisor(
+    payload: dict[str, Any], *, completed: bool, require_reservation: bool = False
+) -> dict[str, Any]:
     with locked_state(payload) as state:
         ensure_state_shape(state, payload)
         phase = phase_from_payload(payload, state)
-        if not completed:
+        if not completed and require_reservation:
             reservations = _normalize_phase_reservations(state)
-            if reservations:
-                reserved_phase = reserved_phase_for_start(state, payload)
-                if not reserved_phase:
-                    # A real SubagentStart must follow the validated native
-                    # spawn reservation. Do not let caller-supplied phase
-                    # metadata account for an unmatched or ambiguous start.
-                    return dict(state)
-                phase = reserved_phase
+            reserved_phase = reserved_phase_for_start(state, payload)
+            if not reservations or not reserved_phase:
+                # A real SubagentStart must follow the validated native spawn
+                # reservation. Do not let caller-supplied phase metadata
+                # account for an unmatched or missing start reservation.
+                return dict(state)
+            phase = reserved_phase
         state["phase"] = phase
         fingerprint = str(state.get("decision_fingerprint", ""))
         if completed:

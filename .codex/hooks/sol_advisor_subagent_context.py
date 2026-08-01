@@ -14,7 +14,7 @@ def main() -> int:
         routing = state.get("routing")
         if not isinstance(routing, dict) or routing.get("subagent_route") not in {"sol-advisor", "sol-active-analysis"}:
             return 0
-        state = mark_advisor(payload, completed=False)
+        state = mark_advisor(payload, completed=False, require_reservation=True)
         write_json({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": advisor_context(state)}})
     except Exception:
         pass
