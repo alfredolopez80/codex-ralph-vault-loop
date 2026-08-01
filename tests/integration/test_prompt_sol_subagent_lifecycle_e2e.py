@@ -185,6 +185,59 @@ def test_configured_lifecycle_keeps_routine_work_local_without_sol(tmp_path: Pat
     assert_sources_unchanged(snapshot)
 
 
+def test_stale_advisor_stop_cannot_complete_a_new_task_state(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-stale-stop"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    _, decision = routing_state(env, session_id)
+    spawn_arguments = dict(decision["spawn_arguments"])
+    pretool = {
+        "hook_event_name": "PreToolUse",
+        "session_id": session_id,
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+        "tool_input": {**spawn_arguments, "message": "Review this bounded decision."},
+    }
+    run_configured_event("PreToolUse", pretool, env)
+    run_configured_event(
+        "SubagentStart",
+        {
+            "hook_event_name": "SubagentStart",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "agent_id": "old-advisor",
+            **spawn_arguments,
+        },
+        env,
+    )
+
+    run_configured_event(
+        "UserPromptSubmit",
+        {**prompt_payload(session_id, high_complexity_prompt()), "new_task": True},
+        env,
+    )
+    fresh_state, fresh_decision = routing_state(env, session_id)
+    assert fresh_decision["subagent_route"] == "sol-advisor"
+    assert fresh_state["advisor_completed"] is False
+    assert fresh_state["consultation_count"] == 0
+
+    run_configured_event(
+        "SubagentStop",
+        {
+            "hook_event_name": "SubagentStop",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "agent_id": "old-advisor",
+            "success": True,
+            **spawn_arguments,
+        },
+        env,
+    )
+    after_stale_stop, _ = routing_state(env, session_id)
+    assert after_stale_stop["advisor_completed"] is False
+    assert after_stale_stop["consultation_count"] == 0
+
+
 def test_configured_lifecycle_routes_complexity_seven_to_the_same_sol_advisor_lane(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     snapshot = immutable_source_snapshot()
@@ -718,6 +771,38 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
 
     retry_results = run_pretool(base)
     assert all(blocking_payload(result.stdout) is None for result in retry_results)
+
+    no_id_session = "sol-phase-reservation-no-id"
+    run_configured_event("UserPromptSubmit", prompt_payload(no_id_session, high_complexity_prompt()), env)
+    _, no_id_decision = routing_state(env, no_id_session)
+    no_id_spawn = {
+        **dict(no_id_decision["spawn_arguments"]),
+        "message": "Retry this bounded decision after a spawn failure.",
+    }
+    no_id_base = {
+        "hook_event_name": "PreToolUse",
+        "session_id": no_id_session,
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+        "tool_input": no_id_spawn,
+    }
+    no_id_first = run_configured_event("PreToolUse", no_id_base, env)
+    assert all(blocking_payload(result.stdout) is None for result in no_id_first)
+    run_command(
+        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": no_id_session,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "success": False,
+            "command": "spawn_agent no-id failure",
+            "tool_input": no_id_spawn,
+        },
+        env,
+    )
+    no_id_retry = run_configured_event("PreToolUse", no_id_base, env)
+    assert all(blocking_payload(result.stdout) is None for result in no_id_retry)
 
 
 def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_path: Path) -> None:

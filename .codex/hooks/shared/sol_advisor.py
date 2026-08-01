@@ -221,10 +221,13 @@ def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, 
         record: dict[str, object] = {"fingerprint": fingerprint, "reserved_at": reserved_at}
         spawn_shape = _bounded_text(value.get("spawn_shape"), limit=64)
         invocation_id = _bounded_text(value.get("invocation_id"), limit=80)
+        brief_hash = _bounded_text(value.get("brief_hash"), limit=64)
         if spawn_shape:
             record["spawn_shape"] = spawn_shape
         if invocation_id:
             record["invocation_id"] = invocation_id
+        if brief_hash:
+            record["brief_hash"] = brief_hash
         normalized[normalized_phase] = record
     state["phase_reservations"] = normalized
     return normalized
@@ -295,6 +298,19 @@ def _spawn_metadata(payload: dict[str, Any]) -> tuple[str, str]:
     return shape, invocation_id
 
 
+def _spawn_brief_hash(payload: dict[str, Any]) -> str:
+    brief_material: list[str] = []
+    for source_key in ("tool_input", "toolInput", "input", "subagent", "agent"):
+        source = payload.get(source_key)
+        if not isinstance(source, dict):
+            continue
+        for key in ("message", "prompt", "brief", "decision_brief", "decisionBrief"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                brief_material.append(f"{key}={_bounded_text(value, limit=512)}")
+    return _hash_material("spawn-brief", *brief_material) if brief_material else ""
+
+
 def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: str) -> tuple[bool, str]:
     """Atomically reserve one Sol phase without consuming budget before start."""
     normalized_phase = normalize_phase(phase)
@@ -321,6 +337,9 @@ def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: s
             "spawn_shape": spawn_shape,
             "invocation_id": invocation_id,
         }
+        brief_hash = _spawn_brief_hash(payload)
+        if brief_hash:
+            reservations[normalized_phase]["brief_hash"] = brief_hash
         state["phase_reservations"] = reservations
         return True, ""
 
@@ -704,6 +723,12 @@ def advisor_reference(payload: dict[str, Any]) -> str:
     return ""
 
 
+def completion_matches_active_advisor(payload: dict[str, Any], state: dict[str, Any]) -> bool:
+    """Accept completion only from the advisor identity recorded at start."""
+    active = _bounded_text(state.get("active_advisor_ref"), limit=64)
+    return bool(active and state.get("advisor_started") and advisor_reference(payload) == active)
+
+
 def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Upgrade legacy advisory state without retaining unbounded history."""
     try:
@@ -777,6 +802,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
     _normalize_phase_reservations(state)
     state.setdefault("prior_verdict_ref", "")
     state.setdefault("prior_verdict_fingerprint", "")
+    state.setdefault("active_advisor_ref", "")
+    state["active_advisor_ref"] = _bounded_text(state.get("active_advisor_ref"), limit=64) or ""
     state["prior_verdict_phase"] = normalize_phase(state.get("prior_verdict_phase"))
     state.setdefault("advisor_reused", False)
     state.setdefault("advisor_budget_exhausted", False)
@@ -900,6 +927,7 @@ def _record_red_local_state(payload: dict[str, Any], prompt: str) -> dict[str, A
                 "phase_reservations": {},
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
+                "active_advisor_ref": "",
                 "prior_verdict_phase": "",
                 "advisor_reused": False,
                 "advisor_budget_exhausted": False,
@@ -1007,6 +1035,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "phase_reservations": {},
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
+                "active_advisor_ref": "",
                 "prior_verdict_phase": "",
                 "advisor_reused": False,
                 "advisor_budget_exhausted": False,
@@ -1043,13 +1072,31 @@ def _is_native_spawn_payload(payload: dict[str, Any]) -> bool:
     return "spawn_agent" in command_text(payload).lower()
 
 
-def _reservation_matches_failure(reservation: dict[str, object], payload: dict[str, Any]) -> bool:
-    _shape, invocation_id = _spawn_metadata(payload)
+def _reservation_matches_failure(
+    reservation: dict[str, object], payload: dict[str, Any], routing_fingerprint: str
+) -> bool:
+    shape, invocation_id = _spawn_metadata(payload)
     recorded_invocation = _bounded_text(reservation.get("invocation_id"), limit=80)
-    # A profile shape is intentionally not a release token: all Sol calls in
-    # one lane share it. If the lifecycle did not carry an exact invocation
-    # identity, keep the reservation until an explicit new task resets state.
-    return bool(recorded_invocation and invocation_id and recorded_invocation == invocation_id)
+    recorded_fingerprint = _bounded_text(reservation.get("fingerprint"), limit=64)
+    if routing_fingerprint and recorded_fingerprint != routing_fingerprint:
+        return False
+    if recorded_invocation:
+        return bool(invocation_id and recorded_invocation == invocation_id)
+    # When the platform omits IDs, the bounded brief hash plus the full spawn
+    # shape is the safest available correlation. An event carrying an ID must
+    # not release an ID-less reservation because it may be a different call.
+    recorded_shape = _bounded_text(reservation.get("spawn_shape"), limit=64)
+    recorded_brief = _bounded_text(reservation.get("brief_hash"), limit=64)
+    failure_brief = _spawn_brief_hash(payload)
+    return bool(
+        not invocation_id
+        and recorded_fingerprint
+        and shape
+        and shape == recorded_shape
+        and recorded_brief
+        and failure_brief
+        and recorded_brief == failure_brief
+    )
 
 
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1067,10 +1114,14 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
             # matching short-lived reservation so a bounded retry can be
             # attempted; unrelated pending phases remain protected.
             reservations = _normalize_phase_reservations(state)
+            routing = state.get("routing")
+            routing_fingerprint = (
+                str(routing.get("decision_fingerprint") or "") if isinstance(routing, dict) else ""
+            )
             state["phase_reservations"] = {
                 phase: reservation
                 for phase, reservation in reservations.items()
-                if not _reservation_matches_failure(reservation, payload)
+                if not _reservation_matches_failure(reservation, payload, routing_fingerprint)
             }
         failures = state.setdefault("failure_fingerprints", [])
         if not isinstance(failures, list):
@@ -1192,8 +1243,13 @@ def mark_advisor(
             if reference:
                 state["prior_verdict_ref"] = reference
             state["advisor_reused"] = False
+            state["active_advisor_ref"] = ""
         else:
+            start_reference = advisor_reference(payload)
+            if require_reservation and not start_reference:
+                return dict(state)
             state["advisor_started"] = True
+            state["active_advisor_ref"] = start_reference
             consulted_phases = state["consulted_phases"]
             consulted_fingerprints = state["consulted_fingerprints"]
             reservations = _normalize_phase_reservations(state)
