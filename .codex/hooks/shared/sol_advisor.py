@@ -15,8 +15,10 @@ from .redaction import is_red
 from .tool_result import success_from_payload
 
 STATE_FILE = "sol-advisor.json"
+STATE_VERSION = 2
 MAX_FAILURE_FINGERPRINTS = 4
 MAX_CONSULTATIONS = 2
+CONSULTATION_PHASES = frozenset({"plan", "stuck", "final"})
 HIGH_IMPACT_RE = re.compile(
     r"\b(architecture|authorization|auth|schema|database|migration|rollout|deploy|"
     r"public api|external interface|breaking|security|compliance|contract)\b",
@@ -113,6 +115,151 @@ def prompt_text(payload: dict[str, Any]) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _hash_material(*values: object) -> str:
+    material = "\x1f".join(str(value) for value in values)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def task_identity(payload: dict[str, Any], prompt: str) -> str:
+    """Return a non-sensitive identity for the active session task."""
+    session = safe_session_id(payload.get("session_id") or payload.get("sessionId"))
+    normalized = " ".join(prompt.split()).lower()
+    return _hash_material("task", session, normalized)
+
+
+def normalize_phase(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    aliases = {
+        "initial": "plan",
+        "planning": "plan",
+        "start": "plan",
+        "failure": "stuck",
+        "debug": "stuck",
+        "blocked": "stuck",
+        "completion": "final",
+        "stop": "final",
+        "review": "final",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in CONSULTATION_PHASES else ""
+
+
+def phase_from_payload(payload: dict[str, Any], state: dict[str, Any] | None = None) -> str:
+    for key in ("phase", "task_phase", "taskPhase", "consultation_phase", "consultationPhase"):
+        phase = normalize_phase(payload.get(key))
+        if phase:
+            return phase
+    if state:
+        phase = normalize_phase(state.get("phase"))
+        if phase:
+            return phase
+        if state.get("stuck_eligible"):
+            return "stuck"
+    return "plan"
+
+
+def decision_fingerprint(state: dict[str, Any]) -> str:
+    material = {
+        "task_id": state.get("task_id", ""),
+        "high_impact": bool(state.get("high_impact")),
+        "explicit_request": bool(state.get("explicit_request")),
+        "impact_reasons": sorted(str(value).lower() for value in state.get("impact_reasons", []) if value),
+        "failure_fingerprints": list(state.get("failure_fingerprints", [])),
+    }
+    return _hash_material("decision", json.dumps(material, sort_keys=True, separators=(",", ":")))
+
+
+def advisor_reference(payload: dict[str, Any]) -> str:
+    identity_keys = ("agent_id", "agentId", "subagent_id", "subagentId", "thread_id", "threadId")
+    for source in advisor_sources(payload):
+        for key in identity_keys:
+            value = source.get(key)
+            if value:
+                return _hash_material("verdict", value)
+    return ""
+
+
+def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade legacy advisory state without retaining unbounded history."""
+    try:
+        version = int(state.get("version", 1) or 1)
+    except (TypeError, ValueError):
+        version = 1
+    state["version"] = max(version, STATE_VERSION)
+    state.setdefault(
+        "task_id",
+        _hash_material(
+            "legacy-task",
+            safe_session_id(payload.get("session_id") or payload.get("sessionId")),
+        ),
+    )
+    phase = normalize_phase(state.get("phase"))
+    state["phase"] = phase or ("stuck" if state.get("stuck_eligible") else "plan")
+    try:
+        state["complexity"] = max(1, min(10, int(state.get("complexity", 1) or 1)))
+    except (TypeError, ValueError):
+        state["complexity"] = 1
+    reasons = state.get("impact_reasons", [])
+    state["impact_reasons"] = (
+        [str(reason).lower() for reason in reasons if str(reason).strip()][:4]
+        if isinstance(reasons, list)
+        else []
+    )
+    for key in (
+        "high_impact",
+        "explicit_request",
+        "final_review_eligible",
+        "consultation_eligible",
+        "stuck_eligible",
+        "stop_guard_issued",
+        "advisor_started",
+        "advisor_completed",
+    ):
+        state.setdefault(key, False)
+    state.setdefault("failure_fingerprints", [])
+    if not isinstance(state["failure_fingerprints"], list):
+        state["failure_fingerprints"] = []
+    state["failure_fingerprints"] = state["failure_fingerprints"][-MAX_FAILURE_FINGERPRINTS:]
+    state["failure_count"] = len(state["failure_fingerprints"])
+    state.setdefault("consultation_budget", MAX_CONSULTATIONS)
+    try:
+        state["consultation_budget"] = max(0, min(MAX_CONSULTATIONS, int(state["consultation_budget"])))
+    except (TypeError, ValueError):
+        state["consultation_budget"] = MAX_CONSULTATIONS
+    try:
+        state["consultation_count"] = max(
+            0,
+            min(state["consultation_budget"], int(state.get("consultation_count", 0) or 0)),
+        )
+    except (TypeError, ValueError):
+        state["consultation_count"] = 0
+    consulted_fingerprints = state.get("consulted_fingerprints", [])
+    state["consulted_fingerprints"] = consulted_fingerprints if isinstance(consulted_fingerprints, list) else []
+    state["consulted_fingerprints"] = [
+        str(fingerprint)
+        for fingerprint in state["consulted_fingerprints"]
+        if str(fingerprint).strip()
+    ][-MAX_FAILURE_FINGERPRINTS:]
+    consulted_phases = state.get("consulted_phases", {})
+    state["consulted_phases"] = consulted_phases if isinstance(consulted_phases, dict) else {}
+    normalized_phases: dict[str, str] = {}
+    for phase, fingerprint in state["consulted_phases"].items():
+        normalized_phase = normalize_phase(phase)
+        if normalized_phase and fingerprint:
+            normalized_phases[normalized_phase] = str(fingerprint)
+    state["consulted_phases"] = normalized_phases
+    state.setdefault("prior_verdict_ref", "")
+    state.setdefault("prior_verdict_fingerprint", "")
+    state["prior_verdict_phase"] = normalize_phase(state.get("prior_verdict_phase"))
+    state.setdefault("advisor_reused", False)
+    state.setdefault("advisor_budget_exhausted", False)
+    state.setdefault("last_consultation_phase", "")
+    state["last_consultation_phase"] = normalize_phase(state.get("last_consultation_phase"))
+    state["budget_remaining"] = max(0, state["consultation_budget"] - state["consultation_count"])
+    state["decision_fingerprint"] = decision_fingerprint(state)
+    return state
+
+
 def is_task_boundary(payload: dict[str, Any], prompt: str) -> bool:
     """Recognize an explicit request to start a fresh task state."""
     for key in ("new_task", "newTask", "task_boundary", "taskBoundary", "start_new_task", "startNewTask"):
@@ -130,7 +277,7 @@ def merge_existing_state(
     explicit_request: bool,
 ) -> dict[str, Any]:
     """Merge new prompt evidence without weakening an active obligation."""
-    state = dict(existing)
+    state = ensure_state_shape(dict(existing), {})
     try:
         previous_complexity = int(state.get("complexity", 1) or 1)
     except (TypeError, ValueError):
@@ -154,6 +301,9 @@ def merge_existing_state(
             or high_impact,
         }
     )
+    state["decision_fingerprint"] = decision_fingerprint(state)
+    if state.get("prior_verdict_fingerprint") != state["decision_fingerprint"]:
+        state["advisor_completed"] = False
     return state
 
 
@@ -170,13 +320,11 @@ def should_preserve_state(
         return False
     if CONTINUATION_RE.search(prompt):
         return True
-    if existing.get("advisor_completed") is not True:
-        # A pending obligation is monotonic. New evidence may strengthen it,
-        # but an ordinary prompt may not clear it.
-        return True
-    # A completed material task may be followed by routine prompts. A new
-    # material signal starts a fresh review unless the user marked continuation.
-    return not (high_impact or explicit_request)
+    # The session is the only stable task boundary available to this hook.
+    # Preserve state across ordinary prompts; merge_existing_state() will
+    # invalidate a prior verdict only when new decision evidence changes its
+    # fingerprint. A new root task must carry an explicit boundary marker.
+    return bool(existing)
 
 
 def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -185,7 +333,9 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
         return None
     existing = read_state(payload)
     if existing and CONTINUATION_RE.search(prompt):
-        return existing
+        with locked_state(payload) as state:
+            ensure_state_shape(state, payload)
+            return dict(state)
     complexity = classification_complexity(payload)
     reasons = sorted({match.group(1).lower() for match in HIGH_IMPACT_RE.finditer(prompt)})[:4]
     high_impact = bool(reasons)
@@ -214,9 +364,12 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 )
             )
             return dict(state)
+        state.clear()
         state.update(
             {
-                "version": 1,
+                "version": STATE_VERSION,
+                "task_id": task_identity(payload, prompt),
+                "phase": "plan",
                 "complexity": complexity,
                 "high_impact": high_impact,
                 "impact_reasons": reasons,
@@ -224,12 +377,25 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "final_review_eligible": final_review_eligible,
                 "consultation_eligible": consultation_eligible,
                 "failure_fingerprints": [],
+                "failure_count": 0,
+                "decision_fingerprint": "",
+                "consultation_budget": MAX_CONSULTATIONS,
                 "consultation_count": 0,
+                "budget_remaining": MAX_CONSULTATIONS,
+                "consulted_fingerprints": [],
+                "consulted_phases": {},
+                "prior_verdict_ref": "",
+                "prior_verdict_fingerprint": "",
+                "prior_verdict_phase": "",
+                "advisor_reused": False,
+                "advisor_budget_exhausted": False,
                 "stop_guard_issued": False,
                 "advisor_started": False,
                 "advisor_completed": False,
+                "stuck_eligible": False,
             }
         )
+        state["decision_fingerprint"] = decision_fingerprint(state)
         return dict(state)
 
 
@@ -242,6 +408,7 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         return read_state(payload)
     fingerprint = hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:16]
     with locked_state(payload) as state:
+        ensure_state_shape(state, payload)
         failures = state.setdefault("failure_fingerprints", [])
         if not isinstance(failures, list):
             failures = []
@@ -251,9 +418,13 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
             del failures[MAX_FAILURE_FINGERPRINTS:]
         failure_count = len(failures)
         state["failure_count"] = failure_count
+        state["decision_fingerprint"] = decision_fingerprint(state)
+        if state.get("prior_verdict_fingerprint") != state["decision_fingerprint"]:
+            state["advisor_completed"] = False
         if state.get("high_impact") and failure_count >= 2:
             state["consultation_eligible"] = True
             state["stuck_eligible"] = True
+            state["phase"] = "stuck"
         return dict(state)
 
 
@@ -326,25 +497,70 @@ def has_completion_evidence(payload: dict[str, Any]) -> bool:
 
 def mark_advisor(payload: dict[str, Any], *, completed: bool) -> dict[str, Any]:
     with locked_state(payload) as state:
-        count = int(state.get("consultation_count", 0) or 0)
+        ensure_state_shape(state, payload)
+        phase = phase_from_payload(payload, state)
+        state["phase"] = phase
+        fingerprint = str(state.get("decision_fingerprint", ""))
         if completed:
             state["advisor_completed"] = True
+            state["prior_verdict_fingerprint"] = fingerprint
+            state["prior_verdict_phase"] = phase
+            reference = advisor_reference(payload)
+            if reference:
+                state["prior_verdict_ref"] = reference
+            state["advisor_reused"] = False
         else:
             state["advisor_started"] = True
-            if count < MAX_CONSULTATIONS:
-                state["consultation_count"] = count + 1
+            consulted_phases = state["consulted_phases"]
+            consulted_fingerprints = state["consulted_fingerprints"]
+            if fingerprint in consulted_fingerprints or phase in consulted_phases:
+                state["advisor_reused"] = True
+                state["last_consultation_phase"] = phase
+                return dict(state)
+            count = state["consultation_count"]
+            if count >= state["consultation_budget"]:
+                state["advisor_budget_exhausted"] = True
+                state["budget_remaining"] = 0
+                return dict(state)
+            consulted_fingerprints.append(fingerprint)
+            state["consulted_fingerprints"] = consulted_fingerprints[-MAX_FAILURE_FINGERPRINTS:]
+            consulted_phases[phase] = fingerprint
+            state["consulted_phases"] = consulted_phases
+            state["consultation_count"] = count + 1
+            state["budget_remaining"] = max(0, state["consultation_budget"] - state["consultation_count"])
+            state["advisor_completed"] = False
+            state["advisor_reused"] = False
+            state["advisor_budget_exhausted"] = False
+            state["last_consultation_phase"] = phase
         return dict(state)
 
 
 def needs_stop_review(state: dict[str, Any]) -> bool:
-    return bool(
-        state.get("final_review_eligible")
-        and not state.get("advisor_completed")
-    )
+    if not state.get("final_review_eligible"):
+        return False
+    fingerprint = str(state.get("decision_fingerprint", ""))
+    try:
+        version = int(state.get("version", 1) or 1)
+    except (TypeError, ValueError):
+        version = 1
+    if version >= STATE_VERSION and fingerprint:
+        consulted_phases = state.get("consulted_phases", {})
+        if isinstance(consulted_phases, dict) and consulted_phases.get("final") == fingerprint:
+            return False
+        if state.get("prior_verdict_fingerprint") == fingerprint:
+            return False
+        try:
+            budget_remaining = int(state.get("budget_remaining", MAX_CONSULTATIONS) or 0)
+        except (TypeError, ValueError):
+            budget_remaining = 0
+        return budget_remaining > 0
+    return not state.get("advisor_completed")
 
 
 def mark_stop_guard(payload: dict[str, Any]) -> None:
     with locked_state(payload) as state:
+        ensure_state_shape(state, payload)
+        state["phase"] = "final"
         state["stop_guard_issued"] = True
         state["stop_block_count"] = int(state.get("stop_block_count", 0) or 0) + 1
 
@@ -353,11 +569,18 @@ def executor_context(state: dict[str, Any]) -> str:
     if not state.get("consultation_eligible"):
         return ""
     reasons = ", ".join(str(value) for value in state.get("impact_reasons", [])[:3]) or "explicit request"
+    reuse = (
+        " An equivalent prior verdict exists; reuse it unless the evidence changed."
+        if state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
+        else ""
+    )
     return (
         "Sol advisor eligibility: yes. Before a material commitment, invoke native `spawn_agent` with "
         "task_name=`sol_advisor`, model=`gpt-5.6-sol`, and fork_turns=`none`; omit agent_type. "
         "Put the compact decision brief in the invocation rather than inheriting the conversation. "
-        f"Basis: complexity={state.get('complexity', 1)}/10; signals={reasons}. "
+        f"Basis: phase={state.get('phase', 'plan')}; complexity={state.get('complexity', 1)}/10; "
+        f"signals={reasons}; budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}."
+        f"{reuse} "
         "Give it a compact decision brief; retain final ownership and verify its advice locally."
     )
 
@@ -367,5 +590,6 @@ def advisor_context(state: dict[str, Any]) -> str:
     return (
         "Advisor contract: read only. Return no more than 300 words with Verdict, Why, Risks, "
         "smallest next verification, and what would change your mind. Do not take actions or address the user. "
-        f"Escalation signals: {reasons}."
+        f"Escalation signals: {reasons}; phase={state.get('phase', 'plan')}; "
+        f"budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}."
     )

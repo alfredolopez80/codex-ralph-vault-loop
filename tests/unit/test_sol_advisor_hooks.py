@@ -51,6 +51,20 @@ def test_material_decision_is_eligible_without_a_complexity_threshold(tmp_path: 
     assert "Review an authorization migration decision." not in persisted
 
 
+def test_routine_task_stays_local_and_does_not_consult_sol(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Explain the repository status in one paragraph.")
+
+    state = initialize(event)
+
+    assert state is not None
+    assert state["consultation_eligible"] is False
+    assert state["final_review_eligible"] is False
+    assert state["consultation_count"] == 0
+    assert executor_context(state) == ""
+    assert needs_stop_review(state) is False
+
+
 def test_two_distinct_failures_make_an_existing_material_task_stuck_eligible(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, prompt="Decide the rollout architecture.")
@@ -121,6 +135,22 @@ def test_low_impact_followup_preserves_completed_review(tmp_path: Path, monkeypa
     assert needs_stop_review(continued) is False
 
 
+def test_material_followup_keeps_budget_and_invalidates_changed_verdict(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+    mark_advisor({**event, "phase": "plan"}, completed=False)
+    mark_advisor({**event, "phase": "plan", "agent_id": "advisor-1"}, completed=True)
+
+    continued = initialize({**event, "prompt": "Choose an authorization migration architecture for rollout."})
+
+    assert continued is not None
+    assert continued["consultation_count"] == 1
+    assert continued["budget_remaining"] == 1
+    assert continued["advisor_completed"] is False
+    assert continued["prior_verdict_fingerprint"] != continued["decision_fingerprint"]
+
+
 def test_explicit_new_task_starts_fresh_advisor_state(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
@@ -156,6 +186,96 @@ def test_tool_result_normalization_preserves_unknown_and_success_states() -> Non
     assert success_from_payload({}) is None
 
 
+def test_state_record_tracks_task_phase_fingerprint_and_budget(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+
+    state = initialize(event)
+
+    assert state is not None
+    assert state["version"] == 2
+    assert state["task_id"]
+    assert state["phase"] == "plan"
+    assert state["decision_fingerprint"]
+    assert state["consultation_budget"] == 2
+    assert state["budget_remaining"] == 2
+    assert state["prior_verdict_ref"] == ""
+
+
+def test_equivalent_advisor_start_reuses_prior_verdict_and_budget(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+
+    first = mark_advisor({**event, "phase": "plan"}, completed=False)
+    mark_advisor(
+        {**event, "phase": "plan", "agent_id": "advisor-1", "success": True},
+        completed=True,
+    )
+    reused = mark_advisor({**event, "phase": "plan"}, completed=False)
+
+    assert first["consultation_count"] == 1
+    assert reused["consultation_count"] == 1
+    assert reused["budget_remaining"] == 1
+    assert reused["advisor_reused"] is True
+    assert reused["prior_verdict_fingerprint"] == reused["decision_fingerprint"]
+    assert reused["prior_verdict_ref"]
+
+
+def test_new_failure_evidence_allows_one_stuck_phase_consultation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Decide the rollout architecture.")
+    initialize(event)
+    mark_advisor({**event, "phase": "plan"}, completed=False)
+    mark_advisor({**event, "phase": "plan"}, completed=True)
+
+    observe_failure({**event, "success": False, "command": "first hypothesis"})
+    observe_failure({**event, "success": False, "command": "second hypothesis"})
+    stuck = mark_advisor({**event, "phase": "stuck"}, completed=False)
+
+    assert stuck["phase"] == "stuck"
+    assert stuck["consultation_count"] == 2
+    assert stuck["budget_remaining"] == 0
+    assert stuck["consulted_phases"]["plan"]
+    assert stuck["consulted_phases"]["stuck"] == stuck["decision_fingerprint"]
+
+
+def test_final_review_reuses_equivalent_prior_verdict(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose a database schema migration path.")
+    initialize(event)
+    mark_advisor({**event, "phase": "plan", "agent_id": "advisor-1"}, completed=False)
+    mark_advisor({**event, "phase": "plan", "agent_id": "advisor-1", "success": True}, completed=True)
+
+    state = read_state(event)
+
+    assert needs_stop_review(state) is False
+    assert state["prior_verdict_phase"] == "plan"
+
+
+def test_final_phase_consumes_remaining_budget_after_changed_evidence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose a database schema migration path.")
+    initialize(event)
+    mark_advisor({**event, "phase": "plan"}, completed=False)
+    mark_advisor({**event, "phase": "plan"}, completed=True)
+    observe_failure({**event, "success": False, "command": "first hypothesis"})
+    observe_failure({**event, "success": False, "command": "second hypothesis"})
+
+    state = read_state(event)
+    assert needs_stop_review(state) is True
+    mark_stop_guard(event)
+    started = mark_advisor({**event, "phase": "final"}, completed=False)
+    completed = mark_advisor(
+        {**event, "phase": "final", "agent_id": "advisor-final", "success": True},
+        completed=True,
+    )
+
+    assert started["consultation_count"] == 2
+    assert completed["prior_verdict_phase"] == "final"
+    assert needs_stop_review(completed) is False
+
+
 def test_name_or_model_identifies_the_native_sol_advisor() -> None:
     assert is_sol_advisor({"agent_type": "sol-advisor"}) is True
     assert is_sol_advisor({"agentType": "sol_advisor"}) is True
@@ -184,6 +304,16 @@ def test_executor_context_requires_a_minimized_no_history_advisor_fork() -> None
     assert "fork_turns=`none`" in context
     assert "model=`gpt-5.6-sol`" in context
     assert "compact decision brief" in context
+
+
+def test_sol_advisor_skill_contract_is_bounded_and_model_agnostic() -> None:
+    skill = (ROOT / ".agents" / "skills" / "sol-advisor" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "GPT-5.6 Terra or Luna" in skill
+    assert "at most one consultation per phase and two per task" in skill
+    assert "`plan`, `stuck`, or `final`" in skill
+    assert "fresh, no-history fork" in skill
+    assert "300 words" in (ROOT / ".codex" / "agents" / "sol-advisor.toml").read_text(encoding="utf-8")
 
 
 def test_high_impact_lifecycle_requires_completed_advice(tmp_path: Path, monkeypatch) -> None:

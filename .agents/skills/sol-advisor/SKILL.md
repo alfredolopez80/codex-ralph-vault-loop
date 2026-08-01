@@ -15,6 +15,14 @@ Use the native `sol-advisor` agent when the hook context marks the task eligible
 
 Do not use it for mechanical edits, routine status work, simple reproduction, or a verified low-risk path. Respect the task budget: at most one consultation per phase and two per task; reuse an equivalent prior verdict.
 
+The hook state is versioned and bounded. It records a task identity, current
+phase (`plan`, `stuck`, or `final`), decision fingerprint, eligibility
+signals, failure fingerprints, consultation budget/remaining budget, and a
+non-sensitive reference to the prior verdict. Equivalent fingerprints reuse
+the prior verdict; a second consultation in the same phase is not counted.
+New failure evidence changes the fingerprint and can qualify the `stuck`
+phase, while the completion guard can reuse an unchanged plan verdict.
+
 ## Brief
 
 Give Sol only:
@@ -34,3 +42,9 @@ is incompatible with the native typed-agent call.
 ## Use the answer
 
 Sol returns a compact verdict, not an instruction to execute. Verify the proposed next check locally, then state whether Codex accepted or rejected the advice and why.
+
+If advisory state is missing or corrupt, hooks fail open and the executor
+continues with the normal local route. If the bounded consultation budget is
+exhausted without an equivalent verdict, hooks do not loop or invoke Sol
+automatically; Codex remains responsible for deciding whether more advice is
+justified. Hooks never persist the brief or raw advisor output.
