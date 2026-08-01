@@ -57,6 +57,8 @@ The native guard enforces one Sol start per phase and applies the bounded brief
 limit across all supplied native brief aliases together.
 The phase limit is keyed from persisted lifecycle state, not from a caller
 supplied spawn field.
+Sensitivity is monotonic across intake envelopes, and a two-failure `stuck`
+transition refreshes routing before another consultation can be started.
 
 The exceptional `sol-active-analysis` route is separate from the advisor route.
 It is never automatic and may be selected only at effective complexity 9-10

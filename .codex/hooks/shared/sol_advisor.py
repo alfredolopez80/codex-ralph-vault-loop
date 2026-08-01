@@ -164,8 +164,19 @@ def _infer_intent(prompt: str, payload: dict[str, Any]) -> str:
 
 
 def _sensitivity(prompt: str, payload: dict[str, Any]) -> str:
-    explicit = _bounded_text(_payload_value(payload, "sensitivity", "classification"), limit=16).upper()
-    if explicit in {"RED", "YELLOW", "GREEN"}:
+    values: list[str] = []
+    sources = [payload]
+    for key in ("task_intake", "taskIntake", "routing", "route"):
+        source = payload.get(key)
+        if isinstance(source, dict):
+            sources.append(source)
+    for source in sources:
+        for key in ("sensitivity", "classification"):
+            explicit = _bounded_text(source.get(key), limit=16).upper()
+            if explicit in SENSITIVITY_RANK:
+                values.append(explicit)
+    explicit = max(values, key=lambda value: SENSITIVITY_RANK[value]) if values else "GREEN"
+    if explicit in SENSITIVITY_RANK:
         return "RED" if explicit == "RED" or is_red(prompt) else explicit
     return "RED" if is_red(prompt) else "GREEN"
 
@@ -714,6 +725,7 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         if state.get("high_impact") and failure_count >= 2:
             state["stuck_eligible"] = True
             state["phase"] = "stuck"
+            _refresh_routing(state, payload, prompt_text(payload))
             routing = state.get("routing")
             state["consultation_eligible"] = bool(
                 isinstance(routing, dict)

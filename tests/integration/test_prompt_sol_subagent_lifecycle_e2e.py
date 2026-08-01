@@ -590,6 +590,21 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
     assert aggregate_block is not None
     assert "bounded context limit" in str(aggregate_block["reason"])
 
+    mirrored_brief = "m" * 4_500
+    mirrored_result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "message": mirrored_brief,
+            "tool_input": {**spawn_arguments, "message": mirrored_brief},
+        },
+        env,
+    )
+    assert blocking_payload(mirrored_result.stdout) is None
+
     generic_result = run_command(
         configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
         {

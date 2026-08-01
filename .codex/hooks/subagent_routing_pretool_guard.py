@@ -174,7 +174,7 @@ def main() -> int:
         if str(routing.get("sensitivity", "GREEN")).upper() == "RED":
             _block("RED-sensitive work remains local and cannot be delegated to a model subagent.")
             return 0
-        native_briefs = _native_brief_values(payload)
+        native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
         if sum(len(brief) for brief in native_briefs) > MAX_BRIEF_CHARS:
             _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
             return 0

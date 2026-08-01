@@ -219,6 +219,22 @@ def test_red_sensitivity_is_sticky_across_a_continuation(tmp_path: Path, monkeyp
     assert fresh["sensitivity"] == "GREEN"
 
 
+def test_nested_yellow_classification_cannot_be_downgraded_by_top_level_green(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    state = initialize(
+        payload(
+            tmp_path,
+            prompt="Review this bounded architecture decision.",
+            sensitivity="GREEN",
+            task_intake={"sensitivity": "YELLOW"},
+        )
+    )
+
+    assert state is not None
+    assert state["sensitivity"] == "YELLOW"
+    assert state["routing"]["sensitivity"] == "YELLOW"
+
+
 def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
@@ -349,6 +365,26 @@ def test_new_failure_evidence_allows_one_stuck_phase_consultation(tmp_path: Path
     assert stuck["budget_remaining"] == 0
     assert stuck["consulted_phases"]["plan"]
     assert stuck["consulted_phases"]["stuck"] == stuck["decision_fingerprint"]
+
+
+def test_stuck_transition_refreshes_routing_from_current_failure_payload(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, complexity=4, prompt="Decide the rollout architecture.")
+    initialize(event)
+
+    observe_failure({**event, "success": False, "command": "first hypothesis"})
+    refreshed = observe_failure(
+        {
+            **event,
+            "success": False,
+            "command": "second hypothesis",
+            "task_subagent_override": {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
+        }
+    )
+
+    assert refreshed["phase"] == "stuck"
+    assert refreshed["routing"]["subagent_route"] == "sol-advisor"
+    assert refreshed["routing"]["reason_code"] == "explicit-advisor-override"
 
 
 def test_final_review_reuses_equivalent_prior_verdict(tmp_path: Path, monkeypatch) -> None:
