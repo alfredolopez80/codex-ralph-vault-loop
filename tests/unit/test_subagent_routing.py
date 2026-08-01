@@ -253,6 +253,7 @@ def test_active_analysis_override_is_limited_to_gated_nine_and_ten() -> None:
 
     too_low = resolve(raw_complexity=8, **request)
     accepted = resolve(raw_complexity=9, **request)
+    blocked = resolve(raw_complexity=9, **{**request, "hard_gates_pass": False})
 
     assert too_low.subagent_route == "sol-advisor"
     assert too_low.override_rejection_reason == "active-analysis-gates-not-met"
@@ -262,6 +263,10 @@ def test_active_analysis_override_is_limited_to_gated_nine_and_ten() -> None:
     assert accepted.subagent_effort == "xhigh"
     assert dict(accepted.spawn_arguments)["task_name"] == "sol_advisor"
     assert "subagent_route" not in accepted.spawn_arguments
+    assert blocked.active_analysis_eligible is False
+    assert blocked.active_analysis_rejection_reason == "active-analysis-requires-hard-gates"
+    assert blocked.override_rejection_reason == "active-analysis-gates-not-met"
+    assert blocked.subagent_route == "sol-advisor"
 
 
 def test_budget_prevents_a_sol_spawn_but_retains_the_recommendation() -> None:

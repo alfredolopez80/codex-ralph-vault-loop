@@ -366,6 +366,8 @@ def _active_analysis_status(request: RoutingRequest, effective: int, sensitivity
         return False, "active-analysis-requires-bounded-scope"
     if not request.local_verification_available:
         return False, "active-analysis-requires-local-verification"
+    if not request.hard_gates_pass:
+        return False, "active-analysis-requires-hard-gates"
     if not request.budget.explicit_class:
         return False, "active-analysis-requires-explicit-budget"
     if request.budget.remaining <= 0:
