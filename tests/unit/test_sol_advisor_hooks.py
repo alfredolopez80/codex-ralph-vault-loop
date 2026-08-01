@@ -37,7 +37,7 @@ def payload(tmp_path: Path, **extra: object) -> dict[str, object]:
     }
 
 
-def test_material_decision_is_eligible_without_a_complexity_threshold(tmp_path: Path, monkeypatch) -> None:
+def test_material_low_complexity_task_stays_local_without_explicit_sol_request(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, prompt="Review an authorization migration decision.")
 
@@ -45,7 +45,10 @@ def test_material_decision_is_eligible_without_a_complexity_threshold(tmp_path: 
 
     assert state is not None
     assert state["complexity"] == 1
-    assert state["final_review_eligible"] is True
+    assert state["routing"]["effective_complexity"] == 4
+    assert state["routing"]["subagent_route"] == "none"
+    assert state["final_review_eligible"] is False
+    assert state["consultation_eligible"] is False
     persisted = state_path(event).read_text(encoding="utf-8")
     assert "authorization" in persisted
     assert "Review an authorization migration decision." not in persisted
@@ -80,7 +83,7 @@ def test_two_distinct_failures_make_an_existing_material_task_stuck_eligible(tmp
 
 def test_stop_guard_is_one_time_and_skips_completed_advice(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    event = payload(tmp_path, prompt="Choose a database schema migration path.")
+    event = payload(tmp_path, complexity=8, prompt="Choose a database schema migration path.")
     initialize(event)
     state = read_state(event)
     assert needs_stop_review(state) is True
@@ -110,7 +113,7 @@ def test_continuation_keeps_existing_consultation_budget(tmp_path: Path, monkeyp
 
 def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
     initialize(event)
 
     continued = initialize({**event, "prompt": "status update"})
@@ -123,7 +126,7 @@ def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatc
 
 def test_low_impact_followup_preserves_completed_review(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
     initialize(event)
     mark_advisor(event, completed=True)
 
@@ -137,7 +140,7 @@ def test_low_impact_followup_preserves_completed_review(tmp_path: Path, monkeypa
 
 def test_material_followup_keeps_budget_and_invalidates_changed_verdict(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
     initialize(event)
     mark_advisor({**event, "phase": "plan"}, completed=False)
     mark_advisor({**event, "phase": "plan", "agent_id": "advisor-1"}, completed=True)
@@ -242,7 +245,7 @@ def test_new_failure_evidence_allows_one_stuck_phase_consultation(tmp_path: Path
 
 def test_final_review_reuses_equivalent_prior_verdict(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    event = payload(tmp_path, prompt="Choose a database schema migration path.")
+    event = payload(tmp_path, complexity=8, prompt="Choose a database schema migration path.")
     initialize(event)
     mark_advisor({**event, "phase": "plan", "agent_id": "advisor-1"}, completed=False)
     mark_advisor({**event, "phase": "plan", "agent_id": "advisor-1", "success": True}, completed=True)
@@ -255,7 +258,7 @@ def test_final_review_reuses_equivalent_prior_verdict(tmp_path: Path, monkeypatc
 
 def test_final_phase_consumes_remaining_budget_after_changed_evidence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    event = payload(tmp_path, prompt="Choose a database schema migration path.")
+    event = payload(tmp_path, complexity=8, prompt="Choose a database schema migration path.")
     initialize(event)
     mark_advisor({**event, "phase": "plan"}, completed=False)
     mark_advisor({**event, "phase": "plan"}, completed=True)
@@ -298,7 +301,26 @@ def test_advisor_completion_requires_success_and_an_execution_identity() -> None
 
 
 def test_executor_context_requires_a_minimized_no_history_advisor_fork() -> None:
-    context = executor_context({"consultation_eligible": True, "complexity": 4, "impact_reasons": ["migration"]})
+    context = executor_context(
+        {
+            "consultation_eligible": True,
+            "complexity": 8,
+            "impact_reasons": ["migration"],
+            "routing": {
+                "subagent_route": "sol-advisor",
+                "effective_complexity": 8,
+                "configured_executor_model": "gpt-5.6-luna",
+                "configured_executor_effort": "max",
+                "spawn_arguments": {
+                    "agent_type": "sol-advisor",
+                    "task_name": "sol_advisor",
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "high",
+                    "fork_turns": "none",
+                },
+            },
+        }
+    )
 
     assert "spawn_agent" in context
     assert "fork_turns=`none`" in context
@@ -316,10 +338,10 @@ def test_sol_advisor_skill_contract_is_bounded_and_model_agnostic() -> None:
     assert "300 words" in (ROOT / ".codex" / "agents" / "sol-advisor.toml").read_text(encoding="utf-8")
 
 
-def test_high_impact_lifecycle_requires_completed_advice(tmp_path: Path, monkeypatch) -> None:
+def test_high_impact_lifecycle_enforces_fresh_fork_and_releases_completion(tmp_path: Path, monkeypatch) -> None:
     state_root = tmp_path / "state"
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(state_root))
-    event = payload(tmp_path, prompt="Choose an authorization architecture for a public rollout.")
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for a public rollout.")
     initialize(event)
 
     def run_hook(name: str, hook_payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
@@ -349,7 +371,8 @@ def test_high_impact_lifecycle_requires_completed_advice(tmp_path: Path, monkeyp
 
     waiting = run_hook("sol_advisor_stop_guard.py", event)
     assert waiting.returncode == 0
-    assert json.loads(waiting.stdout)["decision"] == "block"
+    assert waiting.stdout == ""
+    assert read_state(event)["stop_guard_issued"] is True
 
     completed = run_hook(
         "sol_advisor_subagent_stop.py",

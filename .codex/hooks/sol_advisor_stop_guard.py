@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from shared.paths import read_hook_input, write_json
+from shared.paths import read_hook_input
 from shared.sol_advisor import mark_stop_guard, needs_stop_review, read_state
 
 
@@ -13,13 +13,11 @@ def main() -> int:
         state = read_state(payload)
         if not needs_stop_review(state):
             return 0
+        # Stop is report-only for this policy.  Record the bounded
+        # recommendation so Codex main can decide whether to spawn the
+        # eligible advisor, but never block ordinary completion or create a
+        # retry loop from a hook.
         mark_stop_guard(payload)
-        write_json(
-            {
-                "decision": "block",
-                "reason": "High-impact task requires a completed native sol-advisor consultation before completion.",
-            }
-        )
     except Exception:
         pass
     return 0

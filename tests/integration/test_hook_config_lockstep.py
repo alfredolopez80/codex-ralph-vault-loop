@@ -28,6 +28,7 @@ def hook_role(event: str, command: str) -> str:
         "user_prompt_improve.py": "user_prompt_improve",
         "continuity_prompt_context.py": "continuity_prompt_context",
         "pre_tool_guard.py": "pre_tool_guard",
+        "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
         "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
         "shaping_ripple.py": "shaping_ripple",
         "post_tool_extract_memory.py": "post_tool_extract_memory",

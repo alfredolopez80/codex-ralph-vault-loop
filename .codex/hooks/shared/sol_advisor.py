@@ -7,11 +7,23 @@ import json
 import os
 import re
 import tempfile
+import tomllib
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Iterator
 
 from .redaction import is_red
+from .subagent_routing import (
+    LUNA_DEFAULT_EFFORT,
+    LUNA_MODEL,
+    SOL_MODEL as ROUTING_SOL_MODEL,
+    ExecutorDefaults,
+    RoutingBudget,
+    RoutingCapabilities,
+    RoutingRequest,
+    SubagentOverride,
+    resolve_subagent_routing,
+)
 from .tool_result import success_from_payload
 
 STATE_FILE = "sol-advisor.json"
@@ -31,7 +43,7 @@ TASK_BOUNDARY_RE = re.compile(
     r"start(?:ing)?\s+(?:a\s+)?new|reinicia(?:r)?|empezar\s+de\s+nuevo)\b",
     re.IGNORECASE,
 )
-SOL_MODEL = "gpt-5.6-sol"
+SOL_MODEL = ROUTING_SOL_MODEL
 
 
 def state_path(payload: dict[str, Any]) -> Path:
@@ -110,6 +122,187 @@ def classification_complexity(payload: dict[str, Any]) -> int:
             return 1
 
 
+def _bounded_text(value: object, *, limit: int = 80) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:limit]
+
+
+def _payload_value(payload: dict[str, Any], *keys: str) -> object:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return value
+    for container_key in ("task_intake", "taskIntake", "routing", "route"):
+        container = payload.get(container_key)
+        if isinstance(container, dict):
+            for key in keys:
+                value = container.get(key)
+                if value is not None:
+                    return value
+    return None
+
+
+def _infer_intent(prompt: str, payload: dict[str, Any]) -> str:
+    explicit = _bounded_text(_payload_value(payload, "intent", "task_type", "taskType"), limit=48)
+    if explicit:
+        return explicit.lower().replace("_", "-")
+    lowered = prompt.lower()
+    if re.search(r"\b(security|vulnerability|compliance|threat model|secreto|credencial)\b", lowered):
+        return "security"
+    if re.search(r"\b(migration|migrate|migración|migracion|rollout|deploy|despliegue)\b", lowered):
+        return "migration"
+    if re.search(r"\b(debug|debugging|diagnos|failure|failing|broken|error|fallo|avería|averia)\b", lowered):
+        return "debugging"
+    if re.search(r"\b(architecture|architectural|arquitectura|design|diseño|diseno)\b", lowered):
+        return "architecture"
+    if re.search(r"\b(implement|implementation|fix|patch|build|create|modify|change|add|refactor|implementar|corregir|construir|crear|modificar|cambiar|agregar|refactorizar)\b", lowered):
+        return "implementation"
+    return "routine"
+
+
+def _sensitivity(prompt: str, payload: dict[str, Any]) -> str:
+    explicit = _bounded_text(_payload_value(payload, "sensitivity", "classification"), limit=16).upper()
+    if explicit in {"RED", "YELLOW", "GREEN"}:
+        return "RED" if explicit == "RED" or is_red(prompt) else explicit
+    return "RED" if is_red(prompt) else "GREEN"
+
+
+def _override(value: object) -> SubagentOverride | None:
+    if not isinstance(value, dict):
+        return None
+    model = _bounded_text(value.get("model"), limit=64) or None
+    effort = _bounded_text(value.get("reasoning_effort", value.get("effort")), limit=16) or None
+    route = _bounded_text(value.get("route"), limit=48) or None
+    expiry_value = value.get("expires_at", value.get("expiresAt"))
+    try:
+        expiry = int(expiry_value) if expiry_value is not None else None
+    except (TypeError, ValueError):
+        expiry = None
+    if not any((model, effort, route)) and expiry is None:
+        return None
+    return SubagentOverride(model=model, reasoning_effort=effort, route=route, expires_at=expiry)
+
+
+def _configured_executor_defaults(payload: dict[str, Any]) -> tuple[ExecutorDefaults, str]:
+    """Read the immutable executor default; hooks never write this file."""
+    cwd_value = payload.get("cwd")
+    cwd = Path(cwd_value) if isinstance(cwd_value, str) and cwd_value else Path.cwd()
+    candidates = [cwd / ".codex" / "config.toml"]
+    try:
+        candidates.append(Path(os.path.realpath(cwd)) / ".codex" / "config.toml")
+    except (OSError, TypeError):
+        pass
+    for candidate in candidates:
+        try:
+            config = tomllib.loads(candidate.read_text(encoding="utf-8"))
+            model = _bounded_text(config.get("model"), limit=64)
+            effort = _bounded_text(config.get("model_reasoning_effort"), limit=16)
+            if model and effort:
+                return ExecutorDefaults(model, effort), "repository"
+        except (OSError, tomllib.TOMLDecodeError, TypeError):
+            continue
+    return ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT), "fallback"
+
+
+def _routing_decision(
+    state: dict[str, Any], payload: dict[str, Any], prompt: str, *, explicit_request: bool
+) -> dict[str, Any]:
+    raw_complexity = max(1, min(10, int(state.get("complexity", 1) or 1)))
+    intent = _infer_intent(prompt, payload)
+    if intent == "routine" and str(state.get("intent", "routine")) != "routine":
+        # A short continuation such as "status update" must not erase the
+        # active task's previously classified lane.
+        intent = str(state.get("intent"))
+    sensitivity = _sensitivity(prompt, payload)
+    impact_class = "material" if state.get("high_impact") else "none"
+    task_override = _override(_payload_value(payload, "task_subagent_override", "taskSubagentOverride"))
+    session_override = _override(_payload_value(payload, "session_subagent_override", "sessionSubagentOverride"))
+    if explicit_request and task_override is None:
+        task_override = SubagentOverride(model=SOL_MODEL, route="sol-advisor")
+    existing_routing = state.get("routing")
+    if isinstance(existing_routing, dict):
+        try:
+            remaining = max(0, int(state.get("budget_remaining", 0) or 0))
+        except (TypeError, ValueError):
+            remaining = 0
+    else:
+        remaining = MAX_CONSULTATIONS
+    capabilities = RoutingCapabilities(
+        spawn_model_effort=bool(payload.get("spawn_model_effort_available", True)),
+        active_analysis=bool(payload.get("active_analysis_enabled", False)),
+    )
+    budget = RoutingBudget(
+        remaining=remaining,
+        explicit_class=_bounded_text(_payload_value(payload, "budget_class", "budgetClass"), limit=32) or None,
+    )
+    current_epoch_value = _payload_value(payload, "current_epoch", "currentEpoch")
+    try:
+        current_epoch = int(current_epoch_value or 0)
+    except (TypeError, ValueError):
+        current_epoch = 0
+    decision = resolve_subagent_routing(
+        RoutingRequest(
+            raw_complexity=raw_complexity,
+            intent=intent,
+            impact_class=impact_class,
+            sensitivity=sensitivity,
+            repository_default=_configured_executor_defaults(payload)[0],
+            task_override=task_override,
+            session_override=session_override,
+            current_epoch=current_epoch,
+            capabilities=capabilities,
+            budget=budget,
+            bounded_scope=bool(payload.get("bounded_scope", False)),
+            local_verification_available=bool(payload.get("local_verification_available", False)),
+            hard_gates_pass=bool(payload.get("hard_gates_pass", True)),
+        )
+    )
+    return {
+        "policy_version": decision.policy_version,
+        "raw_complexity": decision.raw_complexity,
+        "effective_complexity": decision.effective_complexity,
+        "intent": decision.intent,
+        "impact_class": decision.impact_class,
+        "sensitivity": decision.sensitivity,
+        "configured_executor_model": decision.configured_executor_model,
+        "configured_executor_effort": decision.configured_executor_effort,
+        "configured_executor_source": decision.configured_executor_source,
+        "subagent_route": decision.subagent_route,
+        "subagent_model": decision.subagent_model,
+        "subagent_mode": decision.subagent_mode,
+        "subagent_effort": decision.subagent_effort,
+        "spawn_required": decision.spawn_required,
+        "spawn_arguments": dict(decision.spawn_arguments),
+        "active_analysis_eligible": decision.active_analysis_eligible,
+        "active_analysis_rejection_reason": decision.active_analysis_rejection_reason,
+        "override_scope": decision.override_scope,
+        "override_requested": dict(decision.override_requested),
+        "override_effective": dict(decision.override_effective),
+        "override_rejection_reason": decision.override_rejection_reason,
+        "override_expiry": decision.override_expiry,
+        "budget_remaining": decision.budget_remaining,
+        "decision_fingerprint": decision.decision_fingerprint,
+        "reason_code": decision.reason_code,
+    }
+
+
+def _refresh_routing(state: dict[str, Any], payload: dict[str, Any], prompt: str) -> dict[str, Any]:
+    routing = _routing_decision(
+        state,
+        payload,
+        prompt,
+        explicit_request=bool(state.get("explicit_request")),
+    )
+    state["routing"] = routing
+    eligible = routing.get("subagent_route") in {"sol-advisor", "sol-active-analysis"}
+    state["final_review_eligible"] = bool(eligible)
+    state["consultation_eligible"] = bool(eligible and routing.get("spawn_required"))
+    state["intent"] = routing.get("intent", "routine")
+    state["sensitivity"] = routing.get("sensitivity", "GREEN")
+    return routing
+
+
 def prompt_text(payload: dict[str, Any]) -> str:
     value = payload.get("prompt") or payload.get("user_prompt") or ""
     return value if isinstance(value, str) else ""
@@ -161,10 +354,16 @@ def phase_from_payload(payload: dict[str, Any], state: dict[str, Any] | None = N
 def decision_fingerprint(state: dict[str, Any]) -> str:
     material = {
         "task_id": state.get("task_id", ""),
+        "complexity": state.get("complexity", 1),
+        "intent": state.get("intent", "routine"),
+        "sensitivity": state.get("sensitivity", "GREEN"),
         "high_impact": bool(state.get("high_impact")),
         "explicit_request": bool(state.get("explicit_request")),
         "impact_reasons": sorted(str(value).lower() for value in state.get("impact_reasons", []) if value),
         "failure_fingerprints": list(state.get("failure_fingerprints", [])),
+        "routing_fingerprint": (state.get("routing") or {}).get("decision_fingerprint", "")
+        if isinstance(state.get("routing"), dict)
+        else "",
     }
     return _hash_material("decision", json.dumps(material, sort_keys=True, separators=(",", ":")))
 
@@ -255,6 +454,11 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
     state.setdefault("advisor_budget_exhausted", False)
     state.setdefault("last_consultation_phase", "")
     state["last_consultation_phase"] = normalize_phase(state.get("last_consultation_phase"))
+    state.setdefault("routing", {})
+    if not isinstance(state["routing"], dict):
+        state["routing"] = {}
+    state.setdefault("intent", "routine")
+    state.setdefault("sensitivity", "GREEN")
     state["budget_remaining"] = max(0, state["consultation_budget"] - state["consultation_count"])
     state["decision_fingerprint"] = decision_fingerprint(state)
     return state
@@ -340,11 +544,6 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     reasons = sorted({match.group(1).lower() for match in HIGH_IMPACT_RE.finditer(prompt)})[:4]
     high_impact = bool(reasons)
     explicit_request = bool(EXPLICIT_RE.search(prompt))
-    # Complexity is evidence for the executor, never a hard Sol threshold or
-    # a multiplier for the consultation budget. A material decision can occur
-    # in a short task, so the impact rubric remains independently eligible.
-    final_review_eligible = high_impact
-    consultation_eligible = explicit_request or final_review_eligible
     with locked_state(payload) as state:
         existing = dict(state)
         if existing and should_preserve_state(
@@ -363,6 +562,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                     explicit_request=explicit_request,
                 )
             )
+            _refresh_routing(state, payload, prompt)
             return dict(state)
         state.clear()
         state.update(
@@ -374,8 +574,8 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "high_impact": high_impact,
                 "impact_reasons": reasons,
                 "explicit_request": explicit_request,
-                "final_review_eligible": final_review_eligible,
-                "consultation_eligible": consultation_eligible,
+                "final_review_eligible": False,
+                "consultation_eligible": False,
                 "failure_fingerprints": [],
                 "failure_count": 0,
                 "decision_fingerprint": "",
@@ -393,8 +593,12 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "advisor_started": False,
                 "advisor_completed": False,
                 "stuck_eligible": False,
+                "routing": {},
+                "intent": "routine",
+                "sensitivity": "GREEN",
             }
         )
+        _refresh_routing(state, payload, prompt)
         state["decision_fingerprint"] = decision_fingerprint(state)
         return dict(state)
 
@@ -422,9 +626,14 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         if state.get("prior_verdict_fingerprint") != state["decision_fingerprint"]:
             state["advisor_completed"] = False
         if state.get("high_impact") and failure_count >= 2:
-            state["consultation_eligible"] = True
             state["stuck_eligible"] = True
             state["phase"] = "stuck"
+            routing = state.get("routing")
+            state["consultation_eligible"] = bool(
+                isinstance(routing, dict)
+                and routing.get("subagent_route") in {"sol-advisor", "sol-active-analysis"}
+                and routing.get("spawn_required")
+            )
         return dict(state)
 
 
@@ -566,7 +775,8 @@ def mark_stop_guard(payload: dict[str, Any]) -> None:
 
 
 def executor_context(state: dict[str, Any]) -> str:
-    if not state.get("consultation_eligible"):
+    routing = state.get("routing")
+    if not isinstance(routing, dict) or not state.get("consultation_eligible"):
         return ""
     reasons = ", ".join(str(value) for value in state.get("impact_reasons", [])[:3]) or "explicit request"
     reuse = (
@@ -574,11 +784,26 @@ def executor_context(state: dict[str, Any]) -> str:
         if state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
         else ""
     )
+    route = str(routing.get("subagent_route", ""))
+    arguments = routing.get("spawn_arguments")
+    if not isinstance(arguments, dict):
+        arguments = {}
+    if route == "terra-implementation":
+        return (
+            "Subagent route: Terra implementation is eligible. Codex main may invoke native `spawn_agent` "
+            "with task_name=`terra_implementation`, model=`gpt-5.6-terra`, "
+            "reasoning_effort=`high`, and fork_turns=`none`; keep the brief bounded and retain final ownership. "
+            f"Basis: effective={routing.get('effective_complexity', state.get('complexity', 1))}/10; "
+            f"intent={routing.get('intent', 'implementation')}; executor={routing.get('configured_executor_model', LUNA_MODEL)} "
+            f"({routing.get('configured_executor_effort', LUNA_DEFAULT_EFFORT)})."
+        )
     return (
         "Sol advisor eligibility: yes. Before a material commitment, invoke native `spawn_agent` with "
-        "task_name=`sol_advisor`, model=`gpt-5.6-sol`, and fork_turns=`none`; omit agent_type. "
-        "Put the compact decision brief in the invocation rather than inheriting the conversation. "
-        f"Basis: phase={state.get('phase', 'plan')}; complexity={state.get('complexity', 1)}/10; "
+        f"agent_type=`{arguments.get('agent_type', 'sol-advisor')}`, "
+        f"task_name=`{arguments.get('task_name', 'sol_advisor')}`, model=`{arguments.get('model', SOL_MODEL)}`, "
+        f"reasoning_effort=`{arguments.get('reasoning_effort', 'high')}`, and fork_turns=`none`; "
+        "put the compact decision brief in the invocation rather than inheriting the conversation. "
+        f"Basis: phase={state.get('phase', 'plan')}; effective={routing.get('effective_complexity', state.get('complexity', 1))}/10; "
         f"signals={reasons}; budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}."
         f"{reuse} "
         "Give it a compact decision brief; retain final ownership and verify its advice locally."

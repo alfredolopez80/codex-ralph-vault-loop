@@ -61,7 +61,11 @@ HOOK_ROLES: dict[str, tuple[tuple[str, int], ...]] = {
         ("user_prompt_improve", 10),
         ("continuity_prompt_context", 10),
     ),
-    "PreToolUse": (("pre_tool_guard", 10), ("sol_advisor_pretool_guard", 10)),
+    "PreToolUse": (
+        ("pre_tool_guard", 10),
+        ("subagent_routing_pretool_guard", 10),
+        ("sol_advisor_pretool_guard", 10),
+    ),
     "PostToolUse": (
         ("file_line_guard_post_tool", 10),
         ("shaping_ripple", 10),

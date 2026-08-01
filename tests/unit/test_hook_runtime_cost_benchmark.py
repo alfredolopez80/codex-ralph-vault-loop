@@ -54,9 +54,10 @@ def test_hook_runtime_cost_benchmark_emits_metrics_contract(tmp_path: Path) -> N
     }
     assert all(required_case_fields <= set(case) for case in report["cases"])
     assert report["duplicate_roles"] == []
-    # The Sol advisor adds six globally-dispatched hook roles: prompt state,
+    # The routing policy adds a seventh globally-dispatched Sol-related role:
+    # the bounded PreToolUse spawn guard alongside prompt state, the existing
     # pre-tool guard, post-tool observer, subagent start/stop, and stop guard.
-    assert len(report["suppressed_roles"]) == 24
+    assert len(report["suppressed_roles"]) == 25
     assert report["successful_post_tool_stdout_chars"] == 0
     assert report["successful_stop_stdout_chars"] == 0
     assert "METRIC hook_cost_score=" in result.stdout
