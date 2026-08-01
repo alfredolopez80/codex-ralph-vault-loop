@@ -37,6 +37,13 @@ def _block(reason: str) -> None:
 def main() -> int:
     try:
         payload = read_hook_input()
+        # This guard is only for the native subagent-spawn tool.  Other
+        # tools may legitimately carry fields named ``model``, ``route``, or
+        # ``task_name`` and must not be classified as a spawn attempt.
+        tool_name = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
+        normalized_tool = tool_name.strip().lower().replace("-", "_")
+        if normalized_tool not in {"spawn_agent", "spawnagent"}:
+            return 0
         model = str(_value(payload, "model", "model_name", "modelName") or "").strip().lower()
         task_name = str(_value(payload, "task_name", "taskName") or "").strip().lower().replace("-", "_")
         route_requested = str(_value(payload, "subagent_route", "subagentRoute", "route") or "").strip().lower()

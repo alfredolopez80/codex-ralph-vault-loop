@@ -338,6 +338,10 @@ def _spawn_arguments(route: str, model: str | None, effort: str | None) -> dict[
         "model": model,
         "reasoning_effort": effort,
         "task_name": "terra_implementation" if is_terra else "sol_advisor",
+        # Keep the policy route in the native spawn payload.  The task name
+        # is intentionally shared by advisor and active-analysis Sol lanes,
+        # so it cannot disambiguate those routes by itself.
+        "subagent_route": route,
     }
 
 

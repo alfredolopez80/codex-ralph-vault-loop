@@ -43,6 +43,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "model": "gpt-5.6-sol",
         "reasoning_effort": "high",
         "task_name": "sol_advisor",
+        "subagent_route": "sol-advisor",
     }
     assert_decision_fields(
         decision,
@@ -223,6 +224,30 @@ def test_configured_routing_hook_covers_every_complexity_level(tmp_path: Path) -
     assert_sources_unchanged(snapshot)
 
 
+def test_routing_guard_ignores_unrelated_tools_with_spawn_like_fields(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
+    result = run_command(
+        guard,
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "unrelated-tool-routing-fields",
+            "cwd": str(ROOT),
+            "tool_name": "exec_command",
+            "tool_input": {
+                "cmd": "echo route=sol-advisor",
+                "model": "gpt-5.6-sol",
+                "task_name": "sol_advisor",
+                "route": "sol-advisor",
+            },
+        },
+        env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     snapshot = immutable_source_snapshot()
@@ -257,6 +282,48 @@ def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: 
     rejected_state, rejected_decision = routing_state(env, session_id)
     assert rejected_decision == decision
     assert rejected_state["consultation_count"] == state["consultation_count"] == 0
+    assert_sources_unchanged(snapshot)
+
+
+def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    snapshot = immutable_source_snapshot()
+    session_id = "sol-active-accepted-9"
+    prompt_hook = configured_command("UserPromptSubmit", "sol_advisor_prompt_state.py")
+    payload = {
+        **prompt_payload(session_id, "Validate this bounded architecture decision."),
+        "complexity": 9,
+        "intent": "architecture",
+        "active_analysis_enabled": True,
+        "bounded_scope": True,
+        "local_verification_available": True,
+        "budget_class": "small",
+        "task_subagent_override": {"route": "sol-active-analysis", "reasoning_effort": "xhigh"},
+    }
+
+    results = run_configured_event("UserPromptSubmit", payload, env, commands=[prompt_hook])
+    assert all(result.stdout for result in results)
+    state, decision = routing_state(env, session_id)
+    assert decision["subagent_route"] == "sol-active-analysis"
+    assert decision["subagent_mode"] == "active-analysis"
+    assert decision["subagent_effort"] == "xhigh"
+    spawn_arguments = dict(decision["spawn_arguments"])
+    assert spawn_arguments["subagent_route"] == "sol-active-analysis"
+
+    pretool_results = run_configured_event(
+        "PreToolUse",
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {**spawn_arguments, "message": "Return a bounded active-analysis verdict."},
+        },
+        env,
+        commands=[configured_command("PreToolUse", "subagent_routing_pretool_guard.py")],
+    )
+    assert all(blocking_payload(result.stdout) is None for result in pretool_results)
+    assert state["routing"]["subagent_route"] == "sol-active-analysis"
     assert_sources_unchanged(snapshot)
 
 

@@ -68,6 +68,23 @@ def test_routine_task_stays_local_and_does_not_consult_sol(tmp_path: Path, monke
     assert needs_stop_review(state) is False
 
 
+def test_neutral_workspace_records_luna_fallback_as_global_executor_source(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = {
+        "cwd": str(tmp_path / "workspace-without-config"),
+        "session_id": "fallback-source",
+        "complexity": 1,
+        "prompt": "Explain the repository status in one paragraph.",
+    }
+
+    state = initialize(event)
+
+    assert state is not None
+    assert state["routing"]["configured_executor_model"] == "gpt-5.6-luna"
+    assert state["routing"]["configured_executor_effort"] == "max"
+    assert state["routing"]["configured_executor_source"] == "fallback"
+
+
 def test_two_distinct_failures_make_an_existing_material_task_stuck_eligible(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, prompt="Decide the rollout architecture.")
@@ -317,6 +334,7 @@ def test_executor_context_requires_a_minimized_no_history_advisor_fork() -> None
                     "model": "gpt-5.6-sol",
                     "reasoning_effort": "high",
                     "fork_turns": "none",
+                    "subagent_route": "sol-advisor",
                 },
             },
         }

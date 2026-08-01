@@ -200,7 +200,11 @@ def _configured_executor_defaults(payload: dict[str, Any]) -> tuple[ExecutorDefa
             effort = _bounded_text(config.get("model_reasoning_effort"), limit=16)
             if model and effort:
                 return ExecutorDefaults(model, effort), "repository"
-        except (OSError, tomllib.TOMLDecodeError, TypeError):
+        # ``tomllib`` is provided by the runtime on newer Python versions and
+        # by this repository's compatibility parser on older ones.  Both
+        # surface malformed input as a ValueError-family failure, but the
+        # compatibility parser does not expose TOMLDecodeError by name.
+        except (OSError, ValueError, TypeError):
             continue
     return ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT), "fallback"
 
@@ -241,13 +245,23 @@ def _routing_decision(
         current_epoch = int(current_epoch_value or 0)
     except (TypeError, ValueError):
         current_epoch = 0
+    executor_defaults, executor_source = _configured_executor_defaults(payload)
     decision = resolve_subagent_routing(
         RoutingRequest(
             raw_complexity=raw_complexity,
             intent=intent,
             impact_class=impact_class,
             sensitivity=sensitivity,
-            repository_default=_configured_executor_defaults(payload)[0],
+            # A repository config is authoritative when present.  In a
+            # neutral workspace the Luna/max fallback belongs to the global
+            # default lane; preserving that distinction keeps the routing
+            # metadata truthful for callers and diagnostics.
+            repository_default=executor_defaults if executor_source == "repository" else None,
+            global_default=(
+                executor_defaults
+                if executor_source != "repository"
+                else ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT)
+            ),
             task_override=task_override,
             session_override=session_override,
             current_epoch=current_epoch,
@@ -258,7 +272,7 @@ def _routing_decision(
             hard_gates_pass=bool(payload.get("hard_gates_pass", True)),
         )
     )
-    return {
+    serialized = {
         "policy_version": decision.policy_version,
         "raw_complexity": decision.raw_complexity,
         "effective_complexity": decision.effective_complexity,
@@ -285,6 +299,11 @@ def _routing_decision(
         "decision_fingerprint": decision.decision_fingerprint,
         "reason_code": decision.reason_code,
     }
+    # The resolver has only repository/global lanes; retain the loader's
+    # explicit fallback label so the hook can distinguish a real repo config
+    # from the safe Luna/max default used when no config is available.
+    serialized["configured_executor_source"] = executor_source
+    return serialized
 
 
 def _refresh_routing(state: dict[str, Any], payload: dict[str, Any], prompt: str) -> dict[str, Any]:
