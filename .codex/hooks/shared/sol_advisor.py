@@ -140,6 +140,50 @@ def _payload_value(payload: dict[str, Any], *keys: str) -> object:
     return None
 
 
+def _coerce_bool(value: object, *, default: bool) -> bool:
+    """Decode structured boolean evidence without treating ``"false"`` as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1"}:
+            return True
+        if normalized in {"false", "no", "0"}:
+            return False
+    return default
+
+
+ROUTING_EVIDENCE: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    ("spawn_model_effort_available", ("spawn_model_effort_available", "spawnModelEffortAvailable"), True),
+    ("active_analysis_enabled", ("active_analysis_enabled", "activeAnalysisEnabled"), False),
+    ("bounded_scope", ("bounded_scope", "boundedScope"), False),
+    ("local_verification_available", ("local_verification_available", "localVerificationAvailable"), False),
+    ("hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), True),
+)
+
+
+def _capture_routing_evidence(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Persist only bounded gate evidence needed to make continuations deterministic."""
+    for state_key, payload_keys, default in ROUTING_EVIDENCE:
+        value = _payload_value(payload, *payload_keys)
+        if value is not None:
+            state[state_key] = _coerce_bool(value, default=default)
+    budget_value = _payload_value(payload, "budget_class", "budgetClass")
+    if budget_value is not None:
+        state["budget_class"] = _bounded_text(budget_value, limit=32) or None
+
+
+def _routing_bool(
+    state: dict[str, Any], payload: dict[str, Any], state_key: str, payload_keys: tuple[str, ...], default: bool
+) -> bool:
+    value = _payload_value(payload, *payload_keys)
+    if value is None:
+        value = state.get(state_key, default)
+    return _coerce_bool(value, default=default)
+
+
 def _infer_intent(prompt: str, payload: dict[str, Any]) -> str:
     explicit = _bounded_text(_payload_value(payload, "intent", "task_type", "taskType"), limit=48)
     if explicit:
@@ -300,12 +344,27 @@ def _routing_decision(
     else:
         remaining = MAX_CONSULTATIONS
     capabilities = RoutingCapabilities(
-        spawn_model_effort=bool(payload.get("spawn_model_effort_available", True)),
-        active_analysis=bool(payload.get("active_analysis_enabled", False)),
+        spawn_model_effort=_routing_bool(
+            state,
+            payload,
+            "spawn_model_effort_available",
+            ("spawn_model_effort_available", "spawnModelEffortAvailable"),
+            True,
+        ),
+        active_analysis=_routing_bool(
+            state,
+            payload,
+            "active_analysis_enabled",
+            ("active_analysis_enabled", "activeAnalysisEnabled"),
+            False,
+        ),
     )
+    budget_class_value = _payload_value(payload, "budget_class", "budgetClass")
+    if budget_class_value is None:
+        budget_class_value = state.get("budget_class")
     budget = RoutingBudget(
         remaining=remaining,
-        explicit_class=_bounded_text(_payload_value(payload, "budget_class", "budgetClass"), limit=32) or None,
+        explicit_class=_bounded_text(budget_class_value, limit=32) or None,
     )
     current_epoch_value = _payload_value(payload, "current_epoch", "currentEpoch")
     try:
@@ -334,9 +393,19 @@ def _routing_decision(
             current_epoch=current_epoch,
             capabilities=capabilities,
             budget=budget,
-            bounded_scope=bool(payload.get("bounded_scope", False)),
-            local_verification_available=bool(payload.get("local_verification_available", False)),
-            hard_gates_pass=bool(payload.get("hard_gates_pass", True)),
+            bounded_scope=_routing_bool(
+                state, payload, "bounded_scope", ("bounded_scope", "boundedScope"), False
+            ),
+            local_verification_available=_routing_bool(
+                state,
+                payload,
+                "local_verification_available",
+                ("local_verification_available", "localVerificationAvailable"),
+                False,
+            ),
+            hard_gates_pass=_routing_bool(
+                state, payload, "hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), True
+            ),
         )
     )
     serialized = {
@@ -546,6 +615,9 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
     state.setdefault("routing", {})
     if not isinstance(state["routing"], dict):
         state["routing"] = {}
+    for state_key, _payload_keys, default in ROUTING_EVIDENCE:
+        state[state_key] = _coerce_bool(state.get(state_key), default=default)
+    state["budget_class"] = _bounded_text(state.get("budget_class"), limit=32) or None
     for override_key in ("task_subagent_override", "session_subagent_override"):
         state[override_key] = _override_record(state.get(override_key))
     state.setdefault("intent", "routine")
@@ -640,6 +712,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 )
             )
             _capture_payload_overrides(state, payload)
+            _capture_routing_evidence(state, payload)
             _refresh_routing(state, payload, prompt)
             state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
@@ -666,6 +739,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 )
             )
             _capture_payload_overrides(state, payload)
+            _capture_routing_evidence(state, payload)
             _refresh_routing(state, payload, prompt)
             state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
@@ -709,10 +783,17 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "routing": {},
                 "intent": "routine",
                 "sensitivity": "GREEN",
+                "spawn_model_effort_available": True,
+                "active_analysis_enabled": False,
+                "bounded_scope": False,
+                "local_verification_available": False,
+                "hard_gates_pass": True,
+                "budget_class": None,
                 "task_subagent_override": task_override,
                 "session_subagent_override": session_override,
             }
         )
+        _capture_routing_evidence(state, payload)
         _refresh_routing(state, payload, prompt)
         state["decision_fingerprint"] = decision_fingerprint(state)
         return dict(state)
@@ -743,6 +824,7 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         if state.get("high_impact") and failure_count >= 2:
             state["stuck_eligible"] = True
             state["phase"] = "stuck"
+            _capture_routing_evidence(state, payload)
             _refresh_routing(state, payload, prompt_text(payload))
             routing = state.get("routing")
             state["consultation_eligible"] = bool(

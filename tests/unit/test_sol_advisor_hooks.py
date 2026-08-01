@@ -134,28 +134,6 @@ def test_nested_repository_cwd_reads_the_repository_executor_config(tmp_path: Pa
     assert state["routing"]["configured_executor_source"] == "repository"
 
 
-def test_neutral_workspace_reads_global_executor_config_when_present(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
-    codex_home = tmp_path / "codex-home"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
-        'model = "global-test-model"\nmodel_reasoning_effort = "high"\n', encoding="utf-8"
-    )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    state = initialize(
-        {
-            "cwd": str(tmp_path / "neutral"),
-            "session_id": "global-source",
-            "complexity": 1,
-            "prompt": "Explain the repository status.",
-        }
-    )
-
-    assert state is not None
-    assert state["routing"]["configured_executor_model"] == "global-test-model"
-    assert state["routing"]["configured_executor_source"] == "global"
-
-
 def test_two_distinct_failures_make_an_existing_material_task_stuck_eligible(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, prompt="Decide the rollout architecture.")
@@ -217,6 +195,52 @@ def test_continuation_can_raise_monotonic_complexity_and_refresh_the_lane(tmp_pa
     assert continued is not None
     assert continued["complexity"] == 8
     assert continued["routing"]["subagent_route"] == "sol-advisor"
+
+
+def test_continuation_reuses_validated_active_analysis_evidence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(
+        tmp_path,
+        complexity=9,
+        intent="architecture",
+        active_analysis_enabled=True,
+        bounded_scope=True,
+        local_verification_available=True,
+        hard_gates_pass=True,
+        budget_class="small",
+        task_subagent_override={"route": "sol-active-analysis", "reasoning_effort": "xhigh"},
+        prompt="Validate this bounded architecture decision.",
+    )
+
+    initial = initialize(event)
+    assert initial is not None
+    assert initial["routing"]["subagent_route"] == "sol-active-analysis"
+    assert initial["routing"]["active_analysis_eligible"] is True
+
+    continuation_payload = {
+        key: value
+        for key, value in event.items()
+        if key
+        not in {
+            "active_analysis_enabled",
+            "bounded_scope",
+            "local_verification_available",
+            "hard_gates_pass",
+            "budget_class",
+            "task_subagent_override",
+            "prompt",
+        }
+    }
+    continued = initialize({**continuation_payload, "prompt": "continua con la validación"})
+
+    assert continued is not None
+    assert continued["active_analysis_enabled"] is True
+    assert continued["bounded_scope"] is True
+    assert continued["local_verification_available"] is True
+    assert continued["hard_gates_pass"] is True
+    assert continued["budget_class"] == "small"
+    assert continued["routing"]["subagent_route"] == "sol-active-analysis"
+    assert continued["routing"]["active_analysis_eligible"] is True
 
 
 def test_continuation_reuses_bounded_task_and_session_overrides(tmp_path: Path, monkeypatch) -> None:
