@@ -61,12 +61,9 @@ def _native_brief_values(payload: dict[str, Any]) -> list[str]:
     return values
 
 
-def _phase(payload: dict[str, Any], state: dict[str, Any]) -> str:
-    value = str(
-        _value(payload, "phase", "task_phase", "taskPhase", "consultation_phase", "consultationPhase")
-        or state.get("phase")
-        or "plan"
-    ).strip().lower().replace("_", "-")
+def _phase(state: dict[str, Any]) -> str:
+    """Resolve the lifecycle phase from persisted state, never caller input."""
+    value = str(state.get("phase") or "plan").strip().lower().replace("_", "-")
     return {
         "initial": "plan",
         "planning": "plan",
@@ -193,7 +190,7 @@ def main() -> int:
             _block("Sol consultation budget is exhausted; do not create another advisor spawn.")
             return 0
         if expected_route in {"sol-advisor", "sol-active-analysis"}:
-            phase = _phase(payload, state)
+            phase = _phase(state)
             consulted_phases = state.get("consulted_phases")
             if isinstance(consulted_phases, dict) and consulted_phases.get(phase):
                 _block("A Sol consultation has already been started for this lifecycle phase.")

@@ -55,6 +55,8 @@ managed Sol spawn. The Stop hook records an idempotent, report-only final-review
 recommendation and does not make completion contingent on a fresh review.
 The native guard enforces one Sol start per phase and applies the bounded brief
 limit across all supplied native brief aliases together.
+The phase limit is keyed from persisted lifecycle state, not from a caller
+supplied spawn field.
 
 The exceptional `sol-active-analysis` route is separate from the advisor route.
 It is never automatic and may be selected only at effective complexity 9-10

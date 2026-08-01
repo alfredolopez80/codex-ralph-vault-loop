@@ -114,7 +114,11 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
             "session_id": session_id,
             "cwd": str(ROOT),
             "tool_name": "spawn_agent",
-            "tool_input": {**spawn_arguments, "message": "Do not start a second plan consultation."},
+            "tool_input": {
+                **spawn_arguments,
+                "phase": "retry-2",
+                "message": "Do not start a second plan consultation.",
+            },
         },
         env,
     )

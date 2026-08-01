@@ -101,6 +101,8 @@ managed Sol spawn.
 The guard also rejects a second Sol spawn in an already consulted lifecycle
 phase and applies the 8,000-character bound to the aggregate native brief,
 not just to one alias at a time.
+The phase check uses the persisted lifecycle phase rather than a caller-supplied
+spawn field, so a payload cannot evade the per-phase limit by renaming its phase.
 
 Every managed Terra/Sol spawn must include a non-empty native decision brief;
 the guard rejects an omitted brief or one over the bounded context limit. The
