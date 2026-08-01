@@ -43,7 +43,6 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "model": "gpt-5.6-sol",
         "reasoning_effort": "high",
         "task_name": "sol_advisor",
-        "subagent_route": "sol-advisor",
     }
     assert_decision_fields(
         decision,
@@ -308,7 +307,7 @@ def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -
     assert decision["subagent_mode"] == "active-analysis"
     assert decision["subagent_effort"] == "xhigh"
     spawn_arguments = dict(decision["spawn_arguments"])
-    assert spawn_arguments["subagent_route"] == "sol-active-analysis"
+    assert "subagent_route" not in spawn_arguments
 
     pretool_results = run_configured_event(
         "PreToolUse",

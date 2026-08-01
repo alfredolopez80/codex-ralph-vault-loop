@@ -108,7 +108,6 @@ def test_terra_route_exposes_only_real_spawn_arguments() -> None:
         "model": TERRA_MODEL,
         "reasoning_effort": "high",
         "task_name": "terra_implementation",
-        "subagent_route": "terra-implementation",
     }
     with pytest.raises(TypeError):
         decision.spawn_arguments["model"] = SOL_MODEL  # type: ignore[index]
@@ -216,7 +215,7 @@ def test_active_analysis_override_is_limited_to_gated_nine_and_ten() -> None:
     assert accepted.subagent_model == SOL_MODEL
     assert accepted.subagent_effort == "xhigh"
     assert dict(accepted.spawn_arguments)["task_name"] == "sol_advisor"
-    assert dict(accepted.spawn_arguments)["subagent_route"] == "sol-active-analysis"
+    assert "subagent_route" not in accepted.spawn_arguments
 
 
 def test_budget_prevents_a_sol_spawn_but_retains_the_recommendation() -> None:

@@ -334,7 +334,6 @@ def test_executor_context_requires_a_minimized_no_history_advisor_fork() -> None
                     "model": "gpt-5.6-sol",
                     "reasoning_effort": "high",
                     "fork_turns": "none",
-                    "subagent_route": "sol-advisor",
                 },
             },
         }

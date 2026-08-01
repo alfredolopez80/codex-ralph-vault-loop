@@ -78,7 +78,15 @@ def main() -> int:
         requested_route = route_requested
         if not requested_route:
             if task_name == "sol_advisor":
-                requested_route = "sol-advisor"
+                # The native spawn schema has one Sol task name for both
+                # advisor modes.  The persisted decision is the authoritative
+                # discriminator when the caller sends the native payload
+                # without a custom, unsupported route field.
+                requested_route = (
+                    expected_route
+                    if expected_route in {"sol-advisor", "sol-active-analysis"}
+                    else "sol-advisor"
+                )
             elif task_name == "sol_active_analysis":
                 requested_route = "sol-active-analysis"
             elif task_name == "terra_implementation":
