@@ -278,6 +278,7 @@ def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending
                 "session_id": managed_session,
                 "cwd": str(ROOT),
                 "tool_name": "spawn_agent",
+                "prompt": "benign parent context " * (600),
                 "tool_input": {
                     "agent_type": agent_type,
                     "task_name": "unclassified_lane",
@@ -514,6 +515,23 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
     assert block is not None
     assert "RED-sensitive subagent brief" in str(block["reason"])
 
+    missing_brief = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": spawn_arguments,
+        },
+        env,
+    )
+    missing_block = blocking_payload(missing_brief.stdout)
+    assert missing_block is not None
+    assert "decision brief" in str(missing_block["reason"])
+    missing_state, _missing_decision = routing_state(env, session_id)
+    assert missing_state["consultation_count"] == 0
+
     generic_result = run_command(
         configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
         {
@@ -533,3 +551,34 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
     generic_block = blocking_payload(generic_result.stdout)
     assert generic_block is not None
     assert "RED-sensitive subagent brief" in str(generic_block["reason"])
+
+    red_state_session = "sol-red-persisted-state"
+    run_configured_event(
+        "UserPromptSubmit",
+        {
+            **prompt_payload(red_state_session, "Review this task locally."),
+            "sensitivity": "RED",
+        },
+        env,
+        commands=[configured_command("UserPromptSubmit", "sol_advisor_prompt_state.py")],
+    )
+    persisted_red_result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": red_state_session,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "prompt": "Benign parent envelope.",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "reviewer",
+                "fork_turns": "all",
+                "message": "Review the bounded local task.",
+            },
+        },
+        env,
+    )
+    persisted_red_block = blocking_payload(persisted_red_result.stdout)
+    assert persisted_red_block is not None
+    assert "RED-sensitive task state" in str(persisted_red_block["reason"])

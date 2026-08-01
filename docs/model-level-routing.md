@@ -99,6 +99,11 @@ live consultation allowance changes; the pre-tool guard rechecks the current
 `consultation_budget`, `consultation_count`, and `budget_remaining` before each
 managed Sol spawn.
 
+Every managed Terra/Sol spawn must include a non-empty native decision brief;
+the guard rejects an omitted brief or one over the bounded context limit. The
+same pre-tool boundary blocks any native profile while the persisted task is
+RED, including a generic profile that would otherwise inherit full history.
+
 ## Local-first rollout and rollback
 
 1. Prove the exact model IDs, effort names, typed-agent precedence, spawn

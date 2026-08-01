@@ -87,6 +87,9 @@ requests the managed Terra/Sol model, task, route, or typed Sol profile; generic
 reviewer, tester, security, explorer, and custom profiles remain under their
 existing controls. Managed calls with missing or inconsistent state are blocked.
 Hooks never initiate a spawn or silently repair unsupported arguments.
+Managed calls also require a non-empty bounded native brief. Any native spawn
+is blocked while the persisted task sensitivity is RED, even when the caller
+uses a generic profile that could inherit conversation history.
 
 ## Use the answer
 

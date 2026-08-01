@@ -15,6 +15,7 @@ MANAGED_TASK_NAMES = {"terra_implementation", "sol_advisor", "sol_active_analysi
 MANAGED_AGENT_TYPES = {"sol-advisor"}
 NO_HISTORY_VALUES = {"none", "fresh", "no-history", "no_history"}
 BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
+NATIVE_BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
 MAX_BRIEF_CHARS = 8_000
 
 
@@ -41,6 +42,19 @@ def _brief_values(payload: dict[str, Any]) -> list[str]:
     values: list[str] = []
     for source in _sources(payload):
         for key in BRIEF_KEYS:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                values.append(value)
+    return values
+
+
+def _native_brief_values(payload: dict[str, Any]) -> list[str]:
+    """Return spawn-owned brief fields, excluding the parent prompt envelope."""
+    values: list[str] = []
+    for index, source in enumerate(_sources(payload)):
+        for key in NATIVE_BRIEF_KEYS:
+            if index == 0 and key == "prompt":
+                continue
             value = source.get(key)
             if isinstance(value, str) and value.strip():
                 values.append(value)
@@ -110,15 +124,21 @@ def main() -> int:
         # every source before the managed-lane early return; a benign
         # top-level field must not mask a sensitive nested tool brief.
         briefs = _brief_values(payload)
-        if any(len(brief) > MAX_BRIEF_CHARS for brief in briefs):
-            _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
-            return 0
         if any(is_red(brief) for brief in briefs):
             _block("RED-sensitive subagent brief remains local and cannot be delegated.")
             return 0
 
         state = read_state(payload)
         routing = state.get("routing")
+        persisted_sensitivity = str(state.get("sensitivity", "GREEN")).strip().upper()
+        if isinstance(routing, dict):
+            persisted_sensitivity = max(
+                (persisted_sensitivity, str(routing.get("sensitivity", "GREEN")).strip().upper()),
+                key=lambda value: {"GREEN": 0, "YELLOW": 1, "RED": 2}.get(value, 0),
+            )
+        if persisted_sensitivity == "RED":
+            _block("RED-sensitive task state remains local and cannot be delegated to a native subagent.")
+            return 0
         if not managed_spawn:
             # Existing reviewer, tester, security, explorer, and custom native
             # profiles remain under their existing controls. A pending managed
@@ -130,6 +150,13 @@ def main() -> int:
             return 0
         if str(routing.get("sensitivity", "GREEN")).upper() == "RED":
             _block("RED-sensitive work remains local and cannot be delegated to a model subagent.")
+            return 0
+        native_briefs = _native_brief_values(payload)
+        if any(len(brief) > MAX_BRIEF_CHARS for brief in native_briefs):
+            _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
+            return 0
+        if not native_briefs:
+            _block("Managed subagent spawn requires a non-empty bounded decision brief.")
             return 0
 
         expected_route = str(routing.get("subagent_route", "none"))
