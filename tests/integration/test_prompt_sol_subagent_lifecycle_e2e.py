@@ -350,6 +350,25 @@ def test_routing_guard_blocks_conflicting_spawn_envelope_fields(tmp_path: Path) 
     assert block is not None
     assert "validation failed" in str(block["reason"])
 
+    alias_conflict = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                **spawn,
+                "modelName": "gpt-5.6-terra",
+                "message": "Return a bounded verdict.",
+            },
+        },
+        env,
+    )
+    alias_block = blocking_payload(alias_conflict.stdout)
+    assert alias_block is not None
+    assert "validation failed" in str(alias_block["reason"])
+
 
 def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)

@@ -29,28 +29,29 @@ def _sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _value(payload: dict[str, Any], *keys: str) -> object:
-    nested_sources = [
-        payload[key]
-        for key in ("tool_input", "toolInput", "input")
-        if isinstance(payload.get(key), dict)
-    ]
-    for key in keys:
-        nested_values = [source[key] for source in nested_sources if key in source and source[key] is not None]
-        envelope_values = [payload[key]] if key in payload and payload[key] is not None else []
-        if nested_values:
-            selected = nested_values[0]
-            normalized = {str(value).strip().lower() for value in [*nested_values, *envelope_values]}
-            if len(normalized) > 1:
-                raise ValueError(f"conflicting native spawn field: {key}")
-            return selected
-        if envelope_values:
-            return envelope_values[0]
+    candidates: list[tuple[str, object]] = []
+    seen_sources: set[int] = set()
     for source in _sources(payload):
+        if id(source) in seen_sources:
+            continue
+        seen_sources.add(id(source))
         for key in keys:
             value = source.get(key)
             if value is not None:
-                return value
-    return None
+                candidates.append((key, value))
+    if not candidates:
+        return None
+
+    def canonical(value: object) -> str:
+        text = str(value).strip().lower()
+        # Native aliases commonly differ only in separator style.
+        return text.replace("_", "-")
+
+    normalized = {canonical(value) for _key, value in candidates}
+    if len(normalized) > 1:
+        aliases = ", ".join(sorted({key for key, _value in candidates}))
+        raise ValueError(f"conflicting native spawn aliases: {aliases}")
+    return candidates[0][1]
 
 
 def _brief_values(payload: dict[str, Any]) -> list[str]:

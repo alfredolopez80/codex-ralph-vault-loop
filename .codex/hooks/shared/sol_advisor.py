@@ -31,7 +31,6 @@ STATE_FILE = "sol-advisor.json"
 STATE_VERSION = 2
 MAX_FAILURE_FINGERPRINTS = 4
 MAX_CONSULTATIONS = 2
-RESERVATION_TTL_SECONDS = 120
 CONSULTATION_PHASES = frozenset({"plan", "stuck", "final"})
 HIGH_IMPACT_RE = re.compile(
     r"\b(architecture|authorization|auth|schema|database|migration|rollout|deploy|"
@@ -215,12 +214,9 @@ def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, 
             reserved_at = int(value.get("reserved_at", 0) or 0)
         except (TypeError, ValueError):
             continue
-        if (
-            not normalized_phase
-            or not fingerprint
-            or reserved_at < now - RESERVATION_TTL_SECONDS
-            or reserved_at > now + RESERVATION_TTL_SECONDS
-        ):
+        # Reservations are released only by the matching start/failure or a
+        # fresh task state. Never expire a live queued spawn by wall clock.
+        if not normalized_phase or not fingerprint or reserved_at > now + 120:
             continue
         record: dict[str, object] = {"fingerprint": fingerprint, "reserved_at": reserved_at}
         spawn_shape = _bounded_text(value.get("spawn_shape"), limit=64)
