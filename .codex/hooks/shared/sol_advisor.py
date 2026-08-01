@@ -307,7 +307,7 @@ def _spawn_brief_hash(payload: dict[str, Any]) -> str:
         for key in ("message", "prompt", "brief", "decision_brief", "decisionBrief"):
             value = source.get(key)
             if isinstance(value, str) and value.strip():
-                brief_material.append(f"{key}={_bounded_text(value, limit=512)}")
+                brief_material.append(f"{key}={_bounded_text(value, limit=8_000)}")
     return _hash_material("spawn-brief", *brief_material) if brief_material else ""
 
 
