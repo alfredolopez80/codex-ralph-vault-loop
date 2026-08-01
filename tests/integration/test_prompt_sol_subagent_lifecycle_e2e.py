@@ -107,6 +107,21 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
     assert started_state["consultation_count"] == 1
     assert started_state["consulted_phases"]["plan"] == started_state["decision_fingerprint"]
 
+    duplicate_spawn = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {**spawn_arguments, "message": "Do not start a second plan consultation."},
+        },
+        env,
+    )
+    duplicate_block = blocking_payload(duplicate_spawn.stdout)
+    assert duplicate_block is not None
+    assert "already been started" in str(duplicate_block["reason"])
+
     subagent_stop = {
         "hook_event_name": "SubagentStop",
         "session_id": session_id,
@@ -551,6 +566,25 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
     assert "decision brief" in str(missing_block["reason"])
     missing_state, _missing_decision = routing_state(env, session_id)
     assert missing_state["consultation_count"] == 0
+
+    aggregate_brief = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                **spawn_arguments,
+                "message": "a" * 4_500,
+                "brief": "b" * 4_000,
+            },
+        },
+        env,
+    )
+    aggregate_block = blocking_payload(aggregate_brief.stdout)
+    assert aggregate_block is not None
+    assert "bounded context limit" in str(aggregate_block["reason"])
 
     generic_result = run_command(
         configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),

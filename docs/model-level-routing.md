@@ -98,6 +98,9 @@ inspirational V2 diagram. The decision fingerprint stays stable when only the
 live consultation allowance changes; the pre-tool guard rechecks the current
 `consultation_budget`, `consultation_count`, and `budget_remaining` before each
 managed Sol spawn.
+The guard also rejects a second Sol spawn in an already consulted lifecycle
+phase and applies the 8,000-character bound to the aggregate native brief,
+not just to one alias at a time.
 
 Every managed Terra/Sol spawn must include a non-empty native decision brief;
 the guard rejects an omitted brief or one over the bounded context limit. The

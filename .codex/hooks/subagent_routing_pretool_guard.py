@@ -61,6 +61,25 @@ def _native_brief_values(payload: dict[str, Any]) -> list[str]:
     return values
 
 
+def _phase(payload: dict[str, Any], state: dict[str, Any]) -> str:
+    value = str(
+        _value(payload, "phase", "task_phase", "taskPhase", "consultation_phase", "consultationPhase")
+        or state.get("phase")
+        or "plan"
+    ).strip().lower().replace("_", "-")
+    return {
+        "initial": "plan",
+        "planning": "plan",
+        "start": "plan",
+        "failure": "stuck",
+        "debug": "stuck",
+        "blocked": "stuck",
+        "completion": "final",
+        "stop": "final",
+        "review": "final",
+    }.get(value, value)
+
+
 def _block(reason: str) -> None:
     write_json({"decision": "block", "reason": reason})
 
@@ -159,7 +178,7 @@ def main() -> int:
             _block("RED-sensitive work remains local and cannot be delegated to a model subagent.")
             return 0
         native_briefs = _native_brief_values(payload)
-        if any(len(brief) > MAX_BRIEF_CHARS for brief in native_briefs):
+        if sum(len(brief) for brief in native_briefs) > MAX_BRIEF_CHARS:
             _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
             return 0
         if not native_briefs:
@@ -173,6 +192,12 @@ def main() -> int:
         if expected_route in {"sol-advisor", "sol-active-analysis"} and _live_budget_remaining(state) <= 0:
             _block("Sol consultation budget is exhausted; do not create another advisor spawn.")
             return 0
+        if expected_route in {"sol-advisor", "sol-active-analysis"}:
+            phase = _phase(payload, state)
+            consulted_phases = state.get("consulted_phases")
+            if isinstance(consulted_phases, dict) and consulted_phases.get(phase):
+                _block("A Sol consultation has already been started for this lifecycle phase.")
+                return 0
         if not isinstance(expected_args, dict) or not routing.get("spawn_required"):
             active_requested = route_requested == "sol-active-analysis" or task_name == "sol_active_analysis"
             if active_requested and str(routing.get("active_analysis_rejection_reason") or ""):
