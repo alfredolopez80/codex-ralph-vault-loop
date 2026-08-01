@@ -102,6 +102,7 @@ def main() -> int:
 
         requested_model = model
         requested_effort = str(_value(payload, "reasoning_effort", "reasoningEffort", "effort") or "").strip().lower()
+        requested_agent_type = str(_value(payload, "agent_type", "agentType") or "").strip().lower().replace("_", "-")
         requested_task = task_name
         requested_fork = str(_value(payload, "fork_turns", "forkTurns", "history_mode", "historyMode") or "").strip().lower()
         if requested_model != expected_model:
@@ -109,6 +110,10 @@ def main() -> int:
             return 0
         if requested_effort != expected_effort:
             _block(f"Unsupported subagent effort for this route: expected {expected_effort or 'none'}.")
+            return 0
+        expected_agent_type = str(expected_args.get("agent_type") or "").strip().lower().replace("_", "-")
+        if expected_agent_type and requested_agent_type != expected_agent_type:
+            _block(f"Subagent agent_type must be {expected_agent_type}; do not substitute another profile.")
             return 0
         expected_task = str(expected_args.get("task_name") or "")
         if expected_task and requested_task != expected_task:

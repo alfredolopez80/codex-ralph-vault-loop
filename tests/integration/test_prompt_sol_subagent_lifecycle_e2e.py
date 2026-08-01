@@ -79,6 +79,20 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
     pretool_results = run_configured_event("PreToolUse", pretool_payload, env)
     assert all(blocking_payload(result.stdout) is None for result in pretool_results)
 
+    substituted_profile = {
+        **pretool_payload,
+        "tool_input": {**pretool_payload["tool_input"], "agent_type": "ralph-coder"},
+    }
+    substituted_results = run_configured_event(
+        "PreToolUse", substituted_profile, env, stop_on_block=True
+    )
+    substituted_block = next(
+        (blocking_payload(result.stdout) for result in substituted_results if blocking_payload(result.stdout)),
+        None,
+    )
+    assert substituted_block is not None
+    assert "agent_type" in str(substituted_block["reason"])
+
     subagent_start = {
         "hook_event_name": "SubagentStart",
         "session_id": session_id,
