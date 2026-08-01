@@ -25,6 +25,7 @@ from shared.sol_advisor import (
     has_fork_metadata,
     has_no_history_fork,
 )
+from shared.tool_result import success_from_payload
 
 
 def payload(tmp_path: Path, **extra: object) -> dict[str, object]:
@@ -91,6 +92,68 @@ def test_continuation_keeps_existing_consultation_budget(tmp_path: Path, monkeyp
     assert continued is not None
     assert continued["consultation_count"] == 1
     assert continued["advisor_started"] is True
+
+
+def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+
+    continued = initialize({**event, "prompt": "status update"})
+
+    assert continued is not None
+    assert continued["final_review_eligible"] is True
+    assert continued["advisor_completed"] is False
+    assert needs_stop_review(read_state(event)) is True
+
+
+def test_low_impact_followup_preserves_completed_review(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+    mark_advisor(event, completed=True)
+
+    continued = initialize({**event, "prompt": "status update"})
+
+    assert continued is not None
+    assert continued["final_review_eligible"] is True
+    assert continued["advisor_completed"] is True
+    assert needs_stop_review(continued) is False
+
+
+def test_explicit_new_task_starts_fresh_advisor_state(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+    mark_advisor(event, completed=True)
+
+    fresh = initialize({**event, "new_task": True, "prompt": "Explain the repository status."})
+
+    assert fresh is not None
+    assert fresh["final_review_eligible"] is False
+    assert fresh["advisor_completed"] is False
+    assert needs_stop_review(fresh) is False
+
+
+def test_failure_observer_uses_exit_code_result_contract(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, prompt="Decide the rollout architecture.")
+    initialize(event)
+
+    observe_failure({**event, "exit_code": 1, "command": "first failing hypothesis"})
+    result = observe_failure({**event, "returncode": 2, "command": "second failing hypothesis"})
+
+    assert result["failure_count"] == 2
+    assert result["stuck_eligible"] is True
+
+
+def test_tool_result_normalization_preserves_unknown_and_success_states() -> None:
+    assert success_from_payload({"exit_code": 1}) is False
+    assert success_from_payload({"returncode": 0}) is True
+    assert success_from_payload({"tool_response": {"return_code": 1}}) is False
+    assert success_from_payload({"success": True, "exit_code": 1}) is True
+    assert success_from_payload({"exit_code": "1"}) is None
+    assert success_from_payload({}) is None
 
 
 def test_name_or_model_identifies_the_native_sol_advisor() -> None:

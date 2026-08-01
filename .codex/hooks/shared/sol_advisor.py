@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .redaction import is_red
+from .tool_result import success_from_payload
 
 STATE_FILE = "sol-advisor.json"
 MAX_FAILURE_FINGERPRINTS = 4
@@ -23,6 +24,11 @@ HIGH_IMPACT_RE = re.compile(
 )
 EXPLICIT_RE = re.compile(r"\b(sol[ -]?advisor|consult(?:ar)?\s+(?:a\s+)?sol)\b", re.IGNORECASE)
 CONTINUATION_RE = re.compile(r"^\s*(continue|continua|sigue|resume|where were we)\b", re.IGNORECASE)
+TASK_BOUNDARY_RE = re.compile(
+    r"^\s*(?:new|nueva|another|otra|separate|unrelated|different|distinta|"
+    r"start(?:ing)?\s+(?:a\s+)?new|reinicia(?:r)?|empezar\s+de\s+nuevo)\b",
+    re.IGNORECASE,
+)
 SOL_MODEL = "gpt-5.6-sol"
 
 
@@ -107,6 +113,72 @@ def prompt_text(payload: dict[str, Any]) -> str:
     return value if isinstance(value, str) else ""
 
 
+def is_task_boundary(payload: dict[str, Any], prompt: str) -> bool:
+    """Recognize an explicit request to start a fresh task state."""
+    for key in ("new_task", "newTask", "task_boundary", "taskBoundary", "start_new_task", "startNewTask"):
+        if payload.get(key) is True:
+            return True
+    return bool(TASK_BOUNDARY_RE.search(prompt))
+
+
+def merge_existing_state(
+    existing: dict[str, Any],
+    *,
+    complexity: int,
+    reasons: list[str],
+    high_impact: bool,
+    explicit_request: bool,
+) -> dict[str, Any]:
+    """Merge new prompt evidence without weakening an active obligation."""
+    state = dict(existing)
+    try:
+        previous_complexity = int(state.get("complexity", 1) or 1)
+    except (TypeError, ValueError):
+        previous_complexity = 1
+    previous_reasons = state.get("impact_reasons", [])
+    if not isinstance(previous_reasons, list):
+        previous_reasons = []
+    merged_reasons = sorted(
+        {str(reason).lower() for reason in previous_reasons if str(reason).strip()}
+        | {reason.lower() for reason in reasons}
+    )[:4]
+    state.update(
+        {
+            "complexity": max(1, min(10, max(previous_complexity, complexity))),
+            "high_impact": bool(state.get("high_impact")) or high_impact,
+            "impact_reasons": merged_reasons,
+            "explicit_request": bool(state.get("explicit_request")) or explicit_request,
+            "final_review_eligible": bool(state.get("final_review_eligible")) or high_impact,
+            "consultation_eligible": bool(state.get("consultation_eligible"))
+            or explicit_request
+            or high_impact,
+        }
+    )
+    return state
+
+
+def should_preserve_state(
+    existing: dict[str, Any],
+    *,
+    payload: dict[str, Any],
+    prompt: str,
+    high_impact: bool,
+    explicit_request: bool,
+) -> bool:
+    """Keep active state until completion or an explicit task boundary."""
+    if is_task_boundary(payload, prompt):
+        return False
+    if CONTINUATION_RE.search(prompt):
+        return True
+    if existing.get("advisor_completed") is not True:
+        # A pending obligation is monotonic. New evidence may strengthen it,
+        # but an ordinary prompt may not clear it.
+        return True
+    # A completed material task may be followed by routine prompts. A new
+    # material signal starts a fresh review unless the user marked continuation.
+    return not (high_impact or explicit_request)
+
+
 def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     prompt = prompt_text(payload)
     if not prompt or is_red(prompt):
@@ -124,6 +196,24 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     final_review_eligible = high_impact
     consultation_eligible = explicit_request or final_review_eligible
     with locked_state(payload) as state:
+        existing = dict(state)
+        if existing and should_preserve_state(
+            existing,
+            payload=payload,
+            prompt=prompt,
+            high_impact=high_impact,
+            explicit_request=explicit_request,
+        ):
+            state.update(
+                merge_existing_state(
+                    existing,
+                    complexity=complexity,
+                    reasons=reasons,
+                    high_impact=high_impact,
+                    explicit_request=explicit_request,
+                )
+            )
+            return dict(state)
         state.update(
             {
                 "version": 1,
@@ -144,7 +234,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
-    success = payload.get("success")
+    success = success_from_payload(payload)
     if success is not False:
         return read_state(payload)
     candidate = command_text(payload)

@@ -9,6 +9,7 @@ from shared.checkpoint_io import update_checkpoint
 from shared.context_budget import text_is_toxic
 from shared.paths import append_jsonl, now_iso, read_hook_input
 from shared.redaction import is_red, safe_preview
+from shared.tool_result import success_from_payload
 
 TEST_MARKERS = ("test", "pytest", "pnpm test", "npm test", "make test")
 BUILD_MARKERS = ("build", "typecheck", "lint")
@@ -98,16 +99,6 @@ def active_files_from_payload(payload: dict[str, Any]) -> list[str]:
             if text and text not in files:
                 files.append(text)
     return files[:12]
-
-
-def success_from_payload(payload: dict[str, Any]) -> bool | None:
-    if isinstance(payload.get("success"), bool):
-        return payload["success"]
-    for key in ("exit_code", "returncode", "return_code"):
-        value = payload.get(key)
-        if isinstance(value, int):
-            return value == 0
-    return None
 
 
 def unsafe_payload(payload: dict[str, Any], command: str) -> bool:
