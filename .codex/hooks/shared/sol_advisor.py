@@ -366,7 +366,7 @@ def reserved_phase_for_start(state: dict[str, Any], payload: dict[str, Any]) -> 
             and recorded_invocation == invocation_id
         )
         shape_match = bool(recorded_shape and shape and recorded_shape == shape)
-        if identity_match or shape_match:
+        if (recorded_invocation and identity_match) or (not recorded_invocation and shape_match):
             matches.append(phase)
     return matches[0] if len(matches) == 1 else ""
 

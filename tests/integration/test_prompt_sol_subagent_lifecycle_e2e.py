@@ -74,6 +74,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "tool_name": "spawn_agent",
         "tool_input": {
             **spawn_arguments,
+            "invocation_id": "sol-positive-invocation",
             "message": "Review the bounded decision and return a compact verdict.",
         },
     }
@@ -100,8 +101,20 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "cwd": str(ROOT),
         "agent_id": "sol-positive-agent",
         "phase": "final",
+        "invocation_id": "sol-positive-invocation",
         **spawn_arguments,
     }
+    missing_identity_start = {key: value for key, value in subagent_start.items() if key != "invocation_id"}
+    run_configured_event("SubagentStart", missing_identity_start, env)
+    missing_state, _ = routing_state(env, session_id)
+    assert missing_state["consultation_count"] == 0
+    run_configured_event(
+        "SubagentStart",
+        {**subagent_start, "agent_id": "wrong-advisor", "invocation_id": "other-invocation"},
+        env,
+    )
+    mismatched_state, _ = routing_state(env, session_id)
+    assert mismatched_state["consultation_count"] == 0
     start_results = run_configured_event("SubagentStart", subagent_start, env)
     assert any("Advisor contract:" in context for context in context_values(start_results))
     started_state, started_decision = routing_state(env, session_id)
