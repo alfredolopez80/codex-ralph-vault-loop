@@ -574,7 +574,31 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
             "cwd": str(ROOT),
             "tool_name": "spawn_agent",
             "success": False,
+            "command": "spawn_agent unrelated failure",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "unrelated_lane",
+                "model": "gpt-5.6-terra",
+                "reasoning_effort": "high",
+            },
+        },
+        env,
+    )
+    still_reserved = run_command(guard, base, env)
+    still_reserved_block = blocking_payload(still_reserved.stdout)
+    assert still_reserved_block is not None
+    assert "already reserved" in str(still_reserved_block["reason"])
+
+    run_command(
+        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "success": False,
             "command": "spawn_agent failed before start",
+            "tool_input": spawn,
         },
         env,
     )

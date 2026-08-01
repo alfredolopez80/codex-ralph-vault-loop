@@ -222,7 +222,14 @@ def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, 
             or reserved_at > now + RESERVATION_TTL_SECONDS
         ):
             continue
-        normalized[normalized_phase] = {"fingerprint": fingerprint, "reserved_at": reserved_at}
+        record: dict[str, object] = {"fingerprint": fingerprint, "reserved_at": reserved_at}
+        spawn_shape = _bounded_text(value.get("spawn_shape"), limit=64)
+        invocation_id = _bounded_text(value.get("invocation_id"), limit=80)
+        if spawn_shape:
+            record["spawn_shape"] = spawn_shape
+        if invocation_id:
+            record["invocation_id"] = invocation_id
+        normalized[normalized_phase] = record
     state["phase_reservations"] = normalized
     return normalized
 
@@ -237,6 +244,50 @@ def _state_budget_remaining(state: dict[str, Any]) -> int:
     if budget < 0 or count < 0 or stored < 0 or count > budget:
         return 0
     return max(0, min(stored, budget - count))
+
+
+def _spawn_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    sources = [payload]
+    for key in ("tool_input", "toolInput", "input", "subagent", "agent"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            sources.append(value)
+    return sources
+
+
+def _spawn_metadata(payload: dict[str, Any]) -> tuple[str, str]:
+    """Return stable spawn shape and optional exact invocation identity."""
+    invocation_keys = ("tool_call_id", "toolCallId", "call_id", "callId", "invocation_id", "invocationId")
+    invocation_id = ""
+    for source in _spawn_sources(payload):
+        for key in invocation_keys:
+            value = source.get(key)
+            if value is not None and str(value).strip():
+                invocation_id = _bounded_text(value, limit=80)
+                break
+        if invocation_id:
+            break
+    shape_values: list[str] = []
+    for source in _spawn_sources(payload):
+        for key in (
+            "agent_type",
+            "agentType",
+            "task_name",
+            "taskName",
+            "model",
+            "model_name",
+            "modelName",
+            "reasoning_effort",
+            "reasoningEffort",
+            "effort",
+            "subagent_route",
+            "subagentRoute",
+        ):
+            value = source.get(key)
+            if value is not None and str(value).strip():
+                shape_values.append(f"{key}={_bounded_text(value, limit=80)}")
+    shape = _hash_material("spawn-shape", *shape_values) if shape_values else ""
+    return shape, invocation_id
 
 
 def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: str) -> tuple[bool, str]:
@@ -256,9 +307,14 @@ def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: s
             return False, "A Sol consultation is already reserved for this lifecycle phase."
         if _state_budget_remaining(state) <= 0:
             return False, "Sol consultation budget is exhausted; do not create another advisor spawn."
+        spawn_shape, invocation_id = _spawn_metadata(payload)
+        if not spawn_shape and not invocation_id:
+            return False, "Sol consultation reservation lacks a bounded spawn identity."
         reservations[normalized_phase] = {
             "fingerprint": _bounded_text(fingerprint, limit=64),
             "reserved_at": int(time.time()),
+            "spawn_shape": spawn_shape,
+            "invocation_id": invocation_id,
         }
         state["phase_reservations"] = reservations
         return True, ""
@@ -896,6 +952,15 @@ def _is_native_spawn_payload(payload: dict[str, Any]) -> bool:
     return "spawn_agent" in command_text(payload).lower()
 
 
+def _reservation_matches_failure(reservation: dict[str, object], payload: dict[str, Any]) -> bool:
+    shape, invocation_id = _spawn_metadata(payload)
+    recorded_invocation = _bounded_text(reservation.get("invocation_id"), limit=80)
+    recorded_shape = _bounded_text(reservation.get("spawn_shape"), limit=64)
+    if recorded_invocation and invocation_id:
+        return recorded_invocation == invocation_id
+    return bool(recorded_shape and shape and recorded_shape == shape)
+
+
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
     success = success_from_payload(payload)
     if success is not False:
@@ -908,9 +973,14 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         ensure_state_shape(state, payload)
         if _is_native_spawn_payload(payload):
             # A failed native spawn never reaches SubagentStart. Release its
-            # short-lived reservation so a bounded retry can be attempted;
-            # the consultation budget is consumed only after actual start.
-            state["phase_reservations"] = {}
+            # matching short-lived reservation so a bounded retry can be
+            # attempted; unrelated pending phases remain protected.
+            reservations = _normalize_phase_reservations(state)
+            state["phase_reservations"] = {
+                phase: reservation
+                for phase, reservation in reservations.items()
+                if not _reservation_matches_failure(reservation, payload)
+            }
         failures = state.setdefault("failure_fingerprints", [])
         if not isinstance(failures, list):
             failures = []
