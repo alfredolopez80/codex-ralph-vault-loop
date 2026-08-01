@@ -39,7 +39,7 @@ Typical Sol decisions are architecture, authorization, schema, migration,
 rollout, external-interface, security, or difficult-to-reverse choices. Routine
 work cannot qualify merely because a prompt is long.
 
-Do not use it for mechanical edits, routine status work, simple reproduction, or a verified low-risk path. Respect the task budget: at most one consultation per phase and two per task; reuse an equivalent prior verdict.
+Do not use it for mechanical edits, routine status work, simple reproduction, or a verified low-risk path when Aristotle remains in the 1–3 band. A validated effective 7–8 classification is itself the explicit Sol-advisor lane, even when the lightweight intent label is `routine`, so that the scale has no delegation gap. Respect the task budget: at most one consultation per phase and two per task; reuse an equivalent prior verdict.
 
 The hook state is versioned and bounded. It records a task identity, current
 phase (`plan`, `stuck`, or `final`), raw/effective complexity, route, effort,
