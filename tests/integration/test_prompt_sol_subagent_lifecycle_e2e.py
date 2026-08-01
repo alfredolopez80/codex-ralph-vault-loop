@@ -656,7 +656,9 @@ def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_p
     block = next((blocking_payload(result.stdout) for result in results if blocking_payload(result.stdout)), None)
     assert block is not None
     assert "RED-sensitive" in str(block["reason"])
-    assert not state_path(env, session_id).exists()
+    red_state = json.loads(state_path(env, session_id).read_text(encoding="utf-8"))
+    assert red_state["sensitivity"] == "RED"
+    assert red_state["routing"]["subagent_route"] == "none"
     assert not any("Sol advisor eligibility: yes" in context for context in context_values(results))
 
     inherited_history = run_command(
@@ -677,7 +679,7 @@ def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_p
     )
     inherited_block = blocking_payload(inherited_history.stdout)
     assert inherited_block is not None
-    assert "fork_turns=none" in str(inherited_block["reason"])
+    assert "RED-sensitive task state" in str(inherited_block["reason"])
 
     generated = "\n".join(
         path.read_text(encoding="utf-8", errors="replace")

@@ -836,10 +836,69 @@ def should_preserve_state(
     return bool(existing)
 
 
+def _record_red_local_state(payload: dict[str, Any], prompt: str) -> dict[str, Any]:
+    """Replace active routing with minimal RED/local-only state without storing the prompt."""
+    with locked_state(payload) as state:
+        existing = dict(state)
+        ensure_state_shape(state, payload)
+        session_override = _override_record(existing.get("session_subagent_override"))
+        state.clear()
+        state.update(
+            {
+                "version": STATE_VERSION,
+                "task_id": _hash_material(
+                    "red-task",
+                    safe_session_id(payload.get("session_id") or payload.get("sessionId")),
+                ),
+                "phase": "plan",
+                "complexity": 1,
+                "high_impact": False,
+                "impact_reasons": [],
+                "explicit_request": False,
+                "final_review_eligible": False,
+                "consultation_eligible": False,
+                "failure_fingerprints": [],
+                "failure_count": 0,
+                "decision_fingerprint": "",
+                "consultation_budget": MAX_CONSULTATIONS,
+                "consultation_count": 0,
+                "budget_remaining": MAX_CONSULTATIONS,
+                "consulted_fingerprints": [],
+                "consulted_phases": {},
+                "phase_reservations": {},
+                "prior_verdict_ref": "",
+                "prior_verdict_fingerprint": "",
+                "prior_verdict_phase": "",
+                "advisor_reused": False,
+                "advisor_budget_exhausted": False,
+                "stop_guard_issued": False,
+                "advisor_started": False,
+                "advisor_completed": False,
+                "stuck_eligible": False,
+                "routing": {},
+                "intent": "routine",
+                "sensitivity": "RED",
+                "spawn_model_effort_available": False,
+                "active_analysis_enabled": False,
+                "bounded_scope": False,
+                "local_verification_available": False,
+                "hard_gates_pass": False,
+                "budget_class": None,
+                "task_subagent_override": None,
+                "session_subagent_override": session_override,
+            }
+        )
+        _refresh_routing(state, payload, prompt)
+        state["decision_fingerprint"] = decision_fingerprint(state)
+        return dict(state)
+
+
 def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     prompt = prompt_text(payload)
-    if not prompt or is_red(prompt):
+    if not prompt:
         return None
+    if is_red(prompt):
+        return _record_red_local_state(payload, prompt)
     existing = read_state(payload)
     if existing and CONTINUATION_RE.search(prompt) and not is_task_boundary(payload, prompt):
         with locked_state(payload) as state:
@@ -999,6 +1058,7 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
             _capture_payload_overrides(state, payload)
             _capture_routing_evidence(state, payload)
             _refresh_routing(state, payload, prompt_text(payload))
+            state["decision_fingerprint"] = decision_fingerprint(state)
             routing = state.get("routing")
             state["consultation_eligible"] = bool(
                 isinstance(routing, dict)

@@ -411,6 +411,23 @@ def test_red_sensitivity_is_sticky_across_a_continuation(tmp_path: Path, monkeyp
     assert fresh["sensitivity"] == "GREEN"
 
 
+def test_red_prompt_replaces_prior_route_without_persisting_prompt_content(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
+    initial = initialize(event)
+    assert initial is not None
+    assert initial["routing"]["subagent_route"] == "sol-advisor"
+
+    red_marker = "api" + "_key" + "=red-state-sentinel"
+    red = initialize({**event, "prompt": f"Keep this local: {red_marker}"})
+
+    assert red is not None
+    assert red["sensitivity"] == "RED"
+    assert red["routing"]["subagent_route"] == "none"
+    persisted = state_path(event).read_text(encoding="utf-8")
+    assert red_marker not in persisted
+
+
 def test_nested_yellow_classification_cannot_be_downgraded_by_top_level_green(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     state = initialize(
