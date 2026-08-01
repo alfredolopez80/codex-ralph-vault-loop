@@ -110,6 +110,7 @@ def _live_budget_remaining(state: dict[str, Any]) -> int:
 
 def main() -> int:
     normalized_tool = ""
+    native_tool = ""
     managed_spawn = False
     try:
         payload = read_hook_input()
@@ -118,7 +119,11 @@ def main() -> int:
         # ``task_name`` and must not be classified as a spawn attempt.
         tool_name = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
         normalized_tool = tool_name.strip().lower().replace("-", "_")
-        if normalized_tool not in {"spawn_agent", "spawnagent"}:
+        # Codex may report a namespaced tool identifier such as
+        # ``collaboration.spawn_agent``. The final component is the native
+        # tool identity; ignoring the namespace would bypass this guard.
+        native_tool = normalized_tool.rsplit(".", 1)[-1]
+        if native_tool not in {"spawn_agent", "spawnagent"}:
             return 0
         model = str(_value(payload, "model", "model_name", "modelName") or "").strip().lower()
         task_name = str(_value(payload, "task_name", "taskName") or "").strip().lower().replace("-", "_")
@@ -261,7 +266,7 @@ def main() -> int:
         # Ordinary tools remain fail-open, but once a native spawn has been
         # identified, a validation failure must fail closed at this trust
         # boundary instead of silently bypassing routing and RED controls.
-        if normalized_tool in {"spawn_agent", "spawnagent"}:
+        if native_tool in {"spawn_agent", "spawnagent"}:
             try:
                 _block("Subagent routing validation failed; the spawn was blocked for safety.")
             except Exception:

@@ -280,6 +280,34 @@ def test_routing_guard_ignores_unrelated_tools_with_spawn_like_fields(tmp_path: 
     assert result.stdout == ""
 
 
+def test_routing_guard_validates_namespaced_spawn_agent_tools(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "namespaced-spawn-agent"
+    run_configured_event(
+        "UserPromptSubmit",
+        prompt_payload(session_id, high_complexity_prompt()),
+        env,
+    )
+    _, decision = routing_state(env, session_id)
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "collaboration.spawn_agent",
+            "tool_input": {
+                **dict(decision["spawn_arguments"]),
+                "message": "Review this bounded decision and return a compact verdict.",
+            },
+        },
+        env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert blocking_payload(result.stdout) is None
+
+
 def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
