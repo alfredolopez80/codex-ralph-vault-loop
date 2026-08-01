@@ -198,14 +198,16 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         requested=requested,
         effective_override=effective_override,
         active_ok=active_ok,
-        active_reason=active_reason,
         override_error=override_error,
         override_rejections=override_rejections,
         override_expiry=expiry,
         capabilities=request.capabilities,
         explicit_budget=request.budget.explicit_class,
-        budget=request.budget.remaining,
-        reason=reason,
+        # Consultation availability and explanatory status are live
+        # lifecycle facts, not part of the decision identity. The pre-tool
+        # guard rechecks the current budget immediately before a Sol spawn,
+        # so consuming a consultation must not manufacture a new task
+        # fingerprint.
     )
     return RoutingDecision(
         policy_version=POLICY_VERSION,

@@ -7,6 +7,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import tomllib
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -44,6 +45,7 @@ TASK_BOUNDARY_RE = re.compile(
     re.IGNORECASE,
 )
 SOL_MODEL = ROUTING_SOL_MODEL
+SENSITIVITY_RANK = {"GREEN": 0, "YELLOW": 1, "RED": 2}
 
 
 def state_path(payload: dict[str, Any]) -> Path:
@@ -184,6 +186,34 @@ def _override(value: object) -> SubagentOverride | None:
     return SubagentOverride(model=model, reasoning_effort=effort, route=route, expires_at=expiry)
 
 
+def _override_record(value: object) -> dict[str, object] | None:
+    """Persist only the bounded, validated fields of an override."""
+    candidate = value if isinstance(value, SubagentOverride) else _override(value)
+    if candidate is None:
+        return None
+    record: dict[str, object] = {}
+    for key, field in (
+        ("model", candidate.model),
+        ("reasoning_effort", candidate.reasoning_effort),
+        ("route", candidate.route),
+        ("expires_at", candidate.expires_at),
+    ):
+        if field is not None:
+            record[key] = field
+    return record
+
+
+def _capture_payload_overrides(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Remember scoped overrides so ordinary continuation payloads may omit them."""
+    for state_key, payload_keys in (
+        ("task_subagent_override", ("task_subagent_override", "taskSubagentOverride")),
+        ("session_subagent_override", ("session_subagent_override", "sessionSubagentOverride")),
+    ):
+        value = _payload_value(payload, *payload_keys)
+        if value is not None:
+            state[state_key] = _override_record(value)
+
+
 def _configured_executor_defaults(payload: dict[str, Any]) -> tuple[ExecutorDefaults, str]:
     """Read the immutable executor default; hooks never write this file."""
     cwd_value = payload.get("cwd")
@@ -219,9 +249,26 @@ def _routing_decision(
         # active task's previously classified lane.
         intent = str(state.get("intent"))
     sensitivity = _sensitivity(prompt, payload)
+    previous_sensitivity = str(state.get("sensitivity", "GREEN")).upper()
+    previous_routing = state.get("routing")
+    if isinstance(previous_routing, dict):
+        routing_sensitivity = str(previous_routing.get("sensitivity", "GREEN")).upper()
+        if SENSITIVITY_RANK.get(routing_sensitivity, 0) > SENSITIVITY_RANK.get(previous_sensitivity, 0):
+            previous_sensitivity = routing_sensitivity
+    if (
+        not is_task_boundary(payload, prompt)
+        and SENSITIVITY_RANK.get(previous_sensitivity, 0) > SENSITIVITY_RANK.get(sensitivity, 0)
+    ):
+        # A continuation must not downgrade an already classified task merely
+        # because its short follow-up text contains fewer sensitivity signals.
+        sensitivity = previous_sensitivity
     impact_class = "material" if state.get("high_impact") else "none"
-    task_override = _override(_payload_value(payload, "task_subagent_override", "taskSubagentOverride"))
-    session_override = _override(_payload_value(payload, "session_subagent_override", "sessionSubagentOverride"))
+    task_value = _payload_value(payload, "task_subagent_override", "taskSubagentOverride")
+    session_value = _payload_value(payload, "session_subagent_override", "sessionSubagentOverride")
+    task_override = _override(task_value) if task_value is not None else _override(state.get("task_subagent_override"))
+    session_override = (
+        _override(session_value) if session_value is not None else _override(state.get("session_subagent_override"))
+    )
     if explicit_request and task_override is None:
         task_override = SubagentOverride(model=SOL_MODEL, route="sol-advisor")
     existing_routing = state.get("routing")
@@ -242,9 +289,9 @@ def _routing_decision(
     )
     current_epoch_value = _payload_value(payload, "current_epoch", "currentEpoch")
     try:
-        current_epoch = int(current_epoch_value or 0)
+        current_epoch = int(time.time()) if current_epoch_value is None else int(current_epoch_value)
     except (TypeError, ValueError):
-        current_epoch = 0
+        current_epoch = int(time.time())
     executor_defaults, executor_source = _configured_executor_defaults(payload)
     decision = resolve_subagent_routing(
         RoutingRequest(
@@ -479,6 +526,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
     state.setdefault("routing", {})
     if not isinstance(state["routing"], dict):
         state["routing"] = {}
+    for override_key in ("task_subagent_override", "session_subagent_override"):
+        state[override_key] = _override_record(state.get(override_key))
     state.setdefault("intent", "routine")
     state.setdefault("sensitivity", "GREEN")
     state["budget_remaining"] = max(0, state["consultation_budget"] - state["consultation_count"])
@@ -561,6 +610,9 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     if existing and CONTINUATION_RE.search(prompt):
         with locked_state(payload) as state:
             ensure_state_shape(state, payload)
+            _capture_payload_overrides(state, payload)
+            _refresh_routing(state, payload, prompt)
+            state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
     complexity = classification_complexity(payload)
     reasons = sorted({match.group(1).lower() for match in HIGH_IMPACT_RE.finditer(prompt)})[:4]
@@ -584,9 +636,18 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                     explicit_request=explicit_request,
                 )
             )
+            _capture_payload_overrides(state, payload)
             _refresh_routing(state, payload, prompt)
             state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
+        # A session-scoped override survives an explicit task boundary; a
+        # task-scoped override deliberately does not.
+        session_override = _override_record(
+            _payload_value(payload, "session_subagent_override", "sessionSubagentOverride")
+        ) or _override_record(existing.get("session_subagent_override"))
+        task_override = _override_record(
+            _payload_value(payload, "task_subagent_override", "taskSubagentOverride")
+        )
         state.clear()
         state.update(
             {
@@ -619,6 +680,8 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "routing": {},
                 "intent": "routine",
                 "sensitivity": "GREEN",
+                "task_subagent_override": task_override,
+                "session_subagent_override": session_override,
             }
         )
         _refresh_routing(state, payload, prompt)
@@ -767,7 +830,13 @@ def mark_advisor(payload: dict[str, Any], *, completed: bool) -> dict[str, Any]:
         return dict(state)
 
 
-def needs_stop_review(state: dict[str, Any]) -> bool:
+def stop_review_recommendation_pending(state: dict[str, Any]) -> bool:
+    """Return whether the report-only Stop hook should record a recommendation.
+
+    This is intentionally not a completion requirement.  The current rollout
+    records an eligible final Sol lane for Codex main, while mandatory fresh
+    review orchestration remains outside this policy's acceptance target.
+    """
     if not state.get("final_review_eligible"):
         return False
     fingerprint = str(state.get("decision_fingerprint", ""))
@@ -793,6 +862,8 @@ def mark_stop_guard(payload: dict[str, Any]) -> None:
     with locked_state(payload) as state:
         ensure_state_shape(state, payload)
         state["phase"] = "final"
+        if state.get("stop_guard_issued"):
+            return
         state["stop_guard_issued"] = True
         state["stop_block_count"] = int(state.get("stop_block_count", 0) or 0) + 1
 

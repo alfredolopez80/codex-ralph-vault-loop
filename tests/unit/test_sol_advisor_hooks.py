@@ -16,7 +16,7 @@ from shared.sol_advisor import (
     is_sol_advisor,
     mark_advisor,
     mark_stop_guard,
-    needs_stop_review,
+    stop_review_recommendation_pending,
     observe_failure,
     read_state,
     state_path,
@@ -66,7 +66,7 @@ def test_routine_task_stays_local_and_does_not_consult_sol(tmp_path: Path, monke
     assert state["final_review_eligible"] is False
     assert state["consultation_count"] == 0
     assert executor_context(state) == ""
-    assert needs_stop_review(state) is False
+    assert stop_review_recommendation_pending(state) is False
 
 
 def test_neutral_workspace_records_luna_fallback_as_global_executor_source(tmp_path: Path, monkeypatch) -> None:
@@ -104,16 +104,16 @@ def test_stop_guard_is_one_time_and_skips_completed_advice(tmp_path: Path, monke
     event = payload(tmp_path, complexity=8, prompt="Choose a database schema migration path.")
     initialize(event)
     state = read_state(event)
-    assert needs_stop_review(state) is True
+    assert stop_review_recommendation_pending(state) is True
 
     mark_stop_guard(event)
-    assert needs_stop_review(read_state(event)) is True
+    assert stop_review_recommendation_pending(read_state(event)) is True
 
     event2 = {**event, "session_id": "sol-advisor-complete"}
     initialize(event2)
     mark_advisor(event2, completed=False)
     mark_advisor(event2, completed=True)
-    assert needs_stop_review(read_state(event2)) is False
+    assert stop_review_recommendation_pending(read_state(event2)) is False
 
 
 def test_continuation_keeps_existing_consultation_budget(tmp_path: Path, monkeypatch) -> None:
@@ -130,6 +130,95 @@ def test_continuation_keeps_existing_consultation_budget(tmp_path: Path, monkeyp
     assert continued["decision_fingerprint"] == decision_fingerprint(continued)
 
 
+def test_continuation_reuses_bounded_task_and_session_overrides(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(
+        tmp_path,
+        complexity=8,
+        prompt="Choose an authorization architecture for rollout.",
+        task_subagent_override={
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "high",
+            "expires_at": 4_102_444_800,
+        },
+        session_subagent_override={"model": "gpt-5.6-terra", "reasoning_effort": "high"},
+    )
+
+    state = initialize(event)
+    assert state is not None
+    assert state["routing"]["subagent_route"] == "sol-advisor"
+
+    continuation_payload = {
+        key: value
+        for key, value in event.items()
+        if key not in {"task_subagent_override", "session_subagent_override", "prompt"}
+    }
+    continued = initialize({**continuation_payload, "prompt": "continua con la validación"})
+
+    assert continued is not None
+    assert continued["task_subagent_override"]["model"] == "gpt-5.6-sol"
+    assert continued["session_subagent_override"]["model"] == "gpt-5.6-terra"
+    assert continued["routing"]["subagent_route"] == "sol-advisor"
+
+    ordinary = initialize({**continuation_payload, "prompt": "status update"})
+    assert ordinary is not None
+    assert ordinary["routing"]["subagent_route"] == "sol-advisor"
+    assert ordinary["task_subagent_override"]["model"] == "gpt-5.6-sol"
+
+
+def test_session_override_survives_an_explicit_task_boundary(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(
+        tmp_path,
+        complexity=1,
+        prompt="Explain the repository status in one paragraph.",
+        session_subagent_override={"model": "gpt-5.6-terra", "reasoning_effort": "high"},
+    )
+    initialize(event)
+
+    fresh = initialize(
+        {
+            **event,
+            "new_task": True,
+            "complexity": 4,
+            "intent": "implementation",
+            "prompt": "Implement the bounded migration change.",
+            "session_subagent_override": None,
+        }
+    )
+
+    assert fresh is not None
+    assert fresh["task_subagent_override"] is None
+    assert fresh["session_subagent_override"]["model"] == "gpt-5.6-terra"
+    assert fresh["routing"]["subagent_route"] == "terra-implementation"
+
+
+def test_red_sensitivity_is_sticky_across_a_continuation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(
+        tmp_path,
+        complexity=8,
+        sensitivity="RED",
+        prompt="Review this bounded architecture decision locally.",
+    )
+
+    state = initialize(event)
+    assert state is not None
+    assert state["sensitivity"] == "RED"
+    assert state["routing"]["subagent_route"] == "none"
+
+    continued = initialize({**event, "prompt": "continua con el estado actual"})
+
+    assert continued is not None
+    assert continued["sensitivity"] == "RED"
+    assert continued["routing"]["sensitivity"] == "RED"
+    assert continued["routing"]["subagent_route"] == "none"
+
+    fresh = initialize({**event, "new_task": True, "sensitivity": "GREEN", "prompt": "Start a routine task."})
+    assert fresh is not None
+    assert fresh["sensitivity"] == "GREEN"
+
+
 def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
@@ -140,7 +229,7 @@ def test_low_impact_followup_preserves_pending_review(tmp_path: Path, monkeypatc
     assert continued is not None
     assert continued["final_review_eligible"] is True
     assert continued["advisor_completed"] is False
-    assert needs_stop_review(read_state(event)) is True
+    assert stop_review_recommendation_pending(read_state(event)) is True
 
 
 def test_low_impact_followup_preserves_completed_review(tmp_path: Path, monkeypatch) -> None:
@@ -154,7 +243,7 @@ def test_low_impact_followup_preserves_completed_review(tmp_path: Path, monkeypa
     assert continued is not None
     assert continued["final_review_eligible"] is True
     assert continued["advisor_completed"] is True
-    assert needs_stop_review(continued) is False
+    assert stop_review_recommendation_pending(continued) is False
 
 
 def test_material_followup_keeps_budget_and_invalidates_changed_verdict(tmp_path: Path, monkeypatch) -> None:
@@ -184,7 +273,7 @@ def test_explicit_new_task_starts_fresh_advisor_state(tmp_path: Path, monkeypatc
     assert fresh is not None
     assert fresh["final_review_eligible"] is False
     assert fresh["advisor_completed"] is False
-    assert needs_stop_review(fresh) is False
+    assert stop_review_recommendation_pending(fresh) is False
 
 
 def test_failure_observer_uses_exit_code_result_contract(tmp_path: Path, monkeypatch) -> None:
@@ -271,7 +360,7 @@ def test_final_review_reuses_equivalent_prior_verdict(tmp_path: Path, monkeypatc
 
     state = read_state(event)
 
-    assert needs_stop_review(state) is False
+    assert stop_review_recommendation_pending(state) is False
     assert state["prior_verdict_phase"] == "plan"
 
 
@@ -285,7 +374,7 @@ def test_final_phase_consumes_remaining_budget_after_changed_evidence(tmp_path: 
     observe_failure({**event, "success": False, "command": "second hypothesis"})
 
     state = read_state(event)
-    assert needs_stop_review(state) is True
+    assert stop_review_recommendation_pending(state) is True
     mark_stop_guard(event)
     started = mark_advisor({**event, "phase": "final"}, completed=False)
     completed = mark_advisor(
@@ -295,7 +384,7 @@ def test_final_phase_consumes_remaining_budget_after_changed_evidence(tmp_path: 
 
     assert started["consultation_count"] == 2
     assert completed["prior_verdict_phase"] == "final"
-    assert needs_stop_review(completed) is False
+    assert stop_review_recommendation_pending(completed) is False
 
 
 def test_name_or_model_identifies_the_native_sol_advisor() -> None:

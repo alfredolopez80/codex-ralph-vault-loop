@@ -49,6 +49,11 @@ the prior verdict; a second consultation in the same phase is not counted.
 New failure evidence changes the fingerprint and can qualify the `stuck`
 phase, while an unchanged plan verdict may be reused.
 
+The decision fingerprint is independent of the mutable remaining allowance;
+the native pre-tool guard performs the live budget check immediately before a
+managed Sol spawn. The Stop hook records an idempotent, report-only final-review
+recommendation and does not make completion contingent on a fresh review.
+
 The exceptional `sol-active-analysis` route is separate from the advisor route.
 It is never automatic and may be selected only at effective complexity 9-10
 when all of these gates pass: non-RED input, a bounded scope, local

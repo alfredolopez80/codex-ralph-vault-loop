@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.paths import read_hook_input, write_json
+from shared.redaction import is_red
 from shared.sol_advisor import read_state
 
 
@@ -13,11 +14,13 @@ MANAGED_ROUTES = {"terra-implementation", "sol-advisor", "sol-active-analysis"}
 MANAGED_TASK_NAMES = {"terra_implementation", "sol_advisor", "sol_active_analysis"}
 MANAGED_AGENT_TYPES = {"sol-advisor"}
 NO_HISTORY_VALUES = {"none", "fresh", "no-history", "no_history"}
+BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
+MAX_BRIEF_CHARS = 8_000
 
 
 def _sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
     sources = [payload]
-    for key in ("tool_input", "subagent", "agent"):
+    for key in ("tool_input", "toolInput", "input", "subagent", "agent"):
         value = payload.get(key)
         if isinstance(value, dict):
             sources.append(value)
@@ -31,6 +34,17 @@ def _value(payload: dict[str, Any], *keys: str) -> object:
             if value is not None:
                 return value
     return None
+
+
+def _brief_values(payload: dict[str, Any]) -> list[str]:
+    """Collect all bounded free-text spawn briefs across native payload sources."""
+    values: list[str] = []
+    for source in _sources(payload):
+        for key in BRIEF_KEYS:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                values.append(value)
+    return values
 
 
 def _block(reason: str) -> None:
@@ -91,6 +105,17 @@ def main() -> int:
             route_requested=route_requested,
             agent_type=requested_agent_type,
         )
+
+        # RED content must not escape through any native spawn profile. Scan
+        # every source before the managed-lane early return; a benign
+        # top-level field must not mask a sensitive nested tool brief.
+        briefs = _brief_values(payload)
+        if any(len(brief) > MAX_BRIEF_CHARS for brief in briefs):
+            _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
+            return 0
+        if any(is_red(brief) for brief in briefs):
+            _block("RED-sensitive subagent brief remains local and cannot be delegated.")
+            return 0
 
         state = read_state(payload)
         routing = state.get("routing")

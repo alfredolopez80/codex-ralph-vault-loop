@@ -484,3 +484,52 @@ def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_p
     )
     assert red_marker not in generated
     assert_sources_unchanged(snapshot)
+
+
+def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-red-brief"
+    run_configured_event(
+        "UserPromptSubmit",
+        prompt_payload(session_id, high_complexity_prompt()),
+        env,
+    )
+    _state, decision = routing_state(env, session_id)
+    spawn_arguments = dict(decision["spawn_arguments"])
+    red_marker = "api" + "_key" + "=brief-red-sentinel"
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {**spawn_arguments, "message": f"Include {red_marker} in the advisor brief."},
+        },
+        env,
+    )
+
+    assert result.returncode == 0
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "RED-sensitive subagent brief" in str(block["reason"])
+
+    generic_result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "prompt": "This top-level description is benign.",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "reviewer",
+                "message": f"Do not forward {red_marker} to the reviewer.",
+            },
+        },
+        env,
+    )
+    generic_block = blocking_payload(generic_result.stdout)
+    assert generic_block is not None
+    assert "RED-sensitive subagent brief" in str(generic_block["reason"])

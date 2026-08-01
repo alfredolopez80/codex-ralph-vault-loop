@@ -92,6 +92,13 @@ tool output. The advisor returns a compact verdict, risks, smallest next
 verification, and conditions that would change the verdict. Codex main accepts
 or rejects that advice only after local verification.
 
+The Stop hook is an idempotent, report-only recommendation recorder. It does
+not block completion or claim the mandatory fresh-review behavior shown in the
+inspirational V2 diagram. The decision fingerprint stays stable when only the
+live consultation allowance changes; the pre-tool guard rechecks the current
+`consultation_budget`, `consultation_count`, and `budget_remaining` before each
+managed Sol spawn.
+
 ## Local-first rollout and rollback
 
 1. Prove the exact model IDs, effort names, typed-agent precedence, spawn

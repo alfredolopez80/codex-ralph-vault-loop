@@ -288,13 +288,15 @@ def test_platform_capability_precedes_an_explicit_spawn_override() -> None:
     assert decision.override_rejection_reason == "platform-spawn-model-effort-unavailable"
 
 
-def test_fingerprint_is_stable_for_same_bounded_facts_and_changes_with_budget() -> None:
+def test_fingerprint_is_stable_when_only_live_budget_changes() -> None:
     first = resolve(raw_complexity=9, intent="migration", budget=RoutingBudget(remaining=2))
     equivalent = resolve(raw_complexity=9, intent="migration", budget=RoutingBudget(remaining=2))
-    changed = resolve(raw_complexity=9, intent="migration", budget=RoutingBudget(remaining=1))
+    consumed = resolve(raw_complexity=9, intent="migration", budget=RoutingBudget(remaining=1))
+    exhausted = resolve(raw_complexity=9, intent="migration", budget=RoutingBudget(remaining=0))
 
     assert first.decision_fingerprint == equivalent.decision_fingerprint
-    assert first.decision_fingerprint != changed.decision_fingerprint
+    assert first.decision_fingerprint == consumed.decision_fingerprint == exhausted.decision_fingerprint
+    assert exhausted.spawn_required is False
 
 
 def test_executor_precedence_is_repository_then_global_and_never_mutates_inputs() -> None:
