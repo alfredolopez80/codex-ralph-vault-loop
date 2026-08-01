@@ -99,6 +99,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "session_id": session_id,
         "cwd": str(ROOT),
         "agent_id": "sol-positive-agent",
+        "phase": "final",
         **spawn_arguments,
     }
     start_results = run_configured_event("SubagentStart", subagent_start, env)
@@ -106,6 +107,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
     started_state, started_decision = routing_state(env, session_id)
     assert started_decision == decision
     assert started_state["consultation_count"] == 1
+    assert started_state["phase"] == "plan"
     assert started_state["consulted_phases"]["plan"] == started_state["decision_fingerprint"]
 
     duplicate_spawn = run_command(

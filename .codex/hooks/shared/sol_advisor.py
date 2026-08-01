@@ -320,6 +320,33 @@ def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: s
         return True, ""
 
 
+def reserved_phase_for_start(state: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Resolve a SubagentStart to its persisted reservation, never its phase field."""
+    reservations = _normalize_phase_reservations(state)
+    if not reservations:
+        return ""
+    routing = state.get("routing")
+    fingerprint = str(routing.get("decision_fingerprint") or "") if isinstance(routing, dict) else ""
+    if not fingerprint:
+        return ""
+    shape, invocation_id = _spawn_metadata(payload)
+    matches: list[str] = []
+    for phase, reservation in reservations.items():
+        if str(reservation.get("fingerprint") or "") != fingerprint:
+            continue
+        recorded_shape = _bounded_text(reservation.get("spawn_shape"), limit=64)
+        recorded_invocation = _bounded_text(reservation.get("invocation_id"), limit=80)
+        identity_match = bool(
+            recorded_invocation
+            and invocation_id
+            and recorded_invocation == invocation_id
+        )
+        shape_match = bool(recorded_shape and shape and recorded_shape == shape)
+        if identity_match or shape_match:
+            matches.append(phase)
+    return matches[0] if len(matches) == 1 else ""
+
+
 def _infer_intent(prompt: str, payload: dict[str, Any]) -> str:
     explicit = _bounded_text(_payload_value(payload, "intent", "task_type", "taskType"), limit=48)
     if explicit:
@@ -1139,6 +1166,16 @@ def mark_advisor(payload: dict[str, Any], *, completed: bool) -> dict[str, Any]:
     with locked_state(payload) as state:
         ensure_state_shape(state, payload)
         phase = phase_from_payload(payload, state)
+        if not completed:
+            reservations = _normalize_phase_reservations(state)
+            if reservations:
+                reserved_phase = reserved_phase_for_start(state, payload)
+                if not reserved_phase:
+                    # A real SubagentStart must follow the validated native
+                    # spawn reservation. Do not let caller-supplied phase
+                    # metadata account for an unmatched or ambiguous start.
+                    return dict(state)
+                phase = reserved_phase
         state["phase"] = phase
         fingerprint = str(state.get("decision_fingerprint", ""))
         if completed:
