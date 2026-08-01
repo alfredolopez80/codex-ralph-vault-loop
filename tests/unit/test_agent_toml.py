@@ -22,6 +22,7 @@ REQUIRED_AGENTS = {
     "ralph-vision-analyst",
     "ralph-evaluator",
     "thermo-nuclear-code-quality-review",
+    "sol-advisor",
 }
 
 

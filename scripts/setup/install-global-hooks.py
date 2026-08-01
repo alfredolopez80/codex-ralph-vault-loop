@@ -34,6 +34,7 @@ DEFAULT_SKILLS = frozenset(
         "bugbot-pr-review", "review-pr", "ultrathink", "improve-prompt", "make-requirements-great",
         "framing-doc", "kickoff-doc", "ralph-opportunity-scout", "thermo-nuclear-code-quality-review",
         "telegram-app-integration",
+        "sol-advisor",
     }
 )
 DEFAULT_AGENTS = frozenset(
@@ -42,6 +43,7 @@ DEFAULT_AGENTS = frozenset(
         "ralph-vault-curator.toml", "ralph-openclaw-fast.toml", "ralph-zai-counterpart.toml",
         "ralph-minimax-fast.toml", "ralph-search-researcher.toml", "ralph-vision-analyst.toml",
         "ralph-evaluator.toml", "ralph-slop-reviewer.toml", "thermo-nuclear-code-quality-review.toml",
+        "sol-advisor.toml",
     }
 )
 
@@ -54,24 +56,29 @@ HOOK_ROLES: dict[str, tuple[tuple[str, int], ...]] = {
     "SessionStart": (("session_start_wakeup", 45),),
     "UserPromptSubmit": (
         ("universal_prompt_classifier", 10),
+        ("sol_advisor_prompt_state", 10),
         ("user_prompt_capture", 10),
         ("user_prompt_improve", 10),
         ("continuity_prompt_context", 10),
     ),
-    "PreToolUse": (("pre_tool_guard", 10),),
+    "PreToolUse": (("pre_tool_guard", 10), ("sol_advisor_pretool_guard", 10)),
     "PostToolUse": (
         ("file_line_guard_post_tool", 10),
         ("shaping_ripple", 10),
         ("post_tool_extract_memory", 10),
         ("post_tool_checkpoint", 10),
+        ("sol_advisor_observer", 10),
         ("post_tool_cost_ledger", 10),
     ),
+    "SubagentStart": (("sol_advisor_subagent_context", 10),),
+    "SubagentStop": (("sol_advisor_subagent_stop", 10),),
     "Stop": (
         ("anti_rationalization_stop", 10),
         ("ralph_stop_quality_gate", 10),
         ("file_line_guard_stop", 20),
         ("stop_route_decision_warn", 10),
         ("implementation_notes_guard", 10),
+        ("sol_advisor_stop_guard", 10),
         ("stop_persist_memory", 20),
         ("stop_memory_promotion_review", 20),
     ),
