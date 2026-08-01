@@ -17,7 +17,20 @@ def main() -> int:
         payload = read_hook_input()
         state = read_state(payload)
         routing = state.get("routing")
-        if not state.get("final_review_eligible") or state.get("advisor_completed"):
+        if (
+            is_sol_advisor(payload)
+            and state.get("advisor_completed")
+            and state.get("prior_verdict_fingerprint")
+            and state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
+        ):
+            write_json(
+                {
+                    "decision": "block",
+                    "reason": "An equivalent Sol verdict is already complete; reuse it unless the evidence changes.",
+                }
+            )
+            return 0
+        if not state.get("final_review_eligible"):
             return 0
         # Codex currently omits fork metadata from some PreToolUse payloads.
         # Reject an explicit inherited fork, but let the native instruction

@@ -142,6 +142,22 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
     assert completed_state["advisor_completed"] is True
     assert completed_state["prior_verdict_fingerprint"] == completed_state["decision_fingerprint"]
 
+    phase_shift = run_configured_event(
+        "SubagentStart",
+        {**subagent_start, "phase": "final", "agent_id": "equivalent-phase-start"},
+        env,
+    )
+    assert all(blocking_payload(result.stdout) is None for result in phase_shift)
+    phase_state, _ = routing_state(env, session_id)
+    assert phase_state["phase"] == "final", phase_state
+    equivalent_results = run_configured_event("PreToolUse", pretool_payload, env, stop_on_block=True)
+    equivalent_block = next(
+        (blocking_payload(result.stdout) for result in equivalent_results if blocking_payload(result.stdout)),
+        None,
+    )
+    assert equivalent_block is not None
+    assert "equivalent Sol verdict" in str(equivalent_block["reason"])
+
     main_stop = {
         "hook_event_name": "Stop",
         "session_id": session_id,
