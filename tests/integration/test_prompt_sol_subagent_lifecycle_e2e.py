@@ -180,6 +180,49 @@ def test_configured_lifecycle_routes_complexity_seven_to_the_same_sol_advisor_la
     assert_sources_unchanged(snapshot)
 
 
+def test_configured_routing_hook_covers_every_complexity_level(tmp_path: Path) -> None:
+    snapshot = immutable_source_snapshot()
+    hook = configured_command("UserPromptSubmit", "sol_advisor_prompt_state.py")
+    expected_routes = {
+        1: ("none", None, None),
+        2: ("none", None, None),
+        3: ("none", None, None),
+        4: ("terra-implementation", "gpt-5.6-terra", "high"),
+        5: ("terra-implementation", "gpt-5.6-terra", "high"),
+        6: ("terra-implementation", "gpt-5.6-terra", "high"),
+        7: ("sol-advisor", "gpt-5.6-sol", "high"),
+        8: ("sol-advisor", "gpt-5.6-sol", "high"),
+        9: ("sol-advisor", "gpt-5.6-sol", "xhigh"),
+        10: ("sol-advisor", "gpt-5.6-sol", "max"),
+    }
+
+    for level, (expected_route, expected_model, expected_effort) in expected_routes.items():
+        env = isolated_env(tmp_path / f"level-{level}")
+        session_id = f"scale-{level}"
+        intent = "implementation" if 4 <= level <= 6 else "architecture" if level >= 9 else "routine"
+        payload = {
+            **prompt_payload(session_id, f"Bounded scale verification for complexity {level}."),
+            "complexity": level,
+            "intent": intent,
+        }
+
+        results = run_configured_event("UserPromptSubmit", payload, env, commands=[hook])
+        assert all(result.stdout for result in results)
+        state, decision = routing_state(env, session_id)
+        assert decision["policy_version"] == "subagent-routing-v2"
+        assert decision["raw_complexity"] == level
+        assert decision["effective_complexity"] == level
+        assert decision["configured_executor_model"] == "gpt-5.6-luna"
+        assert decision["configured_executor_effort"] == "max"
+        assert decision["subagent_route"] == expected_route
+        assert decision["subagent_model"] == expected_model
+        assert decision["subagent_effort"] == expected_effort
+        assert decision["spawn_required"] is (expected_route != "none")
+        assert payload["prompt"] not in json.dumps(state)
+
+    assert_sources_unchanged(snapshot)
+
+
 def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     snapshot = immutable_source_snapshot()

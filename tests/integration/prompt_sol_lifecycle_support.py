@@ -98,9 +98,10 @@ def run_configured_event(
     env: dict[str, str],
     *,
     stop_on_block: bool = False,
+    commands: list[str] | None = None,
 ) -> list[subprocess.CompletedProcess[str]]:
     results: list[subprocess.CompletedProcess[str]] = []
-    for command in configured_commands(event):
+    for command in commands if commands is not None else configured_commands(event):
         result = run_command(command, payload, env)
         assert result.returncode == 0, f"{event} {command}: {result.stderr or result.stdout}"
         results.append(result)
