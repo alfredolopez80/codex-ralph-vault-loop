@@ -312,6 +312,36 @@ def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending
         assert result.stdout == ""
 
 
+def test_routing_guard_blocks_unmanaged_history_even_with_green_task_state(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "generic-history-green-state"
+    run_configured_event(
+        "UserPromptSubmit",
+        prompt_payload(session_id, high_complexity_prompt()),
+        env,
+    )
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "unclassified_lane",
+                "fork_turns": "all",
+                "message": "The brief is benign, but history must not be inherited.",
+            },
+        },
+        env,
+    )
+
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "fork_turns=none" in str(block["reason"])
+
+
 def test_routing_guard_blocks_managed_spawn_without_routing_state(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
@@ -515,7 +545,7 @@ def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_p
     )
     inherited_block = blocking_payload(inherited_history.stdout)
     assert inherited_block is not None
-    assert "classified task state" in str(inherited_block["reason"])
+    assert "fork_turns=none" in str(inherited_block["reason"])
 
     generated = "\n".join(
         path.read_text(encoding="utf-8", errors="replace")

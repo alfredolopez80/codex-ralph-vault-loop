@@ -243,6 +243,81 @@ def test_continuation_reuses_validated_active_analysis_evidence(tmp_path: Path, 
     assert continued["routing"]["active_analysis_eligible"] is True
 
 
+def test_task_boundary_does_not_reuse_active_analysis_evidence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(
+        tmp_path,
+        complexity=9,
+        intent="architecture",
+        active_analysis_enabled=True,
+        bounded_scope=True,
+        local_verification_available=True,
+        budget_class="small",
+        task_subagent_override={"route": "sol-active-analysis", "reasoning_effort": "xhigh"},
+        prompt="Validate this bounded architecture decision.",
+    )
+    initial = initialize(event)
+    assert initial is not None
+
+    fresh_payload = {
+        key: value
+        for key, value in event.items()
+        if key
+        not in {
+            "active_analysis_enabled",
+            "bounded_scope",
+            "local_verification_available",
+            "budget_class",
+            "task_subagent_override",
+            "prompt",
+        }
+    }
+    fresh = initialize(
+        {
+            **fresh_payload,
+            "new_task": True,
+            "prompt": "continua con una nueva tarea de arquitectura",
+        }
+    )
+
+    assert fresh is not None
+    assert fresh["task_id"] != initial["task_id"]
+    assert fresh["active_analysis_enabled"] is False
+    assert fresh["routing"]["subagent_route"] == "sol-advisor"
+    assert fresh["routing"]["active_analysis_eligible"] is False
+
+
+def test_invalid_or_failed_hard_gates_cannot_reactivate_active_analysis(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(
+        tmp_path,
+        complexity=9,
+        intent="architecture",
+        active_analysis_enabled=True,
+        bounded_scope=True,
+        local_verification_available=True,
+        hard_gates_pass=True,
+        budget_class="small",
+        task_subagent_override={"route": "sol-active-analysis", "reasoning_effort": "xhigh"},
+        prompt="Validate this bounded architecture decision.",
+    )
+    initialize(event)
+
+    failed = initialize({**event, "hard_gates_pass": False, "prompt": "continua: hard gates failed"})
+    assert failed is not None
+    assert failed["hard_gates_pass"] is False
+    assert failed["routing"]["subagent_route"] == "sol-advisor"
+    assert failed["routing"]["active_analysis_eligible"] is False
+
+    omitted = {
+        key: value for key, value in event.items() if key not in {"hard_gates_pass", "prompt"}
+    }
+    invalid = initialize({**omitted, "hard_gates_pass": "bogus", "prompt": "continua: retry"})
+    assert invalid is not None
+    assert invalid["hard_gates_pass"] is False
+    assert invalid["routing"]["active_analysis_eligible"] is False
+
+
 def test_continuation_reuses_bounded_task_and_session_overrides(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(

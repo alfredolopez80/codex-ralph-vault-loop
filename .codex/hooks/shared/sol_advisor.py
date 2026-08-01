@@ -140,7 +140,7 @@ def _payload_value(payload: dict[str, Any], *keys: str) -> object:
     return None
 
 
-def _coerce_bool(value: object, *, default: bool) -> bool:
+def _parse_bool(value: object) -> bool | None:
     """Decode structured boolean evidence without treating ``"false"`` as true."""
     if isinstance(value, bool):
         return value
@@ -152,7 +152,7 @@ def _coerce_bool(value: object, *, default: bool) -> bool:
             return True
         if normalized in {"false", "no", "0"}:
             return False
-    return default
+    return None
 
 
 ROUTING_EVIDENCE: tuple[tuple[str, tuple[str, ...], bool], ...] = (
@@ -169,7 +169,15 @@ def _capture_routing_evidence(state: dict[str, Any], payload: dict[str, Any]) ->
     for state_key, payload_keys, default in ROUTING_EVIDENCE:
         value = _payload_value(payload, *payload_keys)
         if value is not None:
-            state[state_key] = _coerce_bool(value, default=default)
+            parsed = _parse_bool(value)
+            # A failed hard gate is sticky for the current task. Only the
+            # explicit task-boundary branch creates a fresh state that can
+            # establish a new gate result; an omitted or malformed
+            # continuation value must never restore active analysis.
+            if state_key == "hard_gates_pass" and state.get(state_key) is False and not is_task_boundary(payload, ""):
+                state[state_key] = False
+            else:
+                state[state_key] = parsed if parsed is not None else False
     budget_value = _payload_value(payload, "budget_class", "budgetClass")
     if budget_value is not None:
         state["budget_class"] = _bounded_text(budget_value, limit=32) or None
@@ -181,7 +189,12 @@ def _routing_bool(
     value = _payload_value(payload, *payload_keys)
     if value is None:
         value = state.get(state_key, default)
-    return _coerce_bool(value, default=default)
+        parsed = _parse_bool(value)
+        return parsed if parsed is not None else default
+    parsed = _parse_bool(value)
+    # Explicit malformed gate evidence fails closed. In particular, a bogus
+    # hard_gates_pass value cannot reactivate a previously rejected route.
+    return parsed if parsed is not None else False
 
 
 def _infer_intent(prompt: str, payload: dict[str, Any]) -> str:
@@ -616,7 +629,11 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
     if not isinstance(state["routing"], dict):
         state["routing"] = {}
     for state_key, _payload_keys, default in ROUTING_EVIDENCE:
-        state[state_key] = _coerce_bool(state.get(state_key), default=default)
+        if state_key not in state:
+            state[state_key] = default
+        else:
+            parsed = _parse_bool(state.get(state_key))
+            state[state_key] = parsed if parsed is not None else False
     state["budget_class"] = _bounded_text(state.get("budget_class"), limit=32) or None
     for override_key in ("task_subagent_override", "session_subagent_override"):
         state[override_key] = _override_record(state.get(override_key))
@@ -699,7 +716,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     if not prompt or is_red(prompt):
         return None
     existing = read_state(payload)
-    if existing and CONTINUATION_RE.search(prompt):
+    if existing and CONTINUATION_RE.search(prompt) and not is_task_boundary(payload, prompt):
         with locked_state(payload) as state:
             ensure_state_shape(state, payload)
             state.update(

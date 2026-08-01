@@ -157,15 +157,14 @@ def main() -> int:
             _block("RED-sensitive task state remains local and cannot be delegated to a native subagent.")
             return 0
         if not managed_spawn:
-            # Existing reviewer, tester, security, explorer, and custom native
-            # profiles remain under their existing controls. A pending managed
-            # recommendation does not reserve the native spawn tool for its
-            # own route; only the requested spawn identity enters this guard.
-            has_persisted_classification = "sensitivity" in state or (
-                isinstance(routing, dict) and "sensitivity" in routing
-            )
-            if requested_fork not in NO_HISTORY_VALUES and not has_persisted_classification:
-                _block("Native spawns that inherit history require a classified task state.")
+            # A prompt-level classification cannot prove that later assistant
+            # or tool output is safe to inherit. Generic/native profiles must
+            # therefore use an explicit fresh fork with a bounded brief;
+            # managed profiles receive the same check below after route
+            # validation. This keeps full conversation history local even when
+            # the current task state is GREEN or YELLOW.
+            if requested_fork not in NO_HISTORY_VALUES:
+                _block("Native spawns that inherit history require fork_turns=none and a bounded brief.")
                 return 0
             return 0
         if not isinstance(routing, dict):
