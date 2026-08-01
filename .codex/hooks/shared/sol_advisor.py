@@ -553,11 +553,9 @@ def _routing_decision(
         remaining=remaining,
         explicit_class=_bounded_text(budget_class_value, limit=32) or None,
     )
-    current_epoch_value = _payload_value(payload, "current_epoch", "currentEpoch")
-    try:
-        current_epoch = int(time.time()) if current_epoch_value is None else int(current_epoch_value)
-    except (TypeError, ValueError):
-        current_epoch = int(time.time())
+    # Override expiry is a trust boundary. Never let an event payload choose
+    # the clock used to decide whether a Terra/Sol request is still valid.
+    current_epoch = int(time.time())
     executor_defaults, executor_source = _configured_executor_defaults(payload)
     decision = resolve_subagent_routing(
         RoutingRequest(
