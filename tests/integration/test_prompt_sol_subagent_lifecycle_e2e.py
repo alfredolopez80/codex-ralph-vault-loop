@@ -303,6 +303,7 @@ def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending
                     "task_name": "unclassified_lane",
                     "fork_turns": "none",
                     "route": "other",
+                    "message": "Review this bounded, unrelated task.",
                 },
             },
             env,

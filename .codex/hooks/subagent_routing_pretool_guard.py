@@ -163,6 +163,13 @@ def main() -> int:
             # managed profiles receive the same check below after route
             # validation. This keeps full conversation history local even when
             # the current task state is GREEN or YELLOW.
+            native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
+            if sum(len(brief) for brief in native_briefs) > MAX_BRIEF_CHARS:
+                _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
+                return 0
+            if not native_briefs:
+                _block("Native subagent spawn requires a non-empty bounded decision brief.")
+                return 0
             if requested_fork not in NO_HISTORY_VALUES:
                 _block("Native spawns that inherit history require fork_turns=none and a bounded brief.")
                 return 0
@@ -254,7 +261,7 @@ def main() -> int:
         # Ordinary tools remain fail-open, but once a native spawn has been
         # identified, a validation failure must fail closed at this trust
         # boundary instead of silently bypassing routing and RED controls.
-        if normalized_tool in {"spawn_agent", "spawnagent"} and managed_spawn:
+        if normalized_tool in {"spawn_agent", "spawnagent"}:
             try:
                 _block("Subagent routing validation failed; the spawn was blocked for safety.")
             except Exception:
