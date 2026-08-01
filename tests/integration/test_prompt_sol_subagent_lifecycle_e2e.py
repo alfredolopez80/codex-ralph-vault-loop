@@ -598,6 +598,21 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     def run_pretool(payload: dict[str, object]) -> list[subprocess.CompletedProcess[str]]:
         return run_configured_event("PreToolUse", payload, env)
 
+    invalid_results = run_pretool(
+        {
+            **base,
+            "tool_input": {**spawn, "reasoning_effort": "xhigh"},
+        }
+    )
+    invalid_block = next(
+        (blocking_payload(result.stdout) for result in invalid_results if blocking_payload(result.stdout)),
+        None,
+    )
+    assert invalid_block is not None
+    assert "effort" in str(invalid_block["reason"])
+    invalid_state, _ = routing_state(env, session_id)
+    assert invalid_state["phase_reservations"] == {}
+
     first_results = run_pretool(base)
     assert all(blocking_payload(result.stdout) is None for result in first_results)
     first_state, _ = routing_state(env, session_id)

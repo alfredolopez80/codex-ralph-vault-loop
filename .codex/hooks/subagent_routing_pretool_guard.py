@@ -6,7 +6,7 @@ from typing import Any
 
 from shared.paths import read_hook_input, write_json
 from shared.redaction import is_red
-from shared.sol_advisor import read_state
+from shared.sol_advisor import normalize_phase, read_state, reserve_sol_consultation
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
@@ -278,6 +278,27 @@ def main() -> int:
         if requested_fork not in NO_HISTORY_VALUES:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
+        if (
+            expected_route in {"sol-advisor", "sol-active-analysis"}
+            and state.get("advisor_completed")
+            and state.get("prior_verdict_fingerprint")
+            and state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
+        ):
+            _block("An equivalent Sol verdict is already complete; reuse it unless the evidence changes.")
+            return 0
+        # This is deliberately the last mutation in the contract validator.
+        # PreToolUse hooks continue after a block, so reserving in a later Sol
+        # hook could poison a phase after this validator rejected the payload.
+        if expected_route in {"sol-advisor", "sol-active-analysis"} and state.get("final_review_eligible"):
+            phase = normalize_phase(state.get("phase")) or "plan"
+            reserved, reason = reserve_sol_consultation(
+                payload,
+                phase,
+                str(routing.get("decision_fingerprint") or ""),
+            )
+            if not reserved:
+                _block(reason)
+                return 0
     except Exception:
         # Ordinary tools remain fail-open, but once a native spawn has been
         # identified, a validation failure must fail closed at this trust

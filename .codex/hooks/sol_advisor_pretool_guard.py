@@ -6,9 +6,7 @@ from shared.sol_advisor import (
     has_fork_metadata,
     has_no_history_fork,
     is_sol_advisor,
-    normalize_phase,
     read_state,
-    reserve_sol_consultation,
 )
 
 
@@ -43,18 +41,6 @@ def main() -> int:
                 }
             )
             return 0
-        if is_sol_advisor(payload) and isinstance(routing, dict) and routing.get("subagent_route") in {
-            "sol-advisor",
-            "sol-active-analysis",
-        }:
-            phase = normalize_phase(state.get("phase")) or "plan"
-            reserved, reason = reserve_sol_consultation(
-                payload,
-                phase,
-                str(routing.get("decision_fingerprint") or ""),
-            )
-            if not reserved:
-                write_json({"decision": "block", "reason": reason})
     except Exception:
         pass
     return 0
