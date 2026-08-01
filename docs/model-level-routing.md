@@ -48,6 +48,11 @@ non-RED classification, compatibility-proven capability, bounded scope, local
 verification availability, explicit budget class, and remaining allowance. It
 remains read-only and never grants implementation, merge, or approval authority.
 
+Explicit continuations may raise the persisted Aristotle complexity
+monotonically and refresh the route; an explicit task boundary is required to
+start lower. Executor metadata reads repository configuration first, then the
+global `CODEX_HOME/config.toml`, and uses Luna/Max only when neither exists.
+
 ## Spawn contract and overrides
 
 The recommendation records the route, model, effort, mode, budget, expiry,

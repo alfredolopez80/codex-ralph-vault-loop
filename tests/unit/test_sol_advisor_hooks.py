@@ -71,6 +71,7 @@ def test_routine_task_stays_local_and_does_not_consult_sol(tmp_path: Path, monke
 
 def test_neutral_workspace_records_luna_fallback_as_global_executor_source(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-codex-home"))
     event = {
         "cwd": str(tmp_path / "workspace-without-config"),
         "session_id": "fallback-source",
@@ -84,6 +85,28 @@ def test_neutral_workspace_records_luna_fallback_as_global_executor_source(tmp_p
     assert state["routing"]["configured_executor_model"] == "gpt-5.6-luna"
     assert state["routing"]["configured_executor_effort"] == "max"
     assert state["routing"]["configured_executor_source"] == "fallback"
+
+
+def test_neutral_workspace_reads_global_executor_config_when_present(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model = "global-test-model"\nmodel_reasoning_effort = "high"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    state = initialize(
+        {
+            "cwd": str(tmp_path / "neutral"),
+            "session_id": "global-source",
+            "complexity": 1,
+            "prompt": "Explain the repository status.",
+        }
+    )
+
+    assert state is not None
+    assert state["routing"]["configured_executor_model"] == "global-test-model"
+    assert state["routing"]["configured_executor_source"] == "global"
 
 
 def test_two_distinct_failures_make_an_existing_material_task_stuck_eligible(tmp_path: Path, monkeypatch) -> None:
@@ -128,6 +151,25 @@ def test_continuation_keeps_existing_consultation_budget(tmp_path: Path, monkeyp
     assert continued["consultation_count"] == 1
     assert continued["advisor_started"] is True
     assert continued["decision_fingerprint"] == decision_fingerprint(continued)
+
+
+def test_continuation_can_raise_monotonic_complexity_and_refresh_the_lane(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, complexity=1, prompt="Explain the repository status.")
+    initialize(event)
+
+    continued = initialize(
+        {
+            **event,
+            "complexity": 8,
+            "intent": "architecture",
+            "prompt": "continua: diseña ahora la arquitectura de migración.",
+        }
+    )
+
+    assert continued is not None
+    assert continued["complexity"] == 8
+    assert continued["routing"]["subagent_route"] == "sol-advisor"
 
 
 def test_continuation_reuses_bounded_task_and_session_overrides(tmp_path: Path, monkeypatch) -> None:

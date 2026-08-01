@@ -229,18 +229,24 @@ def _configured_executor_defaults(payload: dict[str, Any]) -> tuple[ExecutorDefa
     """Read the immutable executor default; hooks never write this file."""
     cwd_value = payload.get("cwd")
     cwd = Path(cwd_value) if isinstance(cwd_value, str) and cwd_value else Path.cwd()
-    candidates = [cwd / ".codex" / "config.toml"]
+    candidates: list[tuple[Path, str]] = [(cwd / ".codex" / "config.toml", "repository")]
     try:
-        candidates.append(Path(os.path.realpath(cwd)) / ".codex" / "config.toml")
+        candidates.append((Path(os.path.realpath(cwd)) / ".codex" / "config.toml", "repository"))
     except (OSError, TypeError):
         pass
-    for candidate in candidates:
+    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+    candidates.append((codex_home / "config.toml", "global"))
+    seen: set[Path] = set()
+    for candidate, source in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
         try:
             config = tomllib.loads(candidate.read_text(encoding="utf-8"))
             model = _bounded_text(config.get("model"), limit=64)
             effort = _bounded_text(config.get("model_reasoning_effort"), limit=16)
             if model and effort:
-                return ExecutorDefaults(model, effort), "repository"
+                return ExecutorDefaults(model, effort), source
         # ``tomllib`` is provided by the runtime on newer Python versions and
         # by this repository's compatibility parser on older ones.  Both
         # surface malformed input as a ValueError-family failure, but the
@@ -621,6 +627,15 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
     if existing and CONTINUATION_RE.search(prompt):
         with locked_state(payload) as state:
             ensure_state_shape(state, payload)
+            state.update(
+                merge_existing_state(
+                    dict(state),
+                    complexity=classification_complexity(payload),
+                    reasons=sorted({match.group(1).lower() for match in HIGH_IMPACT_RE.finditer(prompt)})[:4],
+                    high_impact=bool(HIGH_IMPACT_RE.search(prompt)),
+                    explicit_request=bool(EXPLICIT_RE.search(prompt)),
+                )
+            )
             _capture_payload_overrides(state, payload)
             _refresh_routing(state, payload, prompt)
             state["decision_fingerprint"] = decision_fingerprint(state)

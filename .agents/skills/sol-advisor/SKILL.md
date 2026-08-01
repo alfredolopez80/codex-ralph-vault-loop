@@ -67,6 +67,11 @@ verification available, an explicit budget class with remaining allowance, and
 a compatibility-proven active-analysis capability. It remains read-only and
 does not authorize implementation, merge, approval, or a current-model change.
 
+An explicit continuation can raise the persisted complexity and refresh the
+route monotonically; a new-task boundary is required to reset it. Executor
+metadata follows repository config, then `CODEX_HOME/config.toml`, before the
+Luna/Max fallback.
+
 ## Brief
 
 Give Sol only:
