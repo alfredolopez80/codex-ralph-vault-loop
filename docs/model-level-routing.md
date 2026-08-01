@@ -12,6 +12,13 @@ arguments. They never start a subagent, change the current executor, or edit
 `.codex/config.toml` during a turn. Z.ai and MiniMax retain their separate MCP
 routing policy; this document does not create a direct non-OpenAI provider.
 
+The Multi-Agent V2 coordination diagram used during design is inspirational,
+not an acceptance target for this policy. This rollout intentionally remains a
+centralized Luna-led parent-to-worker workflow with bounded Terra/Sol lanes;
+Planner, Architect, Researcher, Designer, QA, Analyst, Engineer, Docs,
+Deployer, persistent peer edges, and mandatory fresh-review orchestration are
+separate future work and are not claimed by this implementation.
+
 ## Deterministic policy
 
 The pure `subagent-routing-v2` helper accepts an Aristotle classification,
