@@ -90,6 +90,8 @@ Hooks never initiate a spawn or silently repair unsupported arguments.
 Managed calls also require a non-empty bounded native brief. Any native spawn
 is blocked while the persisted task sensitivity is RED, even when the caller
 uses a generic profile that could inherit conversation history.
+An inherited-history spawn without a persisted task classification is blocked
+as well; generic no-history profiles remain outside the managed route checks.
 
 ## Use the answer
 

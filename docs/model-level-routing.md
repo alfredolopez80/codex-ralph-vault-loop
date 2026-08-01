@@ -103,6 +103,9 @@ Every managed Terra/Sol spawn must include a non-empty native decision brief;
 the guard rejects an omitted brief or one over the bounded context limit. The
 same pre-tool boundary blocks any native profile while the persisted task is
 RED, including a generic profile that would otherwise inherit full history.
+When no task classification exists, a native spawn requesting inherited
+history is also blocked; generic no-history profiles retain their existing
+pass-through behavior.
 
 ## Local-first rollout and rollback
 

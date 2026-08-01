@@ -128,6 +128,7 @@ def main() -> int:
             _block("RED-sensitive subagent brief remains local and cannot be delegated.")
             return 0
 
+        requested_fork = str(_value(payload, "fork_turns", "forkTurns", "history_mode", "historyMode") or "").strip().lower()
         state = read_state(payload)
         routing = state.get("routing")
         persisted_sensitivity = str(state.get("sensitivity", "GREEN")).strip().upper()
@@ -144,6 +145,12 @@ def main() -> int:
             # profiles remain under their existing controls. A pending managed
             # recommendation does not reserve the native spawn tool for its
             # own route; only the requested spawn identity enters this guard.
+            has_persisted_classification = "sensitivity" in state or (
+                isinstance(routing, dict) and "sensitivity" in routing
+            )
+            if requested_fork not in NO_HISTORY_VALUES and not has_persisted_classification:
+                _block("Native spawns that inherit history require a classified task state.")
+                return 0
             return 0
         if not isinstance(routing, dict):
             _block("Subagent routing state is missing; the spawn must be classified before it is created.")
@@ -205,7 +212,6 @@ def main() -> int:
         requested_model = model
         requested_effort = str(_value(payload, "reasoning_effort", "reasoningEffort", "effort") or "").strip().lower()
         requested_task = task_name
-        requested_fork = str(_value(payload, "fork_turns", "forkTurns", "history_mode", "historyMode") or "").strip().lower()
         if requested_model != expected_model:
             _block(f"Unsupported subagent model for this route: expected {expected_model or 'none'}.")
             return 0

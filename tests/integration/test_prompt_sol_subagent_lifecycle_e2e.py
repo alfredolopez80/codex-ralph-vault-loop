@@ -478,6 +478,26 @@ def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_p
     assert not state_path(env, session_id).exists()
     assert not any("Sol advisor eligibility: yes" in context for context in context_values(results))
 
+    inherited_history = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "reviewer",
+                "fork_turns": "all",
+                "message": "The explicit brief is benign, but history must not be inherited.",
+            },
+        },
+        env,
+    )
+    inherited_block = blocking_payload(inherited_history.stdout)
+    assert inherited_block is not None
+    assert "classified task state" in str(inherited_block["reason"])
+
     generated = "\n".join(
         path.read_text(encoding="utf-8", errors="replace")
         for path in tmp_path.rglob("*")
