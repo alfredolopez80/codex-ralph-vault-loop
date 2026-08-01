@@ -109,6 +109,53 @@ def test_neutral_workspace_reads_global_executor_config_when_present(tmp_path: P
     assert state["routing"]["configured_executor_source"] == "global"
 
 
+def test_nested_repository_cwd_reads_the_repository_executor_config(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-codex-home"))
+    repository = tmp_path / "repo"
+    (repository / ".git").mkdir(parents=True)
+    (repository / ".codex").mkdir()
+    (repository / ".codex" / "config.toml").write_text(
+        'model = "nested-repo-model"\nmodel_reasoning_effort = "max"\n', encoding="utf-8"
+    )
+    nested = repository / "packages" / "feature"
+    nested.mkdir(parents=True)
+    state = initialize(
+        {
+            "cwd": str(nested),
+            "session_id": "nested-repo-source",
+            "complexity": 1,
+            "prompt": "Explain the repository status.",
+        }
+    )
+
+    assert state is not None
+    assert state["routing"]["configured_executor_model"] == "nested-repo-model"
+    assert state["routing"]["configured_executor_source"] == "repository"
+
+
+def test_neutral_workspace_reads_global_executor_config_when_present(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model = "global-test-model"\nmodel_reasoning_effort = "high"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    state = initialize(
+        {
+            "cwd": str(tmp_path / "neutral"),
+            "session_id": "global-source",
+            "complexity": 1,
+            "prompt": "Explain the repository status.",
+        }
+    )
+
+    assert state is not None
+    assert state["routing"]["configured_executor_model"] == "global-test-model"
+    assert state["routing"]["configured_executor_source"] == "global"
+
+
 def test_two_distinct_failures_make_an_existing_material_task_stuck_eligible(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     event = payload(tmp_path, prompt="Decide the rollout architecture.")
@@ -255,6 +302,10 @@ def test_red_sensitivity_is_sticky_across_a_continuation(tmp_path: Path, monkeyp
     assert continued["sensitivity"] == "RED"
     assert continued["routing"]["sensitivity"] == "RED"
     assert continued["routing"]["subagent_route"] == "none"
+
+    natural_boundary = initialize({**event, "prompt": "start a new validation step"})
+    assert natural_boundary is not None
+    assert natural_boundary["sensitivity"] == "RED"
 
     fresh = initialize({**event, "new_task": True, "sensitivity": "GREEN", "prompt": "Start a routine task."})
     assert fresh is not None

@@ -71,6 +71,9 @@ An explicit continuation can raise the persisted complexity and refresh the
 route monotonically; a new-task boundary is required to reset it. Executor
 metadata follows repository config, then `CODEX_HOME/config.toml`, before the
 Luna/Max fallback.
+Only structured boundary fields reset sticky sensitivity; natural-language
+phrasing alone cannot clear RED. Repository lookup walks ancestors to the Git
+root before consulting global configuration.
 
 ## Brief
 

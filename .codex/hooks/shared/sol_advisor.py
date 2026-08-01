@@ -39,11 +39,6 @@ HIGH_IMPACT_RE = re.compile(
 )
 EXPLICIT_RE = re.compile(r"\b(sol[ -]?advisor|consult(?:ar)?\s+(?:a\s+)?sol)\b", re.IGNORECASE)
 CONTINUATION_RE = re.compile(r"^\s*(continue|continua|sigue|resume|where were we)\b", re.IGNORECASE)
-TASK_BOUNDARY_RE = re.compile(
-    r"^\s*(?:new|nueva|another|otra|separate|unrelated|different|distinta|"
-    r"start(?:ing)?\s+(?:a\s+)?new|reinicia(?:r)?|empezar\s+de\s+nuevo)\b",
-    re.IGNORECASE,
-)
 SOL_MODEL = ROUTING_SOL_MODEL
 SENSITIVITY_RANK = {"GREEN": 0, "YELLOW": 1, "RED": 2}
 
@@ -229,11 +224,19 @@ def _configured_executor_defaults(payload: dict[str, Any]) -> tuple[ExecutorDefa
     """Read the immutable executor default; hooks never write this file."""
     cwd_value = payload.get("cwd")
     cwd = Path(cwd_value) if isinstance(cwd_value, str) and cwd_value else Path.cwd()
-    candidates: list[tuple[Path, str]] = [(cwd / ".codex" / "config.toml", "repository")]
+    candidates: list[tuple[Path, str]] = []
+    repository_bases = [cwd]
     try:
-        candidates.append((Path(os.path.realpath(cwd)) / ".codex" / "config.toml", "repository"))
+        repository_bases.append(Path(os.path.realpath(cwd)))
     except (OSError, TypeError):
         pass
+    for base in repository_bases:
+        current = base
+        while True:
+            candidates.append((current / ".codex" / "config.toml", "repository"))
+            if (current / ".git").exists() or current.parent == current:
+                break
+            current = current.parent
     codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
     candidates.append((codex_home / "config.toml", "global"))
     seen: set[Path] = set()
@@ -557,7 +560,7 @@ def is_task_boundary(payload: dict[str, Any], prompt: str) -> bool:
     for key in ("new_task", "newTask", "task_boundary", "taskBoundary", "start_new_task", "startNewTask"):
         if payload.get(key) is True:
             return True
-    return bool(TASK_BOUNDARY_RE.search(prompt))
+    return False
 
 
 def merge_existing_state(
