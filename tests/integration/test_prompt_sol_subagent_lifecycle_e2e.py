@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from prompt_sol_lifecycle_support import (
@@ -308,6 +309,30 @@ def test_routing_guard_validates_namespaced_spawn_agent_tools(tmp_path: Path) ->
     assert blocking_payload(result.stdout) is None
 
 
+def test_routing_guard_blocks_conflicting_spawn_envelope_fields(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "conflicting-spawn-envelope"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    _, decision = routing_state(env, session_id)
+    spawn = dict(decision["spawn_arguments"])
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "fork_turns": "none",
+            "tool_input": {**spawn, "message": "Return a bounded verdict.", "fork_turns": "all"},
+        },
+        env,
+    )
+
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "validation failed" in str(block["reason"])
+
+
 def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
@@ -546,7 +571,6 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
         **dict(decision["spawn_arguments"]),
         "message": "Review this bounded decision and return a compact verdict.",
     }
-    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
     base = {
         "hook_event_name": "PreToolUse",
         "session_id": session_id,
@@ -555,14 +579,20 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
         "tool_input": spawn,
     }
 
-    first = run_command(guard, base, env)
-    assert blocking_payload(first.stdout) is None
+    def run_pretool(payload: dict[str, object]) -> list[subprocess.CompletedProcess[str]]:
+        return run_configured_event("PreToolUse", payload, env)
+
+    first_results = run_pretool(base)
+    assert all(blocking_payload(result.stdout) is None for result in first_results)
     first_state, _ = routing_state(env, session_id)
     assert first_state["consultation_count"] == 0
     assert first_state["phase_reservations"]["plan"]
 
-    duplicate = run_command(guard, base, env)
-    duplicate_block = blocking_payload(duplicate.stdout)
+    duplicate_results = run_pretool(base)
+    duplicate_block = next(
+        (blocking_payload(result.stdout) for result in duplicate_results if blocking_payload(result.stdout)),
+        None,
+    )
     assert duplicate_block is not None
     assert "already reserved" in str(duplicate_block["reason"])
 
@@ -584,8 +614,11 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
         },
         env,
     )
-    still_reserved = run_command(guard, base, env)
-    still_reserved_block = blocking_payload(still_reserved.stdout)
+    still_reserved_results = run_pretool(base)
+    still_reserved_block = next(
+        (blocking_payload(result.stdout) for result in still_reserved_results if blocking_payload(result.stdout)),
+        None,
+    )
     assert still_reserved_block is not None
     assert "already reserved" in str(still_reserved_block["reason"])
 
@@ -603,8 +636,8 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
         env,
     )
 
-    retry = run_command(guard, base, env)
-    assert blocking_payload(retry.stdout) is None
+    retry_results = run_pretool(base)
+    assert all(blocking_payload(result.stdout) is None for result in retry_results)
 
 
 def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_path: Path) -> None:

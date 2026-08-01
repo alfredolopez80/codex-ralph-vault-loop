@@ -6,7 +6,7 @@ from typing import Any
 
 from shared.paths import read_hook_input, write_json
 from shared.redaction import is_red
-from shared.sol_advisor import read_state, reserve_sol_consultation
+from shared.sol_advisor import read_state
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
@@ -29,6 +29,22 @@ def _sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _value(payload: dict[str, Any], *keys: str) -> object:
+    nested_sources = [
+        payload[key]
+        for key in ("tool_input", "toolInput", "input")
+        if isinstance(payload.get(key), dict)
+    ]
+    for key in keys:
+        nested_values = [source[key] for source in nested_sources if key in source and source[key] is not None]
+        envelope_values = [payload[key]] if key in payload and payload[key] is not None else []
+        if nested_values:
+            selected = nested_values[0]
+            normalized = {str(value).strip().lower() for value in [*nested_values, *envelope_values]}
+            if len(normalized) > 1:
+                raise ValueError(f"conflicting native spawn field: {key}")
+            return selected
+        if envelope_values:
+            return envelope_values[0]
     for source in _sources(payload):
         for key in keys:
             value = source.get(key)
@@ -262,15 +278,6 @@ def main() -> int:
         if requested_fork not in NO_HISTORY_VALUES:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
-        if expected_route in {"sol-advisor", "sol-active-analysis"}:
-            reserved, reservation_reason = reserve_sol_consultation(
-                payload,
-                _phase(state),
-                str(routing.get("decision_fingerprint") or ""),
-            )
-            if not reserved:
-                _block(reservation_reason)
-                return 0
     except Exception:
         # Ordinary tools remain fail-open, but once a native spawn has been
         # identified, a validation failure must fail closed at this trust

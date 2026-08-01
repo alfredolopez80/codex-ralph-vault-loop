@@ -2,13 +2,21 @@
 from __future__ import annotations
 
 from shared.paths import read_hook_input, write_json
-from shared.sol_advisor import has_fork_metadata, has_no_history_fork, is_sol_advisor, read_state
+from shared.sol_advisor import (
+    has_fork_metadata,
+    has_no_history_fork,
+    is_sol_advisor,
+    normalize_phase,
+    read_state,
+    reserve_sol_consultation,
+)
 
 
 def main() -> int:
     try:
         payload = read_hook_input()
         state = read_state(payload)
+        routing = state.get("routing")
         if not state.get("final_review_eligible") or state.get("advisor_completed"):
             return 0
         # Codex currently omits fork metadata from some PreToolUse payloads.
@@ -21,6 +29,19 @@ def main() -> int:
                     "reason": "Invoke sol-advisor with a fresh no-history fork and include the compact decision brief.",
                 }
             )
+            return 0
+        if is_sol_advisor(payload) and isinstance(routing, dict) and routing.get("subagent_route") in {
+            "sol-advisor",
+            "sol-active-analysis",
+        }:
+            phase = normalize_phase(state.get("phase")) or "plan"
+            reserved, reason = reserve_sol_consultation(
+                payload,
+                phase,
+                str(routing.get("decision_fingerprint") or ""),
+            )
+            if not reserved:
+                write_json({"decision": "block", "reason": reason})
     except Exception:
         pass
     return 0
