@@ -841,6 +841,7 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         if state.get("high_impact") and failure_count >= 2:
             state["stuck_eligible"] = True
             state["phase"] = "stuck"
+            _capture_payload_overrides(state, payload)
             _capture_routing_evidence(state, payload)
             _refresh_routing(state, payload, prompt_text(payload))
             routing = state.get("routing")

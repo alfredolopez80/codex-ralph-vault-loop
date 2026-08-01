@@ -578,6 +578,11 @@ def test_stuck_transition_refreshes_routing_from_current_failure_payload(tmp_pat
     assert refreshed["routing"]["subagent_route"] == "sol-advisor"
     assert refreshed["routing"]["reason_code"] == "explicit-advisor-override"
 
+    continued = initialize({**event, "prompt": "status update"})
+    assert continued is not None
+    assert continued["task_subagent_override"]["model"] == "gpt-5.6-sol"
+    assert continued["routing"]["subagent_route"] == "sol-advisor"
+
 
 def test_final_review_reuses_equivalent_prior_verdict(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
