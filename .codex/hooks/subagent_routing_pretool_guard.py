@@ -48,8 +48,6 @@ def main() -> int:
         model = str(_value(payload, "model", "model_name", "modelName") or "").strip().lower()
         task_name = str(_value(payload, "task_name", "taskName") or "").strip().lower().replace("-", "_")
         route_requested = str(_value(payload, "subagent_route", "subagentRoute", "route") or "").strip().lower()
-        if not (model in SUPPORTED_MODELS or task_name in {"sol_advisor", "sol_active_analysis", "terra_implementation"} or route_requested):
-            return 0
 
         state = read_state(payload)
         routing = state.get("routing")

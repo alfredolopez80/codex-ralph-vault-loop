@@ -314,9 +314,11 @@ def _refresh_routing(state: dict[str, Any], payload: dict[str, Any], prompt: str
         explicit_request=bool(state.get("explicit_request")),
     )
     state["routing"] = routing
-    eligible = routing.get("subagent_route") in {"sol-advisor", "sol-active-analysis"}
-    state["final_review_eligible"] = bool(eligible)
-    state["consultation_eligible"] = bool(eligible and routing.get("spawn_required"))
+    route = routing.get("subagent_route")
+    review_eligible = route in {"sol-advisor", "sol-active-analysis"}
+    spawn_eligible = route in {"terra-implementation", "sol-advisor", "sol-active-analysis"}
+    state["final_review_eligible"] = bool(review_eligible)
+    state["consultation_eligible"] = bool(spawn_eligible and routing.get("spawn_required"))
     state["intent"] = routing.get("intent", "routine")
     state["sensitivity"] = routing.get("sensitivity", "GREEN")
     return routing

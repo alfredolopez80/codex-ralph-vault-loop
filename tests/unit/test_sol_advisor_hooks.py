@@ -347,6 +347,27 @@ def test_executor_context_requires_a_minimized_no_history_advisor_fork() -> None
     assert "compact decision brief" in context
 
 
+def test_executor_context_exposes_the_bounded_terra_implementation_contract() -> None:
+    context = executor_context(
+        {
+            "consultation_eligible": True,
+            "complexity": 4,
+            "routing": {
+                "subagent_route": "terra-implementation",
+                "effective_complexity": 4,
+                "intent": "implementation",
+                "configured_executor_model": "gpt-5.6-luna",
+                "configured_executor_effort": "max",
+            },
+        }
+    )
+
+    assert "Terra implementation is eligible" in context
+    assert "task_name=`terra_implementation`" in context
+    assert "model=`gpt-5.6-terra`" in context
+    assert "reasoning_effort=`high`" in context
+
+
 def test_sol_advisor_skill_contract_is_bounded_and_model_agnostic() -> None:
     skill = (ROOT / ".agents" / "skills" / "sol-advisor" / "SKILL.md").read_text(encoding="utf-8")
 

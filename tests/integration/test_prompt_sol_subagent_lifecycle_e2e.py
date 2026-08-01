@@ -261,6 +261,31 @@ def test_routing_guard_ignores_unrelated_tools_with_spawn_like_fields(tmp_path: 
     assert result.stdout == ""
 
 
+def test_routing_guard_blocks_an_unclassified_native_spawn(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
+    result = run_command(
+        guard,
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "unclassified-native-spawn",
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "unclassified_lane",
+                "fork_turns": "none",
+            },
+        },
+        env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "classified" in str(block["reason"])
+
+
 def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     snapshot = immutable_source_snapshot()
