@@ -530,20 +530,29 @@ main() {
 
   # ─── Memory engine health checks ─────────────────────────────────────────
   printf 'Checking memory engine scripts...\n'
-  MEM_SCRIPTS=(
+  MEM_ENTRYPOINTS=(
     "scripts/vault/vault-save.py"
     "scripts/memory/dream.py"
     "scripts/memory/graduate-rules.py"
     "scripts/vault/vault-graduate.py"
     "scripts/memory/promote_branch_memory.py"
-    "scripts/vault/_vault_graduation.py"
   )
-  for script in "${MEM_SCRIPTS[@]}"; do
+  for script in "${MEM_ENTRYPOINTS[@]}"; do
     if [[ -f "$REPO_ROOT/$script" ]]; then
       if [[ ! -x "$REPO_ROOT/$script" ]]; then
         printf '  WARN: %s is not executable (hooks will skip it)\n' "$script"
         WARNINGS=$((WARNINGS + 1))
       fi
+    fi
+  done
+  MEM_LIBRARIES=(
+    "scripts/vault/_vault_graduation.py"
+  )
+  for library in "${MEM_LIBRARIES[@]}"; do
+    if [[ -f "$REPO_ROOT/$library" ]]; then
+      ok "memory library present $library"
+    else
+      fail "memory library missing $library"
     fi
   done
   if ! grep -q "strip_frontmatter" "$REPO_ROOT/scripts/memory/_dream_core.py" 2> /dev/null; then
