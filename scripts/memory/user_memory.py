@@ -59,6 +59,10 @@ def effective_classification(text: str, requested: str | None) -> str:
     return computed if order[computed] >= order[claimed] else claimed
 
 
+def classification_rank(value: str) -> int:
+    return {"GREEN": 0, "YELLOW": 1, "RED": 2}.get(value.upper(), -1)
+
+
 def record_path(scope: str, memory_id: str, project_id: str) -> Path:
     root = ralph_home()
     if scope == "global":
@@ -127,15 +131,24 @@ def remember(args: argparse.Namespace) -> int:
                 print("USER_MEMORY_REJECTED_INVALID_RECORD")
                 return 2
             stored_authoritative = metadata.get("authoritative") == "true"
-            if args.authoritative and not stored_authoritative:
+            stored_classification = metadata.get("classification", "")
+            update_authoritative = args.authoritative and not stored_authoritative
+            update_classification = classification_rank(classification) > classification_rank(stored_classification)
+            if update_authoritative or update_classification:
                 timestamp = now_iso()
+                updated_authoritative = update_authoritative or stored_authoritative
+                updated_classification = classification if update_classification else stored_classification
                 lines = [
                     line for line in header.splitlines()
-                    if not line.startswith(("authoritative:", "updated_at:"))
+                    if not line.startswith(("authoritative:", "classification:", "updated_at:"))
                 ]
-                lines.extend(['authoritative: "true"', f'updated_at: "{timestamp}"'])
+                lines.extend([
+                    f'authoritative: "{"true" if updated_authoritative else "false"}"',
+                    f'classification: "{updated_classification}"',
+                    f'updated_at: "{timestamp}"',
+                ])
                 atomic_write_text(path, "\n".join(lines) + "\n---" + body)
-                stored_authoritative = True
+                stored_authoritative = updated_authoritative
                 receipt("USER_MEMORY_OK_UPDATED", memory_id, args.scope, classification, stored_authoritative)
                 return 0
             receipt("USER_MEMORY_OK_UNCHANGED", memory_id, args.scope, classification, stored_authoritative)
@@ -146,8 +159,8 @@ def remember(args: argparse.Namespace) -> int:
             "source": "explicit_user_memory", "user_authorized": "true",
             "authoritative": "true" if args.authoritative else "false", "scope": args.scope,
             "classification": classification, "source_fidelity": "direct_user_statement",
-            "truth_status": "user_asserted_unverified", "repo": repo if args.scope == "repo" else "",
-            "project_id": project_id if args.scope == "repo" else "", "branch": branch,
+            "truth_status": "user_asserted_unverified", "repo": repo,
+            "project_id": project_id, "branch": branch,
             "commit": commit, "session_id": os.environ.get("CODEX_SESSION_ID", ""),
             "content_hash": content_hash(text), "created_at": timestamp, "updated_at": timestamp,
         }

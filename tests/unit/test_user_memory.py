@@ -36,7 +36,10 @@ def test_yellow_global_is_explicit_and_idempotent(tmp_path: Path) -> None:
     assert receipt_id(first.stdout) == receipt_id(second.stdout)
     records = list((tmp_path / "ledgers" / "user").glob("um-*.md"))
     assert len(records) == 1
-    assert 'authoritative: "false"' in records[0].read_text()
+    record = records[0].read_text()
+    assert 'authoritative: "false"' in record
+    assert 'repo: ""' not in record
+    assert 'project_id: ""' not in record
 
 
 def test_authority_upgrade_updates_existing_record(tmp_path: Path) -> None:
@@ -172,15 +175,23 @@ def test_relevance_threshold_precedes_authority_bonus(tmp_path: Path) -> None:
 
 
 def test_global_yellow_memory_forces_local_route(tmp_path: Path) -> None:
+    text = "review architecture integration sentinel review architecture integration"
     created = run_gateway(
         tmp_path,
         "remember",
         "--text",
-        "private repo review architecture integration sentinel review architecture integration",
+        text,
         "--scope",
         "global",
     )
     memory_id = receipt_id(created.stdout)
+    assert "classification=GREEN" in created.stdout
+    escalated = run_gateway(
+        tmp_path, "remember", "--text", text, "--scope", "global", "--classification", "YELLOW"
+    )
+    assert escalated.returncode == 0
+    assert "USER_MEMORY_OK_UPDATED" in escalated.stdout
+    assert 'classification: "YELLOW"' in (tmp_path / "ledgers" / "user" / f"{memory_id}.md").read_text()
     intake = subprocess.run(
         [
             sys.executable,
