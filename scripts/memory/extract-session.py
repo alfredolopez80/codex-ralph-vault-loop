@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import os
+import sys
 from pathlib import Path
 
 from _memory_common import atomic_write_text, content_hash, ensure_runtime, now_iso, render_frontmatter, slugify
 from classify_learning import classify_learning
+from user_memory import main as user_memory_main
 
 
 def main() -> int:
@@ -17,17 +18,31 @@ def main() -> int:
     parser.add_argument(
         "--user-authorized",
         action="store_true",
-        help="Persist an explicit user-requested GREEN memory as a recall-visible global note.",
+        help="Persist an explicit user-requested memory through the managed gateway.",
     )
+    parser.add_argument("--scope", choices=("repo", "global"), default="repo")
+    parser.add_argument("--authoritative", action="store_true")
     args = parser.parse_args()
+
+    if args.user_authorized:
+        gateway_args = [
+            "user_memory.py", "remember", "--text", args.text, "--scope", args.scope,
+        ]
+        if args.classification:
+            gateway_args.extend(["--classification", args.classification])
+        if args.authoritative:
+            gateway_args.append("--authoritative")
+        previous_argv = sys.argv
+        try:
+            sys.argv = gateway_args
+            return user_memory_main()
+        finally:
+            sys.argv = previous_argv
 
     classification = classify_learning(args.text, args.classification)
     digest = content_hash(args.text)
     if classification == "RED":
         print(f"EXTRACT_SESSION_SKIPPED_RED {digest}")
-        return 0
-    if args.user_authorized and classification != "GREEN":
-        print(f"EXTRACT_SESSION_SKIPPED_USER_AUTH_REQUIRES_GREEN {digest}")
         return 0
 
     root = ensure_runtime()
@@ -38,18 +53,6 @@ def main() -> int:
         "hash": digest,
         "title": args.title,
     }
-    if args.user_authorized:
-        metadata.update(
-            {
-                "source": "explicit_user_memory",
-                "confidence": "1.0",
-                "repo": os.environ.get("RALPH_PROJECT", Path.cwd().name),
-                "branch": os.environ.get("RALPH_BRANCH", ""),
-                "session_id": os.environ.get("CODEX_SESSION_ID", "explicit-user-memory"),
-                "scope": "global",
-                "user_authorized": "true",
-            }
-        )
     atomic_write_text(path, render_frontmatter(metadata) + "\n\n" + args.text.strip() + "\n")
     print(f"EXTRACT_SESSION_OK {path}")
     return 0

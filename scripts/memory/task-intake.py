@@ -74,6 +74,7 @@ TRACE_REJECTION_REASON_MAP = {
     "stale_branch": "stale",
     "wrong_project_id": "wrong_scope",
     "wrong_task_type": "wrong_scope",
+    "deprecated": "deprecated",
 }
 SHADOW_TRACE_FIELDS = (
     "shadow_enabled",
@@ -395,6 +396,67 @@ def run_recall(
     return "ran", recall_module.render_markdown(query, safe_project, results).strip()
 
 
+def run_managed_memory_recall(
+    query: str,
+    project: str,
+    limit: int,
+    project_id: str = "",
+    workspace_root: str = "",
+) -> list[dict[str, Any]]:
+    """Read only managed explicit memories for the tree-engine bridge.
+
+    Tree nodes and the explicit user gateway have separate stores.  Keep the
+    tree engine authoritative for tree nodes, but import the bounded explicit
+    records so a user-authorized memory cannot disappear merely because the
+    engine selector changed.
+    """
+    if not query:
+        return []
+    recall_module = load_recall_module()
+    if recall_module is None:
+        return []
+
+    def collect() -> list[dict[str, Any]]:
+        safe_project_id = recall_module.safe_project_id(project_id)
+        workspace_path = str(Path(workspace_root).expanduser().resolve()) if workspace_root else ""
+        context = recall_module.derive_context(workspace_path) if workspace_path else None
+        if not safe_project_id and context is not None:
+            safe_project_id = recall_module.safe_project_id(str(getattr(context, "project_id", "")))
+        project_value = project or (str(getattr(context, "project_slug", "")) if context is not None else "")
+        safe_project = recall_module.safe_project(project_value)
+        # Generic skills can outnumber managed records. Read a bounded but
+        # deliberately wide candidate set, then apply the normal task-intake
+        # score, scope, and token gates below.
+        results = recall_module.collect_results(
+            query,
+            safe_project,
+            max(256, limit),
+            False,
+            safe_project_id,
+            workspace_path,
+        )
+        managed: list[dict[str, Any]] = []
+        for result in results:
+            metadata = dict(getattr(result, "metadata", {}) or {})
+            if metadata.get("source") != "explicit_user_memory":
+                continue
+            managed.append(
+                {
+                    "id": metadata.get("memory_id") or result.path,
+                    "path": result.path,
+                    "preview": result.preview,
+                    "score": result.score,
+                    **metadata,
+                }
+            )
+        return managed
+
+    try:
+        return run_with_recall_timeout(collect)
+    except Exception:
+        return []
+
+
 def parse_recall_results(recall_output: str) -> list[dict[str, Any]]:
     try:
         parsed = json.loads(recall_output)
@@ -421,7 +483,7 @@ def parse_recall_results(recall_output: str) -> list[dict[str, Any]]:
             current["preview"] = line.removeprefix("- safe preview:").strip()
         elif current is not None and line.startswith("- ") and ":" in line:
             key, value = line[2:].split(":", 1)
-            if key.strip() in {"source", "classification", "repo", "branch", "session_id", "scope", "user_authorized"}:
+            if key.strip() in {"memory_id", "source", "classification", "repo", "project_id", "branch", "session_id", "scope", "user_authorized", "authoritative", "source_fidelity", "truth_status", "status", "created_at", "updated_at"}:
                 current[key.strip()] = value.strip().strip("`")
     if current:
         memories.append(current)
@@ -432,6 +494,10 @@ def normalize_recall_memory(memory: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(memory)
     if "preview" not in normalized and "content" in normalized:
         normalized["preview"] = normalized["content"]
+    nested_metadata = normalized.get("metadata")
+    if isinstance(nested_metadata, dict):
+        for key, value in nested_metadata.items():
+            normalized.setdefault(str(key), value)
     extracted = extract_memory_metadata(memory_body(normalized))
     for key, value in extracted.items():
         normalized.setdefault(key, value)
@@ -550,19 +616,19 @@ def memory_scope_decision(
     project_id: str = "",
     task_type: str = "",
 ) -> tuple[bool, str]:
-    if memory_bool(memory, "deprecated", "is_deprecated"):
+    if memory_bool(memory, "deprecated", "is_deprecated") or memory_field(memory, "status") == "deprecated":
         return False, "deprecated"
     if memory_bool(memory, "stale", "is_stale"):
         return False, "stale"
 
-    # Managed explicit user memories are global GREEN context. Their scope is
-    # intentionally independent of the active project and branch.
-    if (
+    explicit_user = (
         memory_bool(memory, "user_authorized")
         and memory_field(memory, "source") == "explicit_user_memory"
-        and memory_field(memory, "scope") == "global"
-        and memory_field(memory, "classification").upper() == "GREEN"
-    ):
+        and memory_field(memory, "classification").upper() in {"GREEN", "YELLOW"}
+    )
+    # Global explicit memories are intentionally independent of the active
+    # project and branch, but only the managed writer can create them.
+    if explicit_user and memory_field(memory, "scope") == "global":
         return True, "explicit_user_global"
 
     memory_repo = memory_field(memory, "repo", "project", "project_slug", "source_project")
@@ -573,6 +639,11 @@ def memory_scope_decision(
         return False, "wrong_repo"
     if project_id and memory_project_id and memory_project_id != project_id:
         return False, "wrong_project_id"
+
+    # Repo-scoped explicit memories are shared across branches. Branch and
+    # commit remain provenance, not recall filters for this managed scope.
+    if explicit_user and memory_field(memory, "scope") == "repo":
+        return True, "explicit_user_repo"
 
     memory_branch = memory_field(memory, "branch", "git_branch", "source_branch")
     if branch and not memory_branch:
@@ -613,11 +684,18 @@ def safe_memory_content(value: str) -> str:
 
 
 def render_selected_memory_line(memory: dict[str, Any]) -> str:
+    authority = (
+        "authoritative-memory-layer"
+        if memory_bool(memory, "authoritative")
+        and memory_field(memory, "source") == "explicit_user_memory"
+        else "memory-layer"
+    )
     return json.dumps(
         {
             "content": safe_memory_content(memory_body(memory)),
             "id": memory_identifier(memory),
             "score": memory_score(memory),
+            "authority": authority,
         },
         ensure_ascii=True,
         sort_keys=True,
@@ -641,7 +719,14 @@ def select_relevant_memories_with_rejections(
     task_type: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     scoped_memories, rejected = filter_memories_by_scope(memories, project, branch, project_id, task_type)
-    ranked = sorted(scoped_memories, key=lambda memory: (memory_score(memory), parse_memory_time(memory)), reverse=True)
+    ranked = sorted(
+        scoped_memories,
+        key=lambda memory: (
+            2 if memory_bool(memory, "authoritative") and memory_field(memory, "source") == "explicit_user_memory" else 1 if memory_field(memory, "source") == "explicit_user_memory" else 0,
+            memory_score(memory), parse_memory_time(memory), memory_identifier(memory),
+        ),
+        reverse=True,
+    )
     selected: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_hashes: set[str] = set()
@@ -753,6 +838,28 @@ def tree_engine_enabled(env: Any = None) -> bool:
 
 def tree_injection_enabled(env: Any = None) -> bool:
     return tree_engine_enabled(env) and not shadow_mode_enabled(env)
+
+
+def global_yellow_memory_selected(memories: list[dict[str, Any]]) -> bool:
+    return any(
+        memory_field(memory, "source") == "explicit_user_memory"
+        and memory_field(memory, "scope") == "global"
+        and memory_field(memory, "classification").upper() == "YELLOW"
+        for memory in memories
+    )
+
+
+def enforce_memory_route(
+    route: str,
+    reason: str,
+    memories: list[dict[str, Any]],
+) -> tuple[str, str]:
+    # Option D permits an explicit global YELLOW memory.  It remains available
+    # as user-authorized context, but that context must not cross an external
+    # MCP boundary without a separate sanitization decision.
+    if route == "external-mcp" and global_yellow_memory_selected(memories):
+        return "local", "global YELLOW memory requires local handling"
+    return route, reason
 
 
 def memory_trace_scope(
@@ -946,14 +1053,30 @@ def tree_memory_content(item: dict[str, Any]) -> str:
     return "TREE_MEMORY " + json.dumps(safe, ensure_ascii=True, sort_keys=True)
 
 
-def build_tree_agent_prompt_context(prompt: str, report: dict[str, Any]) -> dict[str, Any]:
+def build_tree_agent_prompt_context(
+    prompt: str,
+    report: dict[str, Any],
+    managed_memories: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     tree_trace = report.get("MEMORY_TRACE_JSON", {}) if isinstance(report.get("MEMORY_TRACE_JSON"), dict) else {}
     selected_items = [item for item in report.get("memory_context", []) if isinstance(item, dict)]
-    selected_memories = [
+    tree_memories = [
         {"id": str(item.get("node_id", "")), "content": tree_memory_content(item), "score": item.get("score", 0)}
         for item in selected_items
         if item.get("node_id")
     ]
+    selected_memories: list[dict[str, Any]] = []
+    used_tokens = memory_context_overhead_tokens()
+    # User-authorized managed records take the first bounded slots; otherwise
+    # a full tree result set could still hide the explicit gateway memory.
+    for memory in list(managed_memories or []) + tree_memories:
+        if len(selected_memories) >= RECALL_CONTEXT_LIMIT:
+            break
+        line_tokens = estimate_tokens(render_selected_memory_line(memory))
+        if used_tokens + line_tokens > RECALL_CONTEXT_MAX_TOKENS:
+            continue
+        selected_memories.append(memory)
+        used_tokens += line_tokens
     rejected = [
         {"id": str(item.get("node_id", "")), "reason": str(item.get("reason", ""))}
         for item in tree_trace.get("rejected", [])
@@ -970,9 +1093,14 @@ def build_tree_agent_prompt_context(prompt: str, report: dict[str, Any]) -> dict
             "raw_recommended": bool(tree_trace.get("raw_recommended", False)),
             "reached_final_prompt": reached,
             "memory_reached_final_prompt": reached,
-            "token_budget": {"limit": int(budget.get("limit", RECALL_CONTEXT_MAX_TOKENS) or 0), "used": int(budget.get("used", 0) or 0)},
+            "token_budget": {"limit": int(budget.get("limit", RECALL_CONTEXT_MAX_TOKENS) or 0), "used": used_tokens},
             "memory_rejections": rejected,
             "rejected_memory": rejected,
+            "managed_selected_memory_ids": [
+                memory_identifier(memory)
+                for memory in selected_memories
+                if memory_field(memory, "source") == "explicit_user_memory"
+            ],
         }
     )
     return context
@@ -1059,6 +1187,7 @@ def build_task_intake_payload(
     recalled_memories: list[dict[str, Any]] = []
     memory_rejections: list[dict[str, str]] = []
     selected_memories: list[dict[str, Any]] = []
+    managed_tree_memories: list[dict[str, Any]] = []
     recall_called = False
     recall_latency_ms = 0
     recall_phase = "before_context"
@@ -1075,8 +1204,22 @@ def build_task_intake_payload(
         if tree_injection_enabled():
             try:
                 tree_report = tree_report_runner(query, project_id, workspace_root, branch, sensitivity.classification)
-                prompt_context = build_tree_agent_prompt_context(prompt, tree_report)
-                memory_rejections = list(prompt_context["memory_trace"].get("memory_rejections", []))
+                managed_candidates = run_managed_memory_recall(
+                    query,
+                    project,
+                    max(limit, RECALL_CONTEXT_LIMIT),
+                    project_id,
+                    workspace_root,
+                )
+                managed_tree_memories, managed_rejections = select_relevant_memories_with_rejections(
+                    managed_candidates,
+                    project=project,
+                    branch=branch,
+                    project_id=project_id,
+                    task_type=task_type,
+                )
+                prompt_context = build_tree_agent_prompt_context(prompt, tree_report, managed_tree_memories)
+                memory_rejections = list(prompt_context["memory_trace"].get("memory_rejections", [])) + managed_rejections
                 recall_status = "ran"
                 tree_selected = True
             except Exception as exc:
@@ -1108,6 +1251,7 @@ def build_task_intake_payload(
             )
             if tree_fallback_reason:
                 prompt_context["memory_trace"].update({"engine": "legacy", "fallback_used": True, "raw_included": False, "raw_recommended": False})
+        route, reason = enforce_memory_route(route, reason, selected_memories + managed_tree_memories)
         recall_latency_ms = max(0, int((time.perf_counter() - recall_started) * 1000))
 
     agent_prompt_context = clone_agent_prompt_context(prompt_context)

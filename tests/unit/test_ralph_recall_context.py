@@ -351,6 +351,41 @@ def test_current_repo_memory_with_good_score_is_selected() -> None:
     assert [memory["id"] for memory in selected] == ["mem_scope_current"]
 
 
+def test_authoritative_explicit_memory_precedes_higher_scored_inferred_memory() -> None:
+    task_intake = load_task_intake()
+    memories = [
+        {
+            "id": "mem_inferred_high_score",
+            "score": 99,
+            "content": "INFERRED_SENTINEL",
+            "repo": "codex-ralph-vault-loop",
+            "branch": "codex/current",
+        },
+        {
+            "id": "mem_explicit_authoritative",
+            "score": 20,
+            "content": "EXPLICIT_AUTHORITATIVE_SENTINEL",
+            "repo": "codex-ralph-vault-loop",
+            "branch": "different-write-branch",
+            "source": "explicit_user_memory",
+            "user_authorized": "true",
+            "classification": "GREEN",
+            "scope": "repo",
+            "authoritative": "true",
+        },
+    ]
+
+    selected = task_intake.select_relevant_memories(
+        memories,
+        limit=1,
+        project="codex-ralph-vault-loop",
+        branch="codex/current",
+    )
+
+    assert [memory["id"] for memory in selected] == ["mem_explicit_authoritative"]
+    assert "authoritative-memory-layer" in task_intake.render_selected_memory_context(selected)
+
+
 def test_memory_without_required_scope_is_handled_safely() -> None:
     task_intake = load_task_intake()
     memories = [
