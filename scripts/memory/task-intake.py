@@ -74,6 +74,7 @@ TRACE_REJECTION_REASON_MAP = {
     "stale_branch": "stale",
     "wrong_project_id": "wrong_scope",
     "wrong_task_type": "wrong_scope",
+    "deprecated": "deprecated",
 }
 SHADOW_TRACE_FIELDS = (
     "shadow_enabled",
@@ -421,7 +422,7 @@ def parse_recall_results(recall_output: str) -> list[dict[str, Any]]:
             current["preview"] = line.removeprefix("- safe preview:").strip()
         elif current is not None and line.startswith("- ") and ":" in line:
             key, value = line[2:].split(":", 1)
-            if key.strip() in {"source", "classification", "repo", "branch", "session_id", "scope", "user_authorized"}:
+            if key.strip() in {"memory_id", "source", "classification", "repo", "project_id", "branch", "session_id", "scope", "user_authorized", "authoritative", "source_fidelity", "truth_status", "status", "created_at", "updated_at"}:
                 current[key.strip()] = value.strip().strip("`")
     if current:
         memories.append(current)
@@ -550,19 +551,19 @@ def memory_scope_decision(
     project_id: str = "",
     task_type: str = "",
 ) -> tuple[bool, str]:
-    if memory_bool(memory, "deprecated", "is_deprecated"):
+    if memory_bool(memory, "deprecated", "is_deprecated") or memory_field(memory, "status") == "deprecated":
         return False, "deprecated"
     if memory_bool(memory, "stale", "is_stale"):
         return False, "stale"
 
-    # Managed explicit user memories are global GREEN context. Their scope is
-    # intentionally independent of the active project and branch.
-    if (
+    explicit_user = (
         memory_bool(memory, "user_authorized")
         and memory_field(memory, "source") == "explicit_user_memory"
-        and memory_field(memory, "scope") == "global"
-        and memory_field(memory, "classification").upper() == "GREEN"
-    ):
+        and memory_field(memory, "classification").upper() in {"GREEN", "YELLOW"}
+    )
+    # Global explicit memories are intentionally independent of the active
+    # project and branch, but only the managed writer can create them.
+    if explicit_user and memory_field(memory, "scope") == "global":
         return True, "explicit_user_global"
 
     memory_repo = memory_field(memory, "repo", "project", "project_slug", "source_project")
@@ -573,6 +574,11 @@ def memory_scope_decision(
         return False, "wrong_repo"
     if project_id and memory_project_id and memory_project_id != project_id:
         return False, "wrong_project_id"
+
+    # Repo-scoped explicit memories are shared across branches. Branch and
+    # commit remain provenance, not recall filters for this managed scope.
+    if explicit_user and memory_field(memory, "scope") == "repo":
+        return True, "explicit_user_repo"
 
     memory_branch = memory_field(memory, "branch", "git_branch", "source_branch")
     if branch and not memory_branch:
@@ -613,11 +619,18 @@ def safe_memory_content(value: str) -> str:
 
 
 def render_selected_memory_line(memory: dict[str, Any]) -> str:
+    authority = (
+        "authoritative-memory-layer"
+        if memory_bool(memory, "authoritative")
+        and memory_field(memory, "source") == "explicit_user_memory"
+        else "memory-layer"
+    )
     return json.dumps(
         {
             "content": safe_memory_content(memory_body(memory)),
             "id": memory_identifier(memory),
             "score": memory_score(memory),
+            "authority": authority,
         },
         ensure_ascii=True,
         sort_keys=True,
@@ -641,7 +654,14 @@ def select_relevant_memories_with_rejections(
     task_type: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     scoped_memories, rejected = filter_memories_by_scope(memories, project, branch, project_id, task_type)
-    ranked = sorted(scoped_memories, key=lambda memory: (memory_score(memory), parse_memory_time(memory)), reverse=True)
+    ranked = sorted(
+        scoped_memories,
+        key=lambda memory: (
+            2 if memory_bool(memory, "authoritative") and memory_field(memory, "source") == "explicit_user_memory" else 1 if memory_field(memory, "source") == "explicit_user_memory" else 0,
+            memory_score(memory), parse_memory_time(memory), memory_identifier(memory),
+        ),
+        reverse=True,
+    )
     selected: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_hashes: set[str] = set()

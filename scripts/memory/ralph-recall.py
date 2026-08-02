@@ -28,6 +28,7 @@ SKIP_PATH_SUBSTRINGS = (
 )
 PREVIEW_CHARS = 260
 EXPLICIT_USER_MEMORY_SCORE_BONUS = 100
+AUTHORITATIVE_USER_MEMORY_SCORE_BONUS = 200
 
 
 @dataclass(frozen=True)
@@ -109,49 +110,56 @@ def iter_markdown_tree(root: Path) -> Iterable[Source]:
             yield Source(path, root)
 
 
-def is_explicit_global_memory(path: Path) -> bool:
-    """Allow only explicitly user-authorized global ledgers into scoped recall."""
+def frontmatter(path: Path) -> dict[str, str]:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return False
+        return {}
     if not text.startswith("---"):
-        return False
-    header = text.split("\n---", 1)[0]
+        return {}
+    metadata: dict[str, str] = {}
+    for line in text.split("\n---", 1)[0].splitlines()[1:]:
+        if ":" in line:
+            key, value = line.split(":", 1)
+            metadata[key.strip()] = value.strip().strip('"')
+    return metadata
+
+
+def is_explicit_global_memory(path: Path) -> bool:
+    """Allow active explicitly user-authorized global ledgers into scoped recall."""
+    metadata = frontmatter(path)
     return (
-        'source: "explicit_user_memory"' in header
-        and 'user_authorized: "true"' in header
-        and 'scope: "global"' in header
-        and 'classification: "GREEN"' in header
+        metadata.get("source") == "explicit_user_memory"
+        and metadata.get("user_authorized") == "true"
+        and metadata.get("scope") == "global"
+        and metadata.get("classification") in {"GREEN", "YELLOW"}
+        and metadata.get("status", "active") == "active"
+    )
+
+
+def is_explicit_user_memory(path: Path) -> bool:
+    metadata = frontmatter(path)
+    return (
+        metadata.get("source") == "explicit_user_memory"
+        and metadata.get("user_authorized") == "true"
+        and metadata.get("scope") in {"repo", "global"}
+        and metadata.get("classification") in {"GREEN", "YELLOW"}
+        and metadata.get("status", "active") == "active"
     )
 
 
 def explicit_memory_metadata(path: Path) -> dict[str, str]:
     """Expose only bounded, non-sensitive scope metadata for task intake."""
-    if not is_explicit_global_memory(path):
+    if not is_explicit_user_memory(path):
         return {}
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return {}
-    header = text.split("\n---", 1)[0]
-    allowed = {"source", "classification", "repo", "branch", "session_id", "scope", "user_authorized"}
-    metadata: dict[str, str] = {}
-    for line in header.splitlines()[1:]:
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        if key not in allowed:
-            continue
-        metadata[key] = value.strip().strip('"').replace("`", "")[:160]
-    return metadata
+    allowed = {"memory_id", "source", "classification", "repo", "project_id", "branch", "session_id", "scope", "user_authorized", "authoritative", "source_fidelity", "truth_status", "status", "created_at", "updated_at"}
+    return {key: value.replace("`", "")[:160] for key, value in frontmatter(path).items() if key in allowed}
 
 
 def iter_explicit_global_ledgers(root: Path) -> Iterable[Source]:
     for source in iter_markdown_tree(root):
         if is_explicit_global_memory(source.path):
-            yield source
+            yield Source(source.path, root.parent)
 
 
 def iter_skill_files() -> Iterable[Source]:
@@ -314,7 +322,7 @@ def collect_results(
         if metadata:
             # An explicit user memory is intentional context. Keep it above
             # unrelated generic skills while retaining normal relevance scoring.
-            score += EXPLICIT_USER_MEMORY_SCORE_BONUS
+            score += AUTHORITATIVE_USER_MEMORY_SCORE_BONUS if metadata.get("authoritative") == "true" else EXPLICIT_USER_MEMORY_SCORE_BONUS
         results.append(Result(path=path, score=score, preview=preview_for(query, safe_text), metadata=metadata))
     results.sort(key=lambda item: (-item.score, item.path))
     return results[: max(limit, 0)]

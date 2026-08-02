@@ -21,6 +21,15 @@ Use `--include-raw` only when the user explicitly asks to include raw or inbox m
 
 ## Save Flow
 
+For an explicit user request, use the single managed gateway:
+
+`python3 scripts/memory/user_memory.py remember --text "<sanitized fact>" [--scope repo|global] [--authoritative]`
+
+Scope defaults to `repo`. GREEN and YELLOW are accepted immediately in the
+requested scope; a global YELLOW record requires explicit `--scope global`.
+`--authoritative` changes only the ordering of relevant memory records. Use
+`forget --id <memory_id> [--scope repo|global]` for logical deprecation.
+
 Use `python3 scripts/memory/extract-session.py --text "<sanitized learning>" --classification GREEN|YELLOW --title "<title>"` for concise session learnings.
 
 Use `python3 scripts/vault/vault-save.py --classification GREEN|YELLOW --project <project> --agent codex --source <source> --title "<title>" --text "<sanitized note>"` for durable curated vault memory.

@@ -316,7 +316,8 @@ check_agents_policy() {
     grep -q "END RALPH MEMORY CORE POLICY" "$GLOBAL_AGENTS_MD" &&
     grep -q "Global hooks resolve Ralph scripts from" "$GLOBAL_AGENTS_MD" &&
     grep -q "Do not require the active repository to contain" "$GLOBAL_AGENTS_MD" &&
-    grep -q "user-authorized" "$GLOBAL_AGENTS_MD"; then
+    grep -q "user_memory.py remember" "$GLOBAL_AGENTS_MD" &&
+    grep -q "Scope defaults to repo" "$GLOBAL_AGENTS_MD"; then
     ok "global AGENTS.md Ralph Memory Core policy present"
   else
     fail "global AGENTS.md missing corrected Ralph Memory Core policy"

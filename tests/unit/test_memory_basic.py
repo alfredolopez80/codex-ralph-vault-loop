@@ -372,8 +372,8 @@ def test_classify_learning_green_yellow_red(tmp_path: Path) -> None:
 def test_extract_session_skips_red(tmp_path: Path) -> None:
     red_text = "token" + "=abc123"
     result = run_memory("extract-session.py", tmp_path, "--text", red_text, "--user-authorized")
-    assert result.returncode == 0, result.stderr
-    assert "EXTRACT_SESSION_SKIPPED_RED" in result.stdout
+    assert result.returncode != 0, result.stderr
+    assert "USER_MEMORY_REJECTED_RED" in result.stdout
     persisted = "\n".join(path.read_text() for path in tmp_path.rglob("*.md"))
     assert red_text not in persisted
 
@@ -395,6 +395,8 @@ def test_explicit_user_memory_is_recalled_with_project_scope(tmp_path: Path) -> 
         "--title",
         "explicit-user-routing",
         "--user-authorized",
+        "--scope",
+        "global",
     )
     recalled = run_memory(
         "ralph-recall.py",
@@ -411,9 +413,9 @@ def test_explicit_user_memory_is_recalled_with_project_scope(tmp_path: Path) -> 
     )
 
     assert written.returncode == 0, written.stderr
-    assert "EXTRACT_SESSION_OK" in written.stdout
+    assert "USER_MEMORY_OK_CREATED" in written.stdout
     assert recalled.returncode == 0, recalled.stderr
-    assert "explicit-user-routing" in recalled.stdout
+    assert "user/um-" in recalled.stdout
     assert marker in recalled.stdout
 
 
@@ -431,6 +433,8 @@ def test_explicit_user_memory_reaches_task_intake_final_prompt(tmp_path: Path) -
         "--title",
         "explicit-final-prompt-routing",
         "--user-authorized",
+        "--scope",
+        "global",
         extra_env={"RALPH_PROJECT": ROOT.name, "RALPH_BRANCH": branch, "CODEX_SESSION_ID": "session-final-prompt"},
     )
     intake = run_memory(
@@ -455,7 +459,7 @@ def test_explicit_user_memory_reaches_task_intake_final_prompt(tmp_path: Path) -
     assert payload["memory_status"] == "injected"
     assert payload["memory_trace"]["memory_reached_final_prompt"] is True
     assert marker in payload["agent_prompt_context"]["final_prompt"]
-    assert any("explicit-final-prompt-routing" in item for item in payload["selected_memory_ids"])
+    assert any("user/um-" in item for item in payload["selected_memory_ids"])
 
 
 def test_dream_empty_state_creates_reports(tmp_path: Path) -> None:

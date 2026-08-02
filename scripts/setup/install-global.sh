@@ -472,9 +472,10 @@ Rules:
 - Never store secrets, API keys, credentials, private keys, wallet material, `.env` contents, customer data, or raw sensitive logs.
 - Do not write arbitrary or unvalidated files directly to `~/.codex/memories`.
 - If the user explicitly asks Codex to remember a GREEN fact, the managed
-  `extract-session.py --user-authorized` writer may persist it immediately with
-  provenance; this is separate from automatic graduation and remains
-  non-authoritative on recall.
+  `user_memory.py remember --text "<fact>" [--scope repo|global] [--authoritative]`
+  gateway may persist it immediately with provenance. Scope defaults to repo;
+  GREEN and YELLOW are accepted in the requested scope, RED is rejected, and
+  authority changes relevant memory ordering only.
 - Use `~/.ralph-codex` and the project vault workflow for durable memory.
 - Already-installed MCP servers may remain active.
 - Never route RED content to external MCP servers, model providers, web tools, vision tools, search tools, reader tools, or third-party services.
@@ -495,7 +496,7 @@ Codex behavior:
 - Existing MCPs may remain active only for sanitized GREEN/YELLOW work.
 - Do not write arbitrary or unvalidated files directly to `~/.codex/memories`.
 - An explicit user request to remember a GREEN fact may use the managed
-  `extract-session.py --user-authorized` writer; RED content remains blocked.
+  `user_memory.py remember` gateway; RED content remains blocked.
 <!-- END RALPH MEMORY CORE POLICY -->
 POLICY
 }
