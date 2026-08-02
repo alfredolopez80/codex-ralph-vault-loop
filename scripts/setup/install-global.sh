@@ -470,7 +470,11 @@ Rules:
 - Explicit user instruction and current repo files win.
 - Never persist RED content.
 - Never store secrets, API keys, credentials, private keys, wallet material, `.env` contents, customer data, or raw sensitive logs.
-- Do not write directly to `~/.codex/memories`.
+- Do not write arbitrary or unvalidated files directly to `~/.codex/memories`.
+- If the user explicitly asks Codex to remember a GREEN fact, the managed
+  `extract-session.py --user-authorized` writer may persist it immediately with
+  provenance; this is separate from automatic graduation and remains
+  non-authoritative on recall.
 - Use `~/.ralph-codex` and the project vault workflow for durable memory.
 - Already-installed MCP servers may remain active.
 - Never route RED content to external MCP servers, model providers, web tools, vision tools, search tools, reader tools, or third-party services.
@@ -489,7 +493,9 @@ Codex behavior:
 - Never persist RED content.
 - Never route RED content externally.
 - Existing MCPs may remain active only for sanitized GREEN/YELLOW work.
-- Do not write directly to `~/.codex/memories`.
+- Do not write arbitrary or unvalidated files directly to `~/.codex/memories`.
+- An explicit user request to remember a GREEN fact may use the managed
+  `extract-session.py --user-authorized` writer; RED content remains blocked.
 <!-- END RALPH MEMORY CORE POLICY -->
 POLICY
 }

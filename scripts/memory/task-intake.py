@@ -419,6 +419,10 @@ def parse_recall_results(recall_output: str) -> list[dict[str, Any]]:
                 current["score"] = int(match.group(1))
         elif current is not None and line.startswith("- safe preview:"):
             current["preview"] = line.removeprefix("- safe preview:").strip()
+        elif current is not None and line.startswith("- ") and ":" in line:
+            key, value = line[2:].split(":", 1)
+            if key.strip() in {"source", "classification", "repo", "branch", "session_id", "scope", "user_authorized"}:
+                current[key.strip()] = value.strip().strip("`")
     if current:
         memories.append(current)
     return memories
@@ -550,6 +554,16 @@ def memory_scope_decision(
         return False, "deprecated"
     if memory_bool(memory, "stale", "is_stale"):
         return False, "stale"
+
+    # Managed explicit user memories are global GREEN context. Their scope is
+    # intentionally independent of the active project and branch.
+    if (
+        memory_bool(memory, "user_authorized")
+        and memory_field(memory, "source") == "explicit_user_memory"
+        and memory_field(memory, "scope") == "global"
+        and memory_field(memory, "classification").upper() == "GREEN"
+    ):
+        return True, "explicit_user_global"
 
     memory_repo = memory_field(memory, "repo", "project", "project_slug", "source_project")
     memory_project_id = memory_field(memory, "project_id", "source_project_id")

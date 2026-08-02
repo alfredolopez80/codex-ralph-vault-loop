@@ -7,7 +7,7 @@ import os
 import re
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +27,7 @@ SKIP_PATH_SUBSTRINGS = (
     "keystore",
 )
 PREVIEW_CHARS = 260
+EXPLICIT_USER_MEMORY_SCORE_BONUS = 100
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class Result:
     path: str
     score: int
     preview: str
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 def load_sensitive_classifier():
@@ -107,6 +109,51 @@ def iter_markdown_tree(root: Path) -> Iterable[Source]:
             yield Source(path, root)
 
 
+def is_explicit_global_memory(path: Path) -> bool:
+    """Allow only explicitly user-authorized global ledgers into scoped recall."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    if not text.startswith("---"):
+        return False
+    header = text.split("\n---", 1)[0]
+    return (
+        'source: "explicit_user_memory"' in header
+        and 'user_authorized: "true"' in header
+        and 'scope: "global"' in header
+        and 'classification: "GREEN"' in header
+    )
+
+
+def explicit_memory_metadata(path: Path) -> dict[str, str]:
+    """Expose only bounded, non-sensitive scope metadata for task intake."""
+    if not is_explicit_global_memory(path):
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    header = text.split("\n---", 1)[0]
+    allowed = {"source", "classification", "repo", "branch", "session_id", "scope", "user_authorized"}
+    metadata: dict[str, str] = {}
+    for line in header.splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        if key not in allowed:
+            continue
+        metadata[key] = value.strip().strip('"').replace("`", "")[:160]
+    return metadata
+
+
+def iter_explicit_global_ledgers(root: Path) -> Iterable[Source]:
+    for source in iter_markdown_tree(root):
+        if is_explicit_global_memory(source.path):
+            yield source
+
+
 def iter_skill_files() -> Iterable[Source]:
     root = REPO_ROOT / ".agents" / "skills"
     if not root.exists():
@@ -140,6 +187,9 @@ def source_paths(
     yield from iter_markdown_tree(runtime_root / "layers")
     yield from iter_markdown_tree(runtime_root / "handoffs")
     yield from iter_markdown_tree(runtime_root / "ledgers")
+    # Explicit user-authorized GREEN memories remain global even when the
+    # active recall carries a project id.
+    yield from iter_explicit_global_ledgers(ralph_home / "ledgers")
 
     curated_vault_dirs = [
         vault / "global" / "wiki",
@@ -260,7 +310,12 @@ def collect_results(
         score = score_text(query, safe_text, path)
         if score <= 0:
             continue
-        results.append(Result(path=path, score=score, preview=preview_for(query, safe_text)))
+        metadata = explicit_memory_metadata(source.path)
+        if metadata:
+            # An explicit user memory is intentional context. Keep it above
+            # unrelated generic skills while retaining normal relevance scoring.
+            score += EXPLICIT_USER_MEMORY_SCORE_BONUS
+        results.append(Result(path=path, score=score, preview=preview_for(query, safe_text), metadata=metadata))
     results.sort(key=lambda item: (-item.score, item.path))
     return results[: max(limit, 0)]
 
@@ -285,9 +340,11 @@ def render_markdown(query: str, project: str, results: list[Result]) -> str:
                 f"### {result.path}",
                 f"- score: `{result.score}`",
                 f"- safe preview: {result.preview}",
-                "",
             ]
         )
+        for key, value in result.metadata.items():
+            lines.append(f"- {key}: `{value}`")
+        lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 

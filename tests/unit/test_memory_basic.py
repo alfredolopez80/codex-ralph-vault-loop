@@ -371,11 +371,91 @@ def test_classify_learning_green_yellow_red(tmp_path: Path) -> None:
 
 def test_extract_session_skips_red(tmp_path: Path) -> None:
     red_text = "token" + "=abc123"
-    result = run_memory("extract-session.py", tmp_path, "--text", red_text)
+    result = run_memory("extract-session.py", tmp_path, "--text", red_text, "--user-authorized")
     assert result.returncode == 0, result.stderr
     assert "EXTRACT_SESSION_SKIPPED_RED" in result.stdout
     persisted = "\n".join(path.read_text() for path in tmp_path.rglob("*.md"))
     assert red_text not in persisted
+
+
+def test_explicit_user_memory_is_recalled_with_project_scope(tmp_path: Path) -> None:
+    marker = "RALPH_EXPLICIT_ROUTING_MEMORY_LUNA_TERRA_SOL"
+    text = (
+        f"{marker}: complexity 1-3 Luna max, 4-6 Terra high, "
+        "7-8 Sol high, 9 Sol xhigh, 10 Sol max."
+    )
+
+    written = run_memory(
+        "extract-session.py",
+        tmp_path,
+        "--text",
+        text,
+        "--classification",
+        "GREEN",
+        "--title",
+        "explicit-user-routing",
+        "--user-authorized",
+    )
+    recalled = run_memory(
+        "ralph-recall.py",
+        tmp_path,
+        marker,
+        "--project",
+        ROOT.name,
+        "--project-id",
+        "p-explicit-user-memory",
+        "--workspace-root",
+        str(ROOT),
+        "--limit",
+        "5",
+    )
+
+    assert written.returncode == 0, written.stderr
+    assert "EXTRACT_SESSION_OK" in written.stdout
+    assert recalled.returncode == 0, recalled.stderr
+    assert "explicit-user-routing" in recalled.stdout
+    assert marker in recalled.stdout
+
+
+def test_explicit_user_memory_reaches_task_intake_final_prompt(tmp_path: Path) -> None:
+    marker = "RALPH_EXPLICIT_FINAL_PROMPT_ROUTING_MEMORY"
+    text = f"{marker}: use Luna max for complexity 1-3 and Sol only when the rubric requires it."
+    branch = "codex/explicit-memory-test"
+    written = run_memory(
+        "extract-session.py",
+        tmp_path,
+        "--text",
+        text,
+        "--classification",
+        "GREEN",
+        "--title",
+        "explicit-final-prompt-routing",
+        "--user-authorized",
+        extra_env={"RALPH_PROJECT": ROOT.name, "RALPH_BRANCH": branch, "CODEX_SESSION_ID": "session-final-prompt"},
+    )
+    intake = run_memory(
+        "task-intake.py",
+        tmp_path,
+        "--prompt",
+        f"Use the stored routing preference {marker} for this task.",
+        "--project",
+        ROOT.name,
+        "--project-id",
+        "p-explicit-final-prompt",
+        "--workspace-root",
+        str(ROOT),
+        "--branch",
+        branch,
+        "--json",
+    )
+
+    assert written.returncode == 0, written.stderr
+    assert intake.returncode == 0, intake.stderr
+    payload = json.loads(intake.stdout)
+    assert payload["memory_status"] == "injected"
+    assert payload["memory_trace"]["memory_reached_final_prompt"] is True
+    assert marker in payload["agent_prompt_context"]["final_prompt"]
+    assert any("explicit-final-prompt-routing" in item for item in payload["selected_memory_ids"])
 
 
 def test_dream_empty_state_creates_reports(tmp_path: Path) -> None:

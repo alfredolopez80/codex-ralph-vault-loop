@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
+import tempfile
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 
@@ -67,6 +69,28 @@ def ensure_runtime(root: Path | None = None) -> Path:
         if not path.exists():
             path.write_text(defaults[layer], encoding="utf-8")
     return root
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write a small memory artifact atomically and durably."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            tmp_path.unlink()
 
 
 def read_text(path: Path, limit_chars: int | None = None) -> str:
