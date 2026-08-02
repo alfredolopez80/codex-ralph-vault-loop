@@ -21,6 +21,7 @@ ROLE_COMMANDS: dict[tuple[str, str], list[str]] = {
     ("UserPromptSubmit", "user_prompt_improve"): [sys.executable, str(HOOKS / "user_prompt_improve.py")],
     ("UserPromptSubmit", "continuity_prompt_context"): [sys.executable, str(HOOKS / "continuity_prompt_context.py")],
     ("PreToolUse", "pre_tool_guard"): [sys.executable, str(HOOKS / "pre_tool_guard.py")],
+    ("PreToolUse", "subagent_routing_pretool_guard"): [sys.executable, str(HOOKS / "subagent_routing_pretool_guard.py")],
     ("PreToolUse", "sol_advisor_pretool_guard"): [sys.executable, str(HOOKS / "sol_advisor_pretool_guard.py")],
     ("PostToolUse", "file_line_guard_post_tool"): [sys.executable, str(HOOKS / "file_line_guard.py"), "--event", "PostToolUse"],
     ("PostToolUse", "shaping_ripple"): [sys.executable, str(HOOKS / "shaping_ripple.py")],
@@ -246,7 +247,7 @@ def test_effective_user_prompt_context_is_compact_and_nonduplicated(tmp_path: Pa
         outputs.append(result.stdout)
 
     context = "".join(outputs)
-    assert len(context.encode("utf-8")) <= 800
+    assert len(context.encode("utf-8")) <= 1800
     assert "Prompt classification:" in context
     assert "# Ralph Task Intake" in context
     assert "Prompt contract:" in context

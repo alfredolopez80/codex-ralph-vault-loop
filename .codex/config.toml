@@ -2,8 +2,8 @@
 # Non-OpenAI systems such as Z.ai and MiniMax are external MCP dependencies,
 # not direct Codex model providers.
 
-model = "gpt-5.6-terra"
-model_reasoning_effort = "high"
+model = "gpt-5.6-luna"
+model_reasoning_effort = "max"
 
 [features]
 multi_agent = true

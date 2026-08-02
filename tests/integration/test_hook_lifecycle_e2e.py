@@ -145,6 +145,13 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     assert "## Latest Handoff" in handoff_wakeup.stdout
     assert "Handoff reinjection: full within 15% budget" in handoff_wakeup.stdout
     assert LEARNING_TEXT in handoff_wakeup.stdout
+    assert "Model routing policy subagent-routing-v2" in handoff_wakeup.stdout
+    assert "1-3 gpt-5.6-luna/max" in handoff_wakeup.stdout
+    assert "4-6 gpt-5.6-terra/high implementation" in handoff_wakeup.stdout
+    assert "7-8 gpt-5.6-sol/high advisor" in handoff_wakeup.stdout
+    assert "9 gpt-5.6-sol/xhigh advisor" in handoff_wakeup.stdout
+    assert "10 gpt-5.6-sol/max advisor" in handoff_wakeup.stdout
+    assert "ultra" not in handoff_wakeup.stdout
 
     promotion = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": LEARNING_TEXT})
     assert promotion.returncode == 0, promotion.stderr

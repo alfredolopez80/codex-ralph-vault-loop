@@ -2,14 +2,33 @@
 from __future__ import annotations
 
 from shared.paths import read_hook_input, write_json
-from shared.sol_advisor import has_fork_metadata, has_no_history_fork, is_sol_advisor, read_state
+from shared.sol_advisor import (
+    has_fork_metadata,
+    has_no_history_fork,
+    is_sol_advisor,
+    read_state,
+)
 
 
 def main() -> int:
     try:
         payload = read_hook_input()
         state = read_state(payload)
-        if not state.get("final_review_eligible") or state.get("advisor_completed"):
+        routing = state.get("routing")
+        if (
+            is_sol_advisor(payload)
+            and state.get("advisor_completed")
+            and state.get("prior_verdict_fingerprint")
+            and state.get("prior_verdict_fingerprint") == state.get("decision_fingerprint")
+        ):
+            write_json(
+                {
+                    "decision": "block",
+                    "reason": "An equivalent Sol verdict is already complete; reuse it unless the evidence changes.",
+                }
+            )
+            return 0
+        if not state.get("final_review_eligible"):
             return 0
         # Codex currently omits fork metadata from some PreToolUse payloads.
         # Reject an explicit inherited fork, but let the native instruction
@@ -21,6 +40,7 @@ def main() -> int:
                     "reason": "Invoke sol-advisor with a fresh no-history fork and include the compact decision brief.",
                 }
             )
+            return 0
     except Exception:
         pass
     return 0
