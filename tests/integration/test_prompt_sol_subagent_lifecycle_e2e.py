@@ -867,6 +867,32 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     no_id_retry = run_configured_event("PreToolUse", no_id_base, env)
     assert all(blocking_payload(result.stdout) is None for result in no_id_retry)
 
+    top_level_brief = "Retry this bounded decision after a top-level brief failure."
+    top_level_session = "sol-phase-reservation-top-level-brief"
+    run_configured_event("UserPromptSubmit", prompt_payload(top_level_session, high_complexity_prompt()), env)
+    _, top_level_decision = routing_state(env, top_level_session)
+    top_level_spawn = dict(top_level_decision["spawn_arguments"])
+    top_level_spawn.pop("fork_turns", None)
+    top_level_base = {
+        "hook_event_name": "PreToolUse",
+        "session_id": top_level_session,
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+        "tool_input": {**top_level_spawn, "message": top_level_brief},
+    }
+    top_level_first = run_configured_event("PreToolUse", top_level_base, env)
+    assert all(blocking_payload(result.stdout) is None for result in top_level_first)
+    top_level_failure = {
+        **top_level_base,
+        "success": False,
+        "command": "spawn_agent top-level brief failure",
+        "message": top_level_brief,
+        "tool_input": {key: value for key, value in top_level_spawn.items() if key != "message"},
+    }
+    run_command(configured_command("PostToolUse", "sol_advisor_observer.py"), top_level_failure, env)
+    top_level_retry = run_configured_event("PreToolUse", top_level_base, env)
+    assert all(blocking_payload(result.stdout) is None for result in top_level_retry)
+
 
 def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)

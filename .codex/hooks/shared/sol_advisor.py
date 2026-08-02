@@ -323,14 +323,20 @@ def _spawn_metadata(payload: dict[str, Any]) -> tuple[str, str]:
 
 def _spawn_brief_hash(payload: dict[str, Any]) -> str:
     brief_material: list[str] = []
-    for source_key in ("tool_input", "toolInput", "input", "subagent", "agent"):
-        source = payload.get(source_key)
-        if not isinstance(source, dict):
-            continue
+    seen: set[tuple[str, str]] = set()
+    for index, source in enumerate(_spawn_sources(payload)):
         for key in ("message", "prompt", "brief", "decision_brief", "decisionBrief"):
+            # The top-level prompt is the parent envelope, not the native
+            # spawn brief. This mirrors _native_brief_values in the guard.
+            if index == 0 and key == "prompt":
+                continue
             value = source.get(key)
             if isinstance(value, str) and value.strip():
-                brief_material.append(f"{key}={_bounded_text(value, limit=8_000)}")
+                bounded = _bounded_text(value, limit=8_000)
+                marker = (key, bounded)
+                if marker not in seen:
+                    seen.add(marker)
+                    brief_material.append(f"{key}={bounded}")
     return _hash_material("spawn-brief", *brief_material) if brief_material else ""
 
 
