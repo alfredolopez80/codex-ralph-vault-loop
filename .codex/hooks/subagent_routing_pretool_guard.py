@@ -192,7 +192,7 @@ def main() -> int:
             if not native_briefs:
                 _block("Native subagent spawn requires a non-empty bounded decision brief.")
                 return 0
-            if requested_fork and requested_fork not in NO_HISTORY_VALUES:
+            if requested_fork not in NO_HISTORY_VALUES:
                 _block("Native spawns that inherit history require fork_turns=none and a bounded brief.")
                 return 0
             return 0

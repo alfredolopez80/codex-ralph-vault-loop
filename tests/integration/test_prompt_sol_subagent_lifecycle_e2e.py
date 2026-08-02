@@ -491,6 +491,31 @@ def test_routing_guard_blocks_unmanaged_history_even_with_green_task_state(tmp_p
     assert "fork_turns=none" in str(block["reason"])
 
 
+def test_routing_guard_blocks_unmanaged_spawn_without_fork_metadata(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "generic-fork-metadata-required"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "agent_type": "ralph-reviewer",
+                "task_name": "unclassified_lane",
+                "message": "Review this bounded task without inheriting context.",
+            },
+        },
+        env,
+    )
+
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "fork_turns=none" in str(block["reason"])
+
+
 def test_routing_guard_blocks_managed_spawn_without_routing_state(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")

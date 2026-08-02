@@ -137,8 +137,10 @@ An explicit inherited-history request is blocked. If a supported Codex runtime
 omits fork metadata, the guard accepts the otherwise validated bounded spawn;
 the generated route still includes `fork_turns=none` whenever the native schema
 accepts that field. When no task classification exists, inherited history is
-blocked and generic no-history profiles retain their existing pass-through
-behavior.
+blocked and generic profiles must still provide an explicit `fork_turns=none`
+value before the bounded pass-through path is allowed. The managed route
+remains compatible with runtimes that omit fork metadata because its generated
+contract and typed-route checks establish the fresh-fork requirement separately.
 
 ## Local-first rollout and rollback
 
