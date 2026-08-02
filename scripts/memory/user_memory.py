@@ -90,6 +90,11 @@ def remember(args: argparse.Namespace) -> int:
     if not text:
         print("USER_MEMORY_REJECTED_EMPTY")
         return 2
+    if args.workspace_root:
+        workspace_candidate = Path(args.workspace_root).expanduser()
+        if not workspace_candidate.is_dir():
+            print("USER_MEMORY_REJECTED_INVALID_WORKSPACE_ROOT")
+            return 2
     try:
         classification = effective_classification(text, args.classification)
     except Exception:
@@ -107,7 +112,33 @@ def remember(args: argparse.Namespace) -> int:
     path = record_path(args.scope, memory_id, project_id)
     with record_lock(path):
         if path.exists():
-            receipt("USER_MEMORY_OK_UNCHANGED", memory_id, args.scope, classification, args.authoritative)
+            existing = path.read_text(encoding="utf-8")
+            if not existing.startswith("---") or "\n---" not in existing:
+                print("USER_MEMORY_REJECTED_INVALID_RECORD")
+                return 2
+            header, body = existing.split("\n---", 1)
+            metadata: dict[str, str] = {}
+            for line in header.splitlines()[1:]:
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                metadata[key.strip()] = value.strip().strip('"')
+            if metadata.get("memory_id") != memory_id or metadata.get("source") != "explicit_user_memory":
+                print("USER_MEMORY_REJECTED_INVALID_RECORD")
+                return 2
+            stored_authoritative = metadata.get("authoritative") == "true"
+            if args.authoritative and not stored_authoritative:
+                timestamp = now_iso()
+                lines = [
+                    line for line in header.splitlines()
+                    if not line.startswith(("authoritative:", "updated_at:"))
+                ]
+                lines.extend(['authoritative: "true"', f'updated_at: "{timestamp}"'])
+                atomic_write_text(path, "\n".join(lines) + "\n---" + body)
+                stored_authoritative = True
+                receipt("USER_MEMORY_OK_UPDATED", memory_id, args.scope, classification, stored_authoritative)
+                return 0
+            receipt("USER_MEMORY_OK_UNCHANGED", memory_id, args.scope, classification, stored_authoritative)
             return 0
         timestamp = now_iso()
         metadata = {
@@ -130,6 +161,11 @@ def forget(args: argparse.Namespace) -> int:
     if not memory_id:
         print("USER_MEMORY_REJECTED_INVALID_ID")
         return 2
+    if args.workspace_root:
+        workspace_candidate = Path(args.workspace_root).expanduser()
+        if not workspace_candidate.is_dir():
+            print("USER_MEMORY_REJECTED_INVALID_WORKSPACE_ROOT")
+            return 2
     _repo, project_id, _branch, _commit = context_for(args.workspace_root)
     if args.scope == "repo" and not project_id:
         print("USER_MEMORY_REJECTED_UNRESOLVED_REPO")
@@ -158,7 +194,7 @@ def forget(args: argparse.Namespace) -> int:
         ):
             print("USER_MEMORY_REJECTED_INVALID_RECORD")
             return 2
-        if 'status: "deprecated"' in text:
+        if metadata.get("status") == "deprecated":
             receipt("USER_MEMORY_OK_ALREADY_DEPRECATED", memory_id, args.scope)
             return 0
         lines = [line for line in header.splitlines() if not line.startswith(("status:", "updated_at:", "deprecated_at:"))]

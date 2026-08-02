@@ -140,6 +140,30 @@ def test_tree_engine_injects_v2_memory_and_trace(monkeypatch, tmp_path: Path) ->
     assert trace["fallback_used"] is False
     assert trace["token_budget"]["used"] <= trace["token_budget"]["limit"]
 
+def test_tree_engine_bridges_managed_memory(monkeypatch, tmp_path: Path) -> None:
+    task_intake = load_task_intake()
+    store_node(tmp_path, node(tmp_path, "node_tree_hook"))
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path))
+    monkeypatch.setenv("RALPH_MEMORY_RECALL_ENGINE", "tree")
+    monkeypatch.setattr(
+        task_intake,
+        "run_managed_memory_recall",
+        lambda *_args, **_kwargs: [
+            {
+                "id": "managed_tree_hook", "preview": "MANAGED_TREE_HOOK_SENTINEL", "score": 80,
+                "source": "explicit_user_memory", "user_authorized": "true",
+                "scope": "repo", "classification": "GREEN", "repo": PROJECT,
+                "project_id": PROJECT_ID,
+            }
+        ],
+    )
+
+    payload = build_payload(task_intake, tmp_path, "Use tree hook marker")
+
+    assert "managed_tree_hook" in payload["selected_memory_ids"]
+    assert "MANAGED_TREE_HOOK_SENTINEL" in payload["agent_prompt_context"]["final_prompt"]
+    assert payload["memory_trace"]["engine"] == "tree"
+
 
 def test_tree_failure_falls_back_to_legacy(monkeypatch, tmp_path: Path) -> None:
     task_intake = load_task_intake()

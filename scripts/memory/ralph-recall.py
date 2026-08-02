@@ -27,8 +27,7 @@ SKIP_PATH_SUBSTRINGS = (
     "keystore",
 )
 PREVIEW_CHARS = 260
-EXPLICIT_USER_MEMORY_SCORE_BONUS = 100
-AUTHORITATIVE_USER_MEMORY_SCORE_BONUS = 200
+MIN_RELEVANT_SCORE = 20
 
 
 @dataclass(frozen=True)
@@ -245,7 +244,12 @@ def score_text(query: str, text: str, path: str) -> int:
     path_lower = path.lower()
     score = 0
     for term in query_terms:
-        score += min(text_lower.count(term), 10) * 3
+        occurrences = min(text_lower.count(term), 10)
+        score += occurrences * 3
+        # Long, exact identifiers are high-signal evidence of a direct match;
+        # this raises relevance without granting authority to the record.
+        if occurrences and len(term) >= 12:
+            score += 20
         if term in path_lower:
             score += 8
     if query.lower() in text_lower:
@@ -311,6 +315,11 @@ def collect_results(
             raw_text = source.path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        # Deprecated records must disappear at enumeration time.  Otherwise a
+        # forgotten memory is still scored as generic markdown and can consume
+        # the bounded result set even though its managed metadata is hidden.
+        if frontmatter(source.path).get("status", "active").lower() == "deprecated":
+            continue
         safe_text, skipped_red = safe_text_for_output(raw_text, classifier)
         if skipped_red or safe_text is None:
             continue
@@ -319,12 +328,21 @@ def collect_results(
         if score <= 0:
             continue
         metadata = explicit_memory_metadata(source.path)
-        if metadata:
-            # An explicit user memory is intentional context. Keep it above
-            # unrelated generic skills while retaining normal relevance scoring.
-            score += AUTHORITATIVE_USER_MEMORY_SCORE_BONUS if metadata.get("authoritative") == "true" else EXPLICIT_USER_MEMORY_SCORE_BONUS
+        # Keep relevance unboosted.  Task intake applies its minimum score
+        # before using explicit/authoritative metadata for ordering; an
+        # authority bonus here would turn path-only matches into injections.
         results.append(Result(path=path, score=score, preview=preview_for(query, safe_text), metadata=metadata))
-    results.sort(key=lambda item: (-item.score, item.path))
+    def sort_key(item: Result) -> tuple[int, int, int, str]:
+        metadata = item.metadata
+        qualifies = metadata.get("source") == "explicit_user_memory" and item.score >= MIN_RELEVANT_SCORE
+        authoritative = metadata.get("authoritative") == "true"
+        # Relevance remains the admission criterion.  Once an explicit record
+        # qualifies, its user-authorized tier may order it ahead of generic
+        # documents without changing the score consumed by task intake.
+        authority_rank = 0 if qualifies and authoritative else 1
+        return (0 if qualifies else 1, authority_rank, -item.score, item.path)
+
+    results.sort(key=sort_key)
     return results[: max(limit, 0)]
 
 

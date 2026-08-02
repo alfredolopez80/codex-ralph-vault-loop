@@ -23,7 +23,7 @@ Use `--include-raw` only when the user explicitly asks to include raw or inbox m
 
 For an explicit user request, use the single managed gateway:
 
-`python3 scripts/memory/user_memory.py remember --text "<sanitized fact>" [--scope repo|global] [--authoritative]`
+`RALPH_ROOT="$(cat ~/.codex/hooks/.ralph-repo-root)" && python3 "$RALPH_ROOT/scripts/memory/user_memory.py" remember --text "<sanitized fact>" [--scope repo|global] [--authoritative] --workspace-root "$PWD"`
 
 Scope defaults to `repo`. GREEN and YELLOW are accepted immediately in the
 requested scope; a global YELLOW record requires explicit `--scope global`.

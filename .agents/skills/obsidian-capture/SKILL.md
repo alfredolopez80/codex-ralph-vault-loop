@@ -11,7 +11,9 @@ Use this skill to save durable knowledge to MiVault without putting vault data i
 
 ## Classification
 
-Classify before writing. GREEN can go to global notes. YELLOW belongs to the project section. RED is never saved. RED includes secrets, keys, credentials, private customer data, raw sensitive logs, wallet material, and anything the user marks sensitive.
+Explicit user-authorized YELLOW memory may use global scope through the managed gateway; automatically graduated YELLOW remains project-scoped.
+
+Classify before writing. GREEN can go to global notes. Automatically graduated YELLOW remains in the project section; explicit user-authorized YELLOW may use global scope through the managed gateway. RED is never saved. RED includes secrets, keys, credentials, private customer data, raw sensitive logs, wallet material, and anything the user marks sensitive.
 
 ## Workflow
 

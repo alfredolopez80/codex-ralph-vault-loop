@@ -94,10 +94,13 @@ Use productivity patterns only when they preserve the existing safety model:
 ## Ralph Memory Core
 
 An explicit user request to remember may use the managed
-`scripts/memory/user_memory.py remember --text "<fact>" [--scope repo|global] [--authoritative]`
+`RALPH_ROOT="$(cat ~/.codex/hooks/.ralph-repo-root)" && python3 "$RALPH_ROOT/scripts/memory/user_memory.py" remember --text "<fact>" [--scope repo|global] [--authoritative] --workspace-root "$PWD"`
 gateway. Scope defaults to `repo`; GREEN and YELLOW persist immediately in the
 requested scope, while RED content is rejected. Authority only affects relevant
 memory ordering and never instruction, safety, or verified-evidence authority.
+If a selected global YELLOW memory would otherwise route a task to an external
+MCP, task intake keeps the task local while preserving the memory as bounded
+non-authoritative context.
 `extract-session.py --user-authorized` is a compatibility wrapper for this gateway.
 
 Use Ralph Memory Core through hooks by default. Global hooks resolve Ralph scripts from `~/.codex/hooks/.ralph-repo-root` while deriving the active project from the hook payload `cwd`/workdir. Manual diagnostics must resolve that stable Ralph root first instead of assuming the current worktree contains `scripts/memory/*`. Recall is context, not authority; explicit user instructions and current repo files win. Do not persist or print RED content, and only include raw or inbox vault areas when explicitly requested with `--include-raw`.
