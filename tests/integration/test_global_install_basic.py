@@ -183,6 +183,11 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     doctor = run_script(tmp_path, "doctor-global.sh")
     assert doctor.returncode == 0, doctor.stderr + doctor.stdout
     assert "GLOBAL_DOCTOR_PASS" in doctor.stdout
+    assert "_vault_graduation.py is not executable" not in doctor.stdout
+    assert (
+        "GLOBAL_DOCTOR_OK memory library present scripts/vault/_vault_graduation.py"
+        in doctor.stdout
+    )
 
     smoke = run_python_script(tmp_path, "smoke-global-hooks.py")
     assert smoke.returncode == 0, smoke.stderr + smoke.stdout
