@@ -15,7 +15,13 @@ from classify_learning import classify_learning
 
 
 def safe_identifier(value: str) -> str:
-    return value if value and all(char.isalnum() or char in "._-" for char in value) else ""
+    return (
+        value
+        if value.startswith("um-")
+        and len(value) <= 80
+        and all(char.isalnum() or char in "._-" for char in value)
+        else ""
+    )
 
 
 def git_value(workspace: Path, *args: str) -> str:
@@ -134,13 +140,27 @@ def forget(args: argparse.Namespace) -> int:
         return 2
     with record_lock(path):
         text = path.read_text(encoding="utf-8")
-        if 'status: "deprecated"' in text:
-            receipt("USER_MEMORY_OK_ALREADY_DEPRECATED", memory_id, args.scope)
-            return 0
         if not text.startswith("---") or "\n---" not in text:
             print("USER_MEMORY_REJECTED_INVALID_RECORD")
             return 2
         header, body = text.split("\n---", 1)
+        metadata: dict[str, str] = {}
+        for line in header.splitlines()[1:]:
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            metadata[key.strip()] = value.strip().strip('"')
+        if (
+            metadata.get("memory_id") != memory_id
+            or metadata.get("source") != "explicit_user_memory"
+            or metadata.get("user_authorized") != "true"
+            or metadata.get("scope") != args.scope
+        ):
+            print("USER_MEMORY_REJECTED_INVALID_RECORD")
+            return 2
+        if 'status: "deprecated"' in text:
+            receipt("USER_MEMORY_OK_ALREADY_DEPRECATED", memory_id, args.scope)
+            return 0
         lines = [line for line in header.splitlines() if not line.startswith(("status:", "updated_at:", "deprecated_at:"))]
         timestamp = now_iso()
         lines.extend([f'status: "deprecated"', f'updated_at: "{timestamp}"', f'deprecated_at: "{timestamp}"'])

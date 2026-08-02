@@ -52,15 +52,43 @@ def test_scope_defaults_repo_and_authority_is_independent(tmp_path: Path) -> Non
     assert 'truth_status: "user_asserted_unverified"' in content
     assert "confidence:" not in content
 
+    project = next(line.split('"')[1] for line in content.splitlines() if line.startswith("repo:"))
     project_id = next(line.split('"')[1] for line in content.splitlines() if line.startswith("project_id:"))
     recall = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "memory" / "ralph-recall.py"), "repo memory scope marker", "--project", ROOT.name, "--project-id", project_id, "--workspace-root", str(ROOT), "--json"],
+        [sys.executable, str(ROOT / "scripts" / "memory" / "ralph-recall.py"), "repo memory scope marker", "--project", project, "--project-id", project_id, "--workspace-root", str(ROOT), "--json"],
         cwd=ROOT, env={**os.environ, "RALPH_HOME": str(tmp_path)}, text=True, capture_output=True, check=False,
     )
     payload = json.loads(recall.stdout)
     assert recall.returncode == 0
     assert payload["results"][0]["metadata"]["scope"] == "repo"
     assert payload["results"][0]["metadata"]["authoritative"] == "true"
+
+    intake = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "memory" / "task-intake.py"),
+            "--prompt",
+            "Use the repo memory scope marker for this task.",
+            "--project",
+            project,
+            "--project-id",
+            project_id,
+            "--workspace-root",
+            str(ROOT),
+            "--branch",
+            "codex/a-different-branch",
+            "--json",
+        ],
+        cwd=ROOT,
+        env={**os.environ, "RALPH_HOME": str(tmp_path)},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    intake_payload = json.loads(intake.stdout)
+    assert intake.returncode == 0
+    assert "repo memory scope marker" in intake_payload["agent_prompt_context"]["final_prompt"]
+    assert "authoritative-memory-layer" in intake_payload["agent_prompt_context"]["final_prompt"]
 
 
 def test_forget_is_exact_and_idempotent(tmp_path: Path) -> None:

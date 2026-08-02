@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -19,7 +18,7 @@ def main() -> int:
     parser.add_argument(
         "--user-authorized",
         action="store_true",
-        help="Persist an explicit user-requested GREEN memory as a recall-visible global note.",
+        help="Persist an explicit user-requested memory through the managed gateway.",
     )
     parser.add_argument("--scope", choices=("repo", "global"), default="repo")
     parser.add_argument("--authoritative", action="store_true")

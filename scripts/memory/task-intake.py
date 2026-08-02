@@ -433,6 +433,10 @@ def normalize_recall_memory(memory: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(memory)
     if "preview" not in normalized and "content" in normalized:
         normalized["preview"] = normalized["content"]
+    nested_metadata = normalized.get("metadata")
+    if isinstance(nested_metadata, dict):
+        for key, value in nested_metadata.items():
+            normalized.setdefault(str(key), value)
     extracted = extract_memory_metadata(memory_body(normalized))
     for key, value in extracted.items():
         normalized.setdefault(key, value)

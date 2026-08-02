@@ -471,7 +471,7 @@ Rules:
 - Never persist RED content.
 - Never store secrets, API keys, credentials, private keys, wallet material, `.env` contents, customer data, or raw sensitive logs.
 - Do not write arbitrary or unvalidated files directly to `~/.codex/memories`.
-- If the user explicitly asks Codex to remember a GREEN fact, the managed
+- If the user explicitly asks Codex to remember a fact, the managed
   `user_memory.py remember --text "<fact>" [--scope repo|global] [--authoritative]`
   gateway may persist it immediately with provenance. Scope defaults to repo;
   GREEN and YELLOW are accepted in the requested scope, RED is rejected, and
@@ -495,8 +495,9 @@ Codex behavior:
 - Never route RED content externally.
 - Existing MCPs may remain active only for sanitized GREEN/YELLOW work.
 - Do not write arbitrary or unvalidated files directly to `~/.codex/memories`.
-- An explicit user request to remember a GREEN fact may use the managed
-  `user_memory.py remember` gateway; RED content remains blocked.
+- An explicit user request to remember a fact may use the managed
+  `user_memory.py remember` gateway; YELLOW global scope must be explicit and
+  RED content remains blocked.
 <!-- END RALPH MEMORY CORE POLICY -->
 POLICY
 }
