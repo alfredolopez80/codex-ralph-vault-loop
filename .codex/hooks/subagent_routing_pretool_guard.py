@@ -192,7 +192,7 @@ def main() -> int:
             if not native_briefs:
                 _block("Native subagent spawn requires a non-empty bounded decision brief.")
                 return 0
-            if requested_fork not in NO_HISTORY_VALUES:
+            if requested_fork and requested_fork not in NO_HISTORY_VALUES:
                 _block("Native spawns that inherit history require fork_turns=none and a bounded brief.")
                 return 0
             return 0
@@ -284,7 +284,10 @@ def main() -> int:
         if expected_task and requested_task != expected_task:
             _block(f"Subagent task_name must be {expected_task}; do not substitute another lane.")
             return 0
-        if requested_fork not in NO_HISTORY_VALUES:
+        # Codex runtimes may omit fork metadata.  Reject only an explicit
+        # inherited-history request; generated managed arguments still carry
+        # fork_turns=none whenever the native schema accepts the field.
+        if requested_fork and requested_fork not in NO_HISTORY_VALUES:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
         # This is deliberately the last mutation in the contract validator.

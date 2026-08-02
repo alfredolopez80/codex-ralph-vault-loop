@@ -12,6 +12,7 @@ if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
 from shared.sol_advisor import (
+    RESERVATION_LEASE_SECONDS,
     initialize,
     is_sol_advisor,
     mark_advisor,
@@ -635,6 +636,43 @@ def test_final_phase_consumes_remaining_budget_after_changed_evidence(tmp_path: 
     assert started["consultation_count"] == 2
     assert completed["prior_verdict_phase"] == "final"
     assert stop_review_recommendation_pending(completed) is False
+
+
+def test_completion_match_is_rechecked_inside_locked_mutation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+    mark_advisor({**event, "phase": "plan", "agent_id": "advisor-active"}, completed=False)
+
+    stale = mark_advisor(
+        {**event, "phase": "plan", "agent_id": "advisor-stale", "success": True},
+        completed=True,
+        require_completion_match=True,
+    )
+
+    assert stale["advisor_completed"] is False
+    assert stale["active_advisor_ref"]
+
+
+def test_abandoned_reservation_expires_after_bounded_lease(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for rollout.")
+    initialize(event)
+    state = read_state(event)
+    state["phase_reservations"] = {
+        "plan": {
+            "fingerprint": state["routing"]["decision_fingerprint"],
+            "reserved_at": 1,
+            "spawn_shape": "gpt-5.6-sol|sol_advisor",
+        }
+    }
+    state_path(event).write_text(json.dumps(state), encoding="utf-8")
+    monkeypatch.setattr("shared.sol_advisor.time.time", lambda: 1 + RESERVATION_LEASE_SECONDS + 1)
+
+    started = mark_advisor({**event, "phase": "plan", "agent_id": "advisor-retry"}, completed=False)
+
+    assert started["consultation_count"] == 1
+    assert started["phase_reservations"] == {}
 
 
 def test_name_or_model_identifies_the_native_sol_advisor() -> None:

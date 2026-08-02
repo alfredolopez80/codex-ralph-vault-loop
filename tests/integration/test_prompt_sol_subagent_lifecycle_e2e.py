@@ -641,6 +641,7 @@ def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -
         "active_analysis_enabled": True,
         "bounded_scope": True,
         "local_verification_available": True,
+        "hard_gates_pass": True,
         "budget_class": "small",
         "task_subagent_override": {"route": "sol-active-analysis", "reasoning_effort": "xhigh"},
     }
@@ -669,6 +670,30 @@ def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -
     assert all(blocking_payload(result.stdout) is None for result in pretool_results)
     assert state["routing"]["subagent_route"] == "sol-active-analysis"
     assert_sources_unchanged(snapshot)
+
+
+def test_routing_guard_allows_omitted_fork_metadata_for_managed_spawn(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "managed-omitted-fork-metadata"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    _, decision = routing_state(env, session_id)
+    spawn = dict(decision["spawn_arguments"])
+    spawn.pop("fork_turns", None)
+
+    result = run_configured_event(
+        "PreToolUse",
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {**spawn, "message": "Return a bounded verdict."},
+        },
+        env,
+        commands=[configured_command("PreToolUse", "subagent_routing_pretool_guard.py")],
+    )
+
+    assert all(blocking_payload(item.stdout) is None for item in result)
 
 
 def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_path: Path) -> None:

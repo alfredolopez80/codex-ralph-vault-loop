@@ -49,6 +49,8 @@ def resolve(**changes: object):
         (8, "architecture", "sol-advisor", "high", True, "sol-advisor-7-8"),
         (9, "migration", "sol-advisor", "xhigh", True, "sol-advisor-9"),
         (10, "security", "sol-advisor", "max", True, "sol-advisor-10"),
+        (8, "spec-review", "sol-advisor", "high", True, "sol-advisor-7-8"),
+        (9, "claim-adjudication", "sol-advisor", "xhigh", True, "sol-advisor-9"),
     ],
 )
 def test_default_bands_are_deterministic(
@@ -231,6 +233,7 @@ def test_active_analysis_is_never_automatic_and_requires_every_gate() -> None:
         budget=RoutingBudget(remaining=1, explicit_class="small"),
         bounded_scope=True,
         local_verification_available=True,
+        hard_gates_pass=True,
     )
 
     assert disabled.subagent_route == "sol-advisor"
@@ -241,6 +244,20 @@ def test_active_analysis_is_never_automatic_and_requires_every_gate() -> None:
     assert eligible.subagent_route == "sol-advisor"
 
 
+def test_active_analysis_requires_explicit_hard_gate_evidence() -> None:
+    decision = resolve(
+        raw_complexity=9,
+        intent="architecture",
+        capabilities=RoutingCapabilities(active_analysis=True),
+        budget=RoutingBudget(remaining=1, explicit_class="small"),
+        bounded_scope=True,
+        local_verification_available=True,
+    )
+
+    assert decision.active_analysis_eligible is False
+    assert decision.active_analysis_rejection_reason == "active-analysis-requires-hard-gates"
+
+
 def test_active_analysis_override_is_limited_to_gated_nine_and_ten() -> None:
     request = {
         "intent": "architecture",
@@ -249,6 +266,7 @@ def test_active_analysis_override_is_limited_to_gated_nine_and_ten() -> None:
         "budget": RoutingBudget(remaining=1, explicit_class="small"),
         "bounded_scope": True,
         "local_verification_available": True,
+        "hard_gates_pass": True,
     }
 
     too_low = resolve(raw_complexity=8, **request)

@@ -7,6 +7,7 @@ import sys
 
 from shared.active_context import active_context_from_payload
 from shared.paths import REPO_ROOT, ensure_runtime, read_hook_input
+from shared.subagent_routing import session_routing_context
 
 
 def main() -> int:
@@ -68,6 +69,9 @@ def main() -> int:
         )
         if result.stdout.strip():
             print(result.stdout.strip())
+        # Keep the routing policy visible in every new session without
+        # mutating the executor or injecting prior conversation history.
+        print(session_routing_context())
     except Exception:
         return 0
     return 0

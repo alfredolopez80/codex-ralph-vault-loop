@@ -47,6 +47,15 @@ eligible at effective 9-10 when it is explicitly requested and all gates pass:
 non-RED classification, compatibility-proven capability, bounded scope, local
 verification availability, explicit budget class, and remaining allowance. It
 remains read-only and never grants implementation, merge, or approval authority.
+The `hard_gates_pass` evidence is fail-closed: an omitted value is not a pass,
+while a previously explicit failure remains sticky through continuations.
+
+`SessionStart` emits a compact reminder generated from the same policy
+constants. It is non-authoritative context only: it keeps the configured
+Luna/Max executor unchanged, contains no task history, and does not trigger a
+spawn. Complexity-specific routing is still recalculated by the Aristotle
+intake hook for each prompt. Complexity 10 is capped at Sol/Max; `ultra` is
+not part of the supported model catalog.
 
 Explicit continuations may raise the persisted Aristotle complexity
 monotonically and refresh the route; an explicit task boundary is required to
@@ -109,7 +118,11 @@ live consultation allowance changes; the pre-tool guard rechecks the current
 managed Sol spawn.
 The guard also rejects a second Sol spawn in an already consulted lifecycle
 phase and applies the 8,000-character bound to the aggregate native brief,
-not just to one alias at a time.
+not just to one alias at a time. A pre-tool reservation is a 15-minute lease:
+matching start/failure callbacks release it earlier, while a missing callback
+eventually permits a bounded retry instead of permanently poisoning the phase.
+This is an availability recovery trade-off; a call that remains live beyond
+the lease must be revalidated locally before accepting its result.
 The phase check uses the persisted lifecycle phase rather than a caller-supplied
 spawn field, so a payload cannot evade the per-phase limit by renaming its phase.
 Sensitivity candidates are merged monotonically across intake envelopes, and a
@@ -120,9 +133,12 @@ Every managed Terra/Sol spawn must include a non-empty native decision brief;
 the guard rejects an omitted brief or one over the bounded context limit. The
 same pre-tool boundary blocks any native profile while the persisted task is
 RED, including a generic profile that would otherwise inherit full history.
-When no task classification exists, a native spawn requesting inherited
-history is also blocked; generic no-history profiles retain their existing
-pass-through behavior.
+An explicit inherited-history request is blocked. If a supported Codex runtime
+omits fork metadata, the guard accepts the otherwise validated bounded spawn;
+the generated route still includes `fork_turns=none` whenever the native schema
+accepts that field. When no task classification exists, inherited history is
+blocked and generic no-history profiles retain their existing pass-through
+behavior.
 
 ## Local-first rollout and rollback
 

@@ -22,7 +22,17 @@ TERRA_EFFORT = "high"
 SOL_EFFORTS = {8: "high", 9: "xhigh", 10: "max"}
 EFFORT_RANK = {"high": 1, "xhigh": 2, "max": 3}
 SUPPORTED_ROUTES = frozenset({"terra-implementation", "sol-advisor", "sol-active-analysis"})
-DEEP_INTENTS = frozenset({"architecture", "debugging", "migration", "security", "high-impact-review"})
+DEEP_INTENTS = frozenset(
+    {
+        "architecture",
+        "claim-adjudication",
+        "debugging",
+        "migration",
+        "security",
+        "spec-review",
+        "high-impact-review",
+    }
+)
 
 
 def _frozen_map(values: Mapping[str, object] | None = None) -> Mapping[str, object]:
@@ -80,7 +90,9 @@ class RoutingRequest:
     budget: RoutingBudget = field(default_factory=RoutingBudget)
     bounded_scope: bool = False
     local_verification_available: bool = False
-    hard_gates_pass: bool = True
+    # Gate evidence is safety-critical.  A caller must prove it explicitly;
+    # omission cannot authorize active Sol analysis or an effort downgrade.
+    hard_gates_pass: bool = False
 
 
 @dataclass(frozen=True)
@@ -441,3 +453,18 @@ def _fingerprint(**fields: object) -> str:
     normalized = {key: dict(value) if isinstance(value, Mapping) else value for key, value in fields.items()}
     encoded = dumps(normalized, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return sha256(encoded).hexdigest()[:16]
+
+
+def session_routing_context() -> str:
+    """Return a bounded, non-authoritative reminder for new sessions."""
+    return (
+        f"Model routing policy {POLICY_VERSION} (non-authoritative reminder): "
+        f"configured executor remains {LUNA_MODEL}/{LUNA_DEFAULT_EFFORT}. "
+        f"Effective Aristotle complexity routes new subagents as 1-3 {LUNA_MODEL}/max; "
+        f"4-6 {TERRA_MODEL}/{TERRA_EFFORT} implementation; "
+        f"7-8 {SOL_MODEL}/{SOL_EFFORTS[8]} advisor; "
+        f"9 {SOL_MODEL}/{SOL_EFFORTS[9]} advisor; "
+        f"10 {SOL_MODEL}/{SOL_EFFORTS[10]} advisor. "
+        "Active Sol analysis is never automatic and requires every gate; RED stays local. "
+        "Codex main owns decisions; this reminder never switches the current model or carries history."
+    )

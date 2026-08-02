@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from shared.paths import read_hook_input
 from shared.sol_advisor import (
-    completion_matches_active_advisor,
     has_completion_evidence,
     is_sol_advisor,
     mark_advisor,
@@ -20,9 +19,8 @@ def main() -> int:
             and isinstance(routing, dict)
             and routing.get("subagent_route") in {"sol-advisor", "sol-active-analysis"}
             and has_completion_evidence(payload)
-            and completion_matches_active_advisor(payload, read_state(payload))
         ):
-            mark_advisor(payload, completed=True)
+            mark_advisor(payload, completed=True, require_completion_match=True)
     except Exception:
         pass
     return 0

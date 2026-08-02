@@ -31,6 +31,11 @@ STATE_FILE = "sol-advisor.json"
 STATE_VERSION = 2
 MAX_FAILURE_FINGERPRINTS = 4
 MAX_CONSULTATIONS = 2
+# A PreToolUse reservation is a short lease, not durable proof that a
+# consultation started. If the runtime loses both lifecycle callbacks, this
+# bounded recovery window prevents one abandoned spawn from poisoning a phase
+# forever while still protecting a normally running advisor call.
+RESERVATION_LEASE_SECONDS = 15 * 60
 CONSULTATION_PHASES = frozenset({"plan", "stuck", "final"})
 HIGH_IMPACT_RE = re.compile(
     r"\b(architecture|authorization|auth|schema|database|migration|rollout|deploy|"
@@ -160,7 +165,9 @@ ROUTING_EVIDENCE: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("active_analysis_enabled", ("active_analysis_enabled", "activeAnalysisEnabled"), False),
     ("bounded_scope", ("bounded_scope", "boundedScope"), False),
     ("local_verification_available", ("local_verification_available", "localVerificationAvailable"), False),
-    ("hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), True),
+    # Hard-gate evidence must be supplied by the current event.  Treating an
+    # omitted value as passing would authorize active analysis accidentally.
+    ("hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), False),
 )
 
 
@@ -174,8 +181,17 @@ def _capture_routing_evidence(state: dict[str, Any], payload: dict[str, Any]) ->
             # explicit task-boundary branch creates a fresh state that can
             # establish a new gate result; an omitted or malformed
             # continuation value must never restore active analysis.
-            if state_key == "hard_gates_pass" and state.get(state_key) is False and not is_task_boundary(payload, ""):
-                state[state_key] = False
+            if state_key == "hard_gates_pass":
+                if parsed is False:
+                    state[state_key] = False
+                    state["hard_gates_failed"] = True
+                elif parsed is True and state.get("hard_gates_failed") and not is_task_boundary(payload, ""):
+                    # An explicitly failed gate remains sticky through a
+                    # continuation until a fresh task establishes evidence.
+                    state[state_key] = False
+                else:
+                    state[state_key] = parsed if parsed is not None else False
+                    state["hard_gates_failed"] = False
             else:
                 state[state_key] = parsed if parsed is not None else False
     budget_value = _payload_value(payload, "budget_class", "budgetClass")
@@ -214,9 +230,16 @@ def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, 
             reserved_at = int(value.get("reserved_at", 0) or 0)
         except (TypeError, ValueError):
             continue
-        # Reservations are released only by the matching start/failure or a
-        # fresh task state. Never expire a live queued spawn by wall clock.
-        if not normalized_phase or not fingerprint or reserved_at > now + 120:
+        # Reservations are released by the matching lifecycle callback, a
+        # fresh task state, or this bounded lease. Never retain malformed or
+        # abandoned reservations indefinitely.
+        if (
+            not normalized_phase
+            or not fingerprint
+            or reserved_at <= 0
+            or reserved_at > now + 120
+            or now - reserved_at > RESERVATION_LEASE_SECONDS
+        ):
             continue
         record: dict[str, object] = {"fingerprint": fingerprint, "reserved_at": reserved_at}
         spawn_shape = _bounded_text(value.get("spawn_shape"), limit=64)
@@ -589,7 +612,7 @@ def _routing_decision(
                 False,
             ),
             hard_gates_pass=_routing_bool(
-                state, payload, "hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), True
+                state, payload, "hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), False
             ),
         )
     )
@@ -816,6 +839,13 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
         else:
             parsed = _parse_bool(state.get(state_key))
             state[state_key] = parsed if parsed is not None else False
+    if "hard_gates_failed" not in state:
+        # Legacy false values are treated as failed evidence; new states set
+        # this marker explicitly so an unproven gate remains distinguishable.
+        state["hard_gates_failed"] = state.get("hard_gates_pass") is False
+    else:
+        parsed_failed = _parse_bool(state.get("hard_gates_failed"))
+        state["hard_gates_failed"] = parsed_failed if parsed_failed is not None else True
     state["budget_class"] = _bounded_text(state.get("budget_class"), limit=32) or None
     for override_key in ("task_subagent_override", "session_subagent_override"):
         state[override_key] = _override_record(state.get(override_key))
@@ -1048,7 +1078,10 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "active_analysis_enabled": False,
                 "bounded_scope": False,
                 "local_verification_available": False,
-                "hard_gates_pass": True,
+                # A new task must explicitly establish passing hard-gate
+                # evidence before active analysis can become eligible.
+                "hard_gates_pass": False,
+                "hard_gates_failed": False,
                 "budget_class": None,
                 "task_subagent_override": task_override,
                 "session_subagent_override": session_override,
@@ -1217,7 +1250,11 @@ def has_completion_evidence(payload: dict[str, Any]) -> bool:
 
 
 def mark_advisor(
-    payload: dict[str, Any], *, completed: bool, require_reservation: bool = False
+    payload: dict[str, Any],
+    *,
+    completed: bool,
+    require_reservation: bool = False,
+    require_completion_match: bool = False,
 ) -> dict[str, Any]:
     with locked_state(payload) as state:
         ensure_state_shape(state, payload)
@@ -1231,6 +1268,12 @@ def mark_advisor(
                 # account for an unmatched or missing start reservation.
                 return dict(state)
             phase = reserved_phase
+        if completed and require_completion_match:
+            # Validate the completion identity while holding the same lock as
+            # the mutation. A separate read in SubagentStop could otherwise
+            # race with a new task or advisor start and complete stale state.
+            if not has_completion_evidence(payload) or not completion_matches_active_advisor(payload, state):
+                return dict(state)
         state["phase"] = phase
         fingerprint = str(state.get("decision_fingerprint", ""))
         if completed:
