@@ -198,6 +198,25 @@ def test_configured_lifecycle_keeps_routine_work_local_without_sol(tmp_path: Pat
     assert_sources_unchanged(snapshot)
 
 
+def test_natural_language_task_boundary_resets_prior_route(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-natural-task-boundary"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    _, initial_decision = routing_state(env, session_id)
+    assert initial_decision["subagent_route"] == "sol-advisor"
+
+    run_configured_event(
+        "UserPromptSubmit",
+        prompt_payload(session_id, "New task: summarize the README in three bullets."),
+        env,
+    )
+    fresh_state, fresh_decision = routing_state(env, session_id)
+    assert fresh_state["complexity"] == 1
+    assert fresh_state["sensitivity"] == "GREEN"
+    assert fresh_decision["subagent_route"] == "none"
+    assert fresh_decision["spawn_required"] is False
+
+
 def test_stale_advisor_stop_cannot_complete_a_new_task_state(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     session_id = "sol-stale-stop"
@@ -826,7 +845,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
             "cwd": str(ROOT),
             "tool_name": "spawn_agent",
             "success": False,
-            "command": "spawn_agent failed before start",
+            "tool_response": {"success": False, "error": "native spawn rejected before start"},
             "tool_input": spawn,
         },
         env,

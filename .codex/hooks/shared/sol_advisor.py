@@ -44,6 +44,17 @@ HIGH_IMPACT_RE = re.compile(
 )
 EXPLICIT_RE = re.compile(r"\b(sol[ -]?advisor|consult(?:ar)?\s+(?:a\s+)?sol)\b", re.IGNORECASE)
 CONTINUATION_RE = re.compile(r"^\s*(continue|continua|sigue|resume|where were we)\b", re.IGNORECASE)
+TASK_BOUNDARY_RE = re.compile(
+    r"^\s*(?:new\s+(?:task|request|problem|issue|work|project|validation|step)|"
+    r"nueva\s+(?:tarea|solicitud|problema|incidencia|validación|validacion|etapa)|"
+    r"another\s+(?:task|request|problem|issue)|otra\s+(?:tarea|solicitud|problema|incidencia)|"
+    r"separate\s+(?:task|request|problem)|unrelated\s+(?:task|request|problem)|"
+    r"different\s+(?:task|request|problem)|distinta\s+(?:tarea|solicitud|problema)|"
+    r"start(?:ing)?\s+(?:a\s+)?new\s+(?:task|request|problem|issue|work|project|validation|step)|"
+    r"reinicia(?:r)?(?:\s+la\s+tarea)?|restart\s+(?:the\s+)?task|"
+    r"start\s+over|empezar\s+de\s+nuevo)\b",
+    re.IGNORECASE,
+)
 SOL_MODEL = ROUTING_SOL_MODEL
 SENSITIVITY_RANK = {"GREEN": 0, "YELLOW": 1, "RED": 2}
 
@@ -863,11 +874,11 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
 
 
 def is_task_boundary(payload: dict[str, Any], prompt: str) -> bool:
-    """Recognize an explicit request to start a fresh task state."""
+    """Recognize structured or clearly worded requests for a fresh task state."""
     for key in ("new_task", "newTask", "task_boundary", "taskBoundary", "start_new_task", "startNewTask"):
         if payload.get(key) is True:
             return True
-    return False
+    return bool(TASK_BOUNDARY_RE.search(prompt))
 
 
 def merge_existing_state(
@@ -1136,30 +1147,38 @@ def _reservation_matches_failure(
     )
 
 
+def _release_failed_spawn_reservation(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Release only the reservation correlated with a failed native spawn."""
+    reservations = _normalize_phase_reservations(state)
+    routing = state.get("routing")
+    routing_fingerprint = (
+        str(routing.get("decision_fingerprint") or "") if isinstance(routing, dict) else ""
+    )
+    state["phase_reservations"] = {
+        phase: reservation
+        for phase, reservation in reservations.items()
+        if not _reservation_matches_failure(reservation, payload, routing_fingerprint)
+    }
+
+
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
     success = success_from_payload(payload)
     if success is not False:
         return read_state(payload)
+    native_spawn = _is_native_spawn_payload(payload)
     candidate = command_text(payload)
-    if not candidate or is_red(candidate):
+    if not native_spawn and (not candidate or is_red(candidate)):
         return read_state(payload)
-    fingerprint = hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:16]
+    fingerprint = hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:16] if candidate else ""
     with locked_state(payload) as state:
         ensure_state_shape(state, payload)
-        if _is_native_spawn_payload(payload):
+        if native_spawn:
             # A failed native spawn never reaches SubagentStart. Release its
             # matching short-lived reservation so a bounded retry can be
             # attempted; unrelated pending phases remain protected.
-            reservations = _normalize_phase_reservations(state)
-            routing = state.get("routing")
-            routing_fingerprint = (
-                str(routing.get("decision_fingerprint") or "") if isinstance(routing, dict) else ""
-            )
-            state["phase_reservations"] = {
-                phase: reservation
-                for phase, reservation in reservations.items()
-                if not _reservation_matches_failure(reservation, payload, routing_fingerprint)
-            }
+            _release_failed_spawn_reservation(state, payload)
+        if not candidate or is_red(candidate):
+            return dict(state)
         failures = state.setdefault("failure_fingerprints", [])
         if not isinstance(failures, list):
             failures = []

@@ -403,9 +403,29 @@ def test_red_sensitivity_is_sticky_across_a_continuation(tmp_path: Path, monkeyp
     assert continued["routing"]["sensitivity"] == "RED"
     assert continued["routing"]["subagent_route"] == "none"
 
-    natural_boundary = initialize({**event, "prompt": "start a new validation step"})
+    natural_boundary = initialize(
+        {
+            "cwd": str(ROOT),
+            "session_id": event["session_id"],
+            "complexity": 1,
+            "prompt": "start a new validation step",
+        }
+    )
     assert natural_boundary is not None
-    assert natural_boundary["sensitivity"] == "RED"
+    assert natural_boundary["sensitivity"] == "GREEN"
+    assert natural_boundary["routing"]["subagent_route"] == "none"
+
+    quoted_boundary = initialize(
+        {
+            "cwd": str(ROOT),
+            "session_id": event["session_id"],
+            "complexity": 8,
+            "prompt": 'The quoted phrase "new task" is not a boundary.',
+        }
+    )
+    assert quoted_boundary is not None
+    assert quoted_boundary["sensitivity"] == "GREEN"
+    assert quoted_boundary["routing"]["subagent_route"] == "sol-advisor"
 
     fresh = initialize({**event, "new_task": True, "sensitivity": "GREEN", "prompt": "Start a routine task."})
     assert fresh is not None
