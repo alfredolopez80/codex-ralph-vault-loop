@@ -22,9 +22,13 @@ def git(cwd: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def make_repo_with_worktree(tmp_path: Path, home: Path) -> tuple[Path, Path]:
-    primary = tmp_path / "primary" / "sample-project"
-    active = home / ".codex" / "worktrees" / "fixture" / "sample-project"
+def make_repo_with_worktree(tmp_path: Path, home: Path, *, external: bool = False) -> tuple[Path, Path]:
+    primary = tmp_path / "primary" / "sample-project-primary"
+    active = (
+        tmp_path / "ordinary-linked" / "sample-project-active"
+        if external
+        else home / ".codex" / "worktrees" / "fixture" / "sample-project-active"
+    )
     primary.mkdir(parents=True)
     git(primary, "init")
     git(primary, "config", "user.email", "test@example.invalid")
@@ -60,12 +64,15 @@ def env_for(home: Path) -> dict[str, str]:
 def test_global_installed_implementation_notes_flow_updates_project_index(tmp_path: Path) -> None:
     home = tmp_path / "home"
     env = env_for(home)
+    env["CODEX_SESSION_ID"] = "global-e2e-session"
     install = run(["bash", str(INSTALL), "--install", "--with-agents", "--allow-worktree-source"], cwd=ROOT, env=env)
     assert install.returncode == 0, install.stderr
     installed_hook = home / ".codex" / "hooks" / "implementation_notes_guard.py"
+    installed_dispatcher = home / ".codex" / "hooks" / "global_hook_dispatch.py"
     hooks_json = home / ".codex" / "hooks.json"
     agents_md = home / ".codex" / "AGENTS.md"
     assert installed_hook.is_file()
+    assert installed_dispatcher.is_file()
     hooks_text = hooks_json.read_text(encoding="utf-8")
     assert "global_hook_dispatch.py" in hooks_text
     assert "--role implementation_notes_guard" in hooks_text
@@ -84,8 +91,6 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
             str(source_plan),
             "--active-root",
             str(active),
-            "--primary-root",
-            str(primary),
         ],
         cwd=ROOT,
         env=env,
@@ -95,6 +100,7 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
     notes = primary / ".ralph" / "plans" / "e2e-plan-implementation-notes.html"
     assert canonical_plan.is_file()
     assert notes.is_file()
+    assert (active / ".codex" / "state" / "global-e2e-session" / "implementation-notes-plan.json").is_file()
     active_index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
     assert active_index["plans"][0]["status"] == "active"
     assert active_index["plans"][0]["commits"] == []
@@ -119,8 +125,6 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
             "The canonical project index becomes the business signal.",
             "--active-root",
             str(active),
-            "--primary-root",
-            str(primary),
         ],
         cwd=ROOT,
         env=env,
@@ -132,9 +136,16 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
         "session_id": "global-e2e-session",
         "cwd": str(active),
         "plan_approved": True,
-        "last_assistant_message": f"Implemented plan: [{source_plan.relative_to(active)}]({source_plan})",
+        # Deliberately omit payload and Markdown plan paths: this proves the
+        # installed dispatcher can recover the approved plan from session state.
+        "last_assistant_message": "Implemented the approved plan.",
     }
-    stopped = run([sys.executable, str(installed_hook)], cwd=active, env=env, input_text=json.dumps(payload))
+    stopped = run(
+        [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
+        cwd=active,
+        env=env,
+        input_text=json.dumps(payload),
+    )
     assert stopped.returncode == 0, stopped.stderr
     assert stopped.stdout == ""
 
@@ -144,9 +155,43 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
     assert entry["plan"] == ".ralph/plans/e2e-plan.md"
     assert entry["notes"] == ".ralph/plans/e2e-plan-implementation-notes.html"
     assert git(active, "rev-parse", "HEAD") in entry["commits"]
+    events = implemented_index["events"]
+    assert [event["event"] for event in events] == ["notes_created", "note_appended", "implemented"]
+    assert events[1]["operation_id"]
+    assert all(event["canonical_repo_root"] == str(primary.resolve()) for event in events)
+    assert all(event["active_worktree_root"] == str(active.resolve()) for event in events)
+    assert events[-1]["session_id"] == "global-e2e-session"
+    assert events[-1]["commit"] == git(active, "rev-parse", "HEAD")
     rendered = (primary / ".ralph" / "plans" / "implementation-index.md").read_text(encoding="utf-8")
     assert "e2e-plan.md" in rendered
     assert "implemented" in rendered
+    assert "Implementation Events" in rendered
+
+    repeated = run(
+        [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
+        cwd=active,
+        env=env,
+        input_text=json.dumps(payload),
+    )
+    assert repeated.returncode == 0, repeated.stderr
+    repeated_index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert len(repeated_index["events"]) == len(events)
+
+    markdown_payload = {
+        "hook_event_name": "Stop",
+        "session_id": "global-e2e-markdown-session",
+        "cwd": str(active),
+        "plan_approved": True,
+        "last_assistant_message": f"Implemented plan: [{source_plan.relative_to(active)}]({source_plan})",
+    }
+    markdown_stop = run(
+        [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
+        cwd=active,
+        env=env,
+        input_text=json.dumps(markdown_payload),
+    )
+    assert markdown_stop.returncode == 0, markdown_stop.stderr
+    assert markdown_stop.stdout == ""
 
     example_payload = {
         "hook_event_name": "Stop",
@@ -154,6 +199,121 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
         "cwd": str(active),
         "last_assistant_message": "Example: /Users/example/project/.ralph/plans/plan.md",
     }
-    example = run([sys.executable, str(installed_hook)], cwd=active, env=env, input_text=json.dumps(example_payload))
+    example = run([sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"], cwd=active, env=env, input_text=json.dumps(example_payload))
     assert example.returncode == 0, example.stderr
     assert example.stdout == ""
+
+    git(primary, "worktree", "remove", "--force", str(active))
+    assert not active.exists()
+    assert canonical_plan.is_file()
+    assert notes.is_file()
+    assert (primary / ".ralph" / "plans" / "implementation-index.json").is_file()
+
+
+def test_global_installed_flow_canonicalizes_external_linked_worktree(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    env = env_for(home)
+    env["CODEX_SESSION_ID"] = "external-worktree-session"
+    install = run(["bash", str(INSTALL), "--install", "--with-agents", "--allow-worktree-source"], cwd=ROOT, env=env)
+    assert install.returncode == 0, install.stderr
+    installed_dispatcher = home / ".codex" / "hooks" / "global_hook_dispatch.py"
+    primary, active = make_repo_with_worktree(tmp_path, home, external=True)
+    source_plan = active / ".ralph" / "plans" / "nested" / "e2e-plan.md"
+    write_plan(source_plan)
+
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(source_plan), "--active-root", str(active)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    canonical_plan = primary / ".ralph" / "plans" / "nested" / "e2e-plan.md"
+    notes = primary / ".ralph" / "plans" / "nested" / "e2e-plan-implementation-notes.html"
+    assert canonical_plan.is_file()
+    assert notes.is_file()
+
+    appended = run(
+        [
+            sys.executable,
+            str(APPEND),
+            "--notes",
+            str(notes),
+            "--category",
+            "decision",
+            "--decision",
+            "Finalize from an ordinary linked worktree.",
+            "--reason",
+            "The canonical plan must not depend on a Codex path prefix.",
+            "--impact",
+            "Durable history remains after the linked worktree is removed.",
+            "--active-root",
+            str(active),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+    assert appended.returncode == 0, appended.stderr
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "external-worktree-session",
+        "cwd": str(active),
+        "plan_approved": True,
+        "last_assistant_message": f"Implemented plan: [{source_plan.relative_to(active)}]({source_plan})",
+    }
+    stopped = run(
+        [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
+        cwd=active,
+        env=env,
+        input_text=json.dumps(payload),
+    )
+    assert stopped.returncode == 0, stopped.stderr
+    index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert index["plans"][0]["plan"] == ".ralph/plans/nested/e2e-plan.md"
+    assert all("ordinary-linked" not in event["plan"] for event in index["events"])
+    git(primary, "worktree", "remove", "--force", str(active))
+    assert canonical_plan.is_file()
+    assert notes.is_file()
+
+
+def test_append_operation_id_is_retry_safe(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    env = env_for(home)
+    env["CODEX_SESSION_ID"] = "retry-session"
+    primary, active = make_repo_with_worktree(tmp_path, home)
+    source_plan = active / ".ralph" / "plans" / "retry-plan.md"
+    write_plan(source_plan)
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(source_plan), "--active-root", str(active)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    notes = primary / ".ralph" / "plans" / "retry-plan-implementation-notes.html"
+    append_args = [
+        sys.executable,
+        str(APPEND),
+        "--notes",
+        str(notes),
+        "--category",
+        "decision",
+        "--decision",
+        "Retry-safe decision.",
+        "--reason",
+        "The operation may be replayed after a process interruption.",
+        "--impact",
+        "Exactly one note and one index event represent the operation.",
+        "--operation-id",
+        "retry-1",
+        "--active-root",
+        str(active),
+    ]
+    for _ in range(2):
+        appended = run(append_args, cwd=ROOT, env=env)
+        assert appended.returncode == 0, appended.stderr
+
+    html = notes.read_text(encoding="utf-8")
+    assert html.count("<dt>Operation ID</dt><dd>retry-1</dd>") == 1
+    index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    retry_events = [event for event in index["events"] if event.get("operation_id") == "retry-1"]
+    assert len(retry_events) == 1
+    git(primary, "worktree", "remove", "--force", str(active))

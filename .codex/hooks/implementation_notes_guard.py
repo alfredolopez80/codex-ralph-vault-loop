@@ -16,8 +16,11 @@ if str(SCRIPTS_PLANS) not in sys.path:
 
 from implementation_index_lib import current_git_metadata, upsert_plan_entry
 from implementation_notes_lib import (
+    GitMetadataError,
     ImplementationNotesError,
     canonical_plan_path,
+    canonicalize_plan_metadata_text,
+    ensure_not_red,
     ensure_plan_path_allowed,
     is_codex_worktree,
     is_plan_approved,
@@ -92,13 +95,45 @@ def block(reason: str) -> int:
 
 
 def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
-    if not is_codex_worktree(plan_path):
-        return plan_path
-    canonical_plan = canonical_plan_path(plan_path, roots.primary_repo_root)
+    resolved_plan = plan_path.resolve(strict=False)
+    primary_plans = (roots.primary_repo_root / ".ralph" / "plans").resolve(strict=False)
+    active_plans = (roots.active_worktree_root / ".ralph" / "plans").resolve(strict=False)
+    try:
+        resolved_plan.relative_to(primary_plans)
+        return resolved_plan
+    except ValueError:
+        pass
+    try:
+        resolved_plan.relative_to(active_plans)
+    except ValueError:
+        return resolved_plan
+
+    canonical_plan = canonical_plan_path(resolved_plan, roots.primary_repo_root)
     if not canonical_plan.exists():
         raise ImplementationNotesError(
-            "approved implementation plan exists only in an ephemeral Codex worktree; "
+            "approved implementation plan exists only in an ephemeral Codex worktree or other linked worktree; "
             "copy it to the canonical repo root .ralph/plans/ before finalizing"
+        )
+    source_text = resolved_plan.read_text(encoding="utf-8")
+    canonical_text = canonical_plan.read_text(encoding="utf-8")
+    ensure_not_red("linked worktree implementation plan", source_text)
+    ensure_not_red("canonical implementation plan", canonical_text)
+    source_metadata = parse_plan_metadata(resolved_plan)
+    canonical_metadata = parse_plan_metadata(canonical_plan)
+    notes_path = resolve_notes_path_for_plan(canonical_metadata, canonical_plan, roots.primary_repo_root)
+    if source_metadata.implementation_notes:
+        source_notes_path = resolve_notes_path_for_plan(source_metadata, resolved_plan, roots.primary_repo_root)
+        if source_notes_path.resolve(strict=False) != notes_path.resolve(strict=False):
+            raise ImplementationNotesError(
+                "linked worktree implementation plan points to a different notes path; "
+                "sync the canonical copy before finalizing"
+            )
+    normalized_source = canonicalize_plan_metadata_text(source_text, notes_path)
+    normalized_canonical = canonicalize_plan_metadata_text(canonical_text, notes_path)
+    if normalized_source != normalized_canonical:
+        raise ImplementationNotesError(
+            "linked worktree implementation plan differs from the canonical plan; "
+            "sync the canonical copy before finalizing"
         )
     return canonical_plan
 
@@ -166,7 +201,14 @@ def main() -> int:
             commit=git_meta["commit"],
             branch=git_meta["branch"],
             session_id=_payload_session_id(payload),
+            event="implemented",
         )
+        return 0
+    except GitMetadataError:
+        # Git metadata lookup is operational context, not proof that the
+        # implementation-notes state is invalid. Stop hooks fail open on
+        # transient local runtime failures and leave the next invocation
+        # to retry the lifecycle update.
         return 0
     except ImplementationNotesError as exc:
         return block(f"Implementation notes guard could not validate plan: {exc}")

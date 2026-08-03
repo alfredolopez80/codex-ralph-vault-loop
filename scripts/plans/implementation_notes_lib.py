@@ -5,8 +5,10 @@ import html
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -48,10 +50,16 @@ class ImplementationNotesError(RuntimeError):
     pass
 
 
+class GitMetadataError(ImplementationNotesError):
+    """Operational failure while resolving repository topology metadata."""
+
+
 @dataclass(frozen=True)
 class Roots:
     active_worktree_root: Path
     primary_repo_root: Path
+    git_common_dir: Path | None = None
+    resolution_method: str = ""
 
 
 @dataclass(frozen=True)
@@ -175,6 +183,8 @@ def write_implementation_plan_state(roots: Roots, session_id: str, plan_path: Pa
         "implementation_notes_path": str(notes_path),
         "primary_repo_root": str(roots.primary_repo_root),
         "active_worktree_root": str(roots.active_worktree_root),
+        "git_common_dir": str(roots.git_common_dir) if roots.git_common_dir else "",
+        "resolution_method": roots.resolution_method,
         "workspace_instance_id": hashlib.sha256(str(roots.active_worktree_root.resolve()).encode("utf-8")).hexdigest()[:16],
         "updated_at": now_local(),
     }
@@ -218,6 +228,25 @@ def git_root_for(path: Path) -> Path:
     return Path(root).resolve()
 
 
+def _git_path_for(root: Path, argument: str) -> Path:
+    """Resolve a Git metadata path relative to the repository root when needed."""
+    raw = run_git(root, "rev-parse", argument)
+    if not raw:
+        raise GitMetadataError(f"could not resolve Git metadata for repository: {root}")
+    path = Path(raw).expanduser()
+    return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+
+def git_common_dir_for(root: Path) -> Path:
+    """Return the shared Git directory that identifies a repository across worktrees."""
+    return _git_path_for(root, "--git-common-dir")
+
+
+def git_dir_for(root: Path) -> Path:
+    """Return this checkout's Git directory, distinct for linked worktrees."""
+    return _git_path_for(root, "--git-dir")
+
+
 def is_codex_worktree(path: Path) -> bool:
     try:
         path.resolve().relative_to(CODEX_WORKTREE_ROOT.resolve())
@@ -228,6 +257,8 @@ def is_codex_worktree(path: Path) -> bool:
 
 def _worktree_paths(root: Path) -> list[Path]:
     raw = run_git(root, "worktree", "list", "--porcelain")
+    if not raw:
+        raise GitMetadataError(f"could not resolve Git worktree metadata for repository: {root}")
     paths: list[Path] = []
     for line in raw.splitlines():
         if line.startswith("worktree "):
@@ -237,25 +268,63 @@ def _worktree_paths(root: Path) -> list[Path]:
     return paths
 
 
+def _canonical_primary_candidates(active_root: Path, common_dir: Path) -> list[Path]:
+    """Find main checkout roots for ``common_dir`` without relying on path names."""
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in [active_root, *_worktree_paths(active_root)]:
+        normalized = candidate.resolve()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            if git_common_dir_for(normalized) != common_dir:
+                continue
+            if git_dir_for(normalized) == common_dir:
+                candidates.append(normalized)
+        except GitMetadataError:
+            raise
+        except ImplementationNotesError:
+            continue
+    return candidates
+
+
 def resolve_roots(active_root: str | Path | None = None, primary_root: str | Path | None = None) -> Roots:
     active = Path(active_root or os.environ.get("RALPH_ACTIVE_WORKTREE_ROOT") or Path.cwd()).expanduser().resolve()
     active_git = git_root_for(active)
+    active_common_dir = git_common_dir_for(active_git)
     explicit_primary = primary_root or os.environ.get("RALPH_PRIMARY_REPO_ROOT")
     if explicit_primary:
         primary = git_root_for(Path(explicit_primary).expanduser().resolve())
         if is_codex_worktree(primary):
             raise ImplementationNotesError("primary repo root cannot be under ~/.codex/worktrees")
-        return Roots(active_worktree_root=active_git, primary_repo_root=primary)
+        if git_common_dir_for(primary) != active_common_dir:
+            raise ImplementationNotesError("primary repo root belongs to a different Git repository")
+        if git_dir_for(primary) != active_common_dir:
+            raise ImplementationNotesError("primary repo root must be the repository's main checkout, not a linked worktree")
+        return Roots(
+            active_worktree_root=active_git,
+            primary_repo_root=primary,
+            git_common_dir=active_common_dir,
+            resolution_method="explicit-primary",
+        )
 
-    if not is_codex_worktree(active_git):
-        return Roots(active_worktree_root=active_git, primary_repo_root=active_git)
-
-    for candidate in _worktree_paths(active_git):
-        if candidate.name == active_git.name and not is_codex_worktree(candidate):
-            return Roots(active_worktree_root=active_git, primary_repo_root=candidate)
+    candidates = _canonical_primary_candidates(active_git, active_common_dir)
+    if len(candidates) == 1:
+        primary = candidates[0]
+        if not is_codex_worktree(primary):
+            return Roots(
+                active_worktree_root=active_git,
+                primary_repo_root=primary,
+                git_common_dir=active_common_dir,
+                resolution_method="git-common-dir",
+            )
+        raise ImplementationNotesError("canonical local repo root cannot be under ~/.codex/worktrees")
+    if len(candidates) > 1:
+        raise ImplementationNotesError("ambiguous canonical local repo roots for this Git repository; set RALPH_PRIMARY_REPO_ROOT")
 
     raise ImplementationNotesError(
-        "could not resolve a canonical local repo root outside ~/.codex/worktrees; set RALPH_PRIMARY_REPO_ROOT"
+        "could not resolve a canonical local repo root for this Git repository; set RALPH_PRIMARY_REPO_ROOT"
     )
 
 
@@ -366,12 +435,19 @@ def is_plan_approved(metadata: PlanMetadata, explicit_approved: bool = False) ->
 
 
 def infer_notes_path(plan_path: Path, primary_root: Path) -> Path:
-    stem = plan_path.name[:-3] if plan_path.name.endswith(".md") else plan_path.stem
-    return primary_root / ".ralph" / "plans" / f"{stem}{IMPLEMENTATION_NOTES_SUFFIX}"
+    canonical_plan = canonical_plan_path(plan_path, primary_root)
+    stem = canonical_plan.name[:-3] if canonical_plan.name.endswith(".md") else canonical_plan.stem
+    return canonical_plan.with_name(f"{stem}{IMPLEMENTATION_NOTES_SUFFIX}")
 
 
 def canonical_plan_path(plan_path: Path, primary_root: Path) -> Path:
-    return primary_root / ".ralph" / "plans" / plan_path.name
+    """Map any .ralph/plans path to the same relative path in the primary root."""
+    resolved = plan_path.resolve(strict=False)
+    for parent in (resolved.parent, *resolved.parents):
+        if parent.name == "plans" and parent.parent.name == ".ralph":
+            relative = resolved.relative_to(parent)
+            return primary_root / ".ralph" / "plans" / relative
+    return primary_root / ".ralph" / "plans" / resolved.name
 
 
 def resolve_notes_path_for_plan(
@@ -427,7 +503,10 @@ def canonicalize_plan_metadata_text(text: str, notes_path: Path) -> str:
 def sync_plan_to_primary(plan_path: Path, primary_root: Path, notes_path: Path, force: bool = False) -> Path:
     target = resolve_for_write(canonical_plan_path(plan_path, primary_root), primary_root)
     target.parent.mkdir(parents=True, exist_ok=True)
-    rendered = canonicalize_plan_metadata_text(plan_path.read_text(encoding="utf-8"), notes_path)
+    source_text = plan_path.read_text(encoding="utf-8")
+    ensure_not_red("implementation plan", source_text)
+    rendered = canonicalize_plan_metadata_text(source_text, notes_path)
+    ensure_not_red("canonical implementation plan", rendered)
     if target.exists() and target.read_text(encoding="utf-8") != rendered and not force:
         raise ImplementationNotesError(f"canonical plan differs; use --force to replace: {target}")
     if not target.exists() or force:
@@ -643,6 +722,7 @@ def entry_html(
     related_files: Iterable[str],
     status: str,
     timestamp: str,
+    operation_id: str = "",
 ) -> str:
     if category not in ALLOWED_CATEGORIES:
         raise ImplementationNotesError(f"invalid category: {category}")
@@ -657,6 +737,7 @@ def entry_html(
         <dt>Impact</dt><dd>{html_escape(impact)}</dd>
         <dt>Related files</dt><dd>{related}</dd>
         <dt>Status</dt><dd>{html_escape(status)}</dd>
+        {f'<dt>Operation ID</dt><dd>{html_escape(operation_id)}</dd>' if operation_id else ''}
       </dl>
     </article>
 """
@@ -722,18 +803,91 @@ def migrate_legacy_entries_to_sections(text: str) -> str:
     return text
 
 
-def append_entry(notes_path: Path, entry: str, category: str) -> None:
+def _operation_payload_signature(text: str) -> tuple[str, tuple[tuple[str, str], ...]] | None:
+    parser = NotesHTMLParser()
+    parser.feed(text)
+    if len(parser.entries) != 1:
+        return None
+    parsed = parser.entries[0]
+    fields = tuple(
+        sorted((key, value) for key, value in parsed.fields.items() if key not in {"Timestamp", "Operation ID"})
+    )
+    return parsed.category, fields
+
+
+def append_entry(notes_path: Path, entry: str, category: str) -> bool:
     text = notes_path.read_text(encoding="utf-8")
+    operation_match = re.search(r"<dt>Operation ID</dt><dd>([^<]+)</dd>", entry)
+    if operation_match:
+        operation_id = html.unescape(operation_match.group(1))
+        new_signature = _operation_payload_signature(entry)
+        if new_signature is None:
+            raise ImplementationNotesError(
+                f"operation ID entry must contain exactly one structured note payload: {operation_id}"
+            )
+        parser = NotesHTMLParser()
+        parser.feed(text)
+        for existing in parser.entries:
+            if existing.fields.get("Operation ID") != operation_id:
+                continue
+            existing_signature = (
+                existing.category,
+                tuple(
+                    sorted(
+                        (key, value)
+                        for key, value in existing.fields.items()
+                        if key not in {"Timestamp", "Operation ID"}
+                    )
+                ),
+            )
+            if new_signature != existing_signature:
+                raise ImplementationNotesError(
+                    f"operation ID already belongs to a different note payload in {notes_path}: {operation_id}"
+                )
+            return False
     text = migrate_legacy_entries_to_sections(text)
     marker = category_anchor(category)
     if marker not in text:
         marker = GLOBAL_APPEND_ANCHOR
     if marker not in text:
         raise ImplementationNotesError("implementation notes append anchor not found")
-    notes_path.write_text(text.replace(marker, entry + marker), encoding="utf-8")
+    rendered = text.replace(marker, entry + marker)
+    notes_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_mode = stat.S_IMODE(notes_path.stat().st_mode) if notes_path.exists() else None
+    temporary = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=notes_path.parent,
+            prefix=f".{notes_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = handle.name
+            if existing_mode is not None:
+                os.fchmod(handle.fileno(), existing_mode)
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, notes_path)
+        try:
+            directory_fd = os.open(notes_path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        temporary = ""
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
+    return True
 
 
-def valid_non_initial_entries(text: str) -> list[ParsedEntry]:
+def valid_non_initial_entries(text: str, *, include_summary: bool = False) -> list[ParsedEntry]:
     ensure_not_red("implementation notes file", text)
     parser = NotesHTMLParser()
     parser.feed(text)
@@ -761,7 +915,7 @@ def valid_non_initial_entries(text: str) -> list[ParsedEntry]:
             raise ImplementationNotesError(f"implementation notes {entry.category} entry is missing required fields: {', '.join(missing)}")
         if entry.fields.get("Category") != entry.category:
             raise ImplementationNotesError("implementation notes entry category field does not match its data-entry-kind")
-        if entry.category != "summary":
+        if include_summary or entry.category != "summary":
             valid.append(entry)
     return valid
 

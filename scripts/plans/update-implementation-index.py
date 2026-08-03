@@ -5,7 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from implementation_index_lib import record_loose_commit, upsert_plan_entry
+from implementation_index_lib import ALLOWED_EVENTS, record_loose_commit, upsert_plan_entry
 from implementation_notes_lib import ImplementationNotesError, resolve_for_read, resolve_roots
 
 
@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--branch", default="", help="Branch name override.")
     parser.add_argument("--pr", default="", help="PR URL or identifier.")
     parser.add_argument("--session-id", default="", help="Codex session id.")
+    parser.add_argument("--event", choices=sorted(ALLOWED_EVENTS), default="", help="Lifecycle event to record.")
     parser.add_argument("--loose-commit", help="Commit without an approved plan.")
     parser.add_argument("--reason", default="", help="Reason for a loose commit entry.")
     parser.add_argument("--entry-notes", default="", help="Short note for a loose commit entry.")
@@ -53,6 +54,7 @@ def main() -> int:
             branch=args.branch,
             pr=args.pr,
             session_id=args.session_id,
+            event=args.event,
         )
         print(f"IMPLEMENTATION_INDEX_PLAN {plan_path}")
         return 0

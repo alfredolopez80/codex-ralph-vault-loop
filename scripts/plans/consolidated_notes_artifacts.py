@@ -34,6 +34,7 @@ class ConsolidatedEntry:
     impact: str
     related_files: str
     status: str
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class ConsolidatedItem:
     timestamp: str
     title: str
     rows: tuple[tuple[str, str], ...]
+    legacy_key: str = ""
 
 
 def current_entries(path: Path) -> list[ConsolidatedEntry]:
@@ -77,6 +79,7 @@ def current_entries(path: Path) -> list[ConsolidatedEntry]:
                 impact=entry.fields.get("Impact", ""),
                 related_files=entry.fields.get("Related files", ""),
                 status=entry.fields.get("Status", ""),
+                operation_id=entry.fields.get("Operation ID", ""),
             )
         )
     return entries
@@ -96,10 +99,11 @@ def consolidated_items(sections: list[ConsolidatedPlanSection]) -> list[Consolid
             items.append(ConsolidatedItem(key, section, "legacy", "", "Legacy Notes", rows))
             continue
         for entry in section.entries:
-            rows = (*common_rows(section), ("Timestamp", entry.timestamp or "n/a"), ("Category", entry.category), ("Decision", entry.decision or "n/a"), ("Reason", entry.reason or "n/a"), ("Impact", entry.impact or "n/a"), ("Related files", entry.related_files or "n/a"), ("Entry status", entry.status or "n/a"))
-            key = item_key([section.slug, entry.category, entry.timestamp, entry.decision, entry.reason, entry.impact, entry.related_files, entry.status])
+            rows = (*common_rows(section), ("Timestamp", entry.timestamp or "n/a"), ("Category", entry.category), ("Operation ID", entry.operation_id or "n/a"), ("Decision", entry.decision or "n/a"), ("Reason", entry.reason or "n/a"), ("Impact", entry.impact or "n/a"), ("Related files", entry.related_files or "n/a"), ("Entry status", entry.status or "n/a"))
+            key = item_key([section.slug, entry.category, entry.timestamp, entry.operation_id, entry.decision, entry.reason, entry.impact, entry.related_files, entry.status])
+            legacy_key = item_key([section.slug, entry.category, entry.timestamp, entry.decision, entry.reason, entry.impact, entry.related_files, entry.status])
             title = CATEGORY_LABELS.get(entry.category, entry.category)
-            items.append(ConsolidatedItem(key, section, entry.category, entry.timestamp, title, rows))
+            items.append(ConsolidatedItem(key, section, entry.category, entry.timestamp, title, rows, legacy_key))
     return sorted(items, key=lambda item: (item.section.slug, item.timestamp, item.category, item.key))
 
 
@@ -160,8 +164,8 @@ def planned_append_counts(sections: list[ConsolidatedPlanSection], html_path: Pa
     md_keys = existing_keys(md_path, MD_KEY_RE)
     return {
         "items": len(items),
-        "html_append": sum(1 for item in items if item.key not in html_keys),
-        "md_append": sum(1 for item in items if item.key not in md_keys),
+        "html_append": sum(1 for item in items if not item_seen(item, html_keys)),
+        "md_append": sum(1 for item in items if not item_seen(item, md_keys)),
     }
 
 
@@ -194,12 +198,16 @@ def prepared_artifact(path: Path, shell: str, anchor: str, key_re: re.Pattern[st
     if anchor not in text:
         raise ImplementationNotesError(f"consolidated {label} append anchor not found: {path}")
     seen = set(key_re.findall(text))
-    missing = [item for item in items if item.key not in seen]
+    missing = [item for item in items if not item_seen(item, seen)]
     if not missing and exists and not rebuild:
         return text, 0, False
     addition = "".join(render_item(item) for item in missing)
     ensure_not_red(f"consolidated implementation notes {label} append", addition)
     return text.replace(anchor, addition + anchor, 1), len(missing), True
+
+
+def item_seen(item: ConsolidatedItem, seen: set[str]) -> bool:
+    return item.key in seen or bool(item.legacy_key and item.legacy_key in seen)
 
 
 def html_shell(primary_root: Path) -> str:

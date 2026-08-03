@@ -200,6 +200,310 @@ def test_consolidate_apply_blocks_worktree_notes_symlink_escape(tmp_path: Path) 
     assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.md").exists()
 
 
+def test_consolidate_dry_run_reports_broken_symlink_without_traceback(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    notes = active / ".ralph" / "plans" / "broken-implementation-notes.html"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.symlink_to(tmp_path / "missing-notes.html")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert "symlink target does not exist" in " ".join(by_slug["broken"]["conflicts"])
+    assert "Traceback" not in result.stderr
+
+
+def test_consolidate_dry_run_does_not_quarantine_corrupt_index(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_path = index_dir / "implementation-index.json"
+    index_path.write_text("{not-json\n", encoding="utf-8")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["index_health"]["status"] == "corrupt"
+    assert "not valid JSON" in report["index_health"]["error"]
+    assert index_path.read_text(encoding="utf-8") == "{not-json\n"
+    assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
+    assert not (index_dir / "implementation-index.lock").exists()
+
+
+def test_consolidate_apply_reports_corrupt_index_without_rebuilding_it(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_path = index_dir / "implementation-index.json"
+    original = b"{not-json\n"
+    index_path.write_bytes(original)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--apply", "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["index_health"]["status"] == "corrupt"
+    assert index_path.read_bytes() == original
+    assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
+
+
+def test_consolidate_rejects_index_symlink_without_touching_target(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    victim = index_dir / "victim-plan.md"
+    original = "# Victim plan\n"
+    victim.write_text(original, encoding="utf-8")
+    index_path = index_dir / "implementation-index.json"
+    index_path.symlink_to(victim)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary), "--apply"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "cannot be a symlink" in result.stderr
+    assert victim.read_text(encoding="utf-8") == original
+    assert index_path.is_symlink()
+    assert not list(index_dir.glob("victim-plan.md.corrupt-*"))
+
+
+def test_consolidate_reports_internal_notes_symlink_as_conflict(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    source = primary / ".ralph" / "plans" / "source-implementation-notes.html"
+    alias = primary / ".ralph" / "plans" / "nested" / "alias-implementation-notes.html"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("<main data-implementation-notes=\"true\"></main>\n", encoding="utf-8")
+    alias.symlink_to(source)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert "implementation notes symlink aliases are not allowed" in " ".join(by_slug["nested/alias"]["conflicts"])
+
+
+def test_consolidate_reports_internal_notes_hardlink_as_conflict(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plans_dir = primary / ".ralph" / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    source = plans_dir / "source-implementation-notes.html"
+    alias = plans_dir / "nested" / "hardlink-plan-implementation-notes.html"
+    source.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    alias.hardlink_to(source)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    record = next(item for item in report["records"] if item["slug"] == "nested/hardlink-plan")
+    assert "implementation notes hardlink aliases are not allowed" in " ".join(record["conflicts"])
+
+
+def test_consolidate_dry_run_rejects_future_index_without_mutating_it(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_path = index_dir / "implementation-index.json"
+    original = json.dumps({"version": 99, "plans": [], "loose_commits": [], "events": []}) + "\n"
+    index_path.write_text(original, encoding="utf-8")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "newer than supported" in result.stderr
+    assert index_path.read_text(encoding="utf-8") == original
+    assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
+    assert not (index_dir / "implementation-index.lock").exists()
+
+
+def test_create_notes_preflights_future_index_before_writing_artifacts(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_path = index_dir / "implementation-index.json"
+    original = json.dumps({"version": 99, "plans": [], "loose_commits": [], "events": []}) + "\n"
+    index_path.write_text(original, encoding="utf-8")
+    plan = active / ".ralph" / "plans" / "future-create.md"
+    write_plan(plan)
+    notes = primary / ".ralph" / "plans" / "future-create-implementation-notes.html"
+
+    result = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "newer than supported" in result.stderr
+    assert not notes.exists()
+    assert not (primary / ".codex" / "state").exists()
+    assert index_path.read_text(encoding="utf-8") == original
+
+
+def test_create_force_preflights_existing_notes_owner(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    first_plan = active / ".ralph" / "plans" / "first-owner.md"
+    write_plan(first_plan)
+    first = run(
+        [sys.executable, str(CREATE), "--plan", str(first_plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert first.returncode == 0, first.stderr
+    notes = primary / ".ralph" / "plans" / "first-owner-implementation-notes.html"
+    original = notes.read_bytes()
+
+    second_plan = active / ".ralph" / "plans" / "second-owner.md"
+    write_plan(second_plan)
+    second = run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--plan",
+            str(second_plan),
+            "--notes",
+            str(notes),
+            "--force",
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert second.returncode == 1
+    assert "already owned by plan" in second.stderr
+    assert notes.read_bytes() == original
+
+
+def test_create_force_accepts_same_plan_from_linked_worktree(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "same-plan.md"
+    write_plan(plan)
+
+    first = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert first.returncode == 0, first.stderr
+
+    second = run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--plan",
+            str(plan),
+            "--force",
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert second.returncode == 0, second.stderr
+
+
+def test_create_preflights_git_metadata_before_writing_notes(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["RALPH_PRIMARY_REPO_ROOT"] = str(primary)
+    git(primary, "init")
+    plan = primary / ".ralph" / "plans" / "unborn-plan.md"
+    write_plan(plan)
+    notes = primary / ".ralph" / "plans" / "unborn-plan-implementation-notes.html"
+
+    result = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(primary), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "current Git metadata" in result.stderr
+    assert not notes.exists()
+    assert not (primary / ".codex" / "state").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-index.json").exists()
+
+
+def test_append_preflights_git_metadata_before_changing_notes(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["RALPH_PRIMARY_REPO_ROOT"] = str(primary)
+    git(primary, "init")
+    notes = primary / ".ralph" / "plans" / "unborn-append-implementation-notes.html"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    original = notes.read_bytes()
+
+    result = run(
+        [
+            sys.executable,
+            str(APPEND),
+            "--notes",
+            str(notes),
+            "--category",
+            "decision",
+            "--decision",
+            "Do not append without Git provenance.",
+            "--primary-root",
+            str(primary),
+            "--active-root",
+            str(primary),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "current Git metadata" in result.stderr
+    assert notes.read_bytes() == original
+
+
 def test_consolidate_apply_blocks_unsafe_current_schema_worktree_html(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "unsafe-current-plan.md"

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from consolidated_notes_artifacts import ConsolidatedPlanSection, append_consolidated_artifacts, planned_append_counts
-from implementation_index_lib import load_index, write_index
+from implementation_index_lib import update_index
 from implementation_notes_lib import ImplementationNotesError, now_local
 
 
@@ -26,19 +26,20 @@ def write_consolidated_index_metadata(
     entry_count = sum(len(section.entries) + (1 if section.legacy_excerpt else 0) for section in sections)
     if stats["items"] != entry_count:
         raise ImplementationNotesError("consolidated item count does not match source entry count")
-    data = load_index(primary_root)
-    data["consolidated_notes"] = {
-        "html": html_path.resolve(strict=False).relative_to(primary_root.resolve(strict=False)).as_posix(),
-        "markdown": md_path.resolve(strict=False).relative_to(primary_root.resolve(strict=False)).as_posix(),
-        "plan_count": len(sections),
-        "entry_count": entry_count,
-        "last_html_append_count": stats["html_append"],
-        "last_md_append_count": stats["md_append"],
-        "last_operation": "rebuild" if rebuild else "append",
-        "updated_at": now_local(),
-        "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
-    }
-    write_index(primary_root, data)
+    def update(data: dict[str, object]) -> None:
+        data["consolidated_notes"] = {
+            "html": html_path.resolve(strict=False).relative_to(primary_root.resolve(strict=False)).as_posix(),
+            "markdown": md_path.resolve(strict=False).relative_to(primary_root.resolve(strict=False)).as_posix(),
+            "plan_count": len(sections),
+            "entry_count": entry_count,
+            "last_html_append_count": stats["html_append"],
+            "last_md_append_count": stats["md_append"],
+            "last_operation": "rebuild" if rebuild else "append",
+            "updated_at": now_local(),
+            "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
+        }
+
+    update_index(primary_root, update)
 
 
 def render_report(
@@ -52,6 +53,7 @@ def render_report(
     blocked: bool,
     append_stats: dict[str, int] | None = None,
     rebuild: bool = False,
+    index_health: dict[str, str] | None = None,
 ) -> dict[str, object]:
     entry_count = sum(len(section.entries) + (1 if section.legacy_excerpt else 0) for section in sections)
     stats = append_stats or (
@@ -67,6 +69,7 @@ def render_report(
     return {
         "applied": applied,
         "primary_repo_root": str(primary_root),
+        "index_health": index_health or {"status": "ok"},
         "consolidated_artifacts": {
             "html": str(html_path),
             "markdown": str(md_path),

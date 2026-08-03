@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import uuid
 
-from implementation_index_lib import refresh_notes_metadata
+from implementation_index_lib import append_note_and_refresh
 from implementation_notes_lib import (
     ALLOWED_CATEGORIES,
     ImplementationNotesError,
-    append_entry,
     ensure_not_red,
     entry_html,
     is_codex_worktree,
@@ -27,6 +28,7 @@ def main() -> int:
     parser.add_argument("--impact", default="")
     parser.add_argument("--related-file", action="append", default=[])
     parser.add_argument("--status", default="active")
+    parser.add_argument("--operation-id", help="Stable operation id for retry-safe event deduplication.")
     parser.add_argument("--active-root", help="Active worktree root override.")
     parser.add_argument("--primary-root", help="Canonical local repo root override.")
     parser.add_argument("--allow-docs", action="store_true")
@@ -39,7 +41,9 @@ def main() -> int:
             raise ImplementationNotesError("refusing to append to a worktree-only notes path under ~/.codex/worktrees")
         if not notes_path.exists():
             raise ImplementationNotesError(f"notes file does not exist: {notes_path}")
+        session_id = os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID") or ""
         ensure_not_red("implementation note entry", "\n".join([args.decision, args.reason, args.impact, *args.related_file, args.status]))
+        operation_id = args.operation_id or os.environ.get("RALPH_OPERATION_ID") or uuid.uuid4().hex
         entry = entry_html(
             category=args.category,
             decision=args.decision,
@@ -48,13 +52,17 @@ def main() -> int:
             related_files=args.related_file,
             status=args.status,
             timestamp=now_local(),
+            operation_id=operation_id,
         )
         ensure_not_red("rendered implementation note entry", entry)
-        append_entry(notes_path, entry, args.category)
-        refresh_notes_metadata(
+        append_note_and_refresh(
             primary_root=roots.primary_repo_root,
             notes_path=notes_path,
+            entry_html_text=entry,
+            category=args.category,
             active_root=roots.active_worktree_root,
+            session_id=session_id,
+            operation_id=operation_id,
         )
         print(f"IMPLEMENTATION_NOTE_APPENDED {notes_path}")
         return 0

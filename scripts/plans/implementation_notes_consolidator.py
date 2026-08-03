@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from consolidated_notes_artifacts import ConsolidatedPlanSection, current_entries, legacy_excerpt
-from implementation_index_lib import load_index, upsert_plan_entry, write_index
+from implementation_index_lib import update_index, upsert_plan_entry
 from implementation_notes_lib import (
     IMPLEMENTATION_NOTES_SUFFIX,
     ImplementationNotesError,
@@ -100,15 +100,37 @@ def validate_notes_source(path: Path, notes_root: Path, repo_root: Path) -> str:
     if not _is_relative_to(resolved_root, resolved_repo):
         return f"implementation notes root escapes repo root: {notes_root}"
     resolved_path = path.resolve(strict=False)
+    if path.is_symlink() and not resolved_path.exists():
+        return f"implementation notes symlink target does not exist: {path}"
     if path.is_symlink() and not _is_relative_to(resolved_path, resolved_root):
         return f"implementation notes symlink target escapes .ralph/plans: {path}"
+    if path.is_symlink():
+        return f"implementation notes symlink aliases are not allowed: {path}"
     if not _is_relative_to(resolved_path, resolved_root):
         return f"implementation notes source escapes .ralph/plans: {path}"
+    try:
+        notes_stat = path.lstat()
+    except OSError as exc:
+        return f"implementation notes source cannot be inspected: {path}: {exc}"
+    if notes_stat.st_nlink != 1:
+        return f"implementation notes hardlink aliases are not allowed: {path}"
     return ""
 
 
-def slug_for_notes(path: Path) -> str:
-    name = path.name
+def slug_for_notes(path: Path, notes_root: Path | None = None) -> str:
+    """Return a stable repo-relative key, preserving nested plan directories."""
+    if notes_root is not None:
+        try:
+            # Keep the lexical source path here. Resolving first would follow
+            # a malicious symlink outside .ralph/plans and fail before
+            # validate_notes_source can report the conflict in its JSON
+            # consolidation report.
+            relative = path.absolute().relative_to(notes_root.absolute())
+        except ValueError as exc:
+            raise ImplementationNotesError(f"implementation notes path is outside its notes root: {path}") from exc
+        name = relative.as_posix()
+    else:
+        name = path.name
     if not name.endswith(IMPLEMENTATION_NOTES_SUFFIX):
         raise ImplementationNotesError(f"not an implementation notes file: {path}")
     return name[: -len(IMPLEMENTATION_NOTES_SUFFIX)]
@@ -174,8 +196,10 @@ def scan_notes_roots(primary_root: Path, active_root: Path, extra_roots: list[Pa
         if not root_plans.exists():
             continue
         location = "primary" if root.resolve(strict=False) == primary_root.resolve(strict=False) else "worktree"
-        for path in sorted(root_plans.glob(f"*{IMPLEMENTATION_NOTES_SUFFIX}")):
-            slug = slug_for_notes(path)
+        for path in sorted(root_plans.rglob(f"*{IMPLEMENTATION_NOTES_SUFFIX}")):
+            if not path.is_file() and not path.is_symlink():
+                continue
+            slug = slug_for_notes(path, root_plans)
             record = record_for(slug)
             source_error = validate_notes_source(path, root_plans, root)
             if source_error:
@@ -250,21 +274,26 @@ def apply_record(record: NotesRecord, primary_root: Path, active_root: Path) -> 
         notes_path=record.primary_notes,
         status=plan_status(record.plan_path, record.schema),
         active_root=active_root,
+        event="consolidated",
     )
     entry["notes_schema"] = record.schema
     entry["notes_entry_count"] = record.entry_count
     entry["consolidated_by"] = "scripts/plans/consolidate-implementation-notes.py"
-    data = load_index(primary_root)
-    for item in data.get("plans", []):
-        if isinstance(item, dict) and item.get("plan") == entry.get("plan"):
-            item.update(
-                {
-                    "notes_schema": record.schema,
-                    "notes_entry_count": record.entry_count,
-                    "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
-                }
-            )
-    write_index(primary_root, data)
+    def update(data: dict[str, object]) -> None:
+        plans = data.get("plans", [])
+        if not isinstance(plans, list):
+            return
+        for item in plans:
+            if isinstance(item, dict) and item.get("plan") == entry.get("plan"):
+                item.update(
+                    {
+                        "notes_schema": record.schema,
+                        "notes_entry_count": record.entry_count,
+                        "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
+                    }
+                )
+
+    update_index(primary_root, update)
 
 
 def build_consolidated_sections(records: list[NotesRecord]) -> list[ConsolidatedPlanSection]:
