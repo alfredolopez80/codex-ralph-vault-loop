@@ -108,6 +108,12 @@ def validate_notes_source(path: Path, notes_root: Path, repo_root: Path) -> str:
         return f"implementation notes symlink aliases are not allowed: {path}"
     if not _is_relative_to(resolved_path, resolved_root):
         return f"implementation notes source escapes .ralph/plans: {path}"
+    try:
+        notes_stat = path.lstat()
+    except OSError as exc:
+        return f"implementation notes source cannot be inspected: {path}: {exc}"
+    if notes_stat.st_nlink != 1:
+        return f"implementation notes hardlink aliases are not allowed: {path}"
     return ""
 
 

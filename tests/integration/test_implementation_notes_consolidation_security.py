@@ -285,6 +285,28 @@ def test_consolidate_reports_internal_notes_symlink_as_conflict(tmp_path: Path) 
     assert "implementation notes symlink aliases are not allowed" in " ".join(by_slug["nested/alias"]["conflicts"])
 
 
+def test_consolidate_reports_internal_notes_hardlink_as_conflict(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plans_dir = primary / ".ralph" / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    source = plans_dir / "source-implementation-notes.html"
+    alias = plans_dir / "nested" / "hardlink-plan-implementation-notes.html"
+    source.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    alias.hardlink_to(source)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    record = next(item for item in report["records"] if item["slug"] == "nested/hardlink-plan")
+    assert "implementation notes hardlink aliases are not allowed" in " ".join(record["conflicts"])
+
+
 def test_consolidate_dry_run_rejects_future_index_without_mutating_it(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     index_dir = primary / ".ralph" / "plans"

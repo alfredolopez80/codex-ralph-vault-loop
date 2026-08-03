@@ -504,6 +504,23 @@ def test_plan_notes_resource_has_one_owner(tmp_path: Path) -> None:
     assert [item["plan"] for item in data["plans"]] == [".ralph/plans/owner-a.md"]
 
 
+def test_plan_notes_resource_rejects_hardlink_alias(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plans_dir = repo / ".ralph" / "plans"
+    plans_dir.mkdir(parents=True)
+    plan = plans_dir / "hardlink.md"
+    notes = plans_dir / "hardlink-implementation-notes.html"
+    plan.write_text("# Hardlink\n", encoding="utf-8")
+    notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    alias = plans_dir / "alias-implementation-notes.html"
+    alias.hardlink_to(notes)
+
+    with pytest.raises(ImplementationNotesError, match="must not be hard-linked"):
+        upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+
+    assert not (plans_dir / "implementation-index.json").exists()
+
+
 def test_replayed_operation_id_remains_single_note_after_later_append(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     plan = repo / ".ralph" / "plans" / "replay.md"

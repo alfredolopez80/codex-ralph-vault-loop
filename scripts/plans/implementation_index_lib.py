@@ -410,6 +410,20 @@ def update_index(primary_root: Path, updater) -> Any:
         return result
 
 
+def _validate_notes_resource(notes_path: Path) -> None:
+    """Keep one lifecycle owner per physical implementation-notes inode."""
+    try:
+        notes_stat = notes_path.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(notes_stat.st_mode):
+        raise ImplementationNotesError(f"implementation notes resource cannot be a symlink: {notes_path}")
+    if not stat.S_ISREG(notes_stat.st_mode):
+        raise ImplementationNotesError(f"implementation notes resource must be a regular file: {notes_path}")
+    if notes_stat.st_nlink != 1:
+        raise ImplementationNotesError(f"implementation notes resource must not be hard-linked: {notes_path}")
+
+
 def upsert_plan_entry(
     *,
     primary_root: Path,
@@ -426,6 +440,7 @@ def upsert_plan_entry(
     with index_lock(primary_root):
         data = _load_index_unlocked(primary_root)
         timestamp = now_local()
+        _validate_notes_resource(notes_path)
         plan_rel = _rel(plan_path, primary_root)
         notes_rel = _rel(notes_path, primary_root)
         git_meta = current_git_metadata(active_root)
