@@ -34,6 +34,7 @@ class ConsolidatedEntry:
     impact: str
     related_files: str
     status: str
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ def current_entries(path: Path) -> list[ConsolidatedEntry]:
                 impact=entry.fields.get("Impact", ""),
                 related_files=entry.fields.get("Related files", ""),
                 status=entry.fields.get("Status", ""),
+                operation_id=entry.fields.get("Operation ID", ""),
             )
         )
     return entries
@@ -96,8 +98,8 @@ def consolidated_items(sections: list[ConsolidatedPlanSection]) -> list[Consolid
             items.append(ConsolidatedItem(key, section, "legacy", "", "Legacy Notes", rows))
             continue
         for entry in section.entries:
-            rows = (*common_rows(section), ("Timestamp", entry.timestamp or "n/a"), ("Category", entry.category), ("Decision", entry.decision or "n/a"), ("Reason", entry.reason or "n/a"), ("Impact", entry.impact or "n/a"), ("Related files", entry.related_files or "n/a"), ("Entry status", entry.status or "n/a"))
-            key = item_key([section.slug, entry.category, entry.timestamp, entry.decision, entry.reason, entry.impact, entry.related_files, entry.status])
+            rows = (*common_rows(section), ("Timestamp", entry.timestamp or "n/a"), ("Category", entry.category), ("Operation ID", entry.operation_id or "n/a"), ("Decision", entry.decision or "n/a"), ("Reason", entry.reason or "n/a"), ("Impact", entry.impact or "n/a"), ("Related files", entry.related_files or "n/a"), ("Entry status", entry.status or "n/a"))
+            key = item_key([section.slug, entry.category, entry.timestamp, entry.operation_id, entry.decision, entry.reason, entry.impact, entry.related_files, entry.status])
             title = CATEGORY_LABELS.get(entry.category, entry.category)
             items.append(ConsolidatedItem(key, section, entry.category, entry.timestamp, title, rows))
     return sorted(items, key=lambda item: (item.section.slug, item.timestamp, item.category, item.key))

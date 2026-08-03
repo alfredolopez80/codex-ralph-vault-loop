@@ -18,6 +18,7 @@ import implementation_index_lib as index_lib
 from implementation_index_lib import (
     append_event,
     append_note_and_refresh,
+    current_git_metadata,
     index_md_path,
     load_index,
     record_loose_commit,
@@ -25,7 +26,7 @@ from implementation_index_lib import (
     render_markdown,
     upsert_plan_entry,
 )
-from implementation_notes_lib import ImplementationNotesError, Roots, append_entry, entry_html, html_document
+from implementation_notes_lib import GitMetadataError, ImplementationNotesError, Roots, append_entry, entry_html, html_document
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -154,6 +155,9 @@ def test_record_loose_commit_updates_existing_entry_and_rejects_red(tmp_path: Pa
     assert len(data["loose_commits"]) == 1
     assert data["loose_commits"][0]["reason"] == "updated reason"
     assert data["loose_commits"][0]["linked_plan"] is None
+    loose_events = [event for event in data["events"] if event["event"] == "loose_commit_recorded"]
+    assert len(loose_events) == 2
+    assert {event["reason"] for event in loose_events} == {"hotfix without approved plan", "updated reason"}
     try:
         record_loose_commit(primary_root=repo, commit=commit, active_root=repo, reason="token=abc123")
     except ImplementationNotesError as exc:
@@ -190,6 +194,13 @@ def test_concurrent_plan_updates_preserve_distinct_events(tmp_path: Path) -> Non
     assert len(data["plans"]) == 1
     assert {event["session_id"] for event in data["events"]} == {"session-0", "session-1"}
     assert len({event["event_id"] for event in data["events"]}) == 2
+
+
+def test_current_git_metadata_raises_on_missing_required_values(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(index_lib, "run_git", lambda *_args: "")
+
+    with pytest.raises(GitMetadataError, match="current Git metadata"):
+        current_git_metadata(tmp_path)
 
 
 def test_corrupt_index_is_quarantined_before_recovery(tmp_path: Path) -> None:
@@ -340,6 +351,26 @@ def test_atomic_replacement_preserves_existing_index_modes(tmp_path: Path) -> No
 
     assert stat.S_IMODE(index_json.stat().st_mode) == 0o640
     assert stat.S_IMODE(index_md.stat().st_mode) == 0o640
+
+
+def test_index_destination_validation_precedes_json_replacement(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    commit = git(repo, "rev-parse", "HEAD")
+    record_loose_commit(primary_root=repo, commit=commit, active_root=repo, reason="initial")
+    index_dir = repo / ".ralph" / "plans"
+    index_json = index_dir / "implementation-index.json"
+    index_md = index_dir / "implementation-index.md"
+    victim = index_dir / "markdown-victim.md"
+    victim.write_text("# victim\n", encoding="utf-8")
+    index_md.unlink()
+    index_md.symlink_to(victim)
+    original_json = index_json.read_bytes()
+
+    with pytest.raises(ImplementationNotesError, match="artifact cannot be a symlink"):
+        record_loose_commit(primary_root=repo, commit=commit, active_root=repo, reason="updated")
+
+    assert index_json.read_bytes() == original_json
+    assert victim.read_text(encoding="utf-8") == "# victim\n"
 
 
 def test_refresh_uses_current_invocation_provenance(tmp_path: Path) -> None:

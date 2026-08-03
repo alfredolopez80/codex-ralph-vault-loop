@@ -13,6 +13,7 @@ from typing import Any
 import fcntl
 
 from implementation_notes_lib import (
+    GitMetadataError,
     ImplementationNotesError,
     ParsedEntry,
     append_entry,
@@ -160,10 +161,11 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 def current_git_metadata(root: Path) -> dict[str, str]:
-    return {
-        "branch": run_git(root, "branch", "--show-current") or run_git(root, "rev-parse", "--abbrev-ref", "HEAD"),
-        "commit": run_git(root, "rev-parse", "HEAD"),
-    }
+    branch = run_git(root, "branch", "--show-current") or run_git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    commit = run_git(root, "rev-parse", "HEAD")
+    if not branch or not commit:
+        raise GitMetadataError(f"could not resolve current Git metadata for repository: {root}")
+    return {"branch": branch, "commit": commit}
 
 
 def empty_index(primary_root: Path) -> dict[str, Any]:
@@ -335,6 +337,8 @@ def append_event(
     session_id: str = "",
     operation_id: str = "",
     notes_entry_hash: str = "",
+    reason: str = "",
+    notes: str = "",
 ) -> dict[str, Any]:
     if event not in ALLOWED_EVENTS:
         raise ImplementationNotesError(f"unknown implementation index event: {event}")
@@ -354,6 +358,8 @@ def append_event(
         "workspace_instance_id": workspace_instance_id(active_root),
         "notes_entry_hash": notes_entry_hash or latest_notes.get("latest_entry_hash", ""),
         "operation_id": operation_id,
+        "reason": reason,
+        "notes_detail": notes,
     }
     ensure_not_red("implementation index event", json.dumps(payload, sort_keys=True))
     event_id = _event_id(payload)
@@ -397,8 +403,11 @@ def _write_index_unlocked(primary_root: Path, data: dict[str, Any]) -> None:
     rendered_md = render_markdown(data)
     ensure_not_red("implementation index JSON", rendered_json)
     ensure_not_red("implementation index Markdown", rendered_md)
-    _atomic_write(index_json_path(primary_root), rendered_json)
-    _atomic_write(index_md_path(primary_root), rendered_md)
+    # Validate both lexical destinations before replacing either artifact.
+    json_path = index_json_path(primary_root)
+    md_path = index_md_path(primary_root)
+    _atomic_write(json_path, rendered_json)
+    _atomic_write(md_path, rendered_md)
 
 
 def update_index(primary_root: Path, updater) -> Any:
@@ -718,6 +727,8 @@ def record_loose_commit(
             status="loose_commit",
             commit=commit,
             branch=branch,
+            reason=reason,
+            notes=notes,
         )
         _write_index_unlocked(primary_root, data)
         return entry

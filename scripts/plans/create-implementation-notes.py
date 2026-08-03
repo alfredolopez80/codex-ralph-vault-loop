@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from implementation_index_lib import upsert_plan_entry
+from implementation_index_lib import load_index, upsert_plan_entry
 from implementation_notes_lib import (
     ImplementationNotesError,
     ensure_not_red,
@@ -40,6 +40,9 @@ def main() -> int:
     try:
         plan_path = resolve_for_read(args.plan)
         roots = resolve_roots(args.active_root, args.primary_root)
+        # Do not create durable notes/state artifacts when the installed reader
+        # cannot safely consume the existing implementation-index schema.
+        load_index(roots.primary_repo_root, quarantine_corrupt=False)
         ensure_plan_path_allowed(plan_path, roots)
         metadata = parse_plan_metadata(plan_path)
         if not is_plan_approved(metadata, explicit_approved=args.approved):

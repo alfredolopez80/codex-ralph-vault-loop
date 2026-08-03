@@ -47,7 +47,9 @@ def main() -> int:
         index_health = {"status": "ok"}
         index_error: ImplementationNotesError | None = None
         try:
-            index = load_index(roots.primary_repo_root, quarantine_corrupt=args.apply)
+            # Keep consolidation report-only when the source index is corrupt;
+            # never quarantine/rebuild it and then claim a healthy apply.
+            index = load_index(roots.primary_repo_root, quarantine_corrupt=False)
         except (CorruptImplementationIndexError, FutureImplementationIndexError) as exc:
             # Report-only mode must preserve the source and tell the caller
             # why the projected index state cannot be trusted. Apply mode can

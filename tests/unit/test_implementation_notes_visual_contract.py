@@ -14,6 +14,7 @@ from consolidated_notes_artifacts import (
     ConsolidatedEntry,
     ConsolidatedPlanSection,
     append_consolidated_artifacts,
+    consolidated_items,
     resolve_consolidated_paths,
 )
 from implementation_notes_lib import CATEGORY_ORDER, ImplementationNotesError, Roots, html_document
@@ -102,6 +103,27 @@ def test_consolidated_notes_html_carries_static_visual_contract(tmp_path: Path) 
     assert "[click](javascript:alert(1))" not in markdown
     assert "\\[click\\]\\(javascript:alert\\(1\\)\\)" in markdown
     assert "<!-- consolidated-key:" in markdown
+
+
+def test_consolidation_key_preserves_distinct_operation_ids(tmp_path: Path) -> None:
+    section = ConsolidatedPlanSection(
+        slug="operation-plan",
+        plan_path=tmp_path / "operation-plan.md",
+        notes_path=tmp_path / "operation-plan-implementation-notes.html",
+        schema="current",
+        status="active",
+        source_sha256="source",
+        entries=[
+            ConsolidatedEntry("decision", "2026-06-01T00:00:00+00:00", "same", "reason", "impact", "file", "active", "operation-a"),
+            ConsolidatedEntry("decision", "2026-06-01T00:00:00+00:00", "same", "reason", "impact", "file", "active", "operation-b"),
+        ],
+    )
+
+    items = consolidated_items([section])
+
+    assert len(items) == 2
+    assert len({item.key for item in items}) == 2
+    assert {dict(item.rows)["Operation ID"] for item in items} == {"operation-a", "operation-b"}
 
 
 def test_consolidated_notes_paths_reject_unsafe_targets(tmp_path: Path) -> None:
