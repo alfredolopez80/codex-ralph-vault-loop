@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -248,9 +249,22 @@ def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
         return {}
     if not entries:
         return {}
-    # The document order is the authoritative tie-breaker. Timestamps are
-    # intentionally second-resolution display metadata, not event identity.
-    entry = entries[-1]
+    def timestamp_key(value: str) -> tuple[int, float]:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return (0, 0.0)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (1, parsed.astimezone(timezone.utc).timestamp())
+
+    # Category sections are fixed for rendering, so DOM order is not
+    # chronological across categories. Timestamps define recency and the
+    # document position breaks equal-timestamp ties deterministically.
+    _, entry = max(
+        enumerate(entries),
+        key=lambda item: (timestamp_key(item[1].fields.get("Timestamp", "")), item[0]),
+    )
     category = entry.category
     timestamp = entry.fields.get("Timestamp", "")
     decision = entry.fields.get("Decision", "")

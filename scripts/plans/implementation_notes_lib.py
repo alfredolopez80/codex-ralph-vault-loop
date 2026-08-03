@@ -257,6 +257,8 @@ def is_codex_worktree(path: Path) -> bool:
 
 def _worktree_paths(root: Path) -> list[Path]:
     raw = run_git(root, "worktree", "list", "--porcelain")
+    if not raw:
+        raise GitMetadataError(f"could not resolve Git worktree metadata for repository: {root}")
     paths: list[Path] = []
     for line in raw.splitlines():
         if line.startswith("worktree "):

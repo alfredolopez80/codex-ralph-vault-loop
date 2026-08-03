@@ -16,7 +16,7 @@ if str(HOOKS) not in sys.path:
 
 import implementation_notes_lib as notes_lib
 from implementation_notes_guard import canonical_plan_for_guard
-from implementation_notes_lib import ImplementationNotesError, resolve_roots
+from implementation_notes_lib import GitMetadataError, ImplementationNotesError, resolve_roots
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -113,6 +113,20 @@ def test_resolve_roots_fails_closed_when_canonical_root_is_ambiguous(tmp_path: P
     monkeypatch.setattr(notes_lib, "_canonical_primary_candidates", lambda *_: [primary, alternate])
 
     with pytest.raises(ImplementationNotesError, match="ambiguous canonical local repo roots"):
+        resolve_roots(active_root=primary)
+
+
+def test_resolve_roots_surfaces_worktree_discovery_failure_as_operational_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    primary = make_repo(tmp_path)
+
+    def unavailable(_root: Path) -> list[Path]:
+        raise GitMetadataError("could not resolve Git worktree metadata for repository")
+
+    monkeypatch.setattr(notes_lib, "_worktree_paths", unavailable)
+
+    with pytest.raises(GitMetadataError, match="worktree metadata"):
         resolve_roots(active_root=primary)
 
 

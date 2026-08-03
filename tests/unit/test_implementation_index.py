@@ -24,7 +24,7 @@ from implementation_index_lib import (
     render_markdown,
     upsert_plan_entry,
 )
-from implementation_notes_lib import ImplementationNotesError, Roots, entry_html, html_document
+from implementation_notes_lib import ImplementationNotesError, Roots, append_entry, entry_html, html_document
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -390,6 +390,58 @@ def test_distinct_operation_ids_survive_same_second_deduplication(tmp_path: Path
 
     assert len(data["events"]) == 2
     assert {event["operation_id"] for event in data["events"]} == {"operation-a", "operation-b"}
+
+
+def test_latest_entry_metadata_uses_timestamp_across_category_sections(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    notes = repo / ".ralph" / "plans" / "chronology-implementation-notes.html"
+    notes.parent.mkdir(parents=True)
+    notes.write_text(
+        html_document(
+            title="Chronology",
+            plan_path=repo / ".ralph" / "plans" / "chronology.md",
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="session-chronology",
+            timestamp="2026-08-03T10:00:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    append_entry(
+        notes,
+        entry_html(
+            category="validation",
+            decision="older validation",
+            reason="section order is not chronology",
+            impact="must select by timestamp",
+            related_files=["chronology.md"],
+            status="active",
+            timestamp="2026-08-03T11:00:00+00:00",
+            operation_id="validation-old",
+        ),
+        "validation",
+    )
+    append_entry(
+        notes,
+        entry_html(
+            category="decision",
+            decision="newer decision",
+            reason="section order is not chronology",
+            impact="must select by timestamp",
+            related_files=["chronology.md"],
+            status="active",
+            timestamp="2026-08-03T12:00:00+00:00",
+            operation_id="decision-new",
+        ),
+        "decision",
+    )
+
+    metadata = index_lib.latest_entry_metadata(notes)
+
+    assert metadata["latest_entry_at"] == "2026-08-03T12:00:00+00:00"
+    assert metadata["latest_entry_operation_id"] == "decision-new"
 
 
 def test_same_operation_id_is_scoped_to_plan_and_notes_resource(tmp_path: Path) -> None:
