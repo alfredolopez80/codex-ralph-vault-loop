@@ -165,7 +165,7 @@ def _load_index_unlocked(primary_root: Path) -> dict[str, Any]:
     # Never silently reinterpret a newer schema as the current one. A future
     # writer may have changed nested semantics that this reader cannot safely
     # preserve, so quarantine it for an explicit migration instead.
-    if not isinstance(version, int) or version < 1 or version > INDEX_VERSION:
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1 or version > INDEX_VERSION:
         _quarantine_corrupt_index(path)
         return empty_index(primary_root)
     data["version"] = version
@@ -181,6 +181,12 @@ def _load_index_unlocked(primary_root: Path) -> dict[str, Any]:
 
 def load_index(primary_root: Path) -> dict[str, Any]:
     """Read the index under the same lock used by recovery and writers."""
+    # A read of a repository that has never created an implementation index is
+    # side-effect free. Writers still take the lock once an index exists (or
+    # when they create one), while context readers do not need to create a
+    # plans directory/lock just to return the empty shape.
+    if not index_json_path(primary_root).exists():
+        return empty_index(primary_root)
     with index_lock(primary_root):
         return _load_index_unlocked(primary_root)
 

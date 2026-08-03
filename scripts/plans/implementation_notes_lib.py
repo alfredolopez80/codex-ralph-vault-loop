@@ -832,6 +832,15 @@ def append_entry(notes_path: Path, entry: str, category: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, notes_path)
+        try:
+            directory_fd = os.open(notes_path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         temporary = ""
     finally:
         if temporary:

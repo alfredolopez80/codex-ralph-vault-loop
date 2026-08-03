@@ -54,6 +54,7 @@ def test_load_index_starts_empty_without_writing(tmp_path: Path) -> None:
     assert data["loose_commits"] == []
     assert data["events"] == []
     assert not (repo / ".ralph" / "plans" / "implementation-index.json").exists()
+    assert not (repo / ".ralph" / "plans" / "implementation-index.lock").exists()
 
 
 def test_upsert_plan_entry_dedupes_commits_and_renders_index(tmp_path: Path) -> None:
@@ -327,6 +328,17 @@ def test_refresh_uses_current_invocation_provenance(tmp_path: Path) -> None:
     assert event["event"] == "note_appended"
     assert event["branch"] == "branch-b"
     assert event["session_id"] == "session-b"
+
+    refresh_notes_metadata(
+        primary_root=repo,
+        notes_path=notes,
+        active_root=repo,
+        branch="branch-c",
+        session_id="",
+        commit=git(repo, "rev-parse", "HEAD"),
+    )
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert data["plans"][0]["session_id"] == "session-b"
 
 
 def test_distinct_operation_ids_survive_same_second_deduplication(tmp_path: Path, monkeypatch) -> None:

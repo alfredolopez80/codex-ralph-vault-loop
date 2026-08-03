@@ -18,6 +18,8 @@ from implementation_index_lib import current_git_metadata, upsert_plan_entry
 from implementation_notes_lib import (
     ImplementationNotesError,
     canonical_plan_path,
+    canonicalize_plan_metadata_text,
+    ensure_not_red,
     ensure_plan_path_allowed,
     is_codex_worktree,
     is_plan_approved,
@@ -111,6 +113,19 @@ def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
             "approved implementation plan exists only in an ephemeral Codex worktree or other linked worktree; "
             "copy it to the canonical repo root .ralph/plans/ before finalizing"
         )
+    source_text = resolved_plan.read_text(encoding="utf-8")
+    canonical_text = canonical_plan.read_text(encoding="utf-8")
+    ensure_not_red("linked worktree implementation plan", source_text)
+    ensure_not_red("canonical implementation plan", canonical_text)
+    canonical_metadata = parse_plan_metadata(canonical_plan)
+    notes_path = resolve_notes_path_for_plan(canonical_metadata, canonical_plan, roots.primary_repo_root)
+    normalized_source = canonicalize_plan_metadata_text(source_text, notes_path)
+    normalized_canonical = canonicalize_plan_metadata_text(canonical_text, notes_path)
+    if normalized_source != normalized_canonical:
+        raise ImplementationNotesError(
+            "linked worktree implementation plan differs from the canonical plan; "
+            "sync the canonical copy before finalizing"
+        )
     return canonical_plan
 
 
@@ -181,6 +196,12 @@ def main() -> int:
         )
         return 0
     except ImplementationNotesError as exc:
+        if "could not resolve Git metadata" in str(exc):
+            # Git metadata lookup is operational context, not proof that the
+            # implementation-notes state is invalid. Stop hooks fail open on
+            # transient local runtime failures and leave the next invocation
+            # to retry the lifecycle update.
+            return 0
         return block(f"Implementation notes guard could not validate plan: {exc}")
 
 

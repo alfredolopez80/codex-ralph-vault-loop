@@ -41,6 +41,7 @@ def main() -> int:
             raise ImplementationNotesError("refusing to append to a worktree-only notes path under ~/.codex/worktrees")
         if not notes_path.exists():
             raise ImplementationNotesError(f"notes file does not exist: {notes_path}")
+        session_id = os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID") or ""
         ensure_not_red("implementation note entry", "\n".join([args.decision, args.reason, args.impact, *args.related_file, args.status]))
         operation_id = args.operation_id or os.environ.get("RALPH_OPERATION_ID") or uuid.uuid4().hex
         entry = entry_html(
@@ -60,7 +61,7 @@ def main() -> int:
             entry_html_text=entry,
             category=args.category,
             active_root=roots.active_worktree_root,
-            session_id=os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID") or "unknown",
+            session_id=session_id,
             operation_id=operation_id,
         )
         print(f"IMPLEMENTATION_NOTE_APPENDED {notes_path}")

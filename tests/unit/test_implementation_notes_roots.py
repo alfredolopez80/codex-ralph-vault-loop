@@ -131,6 +131,22 @@ def test_guard_canonicalizes_nested_plan_from_external_linked_worktree(tmp_path:
     assert canonical_plan_for_guard(active_plan, roots) == canonical_plan.resolve()
 
 
+def test_guard_rejects_divergent_linked_worktree_plan(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path)
+    active = add_worktree(primary, tmp_path / "ordinary-linked" / "active-copy")
+    active_plan = active / ".ralph" / "plans" / "nested" / "feature.md"
+    canonical_plan = primary / ".ralph" / "plans" / "nested" / "feature.md"
+    active_plan.parent.mkdir(parents=True)
+    canonical_plan.parent.mkdir(parents=True)
+    active_plan.write_text("# Feature\n\nObjective: fresh linked-worktree change\n", encoding="utf-8")
+    canonical_plan.write_text("# Feature\n\nObjective: stale canonical copy\n", encoding="utf-8")
+
+    roots = resolve_roots(active_root=active)
+
+    with pytest.raises(ImplementationNotesError, match="differs from the canonical plan"):
+        canonical_plan_for_guard(active_plan, roots)
+
+
 def test_guard_rejects_external_linked_plan_without_canonical_copy(tmp_path: Path) -> None:
     primary = make_repo(tmp_path)
     active = add_worktree(primary, tmp_path / "ordinary-linked" / "active-copy")
