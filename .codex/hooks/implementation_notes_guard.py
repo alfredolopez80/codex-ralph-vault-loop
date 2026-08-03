@@ -117,8 +117,16 @@ def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
     canonical_text = canonical_plan.read_text(encoding="utf-8")
     ensure_not_red("linked worktree implementation plan", source_text)
     ensure_not_red("canonical implementation plan", canonical_text)
+    source_metadata = parse_plan_metadata(resolved_plan)
     canonical_metadata = parse_plan_metadata(canonical_plan)
     notes_path = resolve_notes_path_for_plan(canonical_metadata, canonical_plan, roots.primary_repo_root)
+    if source_metadata.implementation_notes:
+        source_notes_path = resolve_notes_path_for_plan(source_metadata, resolved_plan, roots.primary_repo_root)
+        if source_notes_path.resolve(strict=False) != notes_path.resolve(strict=False):
+            raise ImplementationNotesError(
+                "linked worktree implementation plan points to a different notes path; "
+                "sync the canonical copy before finalizing"
+            )
     normalized_source = canonicalize_plan_metadata_text(source_text, notes_path)
     normalized_canonical = canonicalize_plan_metadata_text(canonical_text, notes_path)
     if normalized_source != normalized_canonical:
