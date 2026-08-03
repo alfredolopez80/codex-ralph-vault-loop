@@ -18,6 +18,7 @@ import implementation_index_lib as index_lib
 from implementation_index_lib import (
     append_event,
     append_note_and_refresh,
+    index_md_path,
     load_index,
     record_loose_commit,
     refresh_notes_metadata,
@@ -258,6 +259,21 @@ def test_index_lock_rejects_symlink_and_hardlink_aliases(tmp_path: Path) -> None
         load_index(repo)
 
 
+def test_markdown_index_rejects_final_symlink_alias(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    index_dir = repo / ".ralph" / "plans"
+    index_dir.mkdir(parents=True)
+    victim = index_dir / "victim.md"
+    victim.write_text("# Victim\n", encoding="utf-8")
+    (index_dir / "implementation-index.json").write_text(json.dumps(index_lib.empty_index(repo)), encoding="utf-8")
+    (index_dir / "implementation-index.md").symlink_to(victim)
+
+    with pytest.raises(ImplementationNotesError, match="artifact cannot be a symlink"):
+        index_md_path(repo)
+
+    assert victim.read_text(encoding="utf-8") == "# Victim\n"
+
+
 def test_malformed_nested_index_shape_is_quarantined(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     index_dir = repo / ".ralph" / "plans"
@@ -466,6 +482,26 @@ def test_same_operation_id_is_scoped_to_plan_and_notes_resource(tmp_path: Path) 
         ".ralph/plans/a.md",
         ".ralph/plans/b.md",
     }
+
+
+def test_plan_notes_resource_has_one_owner(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plans_dir = repo / ".ralph" / "plans"
+    plans_dir.mkdir(parents=True)
+    plan_a = plans_dir / "owner-a.md"
+    plan_b = plans_dir / "owner-b.md"
+    shared_notes = plans_dir / "shared-implementation-notes.html"
+    plan_a.write_text("# Owner A\n", encoding="utf-8")
+    plan_b.write_text("# Owner B\n", encoding="utf-8")
+    shared_notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+
+    upsert_plan_entry(primary_root=repo, plan_path=plan_a, notes_path=shared_notes, status="active", active_root=repo)
+
+    with pytest.raises(ImplementationNotesError, match="already owned by plan"):
+        upsert_plan_entry(primary_root=repo, plan_path=plan_b, notes_path=shared_notes, status="active", active_root=repo)
+
+    data = json.loads((plans_dir / "implementation-index.json").read_text(encoding="utf-8"))
+    assert [item["plan"] for item in data["plans"]] == [".ralph/plans/owner-a.md"]
 
 
 def test_replayed_operation_id_remains_single_note_after_later_append(tmp_path: Path) -> None:

@@ -433,6 +433,20 @@ def upsert_plan_entry(
         commit = commit or ""
 
         entry = next((item for item in data["plans"] if isinstance(item, dict) and item.get("plan") == plan_rel), None)
+        conflicting_owner = next(
+            (
+                item
+                for item in data["plans"]
+                if isinstance(item, dict)
+                and item.get("notes") == notes_rel
+                and item.get("plan") != plan_rel
+            ),
+            None,
+        )
+        if conflicting_owner is not None:
+            raise ImplementationNotesError(
+                f"implementation notes path is already owned by plan {conflicting_owner.get('plan', '')}: {notes_rel}"
+            )
         created = entry is None
         if entry is None:
             entry = {
