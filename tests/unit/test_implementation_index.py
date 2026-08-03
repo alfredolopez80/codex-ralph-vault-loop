@@ -251,7 +251,9 @@ def test_index_lock_rejects_symlink_and_hardlink_aliases(tmp_path: Path) -> None
         load_index(repo)
     lock_path.unlink()
 
-    lock_path.hardlink_to(index_path)
+    lock_target = index_dir / "lock-target"
+    lock_target.write_text("", encoding="utf-8")
+    lock_path.hardlink_to(lock_target)
     with pytest.raises(ImplementationNotesError, match="lock must not be hard-linked"):
         load_index(repo)
 
@@ -603,6 +605,62 @@ def test_note_append_recovers_after_index_write_interruption(tmp_path: Path, mon
     data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
     recovered = [event for event in data["events"] if event.get("operation_id") == "recover-1"]
     assert len(recovered) == 1
+
+
+def test_recovery_binds_each_unseen_operation_to_its_own_entry_hash(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "multi-recovery.md"
+    notes = repo / ".ralph" / "plans" / "multi-recovery-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# Multi recovery\n", encoding="utf-8")
+    notes.write_text(
+        html_document(
+            title="Multi recovery",
+            plan_path=plan,
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="session-multi-recovery",
+            timestamp="2026-08-03T11:59:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    append_entry(
+        notes,
+        entry_html(
+            category="decision",
+            decision="first recovered operation",
+            reason="each operation owns its entry",
+            impact="hashes must remain distinct",
+            related_files=[str(plan)],
+            status="active",
+            timestamp="2026-08-03T12:00:00+00:00",
+            operation_id="recover-a",
+        ),
+        "decision",
+    )
+    append_entry(
+        notes,
+        entry_html(
+            category="validation",
+            decision="second recovered operation",
+            reason="each operation owns its entry",
+            impact="hashes must remain distinct",
+            related_files=[str(plan)],
+            status="active",
+            timestamp="2026-08-03T12:01:00+00:00",
+            operation_id="recover-b",
+        ),
+        "validation",
+    )
+
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    recovered = {event["operation_id"]: event for event in data["events"] if event.get("event") == "note_appended"}
+    assert set(recovered) == {"recover-a", "recover-b"}
+    assert recovered["recover-a"]["notes_entry_hash"] != recovered["recover-b"]["notes_entry_hash"]
 
 
 def test_concurrent_note_appends_preserve_each_operation(tmp_path: Path) -> None:

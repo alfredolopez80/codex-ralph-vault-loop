@@ -104,6 +104,8 @@ def validate_notes_source(path: Path, notes_root: Path, repo_root: Path) -> str:
         return f"implementation notes symlink target does not exist: {path}"
     if path.is_symlink() and not _is_relative_to(resolved_path, resolved_root):
         return f"implementation notes symlink target escapes .ralph/plans: {path}"
+    if path.is_symlink():
+        return f"implementation notes symlink aliases are not allowed: {path}"
     if not _is_relative_to(resolved_path, resolved_root):
         return f"implementation notes source escapes .ralph/plans: {path}"
     return ""

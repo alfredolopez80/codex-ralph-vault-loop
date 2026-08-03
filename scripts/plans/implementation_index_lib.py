@@ -14,6 +14,7 @@ import fcntl
 
 from implementation_notes_lib import (
     ImplementationNotesError,
+    ParsedEntry,
     append_entry,
     ensure_not_red,
     git_common_dir_for,
@@ -40,6 +41,14 @@ ALLOWED_EVENTS = {
 }
 
 
+class CorruptImplementationIndexError(ImplementationNotesError):
+    """The index cannot be parsed or does not have a supported shape."""
+
+
+class FutureImplementationIndexError(ImplementationNotesError):
+    """The index was written by a newer schema version."""
+
+
 def _rel(path: Path, root: Path) -> str:
     resolved = path.resolve(strict=False)
     try:
@@ -48,16 +57,34 @@ def _rel(path: Path, root: Path) -> str:
         return str(resolved)
 
 
+def _index_artifact_path(primary_root: Path, name: str, *, reject_alias: bool = True) -> Path:
+    """Validate an index artifact without following its final path component."""
+    candidate = primary_root.resolve(strict=False) / ".ralph" / "plans" / name
+    # resolve_for_write enforces the repository-local boundary, while the
+    # lexical candidate keeps os.replace()/quarantine from ever targeting a
+    # symlink destination outside the named artifact.
+    resolve_for_write(candidate, primary_root)
+    if reject_alias and candidate.is_symlink():
+        raise ImplementationNotesError(f"implementation index artifact cannot be a symlink: {candidate}")
+    if reject_alias and candidate.exists():
+        artifact_stat = candidate.lstat()
+        if not stat.S_ISREG(artifact_stat.st_mode):
+            raise ImplementationNotesError(f"implementation index artifact must be a regular file: {candidate}")
+        if artifact_stat.st_nlink != 1:
+            raise ImplementationNotesError(f"implementation index artifact must not be hard-linked: {candidate}")
+    return candidate
+
+
 def index_json_path(primary_root: Path) -> Path:
-    return resolve_for_write(primary_root / ".ralph" / "plans" / INDEX_JSON_NAME, primary_root)
+    return _index_artifact_path(primary_root, INDEX_JSON_NAME)
 
 
 def index_md_path(primary_root: Path) -> Path:
-    return resolve_for_write(primary_root / ".ralph" / "plans" / INDEX_MD_NAME, primary_root)
+    return _index_artifact_path(primary_root, INDEX_MD_NAME)
 
 
 def index_lock_path(primary_root: Path) -> Path:
-    return resolve_for_write(primary_root / ".ralph" / "plans" / INDEX_LOCK_NAME, primary_root)
+    return _index_artifact_path(primary_root, INDEX_LOCK_NAME, reject_alias=False)
 
 
 @contextlib.contextmanager
@@ -182,11 +209,13 @@ def _load_index_unlocked(primary_root: Path, *, quarantine_corrupt: bool = True)
     except (json.JSONDecodeError, UnicodeDecodeError):
         if quarantine_corrupt:
             _quarantine_corrupt_index(path)
-        return empty_index(primary_root)
+            return empty_index(primary_root)
+        raise CorruptImplementationIndexError(f"implementation index is not valid JSON: {path}")
     if not isinstance(data, dict):
         if quarantine_corrupt:
             _quarantine_corrupt_index(path)
-        return empty_index(primary_root)
+            return empty_index(primary_root)
+        raise CorruptImplementationIndexError(f"implementation index must be a JSON object: {path}")
     version = data.get("version", 1)
     # Never silently reinterpret a newer schema as the current one. A future
     # writer may have changed nested semantics that this reader cannot safely
@@ -195,9 +224,10 @@ def _load_index_unlocked(primary_root: Path, *, quarantine_corrupt: bool = True)
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         if quarantine_corrupt:
             _quarantine_corrupt_index(path)
-        return empty_index(primary_root)
+            return empty_index(primary_root)
+        raise CorruptImplementationIndexError(f"implementation index has an invalid schema version: {path}")
     if version > INDEX_VERSION:
-        raise ImplementationNotesError(
+        raise FutureImplementationIndexError(
             f"implementation index schema version {version} is newer than supported version {INDEX_VERSION}"
         )
     data["version"] = version
@@ -208,7 +238,8 @@ def _load_index_unlocked(primary_root: Path, *, quarantine_corrupt: bool = True)
     if not _index_shape_is_valid(data):
         if quarantine_corrupt:
             _quarantine_corrupt_index(path)
-        return empty_index(primary_root)
+            return empty_index(primary_root)
+        raise CorruptImplementationIndexError(f"implementation index has an unsupported shape: {path}")
     return data
 
 
@@ -242,6 +273,23 @@ def workspace_instance_id(active_root: Path) -> str:
     return hashlib.sha256(str(active_root.resolve()).encode("utf-8")).hexdigest()[:16]
 
 
+def _entry_metadata(entry: ParsedEntry) -> dict[str, str]:
+    category = entry.category
+    timestamp = entry.fields.get("Timestamp", "")
+    decision = entry.fields.get("Decision", "")
+    status = entry.fields.get("Status", "")
+    operation_id = entry.fields.get("Operation ID", "")
+    material = f"{category}\n{timestamp}\n{decision}\n{status}\n{operation_id}"
+    metadata = {
+        "latest_entry_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
+        "latest_entry_category": category,
+        "latest_entry_at": timestamp,
+    }
+    if operation_id:
+        metadata["latest_entry_operation_id"] = operation_id
+    return metadata
+
+
 def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
     try:
         entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"))
@@ -265,20 +313,7 @@ def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
         enumerate(entries),
         key=lambda item: (timestamp_key(item[1].fields.get("Timestamp", "")), item[0]),
     )
-    category = entry.category
-    timestamp = entry.fields.get("Timestamp", "")
-    decision = entry.fields.get("Decision", "")
-    status = entry.fields.get("Status", "")
-    operation_id = entry.fields.get("Operation ID", "")
-    material = f"{category}\n{timestamp}\n{decision}\n{status}\n{operation_id}"
-    metadata = {
-        "latest_entry_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
-        "latest_entry_category": category,
-        "latest_entry_at": timestamp,
-    }
-    if operation_id:
-        metadata["latest_entry_operation_id"] = operation_id
-    return metadata
+    return _entry_metadata(entry)
 
 
 def _event_id(event: dict[str, Any]) -> str:
@@ -299,6 +334,7 @@ def append_event(
     branch: str = "",
     session_id: str = "",
     operation_id: str = "",
+    notes_entry_hash: str = "",
 ) -> dict[str, Any]:
     if event not in ALLOWED_EVENTS:
         raise ImplementationNotesError(f"unknown implementation index event: {event}")
@@ -316,7 +352,7 @@ def append_event(
         "canonical_repo_root": str(primary_root.resolve()),
         "git_common_dir": str(git_common_dir_for(active_root)),
         "workspace_instance_id": workspace_instance_id(active_root),
-        "notes_entry_hash": latest_notes.get("latest_entry_hash", ""),
+        "notes_entry_hash": notes_entry_hash or latest_notes.get("latest_entry_hash", ""),
         "operation_id": operation_id,
     }
     ensure_not_red("implementation index event", json.dumps(payload, sort_keys=True))
@@ -605,6 +641,7 @@ def _record_unseen_note_events(
             branch=branch,
             session_id=session_id or "unknown",
             operation_id=operation_id,
+            notes_entry_hash=_entry_metadata(note_entry).get("latest_entry_hash", ""),
         )
         known.add(event_key)
 

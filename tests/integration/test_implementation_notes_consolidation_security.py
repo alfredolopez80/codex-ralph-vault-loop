@@ -232,10 +232,57 @@ def test_consolidate_dry_run_does_not_quarantine_corrupt_index(tmp_path: Path) -
         env=env,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["index_health"]["status"] == "corrupt"
+    assert "not valid JSON" in report["index_health"]["error"]
     assert index_path.read_text(encoding="utf-8") == "{not-json\n"
     assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
     assert not (index_dir / "implementation-index.lock").exists()
+
+
+def test_consolidate_rejects_index_symlink_without_touching_target(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    victim = index_dir / "victim-plan.md"
+    original = "# Victim plan\n"
+    victim.write_text(original, encoding="utf-8")
+    index_path = index_dir / "implementation-index.json"
+    index_path.symlink_to(victim)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary), "--apply"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "cannot be a symlink" in result.stderr
+    assert victim.read_text(encoding="utf-8") == original
+    assert index_path.is_symlink()
+    assert not list(index_dir.glob("victim-plan.md.corrupt-*"))
+
+
+def test_consolidate_reports_internal_notes_symlink_as_conflict(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    source = primary / ".ralph" / "plans" / "source-implementation-notes.html"
+    alias = primary / ".ralph" / "plans" / "nested" / "alias-implementation-notes.html"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("<main data-implementation-notes=\"true\"></main>\n", encoding="utf-8")
+    alias.symlink_to(source)
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert "implementation notes symlink aliases are not allowed" in " ".join(by_slug["nested/alias"]["conflicts"])
 
 
 def test_consolidate_dry_run_rejects_future_index_without_mutating_it(tmp_path: Path) -> None:

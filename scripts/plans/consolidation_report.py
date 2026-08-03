@@ -53,6 +53,7 @@ def render_report(
     blocked: bool,
     append_stats: dict[str, int] | None = None,
     rebuild: bool = False,
+    index_health: dict[str, str] | None = None,
 ) -> dict[str, object]:
     entry_count = sum(len(section.entries) + (1 if section.legacy_excerpt else 0) for section in sections)
     stats = append_stats or (
@@ -68,6 +69,7 @@ def render_report(
     return {
         "applied": applied,
         "primary_repo_root": str(primary_root),
+        "index_health": index_health or {"status": "ok"},
         "consolidated_artifacts": {
             "html": str(html_path),
             "markdown": str(md_path),
