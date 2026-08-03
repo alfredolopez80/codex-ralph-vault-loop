@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from consolidated_notes_artifacts import ConsolidatedPlanSection, current_entries, legacy_excerpt
-from implementation_index_lib import load_index, upsert_plan_entry, write_index
+from implementation_index_lib import update_index, upsert_plan_entry
 from implementation_notes_lib import (
     IMPLEMENTATION_NOTES_SUFFIX,
     ImplementationNotesError,
@@ -250,21 +250,26 @@ def apply_record(record: NotesRecord, primary_root: Path, active_root: Path) -> 
         notes_path=record.primary_notes,
         status=plan_status(record.plan_path, record.schema),
         active_root=active_root,
+        event="consolidated",
     )
     entry["notes_schema"] = record.schema
     entry["notes_entry_count"] = record.entry_count
     entry["consolidated_by"] = "scripts/plans/consolidate-implementation-notes.py"
-    data = load_index(primary_root)
-    for item in data.get("plans", []):
-        if isinstance(item, dict) and item.get("plan") == entry.get("plan"):
-            item.update(
-                {
-                    "notes_schema": record.schema,
-                    "notes_entry_count": record.entry_count,
-                    "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
-                }
-            )
-    write_index(primary_root, data)
+    def update(data: dict[str, object]) -> None:
+        plans = data.get("plans", [])
+        if not isinstance(plans, list):
+            return
+        for item in plans:
+            if isinstance(item, dict) and item.get("plan") == entry.get("plan"):
+                item.update(
+                    {
+                        "notes_schema": record.schema,
+                        "notes_entry_count": record.entry_count,
+                        "consolidated_by": "scripts/plans/consolidate-implementation-notes.py",
+                    }
+                )
+
+    update_index(primary_root, update)
 
 
 def build_consolidated_sections(records: list[NotesRecord]) -> list[ConsolidatedPlanSection]:

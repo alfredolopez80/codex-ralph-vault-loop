@@ -52,6 +52,8 @@ class ImplementationNotesError(RuntimeError):
 class Roots:
     active_worktree_root: Path
     primary_repo_root: Path
+    git_common_dir: Path | None = None
+    resolution_method: str = ""
 
 
 @dataclass(frozen=True)
@@ -175,6 +177,8 @@ def write_implementation_plan_state(roots: Roots, session_id: str, plan_path: Pa
         "implementation_notes_path": str(notes_path),
         "primary_repo_root": str(roots.primary_repo_root),
         "active_worktree_root": str(roots.active_worktree_root),
+        "git_common_dir": str(roots.git_common_dir) if roots.git_common_dir else "",
+        "resolution_method": roots.resolution_method,
         "workspace_instance_id": hashlib.sha256(str(roots.active_worktree_root.resolve()).encode("utf-8")).hexdigest()[:16],
         "updated_at": now_local(),
     }
@@ -218,6 +222,25 @@ def git_root_for(path: Path) -> Path:
     return Path(root).resolve()
 
 
+def _git_path_for(root: Path, argument: str) -> Path:
+    """Resolve a Git metadata path relative to the repository root when needed."""
+    raw = run_git(root, "rev-parse", argument)
+    if not raw:
+        raise ImplementationNotesError(f"could not resolve Git metadata for repository: {root}")
+    path = Path(raw).expanduser()
+    return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+
+def git_common_dir_for(root: Path) -> Path:
+    """Return the shared Git directory that identifies a repository across worktrees."""
+    return _git_path_for(root, "--git-common-dir")
+
+
+def git_dir_for(root: Path) -> Path:
+    """Return this checkout's Git directory, distinct for linked worktrees."""
+    return _git_path_for(root, "--git-dir")
+
+
 def is_codex_worktree(path: Path) -> bool:
     try:
         path.resolve().relative_to(CODEX_WORKTREE_ROOT.resolve())
@@ -237,25 +260,61 @@ def _worktree_paths(root: Path) -> list[Path]:
     return paths
 
 
+def _canonical_primary_candidates(active_root: Path, common_dir: Path) -> list[Path]:
+    """Find main checkout roots for ``common_dir`` without relying on path names."""
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in [active_root, *_worktree_paths(active_root)]:
+        normalized = candidate.resolve()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            if git_common_dir_for(normalized) != common_dir:
+                continue
+            if git_dir_for(normalized) == common_dir:
+                candidates.append(normalized)
+        except ImplementationNotesError:
+            continue
+    return candidates
+
+
 def resolve_roots(active_root: str | Path | None = None, primary_root: str | Path | None = None) -> Roots:
     active = Path(active_root or os.environ.get("RALPH_ACTIVE_WORKTREE_ROOT") or Path.cwd()).expanduser().resolve()
     active_git = git_root_for(active)
+    active_common_dir = git_common_dir_for(active_git)
     explicit_primary = primary_root or os.environ.get("RALPH_PRIMARY_REPO_ROOT")
     if explicit_primary:
         primary = git_root_for(Path(explicit_primary).expanduser().resolve())
         if is_codex_worktree(primary):
             raise ImplementationNotesError("primary repo root cannot be under ~/.codex/worktrees")
-        return Roots(active_worktree_root=active_git, primary_repo_root=primary)
+        if git_common_dir_for(primary) != active_common_dir:
+            raise ImplementationNotesError("primary repo root belongs to a different Git repository")
+        if git_dir_for(primary) != active_common_dir:
+            raise ImplementationNotesError("primary repo root must be the repository's main checkout, not a linked worktree")
+        return Roots(
+            active_worktree_root=active_git,
+            primary_repo_root=primary,
+            git_common_dir=active_common_dir,
+            resolution_method="explicit-primary",
+        )
 
-    if not is_codex_worktree(active_git):
-        return Roots(active_worktree_root=active_git, primary_repo_root=active_git)
-
-    for candidate in _worktree_paths(active_git):
-        if candidate.name == active_git.name and not is_codex_worktree(candidate):
-            return Roots(active_worktree_root=active_git, primary_repo_root=candidate)
+    candidates = _canonical_primary_candidates(active_git, active_common_dir)
+    if len(candidates) == 1:
+        primary = candidates[0]
+        if not is_codex_worktree(primary):
+            return Roots(
+                active_worktree_root=active_git,
+                primary_repo_root=primary,
+                git_common_dir=active_common_dir,
+                resolution_method="git-common-dir",
+            )
+        raise ImplementationNotesError("canonical local repo root cannot be under ~/.codex/worktrees")
+    if len(candidates) > 1:
+        raise ImplementationNotesError("ambiguous canonical local repo roots for this Git repository; set RALPH_PRIMARY_REPO_ROOT")
 
     raise ImplementationNotesError(
-        "could not resolve a canonical local repo root outside ~/.codex/worktrees; set RALPH_PRIMARY_REPO_ROOT"
+        "could not resolve a canonical local repo root for this Git repository; set RALPH_PRIMARY_REPO_ROOT"
     )
 
 

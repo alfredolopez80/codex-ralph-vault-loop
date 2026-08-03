@@ -84,6 +84,7 @@ def main() -> int:
             status="active",
             active_root=roots.active_worktree_root,
             session_id=session_id,
+            event="notes_created",
         )
         print(f"IMPLEMENTATION_NOTES_CREATED {notes_path}")
         return 0

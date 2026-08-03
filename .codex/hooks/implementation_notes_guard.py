@@ -166,6 +166,7 @@ def main() -> int:
             commit=git_meta["commit"],
             branch=git_meta["branch"],
             session_id=_payload_session_id(payload),
+            event="implemented",
         )
         return 0
     except ImplementationNotesError as exc:
