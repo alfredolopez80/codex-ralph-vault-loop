@@ -887,7 +887,7 @@ def append_entry(notes_path: Path, entry: str, category: str) -> bool:
     return True
 
 
-def valid_non_initial_entries(text: str) -> list[ParsedEntry]:
+def valid_non_initial_entries(text: str, *, include_summary: bool = False) -> list[ParsedEntry]:
     ensure_not_red("implementation notes file", text)
     parser = NotesHTMLParser()
     parser.feed(text)
@@ -915,7 +915,7 @@ def valid_non_initial_entries(text: str) -> list[ParsedEntry]:
             raise ImplementationNotesError(f"implementation notes {entry.category} entry is missing required fields: {', '.join(missing)}")
         if entry.fields.get("Category") != entry.category:
             raise ImplementationNotesError("implementation notes entry category field does not match its data-entry-kind")
-        if entry.category != "summary":
+        if include_summary or entry.category != "summary":
             valid.append(entry)
     return valid
 

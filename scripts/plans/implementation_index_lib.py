@@ -294,7 +294,7 @@ def _entry_metadata(entry: ParsedEntry) -> dict[str, str]:
 
 def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
     try:
-        entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"))
+        entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"), include_summary=True)
     except (ImplementationNotesError, OSError):
         return {}
     if not entries:
@@ -431,6 +431,28 @@ def _validate_notes_resource(notes_path: Path) -> None:
         raise ImplementationNotesError(f"implementation notes resource must be a regular file: {notes_path}")
     if notes_stat.st_nlink != 1:
         raise ImplementationNotesError(f"implementation notes resource must not be hard-linked: {notes_path}")
+
+
+def validate_plan_notes_ownership(*, primary_root: Path, plan_path: Path, notes_path: Path) -> None:
+    """Reject a destructive create before it can overwrite another plan's notes."""
+    _validate_notes_resource(notes_path)
+    data = load_index(primary_root, quarantine_corrupt=False)
+    plan_rel = _rel(plan_path, primary_root)
+    notes_rel = _rel(notes_path, primary_root)
+    conflicting_owner = next(
+        (
+            item
+            for item in data.get("plans", [])
+            if isinstance(item, dict)
+            and item.get("notes") == notes_rel
+            and item.get("plan") != plan_rel
+        ),
+        None,
+    )
+    if conflicting_owner is not None:
+        raise ImplementationNotesError(
+            f"implementation notes path is already owned by plan {conflicting_owner.get('plan', '')}: {notes_rel}"
+        )
 
 
 def upsert_plan_entry(
@@ -654,7 +676,7 @@ def _record_unseen_note_events(
 ) -> None:
     """Reconcile note IDs visible in HTML but missing from the event log."""
     try:
-        note_entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"))
+        note_entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"), include_summary=True)
     except (ImplementationNotesError, OSError):
         return
     known = {

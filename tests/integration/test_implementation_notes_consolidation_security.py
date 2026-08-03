@@ -373,6 +373,44 @@ def test_create_notes_preflights_future_index_before_writing_artifacts(tmp_path:
     assert index_path.read_text(encoding="utf-8") == original
 
 
+def test_create_force_preflights_existing_notes_owner(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    first_plan = active / ".ralph" / "plans" / "first-owner.md"
+    write_plan(first_plan)
+    first = run(
+        [sys.executable, str(CREATE), "--plan", str(first_plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert first.returncode == 0, first.stderr
+    notes = primary / ".ralph" / "plans" / "first-owner-implementation-notes.html"
+    original = notes.read_bytes()
+
+    second_plan = active / ".ralph" / "plans" / "second-owner.md"
+    write_plan(second_plan)
+    second = run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--plan",
+            str(second_plan),
+            "--notes",
+            str(notes),
+            "--force",
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert second.returncode == 1
+    assert "already owned by plan" in second.stderr
+    assert notes.read_bytes() == original
+
+
 def test_consolidate_apply_blocks_unsafe_current_schema_worktree_html(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "unsafe-current-plan.md"

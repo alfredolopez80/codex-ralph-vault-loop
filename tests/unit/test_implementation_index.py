@@ -747,6 +747,46 @@ def test_recovery_binds_each_unseen_operation_to_its_own_entry_hash(tmp_path: Pa
     assert recovered["recover-a"]["notes_entry_hash"] != recovered["recover-b"]["notes_entry_hash"]
 
 
+def test_recovery_includes_summary_entries(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "summary-recovery.md"
+    notes = repo / ".ralph" / "plans" / "summary-recovery-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# Summary recovery\n", encoding="utf-8")
+    notes.write_text(
+        html_document(
+            title="Summary recovery",
+            plan_path=plan,
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="summary-session",
+            timestamp="2026-08-03T11:59:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    append_entry(
+        notes,
+        entry_html(
+            category="summary",
+            decision="recover the final summary",
+            reason="summary entries are durable lifecycle content",
+            impact="the event log must retain the operation",
+            related_files=[str(plan)],
+            status="active",
+            timestamp="2026-08-03T12:00:00+00:00",
+            operation_id="summary-recovery-op",
+        ),
+        "summary",
+    )
+
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert any(event.get("operation_id") == "summary-recovery-op" for event in data["events"])
+
+
 def test_concurrent_note_appends_preserve_each_operation(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     plan = repo / ".ralph" / "plans" / "concurrent-notes.md"

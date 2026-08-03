@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from implementation_index_lib import load_index, upsert_plan_entry
+from implementation_index_lib import load_index, upsert_plan_entry, validate_plan_notes_ownership
 from implementation_notes_lib import (
     ImplementationNotesError,
     ensure_not_red,
@@ -56,6 +56,11 @@ def main() -> int:
         )
         if is_codex_worktree(notes_path):
             raise ImplementationNotesError("refusing to create the only durable notes copy under ~/.codex/worktrees")
+        validate_plan_notes_ownership(
+            primary_root=roots.primary_repo_root,
+            plan_path=plan_path,
+            notes_path=notes_path,
+        )
         if notes_path.exists() and not args.force:
             raise ImplementationNotesError(f"notes already exist: {notes_path}")
         canonical_plan = sync_plan_to_primary(plan_path, roots.primary_repo_root, notes_path, force=args.force)
