@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from implementation_index_lib import load_index, upsert_plan_entry, validate_plan_notes_ownership
+from implementation_index_lib import current_git_metadata, load_index, upsert_plan_entry, validate_plan_notes_ownership
 from implementation_notes_lib import (
     ImplementationNotesError,
     ensure_not_red,
@@ -20,7 +20,6 @@ from implementation_notes_lib import (
     resolve_for_read,
     resolve_notes_path_for_plan,
     resolve_roots,
-    run_git,
     sync_plan_to_primary,
     write_implementation_plan_state,
 )
@@ -63,21 +62,20 @@ def main() -> int:
         )
         if notes_path.exists() and not args.force:
             raise ImplementationNotesError(f"notes already exist: {notes_path}")
+        # Resolve required provenance before writing the canonical plan, notes,
+        # or session state so an unborn/transient Git checkout remains retryable.
+        git_meta = current_git_metadata(roots.active_worktree_root)
         canonical_plan = sync_plan_to_primary(plan_path, roots.primary_repo_root, notes_path, force=args.force)
 
         timestamp = now_local()
         session_id = os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID") or "unknown"
-        git_sha = run_git(roots.active_worktree_root, "rev-parse", "HEAD")
-        git_branch = run_git(roots.active_worktree_root, "branch", "--show-current") or run_git(
-            roots.active_worktree_root, "rev-parse", "--abbrev-ref", "HEAD"
-        )
         html = html_document(
             title=f"Implementation Notes - {infer_title(canonical_plan)}",
             plan_path=canonical_plan,
             notes_path=notes_path,
             roots=roots,
-            git_sha=git_sha,
-            git_branch=git_branch,
+            git_sha=git_meta["commit"],
+            git_branch=git_meta["branch"],
             session_id=session_id,
             timestamp=timestamp,
         )

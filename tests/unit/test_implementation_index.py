@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -164,6 +165,32 @@ def test_record_loose_commit_updates_existing_entry_and_rejects_red(tmp_path: Pa
         assert "RED-sensitive" in str(exc)
     else:
         raise AssertionError("expected RED-sensitive loose commit reason to be rejected")
+
+
+def test_plan_event_identity_includes_pr_updates(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "pr-events.md"
+    notes = repo / ".ralph" / "plans" / "pr-events-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# PR events\n", encoding="utf-8")
+    notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+
+    for pr in ("pr-1", "pr-2"):
+        upsert_plan_entry(
+            primary_root=repo,
+            plan_path=plan,
+            notes_path=notes,
+            status="active",
+            active_root=repo,
+            branch="main",
+            session_id="session-pr-events",
+            pr=pr,
+            event="plan_updated",
+        )
+
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    events = [event for event in data["events"] if event["event"] == "plan_updated"]
+    assert [event["pr"] for event in events] == ["pr-1", "pr-2"]
 
 
 def test_concurrent_plan_updates_preserve_distinct_events(tmp_path: Path) -> None:
@@ -689,6 +716,105 @@ def test_note_append_recovers_after_index_write_interruption(tmp_path: Path, mon
     data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
     recovered = [event for event in data["events"] if event.get("operation_id") == "recover-1"]
     assert len(recovered) == 1
+
+
+def test_retried_append_binds_event_to_its_own_entry_after_later_append(tmp_path: Path, monkeypatch) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "retry-hash.md"
+    notes = repo / ".ralph" / "plans" / "retry-hash-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# Retry hash\n", encoding="utf-8")
+    notes.write_text(
+        html_document(
+            title="Retry hash",
+            plan_path=plan,
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="session-retry-hash",
+            timestamp="2026-08-03T11:59:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+
+    def note(operation_id: str, decision: str) -> str:
+        return entry_html(
+            category="decision",
+            decision=decision,
+            reason="each retry retains its own entry",
+            impact="event hashes must not follow a later append",
+            related_files=[str(plan)],
+            status="active",
+            timestamp="2026-08-03T12:00:00+00:00",
+            operation_id=operation_id,
+        )
+
+    original_write = index_lib._write_index_unlocked
+    monkeypatch.setattr(index_lib, "_write_index_unlocked", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("interrupt")))
+    with pytest.raises(RuntimeError, match="interrupt"):
+        append_note_and_refresh(
+            primary_root=repo,
+            notes_path=notes,
+            entry_html_text=note("retry-a", "first"),
+            category="decision",
+            active_root=repo,
+            session_id="session-retry-hash",
+            operation_id="retry-a",
+        )
+    monkeypatch.setattr(index_lib, "_write_index_unlocked", original_write)
+
+    append_note_and_refresh(
+        primary_root=repo,
+        notes_path=notes,
+        entry_html_text=note("retry-b", "later"),
+        category="decision",
+        active_root=repo,
+        session_id="session-retry-hash",
+        operation_id="retry-b",
+    )
+    append_note_and_refresh(
+        primary_root=repo,
+        notes_path=notes,
+        entry_html_text=note("retry-a", "first"),
+        category="decision",
+        active_root=repo,
+        session_id="session-retry-hash",
+        operation_id="retry-a",
+    )
+
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    events = {event["operation_id"]: event for event in data["events"] if event.get("event") == "note_appended"}
+    expected_a = hashlib.sha256("decision\n2026-08-03T12:00:00+00:00\nfirst\nactive\nretry-a".encode()).hexdigest()
+    expected_b = hashlib.sha256("decision\n2026-08-03T12:00:00+00:00\nlater\nactive\nretry-b".encode()).hexdigest()
+    assert events["retry-a"]["notes_entry_hash"] == expected_a
+    assert events["retry-b"]["notes_entry_hash"] == expected_b
+    assert events["retry-a"]["notes_entry_hash"] != events["retry-b"]["notes_entry_hash"]
+
+
+def test_append_preflights_git_metadata_before_changing_notes(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    git(repo, "init")
+    notes = repo / ".ralph" / "plans" / "unborn-implementation-notes.html"
+    notes.parent.mkdir(parents=True)
+    notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    original = notes.read_bytes()
+    monkeypatch.setattr(index_lib, "current_git_metadata", lambda *_args: (_ for _ in ()).throw(GitMetadataError("git unavailable")))
+
+    with pytest.raises(GitMetadataError, match="git unavailable"):
+        append_note_and_refresh(
+            primary_root=repo,
+            notes_path=notes,
+            entry_html_text="<entry />",
+            category="decision",
+            active_root=repo,
+            session_id="session-unborn",
+            operation_id="unborn-op",
+        )
+
+    assert notes.read_bytes() == original
 
 
 def test_recovery_binds_each_unseen_operation_to_its_own_entry_hash(tmp_path: Path) -> None:

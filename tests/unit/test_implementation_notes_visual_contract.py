@@ -126,6 +126,33 @@ def test_consolidation_key_preserves_distinct_operation_ids(tmp_path: Path) -> N
     assert {dict(item.rows)["Operation ID"] for item in items} == {"operation-a", "operation-b"}
 
 
+def test_consolidation_reuses_legacy_key_without_duplicate_append(tmp_path: Path) -> None:
+    section = ConsolidatedPlanSection(
+        slug="legacy-key-plan",
+        plan_path=tmp_path / "legacy-key-plan.md",
+        notes_path=tmp_path / "legacy-key-plan-implementation-notes.html",
+        schema="current",
+        status="implemented",
+        source_sha256="source",
+        entries=[
+            ConsolidatedEntry("decision", "2026-06-01T00:00:00+00:00", "same", "reason", "impact", "file", "active", "operation-a")
+        ],
+    )
+    html_path = tmp_path / ".ralph" / "plans" / "implementation-notes-consolidated.html"
+    md_path = tmp_path / ".ralph" / "plans" / "implementation-notes-consolidated.md"
+
+    first = append_consolidated_artifacts(tmp_path, html_path, md_path, [section])
+    item = consolidated_items([section])[0]
+    assert item.legacy_key and item.legacy_key != item.key
+    html_path.write_text(html_path.read_text(encoding="utf-8").replace(item.key, item.legacy_key), encoding="utf-8")
+    md_path.write_text(md_path.read_text(encoding="utf-8").replace(item.key, item.legacy_key), encoding="utf-8")
+
+    second = append_consolidated_artifacts(tmp_path, html_path, md_path, [section])
+
+    assert first == {"items": 1, "html_append": 1, "md_append": 1}
+    assert second == {"items": 1, "html_append": 0, "md_append": 0}
+
+
 def test_consolidated_notes_paths_reject_unsafe_targets(tmp_path: Path) -> None:
     plans = tmp_path / ".ralph" / "plans"
     plans.mkdir(parents=True)

@@ -17,6 +17,7 @@ from implementation_notes_lib import (
     ImplementationNotesError,
     ParsedEntry,
     append_entry,
+    canonical_plan_path,
     ensure_not_red,
     git_common_dir_for,
     now_local,
@@ -318,6 +319,18 @@ def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
     return _entry_metadata(entry)
 
 
+def entry_metadata_for_operation(notes_path: Path, operation_id: str) -> dict[str, str]:
+    """Return metadata for the requested operation instead of the newest entry."""
+    try:
+        entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"), include_summary=True)
+    except (ImplementationNotesError, OSError):
+        return {}
+    for entry in entries:
+        if entry.fields.get("Operation ID", "") == operation_id:
+            return _entry_metadata(entry)
+    return {}
+
+
 def _event_id(event: dict[str, Any]) -> str:
     material = {key: value for key, value in event.items() if key not in {"event_id", "created_at", "timestamp"}}
     return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -336,6 +349,7 @@ def append_event(
     branch: str = "",
     session_id: str = "",
     operation_id: str = "",
+    pr: str = "",
     notes_entry_hash: str = "",
     reason: str = "",
     notes: str = "",
@@ -358,6 +372,7 @@ def append_event(
         "workspace_instance_id": workspace_instance_id(active_root),
         "notes_entry_hash": notes_entry_hash or latest_notes.get("latest_entry_hash", ""),
         "operation_id": operation_id,
+        "pr": pr,
         "reason": reason,
         "notes_detail": notes,
     }
@@ -437,7 +452,7 @@ def validate_plan_notes_ownership(*, primary_root: Path, plan_path: Path, notes_
     """Reject a destructive create before it can overwrite another plan's notes."""
     _validate_notes_resource(notes_path)
     data = load_index(primary_root, quarantine_corrupt=False)
-    plan_rel = _rel(plan_path, primary_root)
+    plan_rel = _rel(canonical_plan_path(plan_path, primary_root), primary_root)
     notes_rel = _rel(notes_path, primary_root)
     conflicting_owner = next(
         (
@@ -548,6 +563,7 @@ def upsert_plan_entry(
             commit=commit or latest,
             branch=branch,
             session_id=session_id or entry.get("session_id", ""),
+            pr=entry.get("pr", ""),
         )
         _write_index_unlocked(primary_root, data)
         return entry
@@ -579,6 +595,9 @@ def _refresh_notes_metadata_unlocked(
     entry["updated_at"] = now_local()
     entry.update(latest_entry_metadata(notes_path))
     operation_id = operation_id or str(entry.get("latest_entry_operation_id", ""))
+    operation_metadata = entry_metadata_for_operation(notes_path, operation_id) if operation_id else latest_entry_metadata(notes_path)
+    if operation_id and not operation_metadata:
+        raise ImplementationNotesError(f"implementation note operation is missing from notes: {operation_id}")
     append_event(
         data,
         event="note_appended",
@@ -591,6 +610,7 @@ def _refresh_notes_metadata_unlocked(
         branch=current_branch,
         session_id=session_id or "unknown",
         operation_id=operation_id,
+        notes_entry_hash=operation_metadata.get("latest_entry_hash", ""),
     )
     return entry
 
@@ -642,6 +662,10 @@ def append_note_and_refresh(
     """
     with index_lock(primary_root):
         data = _load_index_unlocked(primary_root)
+        # Validate required provenance before changing the notes HTML. A
+        # transient Git failure must leave the operation retryable and
+        # side-effect free.
+        current_git_metadata(active_root)
         append_entry(notes_path, entry_html_text, category)
         result = _refresh_notes_metadata_unlocked(
             data,

@@ -411,6 +411,99 @@ def test_create_force_preflights_existing_notes_owner(tmp_path: Path) -> None:
     assert notes.read_bytes() == original
 
 
+def test_create_force_accepts_same_plan_from_linked_worktree(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    plan = active / ".ralph" / "plans" / "same-plan.md"
+    write_plan(plan)
+
+    first = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert first.returncode == 0, first.stderr
+
+    second = run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--plan",
+            str(plan),
+            "--force",
+            "--active-root",
+            str(active),
+            "--primary-root",
+            str(primary),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert second.returncode == 0, second.stderr
+
+
+def test_create_preflights_git_metadata_before_writing_notes(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["RALPH_PRIMARY_REPO_ROOT"] = str(primary)
+    git(primary, "init")
+    plan = primary / ".ralph" / "plans" / "unborn-plan.md"
+    write_plan(plan)
+    notes = primary / ".ralph" / "plans" / "unborn-plan-implementation-notes.html"
+
+    result = run(
+        [sys.executable, str(CREATE), "--plan", str(plan), "--active-root", str(primary), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "current Git metadata" in result.stderr
+    assert not notes.exists()
+    assert not (primary / ".codex" / "state").exists()
+    assert not (primary / ".ralph" / "plans" / "implementation-index.json").exists()
+
+
+def test_append_preflights_git_metadata_before_changing_notes(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["RALPH_PRIMARY_REPO_ROOT"] = str(primary)
+    git(primary, "init")
+    notes = primary / ".ralph" / "plans" / "unborn-append-implementation-notes.html"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    original = notes.read_bytes()
+
+    result = run(
+        [
+            sys.executable,
+            str(APPEND),
+            "--notes",
+            str(notes),
+            "--category",
+            "decision",
+            "--decision",
+            "Do not append without Git provenance.",
+            "--primary-root",
+            str(primary),
+            "--active-root",
+            str(primary),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "current Git metadata" in result.stderr
+    assert notes.read_bytes() == original
+
+
 def test_consolidate_apply_blocks_unsafe_current_schema_worktree_html(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "unsafe-current-plan.md"
