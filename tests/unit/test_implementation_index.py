@@ -15,13 +15,14 @@ if str(PLANS) not in sys.path:
 import implementation_index_lib as index_lib
 from implementation_index_lib import (
     append_event,
+    append_note_and_refresh,
     load_index,
     record_loose_commit,
     refresh_notes_metadata,
     render_markdown,
     upsert_plan_entry,
 )
-from implementation_notes_lib import ImplementationNotesError
+from implementation_notes_lib import ImplementationNotesError, Roots, entry_html, html_document
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -234,6 +235,48 @@ lib.load_index(Path(sys.argv[1]))
     assert len(quarantined) == 1
 
 
+def test_malformed_nested_index_shape_is_quarantined(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    index_dir = repo / ".ralph" / "plans"
+    index_dir.mkdir(parents=True)
+    index_path = index_dir / "implementation-index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plans": [{"plan": ".ralph/plans/bad.md", "commits": None}],
+                "loose_commits": [],
+                "events": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    data = load_index(repo)
+
+    assert data["plans"] == []
+    quarantined = list(index_dir.glob("implementation-index.json.corrupt-*"))
+    assert len(quarantined) == 1
+
+
+def test_future_index_version_is_quarantined_instead_of_downgraded(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    index_dir = repo / ".ralph" / "plans"
+    index_dir.mkdir(parents=True)
+    index_path = index_dir / "implementation-index.json"
+    index_path.write_text(
+        json.dumps({"version": 99, "plans": [], "loose_commits": [], "events": []}),
+        encoding="utf-8",
+    )
+
+    data = load_index(repo)
+
+    assert data["version"] == 2
+    assert data["plans"] == []
+    quarantined = list(index_dir.glob("implementation-index.json.corrupt-*"))
+    assert len(quarantined) == 1
+
+
 def test_atomic_replacement_preserves_existing_index_modes(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     plan = repo / ".ralph" / "plans" / "mode.md"
@@ -310,6 +353,57 @@ def test_distinct_operation_ids_survive_same_second_deduplication(tmp_path: Path
     assert {event["operation_id"] for event in data["events"]} == {"operation-a", "operation-b"}
 
 
+def test_replayed_operation_id_remains_single_note_after_later_append(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "replay.md"
+    notes = repo / ".ralph" / "plans" / "replay-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# Replay\n", encoding="utf-8")
+    notes.write_text(
+        html_document(
+            title="Replay",
+            plan_path=plan,
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="session-replay",
+            timestamp="2026-08-03T11:59:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+
+    def append(operation_id: str, decision: str) -> None:
+        append_note_and_refresh(
+            primary_root=repo,
+            notes_path=notes,
+            entry_html_text=entry_html(
+                category="decision",
+                decision=decision,
+                reason="retry identity must be stable",
+                impact="one durable note per operation",
+                related_files=[str(plan)],
+                status="active",
+                timestamp="2026-08-03T12:00:00+00:00",
+                operation_id=operation_id,
+            ),
+            category="decision",
+            active_root=repo,
+            session_id="session-replay",
+            operation_id=operation_id,
+        )
+
+    append("operation-a", "first")
+    append("operation-b", "later")
+    append("operation-a", "replay")
+
+    html = notes.read_text(encoding="utf-8")
+    assert html.count("<dt>Operation ID</dt><dd>operation-a</dd>") == 1
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert [event.get("operation_id") for event in data["events"] if event.get("event") == "note_appended"].count("operation-a") == 1
+
+
 def test_v1_index_is_preserved_on_first_v2_write(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     index_dir = repo / ".ralph" / "plans"
@@ -339,6 +433,115 @@ def test_v1_index_is_preserved_on_first_v2_write(tmp_path: Path) -> None:
     assert legacy_plan in migrated["plans"]
     assert legacy_commit in migrated["loose_commits"]
     assert migrated["events"]
+
+
+def test_note_append_recovers_after_index_write_interruption(tmp_path: Path, monkeypatch) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "recover.md"
+    notes = repo / ".ralph" / "plans" / "recover-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# Recover\n", encoding="utf-8")
+    notes.write_text(
+        html_document(
+            title="Recover",
+            plan_path=plan,
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="session-recover",
+            timestamp="2026-08-03T11:59:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+    note = entry_html(
+        category="decision",
+        decision="Recover after an interrupted index write.",
+        reason="The note is durable before the process can finish the index transaction.",
+        impact="A later lifecycle operation must reconcile the operation exactly once.",
+        related_files=[str(plan)],
+        status="active",
+        timestamp="2026-08-03T12:00:00+00:00",
+        operation_id="recover-1",
+    )
+    original_write = index_lib._write_index_unlocked
+    monkeypatch.setattr(index_lib, "_write_index_unlocked", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("interrupt")))
+    try:
+        append_note_and_refresh(
+            primary_root=repo,
+            notes_path=notes,
+            entry_html_text=note,
+            category="decision",
+            active_root=repo,
+            session_id="session-recover",
+            operation_id="recover-1",
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "interrupt"
+    else:
+        raise AssertionError("expected simulated index interruption")
+    monkeypatch.setattr(index_lib, "_write_index_unlocked", original_write)
+
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="implemented", active_root=repo)
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    recovered = [event for event in data["events"] if event.get("operation_id") == "recover-1"]
+    assert len(recovered) == 1
+
+
+def test_concurrent_note_appends_preserve_each_operation(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    plan = repo / ".ralph" / "plans" / "concurrent-notes.md"
+    notes = repo / ".ralph" / "plans" / "concurrent-notes-implementation-notes.html"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("# Concurrent notes\n", encoding="utf-8")
+    notes.write_text(
+        html_document(
+            title="Concurrent notes",
+            plan_path=plan,
+            notes_path=notes,
+            roots=Roots(repo, repo, repo / ".git", "test"),
+            git_sha=git(repo, "rev-parse", "HEAD"),
+            git_branch="main",
+            session_id="session-0",
+            timestamp="2026-08-03T11:59:00+00:00",
+        ),
+        encoding="utf-8",
+    )
+    upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+    runner = """
+import sys
+from pathlib import Path
+from implementation_index_lib import append_note_and_refresh
+from implementation_notes_lib import entry_html
+root = Path(sys.argv[1])
+plan = root / '.ralph/plans/concurrent-notes.md'
+notes = root / '.ralph/plans/concurrent-notes-implementation-notes.html'
+operation = sys.argv[2]
+entry = entry_html(
+    category='decision', decision=f'decision-{operation}', reason='concurrent append',
+    impact='each operation remains durable', related_files=[str(plan)], status='active',
+    timestamp='2026-08-03T12:00:00+00:00', operation_id=operation,
+)
+append_note_and_refresh(
+    primary_root=root, notes_path=notes, entry_html_text=entry, category='decision',
+    active_root=root, session_id=operation, operation_id=operation,
+)
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PLANS)
+    processes = [
+        subprocess.Popen([sys.executable, "-c", runner, str(repo), operation], cwd=ROOT, env=env)
+        for operation in ("operation-a", "operation-b")
+    ]
+    assert all(process.wait(timeout=15) == 0 for process in processes)
+    html = notes.read_text(encoding="utf-8")
+    assert html.count("<dt>Operation ID</dt><dd>operation-") == 2
+    data = json.loads((repo / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert {event.get("operation_id") for event in data["events"] if event.get("event") == "note_appended"} == {
+        "operation-a",
+        "operation-b",
+    }
 
 
 def test_render_markdown_escapes_table_cells() -> None:

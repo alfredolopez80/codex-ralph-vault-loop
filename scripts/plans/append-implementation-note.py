@@ -6,11 +6,10 @@ import os
 import sys
 import uuid
 
-from implementation_index_lib import refresh_notes_metadata
+from implementation_index_lib import append_note_and_refresh
 from implementation_notes_lib import (
     ALLOWED_CATEGORIES,
     ImplementationNotesError,
-    append_entry,
     ensure_not_red,
     entry_html,
     is_codex_worktree,
@@ -55,10 +54,11 @@ def main() -> int:
             operation_id=operation_id,
         )
         ensure_not_red("rendered implementation note entry", entry)
-        append_entry(notes_path, entry, args.category)
-        refresh_notes_metadata(
+        append_note_and_refresh(
             primary_root=roots.primary_repo_root,
             notes_path=notes_path,
+            entry_html_text=entry,
+            category=args.category,
             active_root=roots.active_worktree_root,
             session_id=os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID") or "unknown",
             operation_id=operation_id,

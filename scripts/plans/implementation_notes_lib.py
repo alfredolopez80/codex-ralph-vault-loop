@@ -5,8 +5,10 @@ import html
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -493,7 +495,10 @@ def canonicalize_plan_metadata_text(text: str, notes_path: Path) -> str:
 def sync_plan_to_primary(plan_path: Path, primary_root: Path, notes_path: Path, force: bool = False) -> Path:
     target = resolve_for_write(canonical_plan_path(plan_path, primary_root), primary_root)
     target.parent.mkdir(parents=True, exist_ok=True)
-    rendered = canonicalize_plan_metadata_text(plan_path.read_text(encoding="utf-8"), notes_path)
+    source_text = plan_path.read_text(encoding="utf-8")
+    ensure_not_red("implementation plan", source_text)
+    rendered = canonicalize_plan_metadata_text(source_text, notes_path)
+    ensure_not_red("canonical implementation plan", rendered)
     if target.exists() and target.read_text(encoding="utf-8") != rendered and not force:
         raise ImplementationNotesError(f"canonical plan differs; use --force to replace: {target}")
     if not target.exists() or force:
@@ -792,13 +797,45 @@ def migrate_legacy_entries_to_sections(text: str) -> str:
 
 def append_entry(notes_path: Path, entry: str, category: str) -> None:
     text = notes_path.read_text(encoding="utf-8")
+    operation_match = re.search(r"<dt>Operation ID</dt><dd>([^<]+)</dd>", entry)
+    if operation_match:
+        operation_id = html.unescape(operation_match.group(1))
+        existing_operation_ids = {
+            html.unescape(value)
+            for value in re.findall(r"<dt>Operation ID</dt><dd>([^<]+)</dd>", text)
+        }
+        if operation_id in existing_operation_ids:
+            return
     text = migrate_legacy_entries_to_sections(text)
     marker = category_anchor(category)
     if marker not in text:
         marker = GLOBAL_APPEND_ANCHOR
     if marker not in text:
         raise ImplementationNotesError("implementation notes append anchor not found")
-    notes_path.write_text(text.replace(marker, entry + marker), encoding="utf-8")
+    rendered = text.replace(marker, entry + marker)
+    notes_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_mode = stat.S_IMODE(notes_path.stat().st_mode) if notes_path.exists() else None
+    temporary = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=notes_path.parent,
+            prefix=f".{notes_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = handle.name
+            if existing_mode is not None:
+                os.fchmod(handle.fileno(), existing_mode)
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, notes_path)
+        temporary = ""
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
 
 
 def valid_non_initial_entries(text: str) -> list[ParsedEntry]:

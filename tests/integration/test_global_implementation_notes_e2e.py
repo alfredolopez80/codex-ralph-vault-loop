@@ -231,6 +231,7 @@ def test_global_installed_flow_canonicalizes_external_linked_worktree(tmp_path: 
     notes = primary / ".ralph" / "plans" / "nested" / "e2e-plan-implementation-notes.html"
     assert canonical_plan.is_file()
     assert notes.is_file()
+
     appended = run(
         [
             sys.executable,
@@ -272,3 +273,47 @@ def test_global_installed_flow_canonicalizes_external_linked_worktree(tmp_path: 
     git(primary, "worktree", "remove", "--force", str(active))
     assert canonical_plan.is_file()
     assert notes.is_file()
+
+
+def test_append_operation_id_is_retry_safe(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    env = env_for(home)
+    env["CODEX_SESSION_ID"] = "retry-session"
+    primary, active = make_repo_with_worktree(tmp_path, home)
+    source_plan = active / ".ralph" / "plans" / "retry-plan.md"
+    write_plan(source_plan)
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(source_plan), "--active-root", str(active)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    notes = primary / ".ralph" / "plans" / "retry-plan-implementation-notes.html"
+    append_args = [
+        sys.executable,
+        str(APPEND),
+        "--notes",
+        str(notes),
+        "--category",
+        "decision",
+        "--decision",
+        "Retry-safe decision.",
+        "--reason",
+        "The operation may be replayed after a process interruption.",
+        "--impact",
+        "Exactly one note and one index event represent the operation.",
+        "--operation-id",
+        "retry-1",
+        "--active-root",
+        str(active),
+    ]
+    for _ in range(2):
+        appended = run(append_args, cwd=ROOT, env=env)
+        assert appended.returncode == 0, appended.stderr
+
+    html = notes.read_text(encoding="utf-8")
+    assert html.count("<dt>Operation ID</dt><dd>retry-1</dd>") == 1
+    index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    retry_events = [event for event in index["events"] if event.get("operation_id") == "retry-1"]
+    assert len(retry_events) == 1
+    git(primary, "worktree", "remove", "--force", str(active))

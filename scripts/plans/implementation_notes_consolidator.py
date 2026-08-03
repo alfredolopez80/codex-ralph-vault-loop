@@ -107,8 +107,20 @@ def validate_notes_source(path: Path, notes_root: Path, repo_root: Path) -> str:
     return ""
 
 
-def slug_for_notes(path: Path) -> str:
-    name = path.name
+def slug_for_notes(path: Path, notes_root: Path | None = None) -> str:
+    """Return a stable repo-relative key, preserving nested plan directories."""
+    if notes_root is not None:
+        try:
+            # Keep the lexical source path here. Resolving first would follow
+            # a malicious symlink outside .ralph/plans and fail before
+            # validate_notes_source can report the conflict in its JSON
+            # consolidation report.
+            relative = path.absolute().relative_to(notes_root.absolute())
+        except ValueError as exc:
+            raise ImplementationNotesError(f"implementation notes path is outside its notes root: {path}") from exc
+        name = relative.as_posix()
+    else:
+        name = path.name
     if not name.endswith(IMPLEMENTATION_NOTES_SUFFIX):
         raise ImplementationNotesError(f"not an implementation notes file: {path}")
     return name[: -len(IMPLEMENTATION_NOTES_SUFFIX)]
@@ -174,8 +186,10 @@ def scan_notes_roots(primary_root: Path, active_root: Path, extra_roots: list[Pa
         if not root_plans.exists():
             continue
         location = "primary" if root.resolve(strict=False) == primary_root.resolve(strict=False) else "worktree"
-        for path in sorted(root_plans.glob(f"*{IMPLEMENTATION_NOTES_SUFFIX}")):
-            slug = slug_for_notes(path)
+        for path in sorted(root_plans.rglob(f"*{IMPLEMENTATION_NOTES_SUFFIX}")):
+            if not path.is_file() and not path.is_symlink():
+                continue
+            slug = slug_for_notes(path, root_plans)
             record = record_for(slug)
             source_error = validate_notes_source(path, root_plans, root)
             if source_error:

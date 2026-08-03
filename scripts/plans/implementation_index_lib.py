@@ -13,6 +13,7 @@ import fcntl
 
 from implementation_notes_lib import (
     ImplementationNotesError,
+    append_entry,
     ensure_not_red,
     git_common_dir_for,
     now_local,
@@ -135,6 +136,19 @@ def _quarantine_corrupt_index(path: Path) -> Path:
     raise ImplementationNotesError(f"could not quarantine corrupt implementation index: {path}")
 
 
+def _index_shape_is_valid(data: dict[str, Any]) -> bool:
+    """Validate the nested shapes consumed by mutation and Markdown rendering."""
+    for key in ("plans", "loose_commits", "events"):
+        values = data.get(key)
+        if not isinstance(values, list) or not all(isinstance(item, dict) for item in values):
+            return False
+    for plan in data["plans"]:
+        commits = plan.get("commits", [])
+        if not isinstance(commits, list):
+            return False
+    return True
+
+
 def _load_index_unlocked(primary_root: Path) -> dict[str, Any]:
     path = index_json_path(primary_root)
     if not path.exists():
@@ -147,12 +161,19 @@ def _load_index_unlocked(primary_root: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         _quarantine_corrupt_index(path)
         return empty_index(primary_root)
-    data.setdefault("version", INDEX_VERSION)
+    version = data.get("version", 1)
+    # Never silently reinterpret a newer schema as the current one. A future
+    # writer may have changed nested semantics that this reader cannot safely
+    # preserve, so quarantine it for an explicit migration instead.
+    if not isinstance(version, int) or version < 1 or version > INDEX_VERSION:
+        _quarantine_corrupt_index(path)
+        return empty_index(primary_root)
+    data["version"] = version
     data["canonical_repo_root"] = str(primary_root.resolve())
     data.setdefault("plans", [])
     data.setdefault("loose_commits", [])
     data.setdefault("events", [])
-    if not all(isinstance(data[key], list) for key in ("plans", "loose_commits", "events")):
+    if not _index_shape_is_valid(data):
         _quarantine_corrupt_index(path)
         return empty_index(primary_root)
     return data
@@ -250,6 +271,22 @@ def append_event(
     events = data.setdefault("events", [])
     if not isinstance(events, list):
         raise ImplementationNotesError("implementation index events must be a list")
+    if event == "note_appended" and operation_id:
+        # Operation IDs are the caller's idempotency key. The note hash may
+        # legitimately differ after a later append, but a replay of the same
+        # lifecycle operation must never create a second durable event.
+        existing = next(
+            (
+                item
+                for item in events
+                if isinstance(item, dict)
+                and item.get("event") == "note_appended"
+                and item.get("operation_id") == operation_id
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
     if not any(isinstance(item, dict) and item.get("event_id") == event_id for item in events):
         events.append(payload)
         if len(events) > EVENTS_LIMIT:
@@ -333,6 +370,17 @@ def upsert_plan_entry(
         if latest:
             entry["latest_git_sha"] = latest
         entry.update(latest_entry_metadata(notes_path))
+        _record_unseen_note_events(
+            data,
+            primary_root=primary_root,
+            active_root=active_root,
+            plan_path=plan_path,
+            notes_path=notes_path,
+            status=entry.get("status", ""),
+            commit=commit or latest,
+            branch=branch,
+            session_id=session_id or entry.get("session_id", ""),
+        )
         event_name = event or ("notes_created" if created and status == "active" else "implemented" if status == "implemented" else "plan_updated")
         append_event(
             data,
@@ -350,6 +398,48 @@ def upsert_plan_entry(
         return entry
 
 
+def _refresh_notes_metadata_unlocked(
+    data: dict[str, Any],
+    *,
+    primary_root: Path,
+    notes_path: Path,
+    active_root: Path,
+    session_id: str = "",
+    branch: str = "",
+    commit: str = "",
+    operation_id: str = "",
+) -> dict[str, Any] | None:
+    notes_rel = _rel(notes_path, primary_root)
+    entry = next((item for item in data["plans"] if isinstance(item, dict) and item.get("notes") == notes_rel), None)
+    if entry is None:
+        return None
+    git_meta = current_git_metadata(active_root)
+    current_branch = branch or git_meta["branch"]
+    current_commit = commit or git_meta["commit"]
+    if current_branch:
+        entry["branch"] = current_branch
+    if session_id:
+        entry["session_id"] = session_id
+    entry["workspace_instance_id"] = workspace_instance_id(active_root)
+    entry["updated_at"] = now_local()
+    entry.update(latest_entry_metadata(notes_path))
+    operation_id = operation_id or str(entry.get("latest_entry_operation_id", ""))
+    append_event(
+        data,
+        event="note_appended",
+        primary_root=primary_root,
+        active_root=active_root,
+        plan_path=primary_root / str(entry.get("plan", "")),
+        notes_path=notes_path,
+        status=entry.get("status", ""),
+        commit=current_commit,
+        branch=current_branch,
+        session_id=session_id or "unknown",
+        operation_id=operation_id,
+    )
+    return entry
+
+
 def refresh_notes_metadata(
     *,
     primary_root: Path,
@@ -362,36 +452,101 @@ def refresh_notes_metadata(
 ) -> dict[str, Any] | None:
     with index_lock(primary_root):
         data = _load_index_unlocked(primary_root)
-        notes_rel = _rel(notes_path, primary_root)
-        entry = next((item for item in data["plans"] if isinstance(item, dict) and item.get("notes") == notes_rel), None)
-        if entry is None:
+        entry = _refresh_notes_metadata_unlocked(
+            data,
+            primary_root=primary_root,
+            notes_path=notes_path,
+            active_root=active_root,
+            session_id=session_id,
+            branch=branch,
+            commit=commit,
+            operation_id=operation_id,
+        )
+        if entry is not None:
+            _write_index_unlocked(primary_root, data)
+        return entry
+
+
+def append_note_and_refresh(
+    *,
+    primary_root: Path,
+    notes_path: Path,
+    entry_html_text: str,
+    category: str,
+    active_root: Path,
+    session_id: str = "",
+    branch: str = "",
+    commit: str = "",
+    operation_id: str = "",
+) -> dict[str, Any] | None:
+    """Append a note and index its event under one lifecycle lock.
+
+    The HTML write is idempotent by operation ID. If a process terminates
+    after the note replacement but before the index replacement, a later
+    lifecycle operation can record the still-visible operation exactly once.
+    """
+    with index_lock(primary_root):
+        data = _load_index_unlocked(primary_root)
+        append_entry(notes_path, entry_html_text, category)
+        result = _refresh_notes_metadata_unlocked(
+            data,
+            primary_root=primary_root,
+            notes_path=notes_path,
+            active_root=active_root,
+            session_id=session_id,
+            branch=branch,
+            commit=commit,
+            operation_id=operation_id,
+        )
+        if result is None:
+            # Preserve the legacy standalone append contract: a valid notes
+            # document may be appended before its plan is registered. The
+            # next plan lifecycle transaction will reconcile its operation ID.
             return None
-        git_meta = current_git_metadata(active_root)
-        current_branch = branch or git_meta["branch"]
-        current_commit = commit or git_meta["commit"]
-        if current_branch:
-            entry["branch"] = current_branch
-        if session_id:
-            entry["session_id"] = session_id
-        entry["workspace_instance_id"] = workspace_instance_id(active_root)
-        entry["updated_at"] = now_local()
-        entry.update(latest_entry_metadata(notes_path))
-        operation_id = operation_id or str(entry.get("latest_entry_operation_id", ""))
+        _write_index_unlocked(primary_root, data)
+        return result
+
+
+def _record_unseen_note_events(
+    data: dict[str, Any],
+    *,
+    primary_root: Path,
+    active_root: Path,
+    plan_path: Path,
+    notes_path: Path,
+    status: str,
+    commit: str,
+    branch: str,
+    session_id: str,
+) -> None:
+    """Reconcile note IDs visible in HTML but missing from the event log."""
+    try:
+        note_entries = valid_non_initial_entries(notes_path.read_text(encoding="utf-8"))
+    except (ImplementationNotesError, OSError):
+        return
+    known = {
+        str(item.get("operation_id", ""))
+        for item in data.get("events", [])
+        if isinstance(item, dict) and item.get("event") == "note_appended"
+    }
+    for note_entry in note_entries:
+        operation_id = note_entry.fields.get("Operation ID", "")
+        if not operation_id or operation_id in known:
+            continue
         append_event(
             data,
             event="note_appended",
             primary_root=primary_root,
             active_root=active_root,
-            plan_path=primary_root / str(entry.get("plan", "")),
+            plan_path=plan_path,
             notes_path=notes_path,
-            status=entry.get("status", ""),
-            commit=current_commit,
-            branch=current_branch,
+            status=status,
+            commit=commit,
+            branch=branch,
             session_id=session_id or "unknown",
             operation_id=operation_id,
         )
-        _write_index_unlocked(primary_root, data)
-        return entry
+        known.add(operation_id)
 
 
 def record_loose_commit(
