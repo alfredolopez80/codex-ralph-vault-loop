@@ -22,9 +22,13 @@ def git(cwd: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def make_repo_with_worktree(tmp_path: Path, home: Path) -> tuple[Path, Path]:
+def make_repo_with_worktree(tmp_path: Path, home: Path, *, external: bool = False) -> tuple[Path, Path]:
     primary = tmp_path / "primary" / "sample-project-primary"
-    active = home / ".codex" / "worktrees" / "fixture" / "sample-project-active"
+    active = (
+        tmp_path / "ordinary-linked" / "sample-project-active"
+        if external
+        else home / ".codex" / "worktrees" / "fixture" / "sample-project-active"
+    )
     primary.mkdir(parents=True)
     git(primary, "init")
     git(primary, "config", "user.email", "test@example.invalid")
@@ -132,7 +136,9 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
         "session_id": "global-e2e-session",
         "cwd": str(active),
         "plan_approved": True,
-        "last_assistant_message": f"Implemented plan: [{source_plan.relative_to(active)}]({source_plan})",
+        # Deliberately omit payload and Markdown plan paths: this proves the
+        # installed dispatcher can recover the approved plan from session state.
+        "last_assistant_message": "Implemented the approved plan.",
     }
     stopped = run(
         [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
@@ -151,6 +157,7 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
     assert git(active, "rev-parse", "HEAD") in entry["commits"]
     events = implemented_index["events"]
     assert [event["event"] for event in events] == ["notes_created", "note_appended", "implemented"]
+    assert events[1]["operation_id"]
     assert all(event["canonical_repo_root"] == str(primary.resolve()) for event in events)
     assert all(event["active_worktree_root"] == str(active.resolve()) for event in events)
     assert events[-1]["session_id"] == "global-e2e-session"
@@ -170,6 +177,22 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
     repeated_index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
     assert len(repeated_index["events"]) == len(events)
 
+    markdown_payload = {
+        "hook_event_name": "Stop",
+        "session_id": "global-e2e-markdown-session",
+        "cwd": str(active),
+        "plan_approved": True,
+        "last_assistant_message": f"Implemented plan: [{source_plan.relative_to(active)}]({source_plan})",
+    }
+    markdown_stop = run(
+        [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
+        cwd=active,
+        env=env,
+        input_text=json.dumps(markdown_payload),
+    )
+    assert markdown_stop.returncode == 0, markdown_stop.stderr
+    assert markdown_stop.stdout == ""
+
     example_payload = {
         "hook_event_name": "Stop",
         "session_id": "global-e2e-example-session",
@@ -185,3 +208,67 @@ def test_global_installed_implementation_notes_flow_updates_project_index(tmp_pa
     assert canonical_plan.is_file()
     assert notes.is_file()
     assert (primary / ".ralph" / "plans" / "implementation-index.json").is_file()
+
+
+def test_global_installed_flow_canonicalizes_external_linked_worktree(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    env = env_for(home)
+    env["CODEX_SESSION_ID"] = "external-worktree-session"
+    install = run(["bash", str(INSTALL), "--install", "--with-agents", "--allow-worktree-source"], cwd=ROOT, env=env)
+    assert install.returncode == 0, install.stderr
+    installed_dispatcher = home / ".codex" / "hooks" / "global_hook_dispatch.py"
+    primary, active = make_repo_with_worktree(tmp_path, home, external=True)
+    source_plan = active / ".ralph" / "plans" / "nested" / "e2e-plan.md"
+    write_plan(source_plan)
+
+    created = run(
+        [sys.executable, str(CREATE), "--plan", str(source_plan), "--active-root", str(active)],
+        cwd=ROOT,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr
+    canonical_plan = primary / ".ralph" / "plans" / "nested" / "e2e-plan.md"
+    notes = primary / ".ralph" / "plans" / "nested" / "e2e-plan-implementation-notes.html"
+    assert canonical_plan.is_file()
+    assert notes.is_file()
+    appended = run(
+        [
+            sys.executable,
+            str(APPEND),
+            "--notes",
+            str(notes),
+            "--category",
+            "decision",
+            "--decision",
+            "Finalize from an ordinary linked worktree.",
+            "--reason",
+            "The canonical plan must not depend on a Codex path prefix.",
+            "--impact",
+            "Durable history remains after the linked worktree is removed.",
+            "--active-root",
+            str(active),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+    assert appended.returncode == 0, appended.stderr
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "external-worktree-session",
+        "cwd": str(active),
+        "plan_approved": True,
+        "last_assistant_message": f"Implemented plan: [{source_plan.relative_to(active)}]({source_plan})",
+    }
+    stopped = run(
+        [sys.executable, str(installed_dispatcher), "--event", "Stop", "--role", "implementation_notes_guard"],
+        cwd=active,
+        env=env,
+        input_text=json.dumps(payload),
+    )
+    assert stopped.returncode == 0, stopped.stderr
+    index = json.loads((primary / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert index["plans"][0]["plan"] == ".ralph/plans/nested/e2e-plan.md"
+    assert all("ordinary-linked" not in event["plan"] for event in index["events"])
+    git(primary, "worktree", "remove", "--force", str(active))
+    assert canonical_plan.is_file()
+    assert notes.is_file()

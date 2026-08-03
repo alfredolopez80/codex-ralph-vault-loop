@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,7 @@ def index_lock(primary_root: Path):
 def _atomic_write(path: Path, text: str) -> None:
     """Write an already-validated artifact without exposing partial JSON/MD."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    existing_mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
     temporary = ""
     try:
         with tempfile.NamedTemporaryFile(
@@ -84,10 +86,21 @@ def _atomic_write(path: Path, text: str) -> None:
             delete=False,
         ) as handle:
             temporary = handle.name
+            if existing_mode is not None:
+                os.fchmod(handle.fileno(), existing_mode)
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         temporary = ""
     finally:
         if temporary:
@@ -122,7 +135,7 @@ def _quarantine_corrupt_index(path: Path) -> Path:
     raise ImplementationNotesError(f"could not quarantine corrupt implementation index: {path}")
 
 
-def load_index(primary_root: Path) -> dict[str, Any]:
+def _load_index_unlocked(primary_root: Path) -> dict[str, Any]:
     path = index_json_path(primary_root)
     if not path.exists():
         return empty_index(primary_root)
@@ -143,6 +156,12 @@ def load_index(primary_root: Path) -> dict[str, Any]:
         _quarantine_corrupt_index(path)
         return empty_index(primary_root)
     return data
+
+
+def load_index(primary_root: Path) -> dict[str, Any]:
+    """Read the index under the same lock used by recovery and writers."""
+    with index_lock(primary_root):
+        return _load_index_unlocked(primary_root)
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:
@@ -166,17 +185,23 @@ def latest_entry_metadata(notes_path: Path) -> dict[str, str]:
         return {}
     if not entries:
         return {}
-    entry = max(entries, key=lambda item: item.fields.get("Timestamp", ""))
+    # The document order is the authoritative tie-breaker. Timestamps are
+    # intentionally second-resolution display metadata, not event identity.
+    entry = entries[-1]
     category = entry.category
     timestamp = entry.fields.get("Timestamp", "")
     decision = entry.fields.get("Decision", "")
     status = entry.fields.get("Status", "")
-    material = f"{category}\n{timestamp}\n{decision}\n{status}"
-    return {
+    operation_id = entry.fields.get("Operation ID", "")
+    material = f"{category}\n{timestamp}\n{decision}\n{status}\n{operation_id}"
+    metadata = {
         "latest_entry_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
         "latest_entry_category": category,
         "latest_entry_at": timestamp,
     }
+    if operation_id:
+        metadata["latest_entry_operation_id"] = operation_id
+    return metadata
 
 
 def _event_id(event: dict[str, Any]) -> str:
@@ -196,6 +221,7 @@ def append_event(
     commit: str = "",
     branch: str = "",
     session_id: str = "",
+    operation_id: str = "",
 ) -> dict[str, Any]:
     if event not in ALLOWED_EVENTS:
         raise ImplementationNotesError(f"unknown implementation index event: {event}")
@@ -214,6 +240,7 @@ def append_event(
         "git_common_dir": str(git_common_dir_for(active_root)),
         "workspace_instance_id": workspace_instance_id(active_root),
         "notes_entry_hash": latest_notes.get("latest_entry_hash", ""),
+        "operation_id": operation_id,
     }
     ensure_not_red("implementation index event", json.dumps(payload, sort_keys=True))
     event_id = _event_id(payload)
@@ -245,7 +272,7 @@ def _write_index_unlocked(primary_root: Path, data: dict[str, Any]) -> None:
 def update_index(primary_root: Path, updater) -> Any:
     """Run one read-modify-write transaction under the index lock."""
     with index_lock(primary_root):
-        data = load_index(primary_root)
+        data = _load_index_unlocked(primary_root)
         result = updater(data)
         _write_index_unlocked(primary_root, data)
         return result
@@ -265,7 +292,7 @@ def upsert_plan_entry(
     event: str = "",
 ) -> dict[str, Any]:
     with index_lock(primary_root):
-        data = load_index(primary_root)
+        data = _load_index_unlocked(primary_root)
         timestamp = now_local()
         plan_rel = _rel(plan_path, primary_root)
         notes_rel = _rel(notes_path, primary_root)
@@ -323,16 +350,33 @@ def upsert_plan_entry(
         return entry
 
 
-def refresh_notes_metadata(*, primary_root: Path, notes_path: Path, active_root: Path) -> dict[str, Any] | None:
+def refresh_notes_metadata(
+    *,
+    primary_root: Path,
+    notes_path: Path,
+    active_root: Path,
+    session_id: str = "",
+    branch: str = "",
+    commit: str = "",
+    operation_id: str = "",
+) -> dict[str, Any] | None:
     with index_lock(primary_root):
-        data = load_index(primary_root)
+        data = _load_index_unlocked(primary_root)
         notes_rel = _rel(notes_path, primary_root)
         entry = next((item for item in data["plans"] if isinstance(item, dict) and item.get("notes") == notes_rel), None)
         if entry is None:
             return None
+        git_meta = current_git_metadata(active_root)
+        current_branch = branch or git_meta["branch"]
+        current_commit = commit or git_meta["commit"]
+        if current_branch:
+            entry["branch"] = current_branch
+        if session_id:
+            entry["session_id"] = session_id
         entry["workspace_instance_id"] = workspace_instance_id(active_root)
         entry["updated_at"] = now_local()
         entry.update(latest_entry_metadata(notes_path))
+        operation_id = operation_id or str(entry.get("latest_entry_operation_id", ""))
         append_event(
             data,
             event="note_appended",
@@ -341,9 +385,10 @@ def refresh_notes_metadata(*, primary_root: Path, notes_path: Path, active_root:
             plan_path=primary_root / str(entry.get("plan", "")),
             notes_path=notes_path,
             status=entry.get("status", ""),
-            commit=current_git_metadata(active_root)["commit"],
-            branch=entry.get("branch", ""),
-            session_id=entry.get("session_id", ""),
+            commit=current_commit,
+            branch=current_branch,
+            session_id=session_id or "unknown",
+            operation_id=operation_id,
         )
         _write_index_unlocked(primary_root, data)
         return entry
@@ -362,7 +407,7 @@ def record_loose_commit(
         raise ImplementationNotesError("loose commit is required")
     ensure_not_red("loose commit index entry", f"{commit}\n{reason}\n{branch}\n{notes}")
     with index_lock(primary_root):
-        data = load_index(primary_root)
+        data = _load_index_unlocked(primary_root)
         timestamp = now_local()
         git_meta = current_git_metadata(active_root)
         branch = branch or git_meta["branch"]

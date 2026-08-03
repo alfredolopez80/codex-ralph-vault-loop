@@ -425,12 +425,19 @@ def is_plan_approved(metadata: PlanMetadata, explicit_approved: bool = False) ->
 
 
 def infer_notes_path(plan_path: Path, primary_root: Path) -> Path:
-    stem = plan_path.name[:-3] if plan_path.name.endswith(".md") else plan_path.stem
-    return primary_root / ".ralph" / "plans" / f"{stem}{IMPLEMENTATION_NOTES_SUFFIX}"
+    canonical_plan = canonical_plan_path(plan_path, primary_root)
+    stem = canonical_plan.name[:-3] if canonical_plan.name.endswith(".md") else canonical_plan.stem
+    return canonical_plan.with_name(f"{stem}{IMPLEMENTATION_NOTES_SUFFIX}")
 
 
 def canonical_plan_path(plan_path: Path, primary_root: Path) -> Path:
-    return primary_root / ".ralph" / "plans" / plan_path.name
+    """Map any .ralph/plans path to the same relative path in the primary root."""
+    resolved = plan_path.resolve(strict=False)
+    for parent in (resolved.parent, *resolved.parents):
+        if parent.name == "plans" and parent.parent.name == ".ralph":
+            relative = resolved.relative_to(parent)
+            return primary_root / ".ralph" / "plans" / relative
+    return primary_root / ".ralph" / "plans" / resolved.name
 
 
 def resolve_notes_path_for_plan(
@@ -702,6 +709,7 @@ def entry_html(
     related_files: Iterable[str],
     status: str,
     timestamp: str,
+    operation_id: str = "",
 ) -> str:
     if category not in ALLOWED_CATEGORIES:
         raise ImplementationNotesError(f"invalid category: {category}")
@@ -716,6 +724,7 @@ def entry_html(
         <dt>Impact</dt><dd>{html_escape(impact)}</dd>
         <dt>Related files</dt><dd>{related}</dd>
         <dt>Status</dt><dd>{html_escape(status)}</dd>
+        {f'<dt>Operation ID</dt><dd>{html_escape(operation_id)}</dd>' if operation_id else ''}
       </dl>
     </article>
 """

@@ -8,10 +8,14 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = ROOT / "scripts" / "plans"
+HOOKS = ROOT / ".codex" / "hooks"
 if str(PLANS) not in sys.path:
     sys.path.insert(0, str(PLANS))
+if str(HOOKS) not in sys.path:
+    sys.path.insert(0, str(HOOKS))
 
 import implementation_notes_lib as notes_lib
+from implementation_notes_guard import canonical_plan_for_guard
 from implementation_notes_lib import ImplementationNotesError, resolve_roots
 
 
@@ -110,3 +114,31 @@ def test_resolve_roots_fails_closed_when_canonical_root_is_ambiguous(tmp_path: P
 
     with pytest.raises(ImplementationNotesError, match="ambiguous canonical local repo roots"):
         resolve_roots(active_root=primary)
+
+
+def test_guard_canonicalizes_nested_plan_from_external_linked_worktree(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path)
+    active = add_worktree(primary, tmp_path / "ordinary-linked" / "active-copy")
+    active_plan = active / ".ralph" / "plans" / "nested" / "feature.md"
+    canonical_plan = primary / ".ralph" / "plans" / "nested" / "feature.md"
+    active_plan.parent.mkdir(parents=True)
+    canonical_plan.parent.mkdir(parents=True)
+    active_plan.write_text("# Feature\n", encoding="utf-8")
+    canonical_plan.write_text("# Feature\n", encoding="utf-8")
+
+    roots = resolve_roots(active_root=active)
+
+    assert canonical_plan_for_guard(active_plan, roots) == canonical_plan.resolve()
+
+
+def test_guard_rejects_external_linked_plan_without_canonical_copy(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path)
+    active = add_worktree(primary, tmp_path / "ordinary-linked" / "active-copy")
+    active_plan = active / ".ralph" / "plans" / "feature.md"
+    active_plan.parent.mkdir(parents=True)
+    active_plan.write_text("# Feature\n", encoding="utf-8")
+
+    roots = resolve_roots(active_root=active)
+
+    with pytest.raises(ImplementationNotesError, match="only in an ephemeral Codex worktree or other linked worktree"):
+        canonical_plan_for_guard(active_plan, roots)

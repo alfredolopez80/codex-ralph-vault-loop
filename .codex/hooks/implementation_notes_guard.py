@@ -92,12 +92,23 @@ def block(reason: str) -> int:
 
 
 def canonical_plan_for_guard(plan_path: Path, roots: Any) -> Path:
-    if not is_codex_worktree(plan_path):
-        return plan_path
-    canonical_plan = canonical_plan_path(plan_path, roots.primary_repo_root)
+    resolved_plan = plan_path.resolve(strict=False)
+    primary_plans = (roots.primary_repo_root / ".ralph" / "plans").resolve(strict=False)
+    active_plans = (roots.active_worktree_root / ".ralph" / "plans").resolve(strict=False)
+    try:
+        resolved_plan.relative_to(primary_plans)
+        return resolved_plan
+    except ValueError:
+        pass
+    try:
+        resolved_plan.relative_to(active_plans)
+    except ValueError:
+        return resolved_plan
+
+    canonical_plan = canonical_plan_path(resolved_plan, roots.primary_repo_root)
     if not canonical_plan.exists():
         raise ImplementationNotesError(
-            "approved implementation plan exists only in an ephemeral Codex worktree; "
+            "approved implementation plan exists only in an ephemeral Codex worktree or other linked worktree; "
             "copy it to the canonical repo root .ralph/plans/ before finalizing"
         )
     return canonical_plan
