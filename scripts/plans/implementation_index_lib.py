@@ -62,14 +62,37 @@ def index_lock_path(primary_root: Path) -> Path:
 @contextlib.contextmanager
 def index_lock(primary_root: Path):
     """Serialize index transactions across hook/process writers."""
-    path = index_lock_path(primary_root)
+    path = primary_root / ".ralph" / "plans" / INDEX_LOCK_NAME
+    # Validate the lexical location before opening it. The final component is
+    # then opened with O_NOFOLLOW so a lock symlink cannot redirect the
+    # exclusion to the index or to another file, while parent links that stay
+    # inside the allowed plans root remain supported.
+    resolve_for_write(path, primary_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    if path.is_symlink():
+        raise ImplementationNotesError(f"implementation index lock cannot be a symlink: {path}")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        lock_stat = os.fstat(descriptor)
+        if lock_stat.st_nlink != 1:
+            raise ImplementationNotesError(f"implementation index lock must not be hard-linked: {path}")
+        index_path = primary_root / ".ralph" / "plans" / INDEX_JSON_NAME
+        if index_path.exists() and os.path.samefile(path, index_path):
+            raise ImplementationNotesError(f"implementation index lock must not alias the index: {path}")
+        with os.fdopen(descriptor, "a+", encoding="utf-8") as handle:
+            descriptor = -1
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError as exc:
+        raise ImplementationNotesError(f"could not open implementation index lock: {path}") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -149,37 +172,46 @@ def _index_shape_is_valid(data: dict[str, Any]) -> bool:
     return True
 
 
-def _load_index_unlocked(primary_root: Path) -> dict[str, Any]:
+def _load_index_unlocked(primary_root: Path, *, quarantine_corrupt: bool = True) -> dict[str, Any]:
     path = index_json_path(primary_root)
     if not path.exists():
         return empty_index(primary_root)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
-        _quarantine_corrupt_index(path)
+        if quarantine_corrupt:
+            _quarantine_corrupt_index(path)
         return empty_index(primary_root)
     if not isinstance(data, dict):
-        _quarantine_corrupt_index(path)
+        if quarantine_corrupt:
+            _quarantine_corrupt_index(path)
         return empty_index(primary_root)
     version = data.get("version", 1)
     # Never silently reinterpret a newer schema as the current one. A future
     # writer may have changed nested semantics that this reader cannot safely
-    # preserve, so quarantine it for an explicit migration instead.
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1 or version > INDEX_VERSION:
-        _quarantine_corrupt_index(path)
+    # preserve, so fail closed and leave the source intact for an explicit
+    # migration.
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        if quarantine_corrupt:
+            _quarantine_corrupt_index(path)
         return empty_index(primary_root)
+    if version > INDEX_VERSION:
+        raise ImplementationNotesError(
+            f"implementation index schema version {version} is newer than supported version {INDEX_VERSION}"
+        )
     data["version"] = version
     data["canonical_repo_root"] = str(primary_root.resolve())
     data.setdefault("plans", [])
     data.setdefault("loose_commits", [])
     data.setdefault("events", [])
     if not _index_shape_is_valid(data):
-        _quarantine_corrupt_index(path)
+        if quarantine_corrupt:
+            _quarantine_corrupt_index(path)
         return empty_index(primary_root)
     return data
 
 
-def load_index(primary_root: Path) -> dict[str, Any]:
+def load_index(primary_root: Path, *, quarantine_corrupt: bool = True) -> dict[str, Any]:
     """Read the index under the same lock used by recovery and writers."""
     # A read of a repository that has never created an implementation index is
     # side-effect free. Writers still take the lock once an index exists (or
@@ -187,8 +219,12 @@ def load_index(primary_root: Path) -> dict[str, Any]:
     # plans directory/lock just to return the empty shape.
     if not index_json_path(primary_root).exists():
         return empty_index(primary_root)
+    if not quarantine_corrupt:
+        # Consolidator dry-run is explicitly report-only: take a best-effort
+        # snapshot without creating a lock or quarantining the source file.
+        return _load_index_unlocked(primary_root, quarantine_corrupt=False)
     with index_lock(primary_root):
-        return _load_index_unlocked(primary_root)
+        return _load_index_unlocked(primary_root, quarantine_corrupt=quarantine_corrupt)
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:
@@ -278,9 +314,10 @@ def append_event(
     if not isinstance(events, list):
         raise ImplementationNotesError("implementation index events must be a list")
     if event == "note_appended" and operation_id:
-        # Operation IDs are the caller's idempotency key. The note hash may
-        # legitimately differ after a later append, but a replay of the same
-        # lifecycle operation must never create a second durable event.
+        # Operation IDs are idempotency keys scoped to one plan/notes resource.
+        # The HTML append path rejects a same-target ID with a different
+        # payload; a replay of the same lifecycle operation must not create a
+        # second durable event.
         existing = next(
             (
                 item
@@ -288,6 +325,8 @@ def append_event(
                 if isinstance(item, dict)
                 and item.get("event") == "note_appended"
                 and item.get("operation_id") == operation_id
+                and item.get("plan") == payload["plan"]
+                and item.get("notes") == payload["notes"]
             ),
             None,
         )
@@ -531,13 +570,14 @@ def _record_unseen_note_events(
     except (ImplementationNotesError, OSError):
         return
     known = {
-        str(item.get("operation_id", ""))
+        (str(item.get("notes", "")), str(item.get("operation_id", "")))
         for item in data.get("events", [])
         if isinstance(item, dict) and item.get("event") == "note_appended"
     }
     for note_entry in note_entries:
         operation_id = note_entry.fields.get("Operation ID", "")
-        if not operation_id or operation_id in known:
+        event_key = (_rel(notes_path, primary_root), operation_id)
+        if not operation_id or event_key in known:
             continue
         append_event(
             data,
@@ -552,7 +592,7 @@ def _record_unseen_note_events(
             session_id=session_id or "unknown",
             operation_id=operation_id,
         )
-        known.add(operation_id)
+        known.add(event_key)
 
 
 def record_loose_commit(

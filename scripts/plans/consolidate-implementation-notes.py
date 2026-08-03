@@ -39,7 +39,7 @@ def main() -> int:
         extra_roots = [Path(value).expanduser().resolve() for value in args.extra_root]
         html_path, md_path = resolve_consolidated_paths(roots.primary_repo_root, args.consolidated_html, args.consolidated_md)
         records_by_slug = scan_notes_roots(roots.primary_repo_root, roots.active_worktree_root, extra_roots)
-        index = load_index(roots.primary_repo_root)
+        index = load_index(roots.primary_repo_root, quarantine_corrupt=args.apply)
         indexed_notes = {str(item.get("notes")) for item in index.get("plans", []) if isinstance(item, dict)}
         records = [records_by_slug[key] for key in sorted(records_by_slug)]
         for record in records:
@@ -57,7 +57,7 @@ def main() -> int:
             for record in records:
                 apply_record(record, roots.primary_repo_root, roots.active_worktree_root)
             records_by_slug = scan_notes_roots(roots.primary_repo_root, roots.active_worktree_root, extra_roots)
-            index = load_index(roots.primary_repo_root)
+            index = load_index(roots.primary_repo_root, quarantine_corrupt=True)
             indexed_notes = {str(item.get("notes")) for item in index.get("plans", []) if isinstance(item, dict)}
             records = [records_by_slug[key] for key in sorted(records_by_slug)]
             for record in records:

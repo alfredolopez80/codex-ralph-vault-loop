@@ -200,6 +200,65 @@ def test_consolidate_apply_blocks_worktree_notes_symlink_escape(tmp_path: Path) 
     assert not (primary / ".ralph" / "plans" / "implementation-notes-consolidated.md").exists()
 
 
+def test_consolidate_dry_run_reports_broken_symlink_without_traceback(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    notes = active / ".ralph" / "plans" / "broken-implementation-notes.html"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.symlink_to(tmp_path / "missing-notes.html")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    by_slug = {item["slug"]: item for item in report["records"]}
+    assert "symlink target does not exist" in " ".join(by_slug["broken"]["conflicts"])
+    assert "Traceback" not in result.stderr
+
+
+def test_consolidate_dry_run_does_not_quarantine_corrupt_index(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_path = index_dir / "implementation-index.json"
+    index_path.write_text("{not-json\n", encoding="utf-8")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert index_path.read_text(encoding="utf-8") == "{not-json\n"
+    assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
+    assert not (index_dir / "implementation-index.lock").exists()
+
+
+def test_consolidate_dry_run_rejects_future_index_without_mutating_it(tmp_path: Path) -> None:
+    primary, active, env = make_repo_with_worktree(tmp_path)
+    index_dir = primary / ".ralph" / "plans"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_path = index_dir / "implementation-index.json"
+    original = json.dumps({"version": 99, "plans": [], "loose_commits": [], "events": []}) + "\n"
+    index_path.write_text(original, encoding="utf-8")
+
+    result = run(
+        [sys.executable, str(CONSOLIDATE), "--active-root", str(active), "--primary-root", str(primary)],
+        cwd=ROOT,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "newer than supported" in result.stderr
+    assert index_path.read_text(encoding="utf-8") == original
+    assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
+    assert not (index_dir / "implementation-index.lock").exists()
+
+
 def test_consolidate_apply_blocks_unsafe_current_schema_worktree_html(tmp_path: Path) -> None:
     primary, active, env = make_repo_with_worktree(tmp_path)
     plan = active / ".ralph" / "plans" / "unsafe-current-plan.md"

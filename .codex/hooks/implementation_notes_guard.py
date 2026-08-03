@@ -16,6 +16,7 @@ if str(SCRIPTS_PLANS) not in sys.path:
 
 from implementation_index_lib import current_git_metadata, upsert_plan_entry
 from implementation_notes_lib import (
+    GitMetadataError,
     ImplementationNotesError,
     canonical_plan_path,
     canonicalize_plan_metadata_text,
@@ -203,13 +204,13 @@ def main() -> int:
             event="implemented",
         )
         return 0
+    except GitMetadataError:
+        # Git metadata lookup is operational context, not proof that the
+        # implementation-notes state is invalid. Stop hooks fail open on
+        # transient local runtime failures and leave the next invocation
+        # to retry the lifecycle update.
+        return 0
     except ImplementationNotesError as exc:
-        if "could not resolve Git metadata" in str(exc):
-            # Git metadata lookup is operational context, not proof that the
-            # implementation-notes state is invalid. Stop hooks fail open on
-            # transient local runtime failures and leave the next invocation
-            # to retry the lifecycle update.
-            return 0
         return block(f"Implementation notes guard could not validate plan: {exc}")
 
 

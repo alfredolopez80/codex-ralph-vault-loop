@@ -50,6 +50,10 @@ class ImplementationNotesError(RuntimeError):
     pass
 
 
+class GitMetadataError(ImplementationNotesError):
+    """Operational failure while resolving repository topology metadata."""
+
+
 @dataclass(frozen=True)
 class Roots:
     active_worktree_root: Path
@@ -228,7 +232,7 @@ def _git_path_for(root: Path, argument: str) -> Path:
     """Resolve a Git metadata path relative to the repository root when needed."""
     raw = run_git(root, "rev-parse", argument)
     if not raw:
-        raise ImplementationNotesError(f"could not resolve Git metadata for repository: {root}")
+        raise GitMetadataError(f"could not resolve Git metadata for repository: {root}")
     path = Path(raw).expanduser()
     return path.resolve() if path.is_absolute() else (root / path).resolve()
 
@@ -276,6 +280,8 @@ def _canonical_primary_candidates(active_root: Path, common_dir: Path) -> list[P
                 continue
             if git_dir_for(normalized) == common_dir:
                 candidates.append(normalized)
+        except GitMetadataError:
+            raise
         except ImplementationNotesError:
             continue
     return candidates
@@ -795,17 +801,48 @@ def migrate_legacy_entries_to_sections(text: str) -> str:
     return text
 
 
-def append_entry(notes_path: Path, entry: str, category: str) -> None:
+def _operation_payload_signature(text: str) -> tuple[str, tuple[tuple[str, str], ...]] | None:
+    parser = NotesHTMLParser()
+    parser.feed(text)
+    if len(parser.entries) != 1:
+        return None
+    parsed = parser.entries[0]
+    fields = tuple(
+        sorted((key, value) for key, value in parsed.fields.items() if key not in {"Timestamp", "Operation ID"})
+    )
+    return parsed.category, fields
+
+
+def append_entry(notes_path: Path, entry: str, category: str) -> bool:
     text = notes_path.read_text(encoding="utf-8")
     operation_match = re.search(r"<dt>Operation ID</dt><dd>([^<]+)</dd>", entry)
     if operation_match:
         operation_id = html.unescape(operation_match.group(1))
-        existing_operation_ids = {
-            html.unescape(value)
-            for value in re.findall(r"<dt>Operation ID</dt><dd>([^<]+)</dd>", text)
-        }
-        if operation_id in existing_operation_ids:
-            return
+        new_signature = _operation_payload_signature(entry)
+        if new_signature is None:
+            raise ImplementationNotesError(
+                f"operation ID entry must contain exactly one structured note payload: {operation_id}"
+            )
+        parser = NotesHTMLParser()
+        parser.feed(text)
+        for existing in parser.entries:
+            if existing.fields.get("Operation ID") != operation_id:
+                continue
+            existing_signature = (
+                existing.category,
+                tuple(
+                    sorted(
+                        (key, value)
+                        for key, value in existing.fields.items()
+                        if key not in {"Timestamp", "Operation ID"}
+                    )
+                ),
+            )
+            if new_signature != existing_signature:
+                raise ImplementationNotesError(
+                    f"operation ID already belongs to a different note payload in {notes_path}: {operation_id}"
+                )
+            return False
     text = migrate_legacy_entries_to_sections(text)
     marker = category_anchor(category)
     if marker not in text:
@@ -845,6 +882,7 @@ def append_entry(notes_path: Path, entry: str, category: str) -> None:
     finally:
         if temporary:
             Path(temporary).unlink(missing_ok=True)
+    return True
 
 
 def valid_non_initial_entries(text: str) -> list[ParsedEntry]:

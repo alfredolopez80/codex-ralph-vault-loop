@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = ROOT / "scripts" / "plans"
 if str(PLANS) not in sys.path:
@@ -236,6 +238,24 @@ lib.load_index(Path(sys.argv[1]))
     assert len(quarantined) == 1
 
 
+def test_index_lock_rejects_symlink_and_hardlink_aliases(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    index_dir = repo / ".ralph" / "plans"
+    index_dir.mkdir(parents=True)
+    index_path = index_dir / "implementation-index.json"
+    index_path.write_text(json.dumps(index_lib.empty_index(repo)), encoding="utf-8")
+    lock_path = index_dir / "implementation-index.lock"
+
+    lock_path.symlink_to(index_path)
+    with pytest.raises(ImplementationNotesError, match="lock cannot be a symlink"):
+        load_index(repo)
+    lock_path.unlink()
+
+    lock_path.hardlink_to(index_path)
+    with pytest.raises(ImplementationNotesError, match="lock must not be hard-linked"):
+        load_index(repo)
+
+
 def test_malformed_nested_index_shape_is_quarantined(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     index_dir = repo / ".ralph" / "plans"
@@ -260,7 +280,7 @@ def test_malformed_nested_index_shape_is_quarantined(tmp_path: Path) -> None:
     assert len(quarantined) == 1
 
 
-def test_future_index_version_is_quarantined_instead_of_downgraded(tmp_path: Path) -> None:
+def test_future_index_version_is_rejected_without_overwrite(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     index_dir = repo / ".ralph" / "plans"
     index_dir.mkdir(parents=True)
@@ -270,12 +290,19 @@ def test_future_index_version_is_quarantined_instead_of_downgraded(tmp_path: Pat
         encoding="utf-8",
     )
 
-    data = load_index(repo)
+    original = index_path.read_bytes()
+    with pytest.raises(ImplementationNotesError, match="newer than supported"):
+        load_index(repo)
 
-    assert data["version"] == 2
-    assert data["plans"] == []
-    quarantined = list(index_dir.glob("implementation-index.json.corrupt-*"))
-    assert len(quarantined) == 1
+    plan = index_dir / "future.md"
+    notes = index_dir / "future-implementation-notes.html"
+    plan.write_text("# Future\n", encoding="utf-8")
+    notes.write_text('<main data-implementation-notes="true"></main>\n', encoding="utf-8")
+    with pytest.raises(ImplementationNotesError, match="newer than supported"):
+        upsert_plan_entry(primary_root=repo, plan_path=plan, notes_path=notes, status="active", active_root=repo)
+
+    assert index_path.read_bytes() == original
+    assert not list(index_dir.glob("implementation-index.json.corrupt-*"))
 
 
 def test_atomic_replacement_preserves_existing_index_modes(tmp_path: Path) -> None:
@@ -365,6 +392,28 @@ def test_distinct_operation_ids_survive_same_second_deduplication(tmp_path: Path
     assert {event["operation_id"] for event in data["events"]} == {"operation-a", "operation-b"}
 
 
+def test_same_operation_id_is_scoped_to_plan_and_notes_resource(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    data = index_lib.empty_index(repo)
+
+    for name in ("a", "b"):
+        append_event(
+            data,
+            event="note_appended",
+            primary_root=repo,
+            active_root=repo,
+            plan_path=repo / ".ralph" / "plans" / f"{name}.md",
+            notes_path=repo / ".ralph" / "plans" / f"{name}-implementation-notes.html",
+            operation_id="shared-operation",
+        )
+
+    assert len(data["events"]) == 2
+    assert {event["plan"] for event in data["events"]} == {
+        ".ralph/plans/a.md",
+        ".ralph/plans/b.md",
+    }
+
+
 def test_replayed_operation_id_remains_single_note_after_later_append(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     plan = repo / ".ralph" / "plans" / "replay.md"
@@ -408,7 +457,10 @@ def test_replayed_operation_id_remains_single_note_after_later_append(tmp_path: 
 
     append("operation-a", "first")
     append("operation-b", "later")
-    append("operation-a", "replay")
+    append("operation-a", "first")
+
+    with pytest.raises(ImplementationNotesError, match="different note payload"):
+        append("operation-a", "conflicting replay")
 
     html = notes.read_text(encoding="utf-8")
     assert html.count("<dt>Operation ID</dt><dd>operation-a</dd>") == 1
