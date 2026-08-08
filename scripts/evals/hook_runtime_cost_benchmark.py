@@ -289,13 +289,81 @@ def maintenance_benchmark(iterations: int) -> dict[str, object]:
                 "persisted_bytes_delta": int(statistics.median(persisted_deltas)),
                 "continuation_count": blocks if scenario == "stop_objective_failure" else 0,
                 "block_count": blocks,
-                "child_process_count": 1 if scenario == "session_start_backlog" else 0,
-                "known_subprocesses": ["wakeup"] if scenario == "session_start_backlog" else [],
+                "child_process_count": 0,
+                "known_subprocesses": [],
                 "runner_child_process_count": int(statistics.median(runner_children)),
                 "subscription_usage_measured": False,
             }
         )
     return {"schema_version": 1, "cases": cases}
+
+
+def session_start_benchmark(iterations: int) -> dict[str, object]:
+    """Measure the four source reducers without counting maintenance work."""
+    scenarios = ("startup", "resume", "clear", "compact")
+    profiles = (("luna", "gpt-5.6-luna"), ("sol", "gpt-5.6-sol"), ("unknown", "unknown-model"))
+    cases: list[dict[str, object]] = []
+    for scenario in scenarios:
+        for profile_name, model_name in profiles:
+            cases.extend(_session_start_cases(scenario, profile_name, model_name, iterations))
+    return {"schema_version": 1, "cases": cases, "child_process_count": 0}
+
+
+def _session_start_cases(scenario: str, profile_name: str, model_name: str, iterations: int) -> list[dict[str, object]]:
+    samples: list[float] = []
+    outputs: list[int] = []
+    with tempfile.TemporaryDirectory(prefix="ralph-session-start-bench-") as tmp:
+        env = os.environ.copy()
+        env["RALPH_HOME"] = str(Path(tmp) / "ralph")
+        env["VAULT_DIR"] = str(Path(tmp) / "vault")
+        env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+        command = direct_command("SessionStart", "session_start_wakeup")
+        for iteration in range(iterations):
+            session_id = f"session-start-{scenario}-{profile_name}-{iteration}"
+            base = {
+                "hook_event_name": "SessionStart",
+                "source": scenario,
+                "session_id": session_id,
+                "cwd": str(ROOT),
+                "model": model_name,
+                "branch": "bench",
+                "sha": f"bench-{iteration}",
+                "selected_memory_ids": [f"sentinel-{profile_name}-{iteration}"],
+                "route": "local" if scenario in {"startup", "compact"} else "",
+            }
+            if scenario == "resume":
+                seed = dict(base)
+                seed["source"] = "startup"
+                subprocess.run(command, cwd=ROOT, input=json.dumps(seed), text=True, capture_output=True, env=env, check=False, timeout=30)
+            started = time.perf_counter_ns()
+            completed = subprocess.run(command, cwd=ROOT, input=json.dumps(base), text=True, capture_output=True, env=env, check=False, timeout=30)
+            elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+            if completed.returncode != 0:
+                raise RuntimeError(f"session start benchmark failed: {completed.stderr[-500:]}")
+            samples.append(elapsed_ms)
+            outputs.append(len(completed.stdout.encode("utf-8")))
+    median_output = int(statistics.median(outputs))
+    return [
+        {
+            "schema_version": 1,
+            "scenario": scenario,
+            "source": scenario,
+            "model": model_name,
+            "profile": profile_name if profile_name != "unknown" else "conservative_unknown",
+            "runtime_p50_ms": round(statistics.median(samples), 3),
+            "runtime_p95_ms": round(percentile(samples, 95), 3),
+            "p50_ms": round(statistics.median(samples), 3),
+            "p95_ms": round(percentile(samples, 95), 3),
+            "output_bytes": median_output,
+            "estimated_context_units": estimate_context_units(median_output),
+            "child_process_count": 0,
+            "known_subprocesses": [],
+            "persisted_bytes_delta": 0,
+            "block_count": 0,
+            "continuation_count": 0,
+            "subscription_usage_measured": False,
+        }
+    ]
 
 
 def measure(iterations: int) -> dict[str, object]:
@@ -447,6 +515,7 @@ def measure(iterations: int) -> dict[str, object]:
                         )
 
     maintenance = maintenance_benchmark(iterations)
+    session_start = session_start_benchmark(iterations)
     output_units = estimate_context_units(total_stdout_chars)
     score = total_p50_ms + (output_units * 2.0)
     effective_cases = [case for case in cases if case["source_scope"] != "suppressed_global"]
@@ -490,6 +559,7 @@ def measure(iterations: int) -> dict[str, object]:
         "matched_handler_count": sum(int(case.get("matched_handler_count", 0)) for case in effective_cases),
         "executed_handler_count": sum(int(case.get("executed_handler_count", 0)) for case in effective_cases),
         "maintenance": maintenance,
+        "session_start": session_start,
     }
     for case in report["cases"]:
         case.setdefault("schema_version", 2)
@@ -554,6 +624,28 @@ def markdown_report(report: dict[str, object]) -> str:
                     persisted=case.get("persisted_bytes_delta", 0),
                     children=case.get("runner_child_process_count", 0),
                     blocks=case.get("block_count", 0),
+                )
+            )
+    session_start = report.get("session_start", {})
+    if isinstance(session_start, dict):
+        lines.extend([
+            "",
+            "## SessionStart incremental fast path (outer process timing)",
+            "",
+            "| Source | Profile | p50/p95 ms | output bytes | child processes |",
+            "|---|---|---:|---:|---:|",
+        ])
+        for case in session_start.get("cases", []):
+            if not isinstance(case, dict):
+                continue
+            lines.append(
+                "| {source} | {profile} | {p50}/{p95} | {output} | {children} |".format(
+                    source=case.get("source", ""),
+                    profile=case.get("profile", ""),
+                    p50=case.get("runtime_p50_ms", 0),
+                    p95=case.get("runtime_p95_ms", 0),
+                    output=case.get("output_bytes", 0),
+                    children=case.get("child_process_count", 0),
                 )
             )
     return "\n".join(lines) + "\n"

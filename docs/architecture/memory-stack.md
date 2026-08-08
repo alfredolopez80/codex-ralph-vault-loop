@@ -172,7 +172,7 @@ Related phases: [PHASE_05](../migration/checkpoints/PHASE_05.md), [PHASE_06](../
 Dream consolidation, assisted promotion, and vault inbox review are
 maintenance work, not interaction decisions. `SessionStart` and `Stop` now
 write only a schema-versioned descriptor under the project runtime queue;
-`session_start_wakeup.py` proceeds directly to `wakeup.py`. The explicit
+`session_start_wakeup.py` proceeds directly to the incremental dispatcher. The explicit
 `scripts/memory/run-pending-maintenance.py --all --json` runner claims jobs
 under a singleton lock and invokes the existing scheduler with bounded retries.
 
@@ -183,3 +183,18 @@ runner metrics are reported separately from interactive hook latency. The
 compatibility Stop promotion wrapper is enqueue-only. Because this repository
 does not have a verified asynchronous SessionEnd contract, no orphan daemon is
 created; a controlled local automation or operator invokes the explicit runner.
+
+## Incremental SessionStart boundary (Phase 11)
+
+`session_start_dispatch.py` reduces source, model profile, active workspace
+metadata, and scoped checkpoint/handoff fingerprints. `startup` emits bounded
+orientation, `resume` emits only changed fields, `clear` drops ephemeral
+continuity, and `compact` restores only objective, in-progress files,
+pending validation, and selected memory IDs.
+
+The runtime cache stores only schema-versioned hashes and bounded identifiers.
+LUNA uses a 1500/2200-byte soft/hard SessionStart budget; SOL uses 500/800;
+unknown models use the conservative 1500/2200 budget. Foreign, stale,
+corrupt, or sensitive artifacts are ignored or marked non-authoritative.
+Fast-path subprocess count is zero; outer Python startup time is measured
+separately.

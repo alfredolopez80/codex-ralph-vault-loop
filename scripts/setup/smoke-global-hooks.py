@@ -151,6 +151,7 @@ def main() -> int:
         print(f"GLOBAL_HOOKS_SMOKE_FAIL invalid repo root {repo_root}", file=sys.stderr)
         return 1
     for required in (
+        repo_root / ".codex" / "hooks" / "session_start_dispatch.py",
         repo_root / ".codex" / "hooks" / "memory_maintenance_enqueue.py",
         repo_root / "scripts" / "memory" / "run-pending-maintenance.py",
     ):

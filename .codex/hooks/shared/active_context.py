@@ -32,12 +32,18 @@ def tool_input(payload: dict[str, Any]) -> Any:
     return payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
 
 
-def active_context_from_payload(payload: dict[str, Any] | None = None) -> ActiveContext:
+def active_context_from_payload(payload: dict[str, Any] | None = None, *, resolve_git: bool = True) -> ActiveContext:
     payload = payload or {}
     workspace = workspace_root(payload)
-    git_root, branch, sha = git_metadata_for(workspace)
+    git_root, branch, sha = git_metadata_for(workspace, use_subprocess=resolve_git)
     identity_root = git_root or workspace
-    remote_url = git_value(identity_root, "config", "--get", "remote.origin.url") if git_root else ""
+    remote_url = (
+        git_value(identity_root, "config", "--get", "remote.origin.url")
+        if git_root and resolve_git
+        else fast_remote_url(identity_root) if git_root else ""
+    )
+    branch = str(payload.get("branch") or payload.get("git_branch") or branch).strip()
+    sha = str(payload.get("sha") or payload.get("git_sha") or sha).strip()
     project_slug = safe_slug(remote_repo_name(remote_url) or identity_root.name)
     workspace_instance_id = hash_text(str(workspace.resolve()))[:16]
     return ActiveContext(
@@ -86,7 +92,9 @@ def git_root_for(path: Path) -> Path | None:
     return git_root.resolve() if git_root.exists() else None
 
 
-def git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
+def git_metadata_for(path: Path, *, use_subprocess: bool = True) -> tuple[Path | None, str, str]:
+    if not use_subprocess:
+        return fast_git_metadata_for(path)
     result = run_git(path, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD")
     if not result:
         return git_root_for(path), "", ""
@@ -97,6 +105,101 @@ def git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
     if not git_root.exists():
         return None, "", ""
     return git_root.resolve(), lines[1].strip(), git_value(git_root, "rev-parse", "--short", "HEAD")
+
+
+def _git_dir_for(path: Path) -> tuple[Path | None, Path | None]:
+    """Resolve a worktree's git metadata without spawning a process."""
+    candidate = path.resolve()
+    for parent in (candidate, *candidate.parents):
+        marker = parent / ".git"
+        if marker.is_dir():
+            return parent, marker
+        if marker.is_file():
+            try:
+                line = marker.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+                if line.lower().startswith("gitdir:"):
+                    raw = line.split(":", 1)[1].strip()
+                    git_dir = Path(raw).expanduser()
+                    if not git_dir.is_absolute():
+                        git_dir = (marker.parent / git_dir).resolve()
+                    return parent, git_dir
+            except (OSError, IndexError):
+                return parent, None
+    return None, None
+
+
+def _read_ref(git_dir: Path, ref: str) -> str:
+    directories = [git_dir]
+    common = _common_git_dir(git_dir)
+    if common != git_dir:
+        directories.append(common)
+    for directory in directories:
+        try:
+            value = (directory / ref).read_text(encoding="ascii", errors="ignore").strip()
+        except OSError:
+            value = ""
+        if value:
+            return value
+        packed = directory / "packed-refs"
+        try:
+            for line in packed.read_text(encoding="ascii", errors="ignore").splitlines():
+                if line and not line.startswith("#") and " " in line:
+                    sha, packed_ref = line.split(" ", 1)
+                    if packed_ref == ref:
+                        return sha.strip()
+        except OSError:
+            continue
+    return ""
+
+
+def _common_git_dir(git_dir: Path) -> Path:
+    marker = git_dir / "commondir"
+    try:
+        raw = marker.read_text(encoding="ascii", errors="ignore").strip()
+    except OSError:
+        return git_dir
+    if not raw:
+        return git_dir
+    common = Path(raw)
+    return (git_dir / common).resolve() if not common.is_absolute() else common.resolve()
+
+
+def fast_git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
+    git_root, git_dir = _git_dir_for(path)
+    if git_root is None or git_dir is None:
+        return None, "", ""
+    try:
+        head = (git_dir / "HEAD").read_text(encoding="ascii", errors="ignore").strip()
+    except OSError:
+        return git_root, "", ""
+    if head.startswith("ref:"):
+        ref = head.split(":", 1)[1].strip()
+        branch = ref.removeprefix("refs/heads/")
+        sha = _read_ref(git_dir, ref)
+    else:
+        branch = "HEAD"
+        sha = head
+    return git_root, branch, sha[:12]
+
+
+def fast_remote_url(root: Path) -> str:
+    """Read only remote.origin.url from local git config, without git CLI."""
+    git_root, git_dir = _git_dir_for(root)
+    config_root = _common_git_dir(git_dir) if git_dir else (git_root / ".git" if git_root else Path(""))
+    config_path = config_root / "config"
+    try:
+        lines = config_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    in_origin = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_origin = stripped.lower() in {'[remote "origin"]', "[remote.origin]"}
+            continue
+        if in_origin and stripped.lower().startswith("url") and "=" in stripped:
+            return stripped.split("=", 1)[1].strip()
+    return ""
 
 
 def git_value(root: Path, *args: str) -> str:

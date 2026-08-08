@@ -201,6 +201,7 @@ def test_temp_global_install_carries_deferred_maintenance_sources(tmp_path: Path
     )
     assert result.returncode == 0, result.stderr
     global_hooks = Path(env["HOME"]) / ".codex" / "hooks"
+    assert (global_hooks / "session_start_dispatch.py").is_file()
     assert (global_hooks / "memory_maintenance_enqueue.py").is_file()
     assert (global_hooks / "stop_memory_promotion_review.py").is_file()
     assert (global_hooks / "shared" / "maintenance_queue.py").is_file()

@@ -75,6 +75,10 @@ def test_hook_runtime_cost_benchmark_emits_metrics_contract(tmp_path: Path) -> N
         {"enqueue_p50_ms", "enqueue_p95_ms", "runner_p50_ms", "runner_p95_ms", "runner_child_process_count"} <= set(case)
         for case in maintenance_cases
     )
+    session_cases = report["session_start"]["cases"]
+    assert {case["source"] for case in session_cases} == {"startup", "resume", "clear", "compact"}
+    assert {case["profile"] for case in session_cases} == {"luna", "sol", "conservative_unknown"}
+    assert all(case["child_process_count"] == 0 for case in session_cases)
 
 
 def test_hook_runtime_cost_benchmark_uses_empty_temp_vault(monkeypatch) -> None:

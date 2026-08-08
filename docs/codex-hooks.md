@@ -120,7 +120,7 @@ writes. Set
 
 | Timing                   | Hook event / surface                                                                                       | Responsibility                                                                                                                                                                      | Validation evidence                                                                                                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session start            | `SessionStart` / `session_start_wakeup.py`                                                                 | Enqueue a bounded maintenance descriptor, then run Ralph wakeup immediately; dream/vault maintenance is explicit and out of the interaction path.                                   | `bash scripts/setup/doctor-global.sh`; `python3 scripts/setup/smoke-global-hooks.py`; `python3 scripts/memory/run-pending-maintenance.py --all --json`.                              |
+| Session start            | `SessionStart` / `session_start_wakeup.py` -> `session_start_dispatch.py`                                  | Reduce startup, resume, clear, and compact into scoped deltas; enqueue maintenance only and avoid wakeup subprocesses.                                                              | Focused SessionStart tests and the benchmark `session_start` section.                                                                                                                |
 | Before prompt context    | `UserPromptSubmit` / classifier, `user_prompt_capture.py`, `user_prompt_improve.py`, continuity and recall | Classify complexity and sensitivity, reject unsafe prompt payloads, inject the compact Improve Prompt contract, then add scoped continuity/memory as non-authoritative context.     | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hook_config_lockstep.py tests/integration/test_hooks_basic.py -q`; `bash .codex/tests/run-hook-tests.sh`. |
 | Before command execution | `PreToolUse` / `pre_tool_guard.py`                                                                         | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations. | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                         |
 | After command execution  | `PostToolUse` / `post_tool_dispatch.py`                                                                    | Classify once, deduplicate once, run only relevant components, and capture bounded observer metrics.                                                                                | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_post_tool_dispatch.py tests/integration/test_hooks_basic.py -q`.                                                 |
@@ -226,10 +226,30 @@ directory before invoking hooks.
 
 Do not persist secrets, transcripts, or raw prompts in `.codex/state/`.
 
+## Incremental SessionStart and compaction (Phase 11)
+
+`session_start_wakeup.py` remains the compatibility entry point, while
+`session_start_dispatch.py` performs a pure, source-aware reduction. It reads
+scoped checkpoint/handoff metadata and selected memory IDs, then stores only a
+fingerprint cache under the approved project runtime. Prompt and transcript
+bodies are never cached or emitted.
+
+| source    | behavior                                                                            |
+| --------- | ----------------------------------------------------------------------------------- |
+| `startup` | Project and current task orientation when useful.                                   |
+| `resume`  | Empty when the session fingerprint is unchanged; otherwise only changed fields.     |
+| `clear`   | Clears ephemeral continuity without deleting durable memory.                        |
+| `compact` | Restores objective, files in progress, pending validation, and selected memory IDs. |
+
+Budgets are UTF-8 bytes: LUNA soft/hard `1500/2200`, SOL `500/800`, and
+unknown `1500/2200`. Stale or foreign artifacts are marked non-authoritative.
+The fast path has `child_process_count=0`; Python startup time is reported
+separately in the benchmark.
+
 ## Deferred memory maintenance (Phase 10)
 
 The SessionStart and Stop hooks enqueue a small local maintenance descriptor
-and return to their normal wakeup/gate work. They do not launch dream,
+and return to their normal reducer/gate work. They do not launch dream,
 promotion, or vault review subprocesses. Run the bounded maintenance worker
 explicitly when a local doctor, cron, or approved automation is available:
 

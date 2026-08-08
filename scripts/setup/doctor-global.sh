@@ -435,6 +435,7 @@ check_global_hooks() {
   fi
 
   check_hook_file_matches_source "global_hook_dispatch.py"
+  check_hook_file_matches_source "session_start_dispatch.py"
   check_hook_file_matches_source "session_start_wakeup.py"
   check_hook_file_matches_source "user_prompt_capture.py"
   check_hook_file_matches_source "user_prompt_improve.py"

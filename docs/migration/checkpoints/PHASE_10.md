@@ -72,9 +72,10 @@ The ten-iteration report is `/tmp/ralph-hook-phase10.json` with
 one continuation per failed fixture and no plain output on allow. Deferred
 maintenance is reported separately: Stop enqueue p95 is `82.733 ms` for the
 allow fixture and `84.693 ms` for the objective-failure fixture; the runner
-p95 is `193.478/190.346 ms` and launches one known scheduler child. Session
-start enqueue p95 is `790.030 ms` because wakeup remains in that hook, while
-the maintenance runner p95 is `188.517 ms`.
+p95 is `193.478/190.346 ms` and launches one known scheduler child. The
+pre-Phase-11 SessionStart enqueue p95 was `790.030 ms` because the old wakeup
+subprocess was still in that hook; Phase 11 removes that cost from the fast
+path.
 
 Comparing the candidate with the valid Phase 09 report yields `cambio no
 comparable` at a 5% noise threshold because the aggregate contains both small
