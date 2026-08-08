@@ -264,6 +264,19 @@ check_config_not_managed() {
   fi
 }
 
+check_project_mcp_config() {
+  local checker="${SCRIPT_REPO_ROOT}/scripts/model-router/check_mcp_config.py"
+  local config="${SCRIPT_REPO_ROOT}/.codex/config.toml"
+  local migration="${SCRIPT_REPO_ROOT}/docs/migration/mcp-tool-names.md"
+  local output
+  if output="$(python3 "$checker" --config "$config" --migration-doc "$migration" --json 2>&1)"; then
+    ok "project MCP config has canonical unique exposure"
+  else
+    fail "project MCP config audit"
+    printf 'GLOBAL_DOCTOR_FAIL_DETAIL %s\n' "$output" >&2
+  fi
+}
+
 check_agents_policy() {
   if [[ ! -f "$GLOBAL_AGENTS_MD" ]]; then
     fail "global AGENTS.md missing Ralph policies: $GLOBAL_AGENTS_MD"
@@ -510,6 +523,7 @@ main() {
     ok "using stable repo root from global hook marker $REPO_ROOT"
   fi
   check_config_not_managed
+  check_project_mcp_config
 
   local skill
   for skill in "${DEFAULT_SKILLS[@]}"; do

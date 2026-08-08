@@ -69,7 +69,7 @@ def route_family(tool: str) -> str:
         return "mcp:minimax-fast"
     if "zai_coding_deep" in normalized:
         return "mcp:zai-deep"
-    if "zai_coding_fast" in normalized or "zai_" in normalized or "zread" in normalized:
+    if "zai_coding_fast" in normalized or "zai_" in normalized:
         return "mcp:zai-fast"
     if "spawn_agent" in normalized or "wait_agent" in normalized or "send_input" in normalized:
         return "codex-subagent"

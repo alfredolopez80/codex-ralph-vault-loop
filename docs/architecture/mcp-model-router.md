@@ -10,8 +10,13 @@ Routing summary:
 - Official Z.ai MCPs handle current search, web reading, public repo reading, and vision understanding.
 - Official MiniMax MCPs handle fast search and quick image understanding.
 
+The active Z.ai capability names and the legacy migration mapping are defined
+in [MCP capability names and exposure](../migration/mcp-tool-names.md). Only
+the canonical `zai_*` servers are configured; legacy names are not a second
+active route.
+
 GREEN and sanitized YELLOW can be routed externally when useful. RED is blocked. External output never becomes the final decision without local verification.
 
 Generation boundary: Z.ai and MiniMax must not generate images, video, audio, voice, or music in this workflow. GPT Images 2 is reserved for approved image generation.
 
-Related phases: [PHASE_00](../migration/checkpoints/PHASE_00.md), [PHASE_09](../migration/checkpoints/PHASE_09.md), [PHASE_13](../migration/checkpoints/PHASE_13.md), [PHASE_15](../migration/checkpoints/PHASE_15.md).
+Related phases: [PHASE_00](../migration/checkpoints/PHASE_00.md), [PHASE_09](../migration/checkpoints/PHASE_09.md), [PHASE_13 MCP canonicalization](../migration/checkpoints/PHASE_13_MCP_CANONICALIZATION.md), [PHASE_13 eval history](../migration/checkpoints/PHASE_13.md), [PHASE_15](../migration/checkpoints/PHASE_15.md).

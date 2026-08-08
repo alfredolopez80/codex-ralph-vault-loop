@@ -14,16 +14,9 @@ max_threads = 4
 max_depth = 1
 job_max_runtime_seconds = 900
 
-# Official Z.ai remote MCPs. Both canonical and legacy names are declared so
-# Codex App/CLI, subagents, and migration docs can refer to either convention.
+# Official Z.ai remote MCPs. The zai_* names are the single active namespace;
+# legacy names are documented for migration but are not exposed as servers.
 [mcp_servers.zai_web_search]
-url = "https://api.z.ai/api/mcp/web_search_prime/mcp"
-bearer_token_env_var = "Z_AI_API_KEY"
-startup_timeout_sec = 20.0
-tool_timeout_sec = 120.0
-enabled_tools = ["web_search_prime"]
-
-[mcp_servers.web-search-prime]
 url = "https://api.z.ai/api/mcp/web_search_prime/mcp"
 bearer_token_env_var = "Z_AI_API_KEY"
 startup_timeout_sec = 20.0
@@ -37,21 +30,7 @@ startup_timeout_sec = 20.0
 tool_timeout_sec = 120.0
 enabled_tools = ["webReader"]
 
-[mcp_servers.web-reader]
-url = "https://api.z.ai/api/mcp/web_reader/mcp"
-bearer_token_env_var = "Z_AI_API_KEY"
-startup_timeout_sec = 20.0
-tool_timeout_sec = 120.0
-enabled_tools = ["webReader"]
-
 [mcp_servers.zai_zread]
-url = "https://api.z.ai/api/mcp/zread/mcp"
-bearer_token_env_var = "Z_AI_API_KEY"
-startup_timeout_sec = 20.0
-tool_timeout_sec = 180.0
-enabled_tools = ["search_doc", "get_repo_structure", "read_file"]
-
-[mcp_servers.zread]
 url = "https://api.z.ai/api/mcp/zread/mcp"
 bearer_token_env_var = "Z_AI_API_KEY"
 startup_timeout_sec = 20.0
@@ -65,7 +44,6 @@ env_vars = ["Z_AI_API_KEY", "Z_AI_MODE"]
 startup_timeout_sec = 30.0
 tool_timeout_sec = 300.0
 enabled_tools = [
-  "ui_to_artifact",
   "extract_text_from_screenshot",
   "diagnose_error_screenshot",
   "understand_technical_diagram",

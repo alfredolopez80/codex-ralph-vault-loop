@@ -12,6 +12,7 @@ from pathlib import Path
 
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
 GLOBAL_HOOKS_JSON = Path.home() / ".codex" / "hooks.json"
+SCRIPT_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def run_hook(name: str, payload: dict, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -76,6 +77,21 @@ def assert_hook_output_contract(event: str, label: str, result: subprocess.Compl
             raise RuntimeError(f"{label} emitted unsupported Stop fields {sorted(extra)}: {output[:200]}")
 
 
+def check_project_mcp_config() -> None:
+    checker = SCRIPT_REPO_ROOT / "scripts" / "model-router" / "check_mcp_config.py"
+    config = SCRIPT_REPO_ROOT / ".codex" / "config.toml"
+    migration = SCRIPT_REPO_ROOT / "docs" / "migration" / "mcp-tool-names.md"
+    result = subprocess.run(
+        [sys.executable, str(checker), "--config", str(config), "--migration-doc", str(migration), "--json"],
+        cwd=SCRIPT_REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"MCP config audit failed: {result.stderr or result.stdout}")
+
+
 def hook_roles(config: dict, event: str) -> list[str]:
     names: list[str] = []
     for group in config.get("hooks", {}).get(event, []):
@@ -116,6 +132,11 @@ def one_match(paths: list[Path], label: str) -> Path:
 
 
 def main() -> int:
+    try:
+        check_project_mcp_config()
+    except RuntimeError as exc:
+        print(f"GLOBAL_HOOKS_SMOKE_FAIL {exc}", file=sys.stderr)
+        return 1
     if not GLOBAL_HOOKS_JSON.is_file():
         print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {GLOBAL_HOOKS_JSON}", file=sys.stderr)
         return 1

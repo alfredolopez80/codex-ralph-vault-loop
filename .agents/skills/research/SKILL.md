@@ -2,6 +2,7 @@
 name: research
 description: Perform sanitized research with Z.ai official MCPs, MiniMax MCPs, public web sources, and local synthesis.
 ---
+
 # Research
 
 ## Purpose
@@ -10,7 +11,11 @@ Gather external context for Codex work without leaking sensitive content or lett
 
 ## Routing
 
-For current web information, prefer `zai_web_search` or its `web-search-prime` alias. For a specific URL, prefer `zai_web_reader` or its `web-reader` alias. For public repository research, use `zai_zread` or its `zread` alias. For fast search support, use `minimax_coding_tools.web_search` when available. For local files, use repo tools first and never externalize RED content.
+For current web information, use `zai_web_search`. For a specific URL, use
+`zai_web_reader`. For public repository research, use `zai_zread`. Legacy
+names remain migration-only; they are not active server entries. For fast
+search support, use `minimax_coding_tools.web_search` when available. For
+local files, use repo tools first and never externalize RED content.
 
 ## Source Discipline
 
