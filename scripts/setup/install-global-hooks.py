@@ -67,12 +67,7 @@ HOOK_ROLES: dict[str, tuple[tuple[str, int], ...]] = {
         ("sol_advisor_pretool_guard", 10),
     ),
     "PostToolUse": (
-        ("file_line_guard_post_tool", 10),
-        ("shaping_ripple", 10),
-        ("post_tool_extract_memory", 10),
-        ("post_tool_checkpoint", 10),
-        ("sol_advisor_observer", 10),
-        ("post_tool_cost_ledger", 10),
+        ("post_tool_dispatch", 10),
     ),
     "SubagentStart": (("sol_advisor_subagent_context", 10),),
     "SubagentStop": (("sol_advisor_subagent_stop", 10),),
@@ -95,12 +90,15 @@ def dispatch_command(event: str, role: str) -> str:
 
 
 def hook_config() -> dict:
-    return {
-        "hooks": {
-            event: [{"hooks": [{"type": "command", "command": dispatch_command(event, role), "timeout": timeout} for role, timeout in roles]}]
-            for event, roles in HOOK_ROLES.items()
+    groups: dict[str, list[dict[str, object]]] = {}
+    for event, roles in HOOK_ROLES.items():
+        group: dict[str, object] = {
+            "hooks": [{"type": "command", "command": dispatch_command(event, role), "timeout": timeout} for role, timeout in roles]
         }
-    }
+        if event == "PostToolUse":
+            group["matcher"] = ".*"
+        groups[event] = [group]
+    return {"hooks": groups}
 
 
 def is_codex_worktree(path: Path) -> bool:

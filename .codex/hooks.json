@@ -65,35 +65,11 @@
     ],
     "PostToolUse": [
       {
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/file_line_guard.py --event PostToolUse",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/shaping_ripple.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/post_tool_extract_memory.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/post_tool_checkpoint.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_observer.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/post_tool_cost_ledger.py",
+            "command": "python3 .codex/hooks/post_tool_dispatch.py",
             "timeout": 10
           }
         ]

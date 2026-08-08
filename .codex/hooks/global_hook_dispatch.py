@@ -24,6 +24,10 @@ ROLE_COMMANDS: dict[tuple[str, str], tuple[str, ...]] = {
     ("PreToolUse", "pre_tool_guard"): ("pre_tool_guard.py",),
     ("PreToolUse", "subagent_routing_pretool_guard"): ("subagent_routing_pretool_guard.py",),
     ("PreToolUse", "sol_advisor_pretool_guard"): ("sol_advisor_pretool_guard.py",),
+    ("PostToolUse", "post_tool_dispatch"): ("post_tool_dispatch.py",),
+    # Compatibility aliases for callers that still invoke a historical role
+    # directly.  The project/global hook configuration registers only the
+    # consolidated dispatcher above.
     ("PostToolUse", "file_line_guard_post_tool"): ("file_line_guard.py", "--event", "PostToolUse"),
     ("PostToolUse", "shaping_ripple"): ("shaping_ripple.py",),
     ("PostToolUse", "post_tool_extract_memory"): ("post_tool_extract_memory.py",),
@@ -61,6 +65,7 @@ ROLE_BY_FILENAME = {
     "pre_tool_guard.py": "pre_tool_guard",
     "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
     "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
+    "post_tool_dispatch.py": "post_tool_dispatch",
     "shaping_ripple.py": "shaping_ripple",
     "post_tool_extract_memory.py": "post_tool_extract_memory",
     "post_tool_checkpoint.py": "post_tool_checkpoint",
@@ -77,6 +82,9 @@ ROLE_BY_FILENAME = {
     "stop_memory_promotion_review.py": "stop_memory_promotion_review",
 }
 DISPATCH_ROLE_RE = re.compile(r"global_hook_dispatch\.py\s+--event\s+(\S+)\s+--role\s+([A-Za-z0-9_]+)")
+ROLE_MATCHERS: dict[tuple[str, str], str] = {
+    ("PostToolUse", "post_tool_dispatch"): ".*",
+}
 
 
 def role_for_command(event: str, command: object) -> str | None:
@@ -97,7 +105,7 @@ def role_for_command(event: str, command: object) -> str | None:
     return None
 
 
-def project_roles(workspace: Path, event: str) -> set[str]:
+def project_role_signatures(workspace: Path, event: str) -> set[tuple[str, str]]:
     config_path = workspace / ".codex" / "hooks.json"
     try:
         if not config_path.is_file() or not config_path.resolve().is_relative_to(workspace.resolve()):
@@ -110,16 +118,21 @@ def project_roles(workspace: Path, event: str) -> set[str]:
     if not isinstance(groups, list):
         return set()
 
-    roles: set[str] = set()
+    roles: set[tuple[str, str]] = set()
     for group in groups:
+        matcher = str(group.get("matcher", "")) if isinstance(group, dict) else ""
         entries = group.get("hooks", []) if isinstance(group, dict) else []
         if not isinstance(entries, list):
             continue
         for entry in entries:
             role = role_for_command(event, entry.get("command") if isinstance(entry, dict) else None)
             if role:
-                roles.add(role)
+                roles.add((role, matcher))
     return roles
+
+
+def project_roles(workspace: Path, event: str) -> set[str]:
+    return {role for role, _matcher in project_role_signatures(workspace, event)}
 
 
 def invoke_child(event: str, role: str, raw: str, workspace: Path) -> int:
@@ -158,7 +171,8 @@ def main() -> int:
 
     raw = sys.stdin.read()
     context = active_context_from_payload(parse_payload(raw))
-    if args.role in project_roles(context.workspace_root, args.event):
+    expected_matcher = ROLE_MATCHERS.get(key, "")
+    if (args.role, expected_matcher) in project_role_signatures(context.workspace_root, args.event):
         return 0
     return invoke_child(args.event, args.role, raw, context.workspace_root)
 

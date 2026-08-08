@@ -4,8 +4,14 @@ from __future__ import annotations
 import argparse
 
 from shared.file_line_candidates import scan_paths, workspace_root
-from shared.file_line_policy import emit_block, line_limit, oversized
-from shared.paths import read_hook_input
+from shared.file_line_policy import block_payload, line_limit, oversized
+from shared.paths import read_hook_input, write_json
+
+
+def evaluate(payload: dict, event: str = "PostToolUse") -> dict | None:
+    root = workspace_root(payload)
+    findings = oversized(scan_paths(payload, event), root, line_limit())
+    return block_payload(findings, line_limit()) if findings else None
 
 
 def main() -> int:
@@ -14,11 +20,9 @@ def main() -> int:
     args = parser.parse_args()
 
     payload = read_hook_input()
-    root = workspace_root(payload)
-    limit = line_limit()
-    findings = oversized(scan_paths(payload, args.event), root, limit)
-    if findings:
-        emit_block(findings, limit)
+    response = evaluate(payload, args.event)
+    if response:
+        write_json(response)
     return 0
 
 

@@ -129,13 +129,7 @@ def main() -> int:
             "continuity_prompt_context",
         ],
         "PreToolUse": ["pre_tool_guard"],
-        "PostToolUse": [
-            "file_line_guard_post_tool",
-            "shaping_ripple",
-            "post_tool_extract_memory",
-            "post_tool_checkpoint",
-            "post_tool_cost_ledger",
-        ],
+        "PostToolUse": ["post_tool_dispatch"],
         "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
     }
     for event, names in required.items():
@@ -222,7 +216,7 @@ def main() -> int:
             raise RuntimeError("project-b received project-a checkpoint")
 
         post_tool = run_hook(
-            "post_tool_checkpoint.py",
+            "post_tool_dispatch.py",
             {
                 "cwd": str(project_a),
                 "tool_input": {"command": "python3 -m pytest tests/integration/test_hook_lifecycle_e2e.py"},
@@ -230,7 +224,7 @@ def main() -> int:
             },
             env,
         )
-        assert_ok("post_tool_checkpoint.py", post_tool)
+        assert_ok("post_tool_dispatch.py", post_tool)
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         if checkpoint["validation_status"] != "pass":
             raise RuntimeError("post tool checkpoint did not mark validation pass")

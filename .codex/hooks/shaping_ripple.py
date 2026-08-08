@@ -73,11 +73,10 @@ def record_warning(paths: list[Path], reason: str) -> None:
         return
 
 
-def main() -> int:
-    payload = read_hook_input()
+def evaluate(payload: dict) -> dict | None:
     paths = shaping_paths(payload)
     if not paths:
-        return 0
+        return None
 
     reason = (
         "Shaping ripple check: a Markdown file has shaping: true frontmatter. "
@@ -87,10 +86,16 @@ def main() -> int:
     )
     if os.environ.get("RALPH_SHAPING_RIPPLE_STRICT", "").lower() in {"1", "true", "yes", "on"}:
         files = "; ".join(str(path) for path in paths[:8])
-        write_json({"decision": "block", "reason": f"{reason} Files: {files}."})
-        return 0
-
+        return {"decision": "block", "reason": f"{reason} Files: {files}."}
     record_warning(paths, reason)
+    return None
+
+
+def main() -> int:
+    payload = read_hook_input()
+    response = evaluate(payload)
+    if response:
+        write_json(response)
     return 0
 
 

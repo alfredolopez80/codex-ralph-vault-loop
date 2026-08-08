@@ -438,6 +438,7 @@ check_global_hooks() {
   check_hook_file_matches_source "user_prompt_capture.py"
   check_hook_file_matches_source "user_prompt_improve.py"
   check_hook_file_matches_source "pre_tool_guard.py"
+  check_hook_file_matches_source "post_tool_dispatch.py"
 
   local improve_payload
   local improve_output

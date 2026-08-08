@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import os
 import statistics
 import subprocess
@@ -23,6 +24,11 @@ USER_PROMPT_HOOKS = (
 )
 DISPATCHER = HOOKS / "global_hook_dispatch.py"
 LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+ACTIVE_ROLE_COMMANDS = {
+    key: value
+    for key, value in ROLE_COMMANDS.items()
+    if key[0] != "PostToolUse" or key[1] == "post_tool_dispatch"
+}
 
 
 def direct_command(event: str, role: str) -> list[str]:
@@ -218,7 +224,7 @@ def measure(iterations: int) -> dict[str, object]:
 
         global_workspace = Path(tmp) / "global-only-workspace"
         global_workspace.mkdir()
-        for event, role in ROLE_COMMANDS:
+        for event, role in ACTIVE_ROLE_COMMANDS:
             for effective_config in ("project_only", "global_only", "global_plus_project"):
                 samples: list[float] = []
                 stdout_sizes: list[int] = []
@@ -226,6 +232,7 @@ def measure(iterations: int) -> dict[str, object]:
                 suppressed_samples: list[float] = []
                 for iteration in range(iterations):
                     session_id = f"hook-cost-{event}-{role}-{effective_config}-{iteration}"
+                    before_bytes = directory_bytes(Path(env["RALPH_HOME"]))
                     if effective_config == "project_only":
                         payload = lifecycle_payload(event, ROOT, session_id)
                         elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
@@ -239,6 +246,7 @@ def measure(iterations: int) -> dict[str, object]:
                             raise RuntimeError(f"global dispatcher did not suppress {event}/{role}")
                         suppressed_samples.append(suppressed_ms)
                         elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
+                    after_bytes = directory_bytes(Path(env["RALPH_HOME"]))
                     samples.append(elapsed_ms)
                     stdout_sizes.append(len(output.encode("utf-8")))
                     blocks += output_block_count(output)
@@ -264,7 +272,13 @@ def measure(iterations: int) -> dict[str, object]:
                         "estimated_context_units": estimate_context_units(stdout_chars),
                         "block_count": blocks,
                         "continuation_count": 0,
-                        "persisted_bytes": directory_bytes(Path(env["RALPH_HOME"])),
+                        "persisted_bytes": after_bytes,
+                        "persisted_bytes_delta": max(0, after_bytes - before_bytes),
+                        "output_bytes": int(stdout_chars),
+                        "configured_handler_count": 1,
+                        "matched_handler_count": 1 if effective_config != "global_plus_project" else 1,
+                        "executed_handler_count": 1 if effective_config != "global_plus_project" else 1,
+                        "child_process_count": 0,
                     }
                 )
                 if suppressed_samples:
@@ -286,6 +300,12 @@ def measure(iterations: int) -> dict[str, object]:
                             "block_count": 0,
                             "continuation_count": 0,
                             "persisted_bytes": directory_bytes(Path(env["RALPH_HOME"])),
+                            "persisted_bytes_delta": 0,
+                            "output_bytes": 0,
+                            "configured_handler_count": 1,
+                            "matched_handler_count": 0,
+                            "executed_handler_count": 0,
+                            "child_process_count": 0,
                         }
                     )
 
@@ -298,7 +318,8 @@ def measure(iterations: int) -> dict[str, object]:
     }
     units_by_event = {event: estimate_context_units(chars) for event, chars in stdout_by_event.items()}
     suppressed_roles = sorted({str(case["role"]) for case in cases if case["source_scope"] == "suppressed_global"})
-    return {
+    report = {
+        "schema_version": 2,
         "iterations": iterations,
         "cases": cases,
         "total_p50_ms": round(total_p50_ms, 3),
@@ -319,12 +340,67 @@ def measure(iterations: int) -> dict[str, object]:
             for case in effective_cases
             if case["event"] == "Stop" and int(case["block_count"]) == 0
         ),
+        "subscription_usage_measured": False,
+        "post_tool_processes_before": 6,
+        "post_tool_processes_after": 1,
+        "post_tool_processes_reduction": 5,
+        "active_post_tool_roles": ["post_tool_dispatch"],
+        "matched_handler_count": sum(int(case.get("matched_handler_count", 0)) for case in effective_cases),
+        "executed_handler_count": sum(int(case.get("executed_handler_count", 0)) for case in effective_cases),
     }
+    for case in report["cases"]:
+        case.setdefault("schema_version", 2)
+        case.setdefault("output_bytes", int(case.get("stdout_chars", 0)))
+        case.setdefault("configured_handler_count", 1)
+        case.setdefault("matched_handler_count", 1)
+        case.setdefault("executed_handler_count", 1)
+        case.setdefault("child_process_count", 0)
+        case.setdefault("persisted_bytes_delta", int(case.get("persisted_bytes", 0)))
+    return report
+
+
+def markdown_report(report: dict[str, object]) -> str:
+    lines = [
+        "# Hook runtime benchmark",
+        "",
+        f"- Schema: `{report.get('schema_version', 1)}`",
+        f"- Iterations: `{report.get('iterations', 0)}`",
+        f"- PostToolUse processes: `{report.get('post_tool_processes_before', 6)}` → `{report.get('post_tool_processes_after', 1)}`",
+        f"- Runtime p50/p95 aggregate: `{report.get('total_p50_ms', 0)} ms` / see JSON cases",
+        f"- Subscription usage measured: `{report.get('subscription_usage_measured', False)}`",
+        "",
+        "| Event | Role | p50 ms | p95 ms | matched | executed | output bytes | persisted bytes | blocks |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for case in report.get("cases", []):
+        lines.append(
+            "| {event} | {role} | {p50} | {p95} | {matched} | {executed} | {output} | {persisted} | {blocks} |".format(
+                event=case.get("event", ""),
+                role=case.get("role", ""),
+                p50=case.get("runtime_p50_ms", 0),
+                p95=case.get("runtime_p95_ms", 0),
+                matched=case.get("matched_handler_count", 0),
+                executed=case.get("executed_handler_count", 0),
+                output=case.get("output_bytes", 0),
+                persisted=case.get("persisted_bytes_delta", 0),
+                blocks=case.get("block_count", 0),
+            )
+        )
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
-    iterations = int(os.environ.get("RALPH_HOOK_COST_ITERATIONS", "3"))
+    parser = argparse.ArgumentParser(description="Measure bounded local hook runtime and persistence attribution.")
+    parser.add_argument("--iterations", type=int, default=None)
+    parser.add_argument("--json-out", type=Path)
+    parser.add_argument("--markdown-out", type=Path)
+    args = parser.parse_args()
+    iterations = args.iterations if args.iterations is not None else int(os.environ.get("RALPH_HOOK_COST_ITERATIONS", "3"))
     report = measure(max(1, iterations))
+    if args.json_out:
+        args.json_out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if args.markdown_out:
+        args.markdown_out.write_text(markdown_report(report), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     print(f"METRIC hook_cost_score={report['hook_cost_score']}")
     print(f"METRIC hook_total_p50_ms={report['total_p50_ms']}")

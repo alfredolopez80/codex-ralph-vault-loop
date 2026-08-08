@@ -63,6 +63,7 @@ def hook_role(event: str, command: str) -> str:
         "pre_tool_guard.py": "pre_tool_guard",
         "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
         "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
+        "post_tool_dispatch.py": "post_tool_dispatch",
         "shaping_ripple.py": "shaping_ripple",
         "post_tool_extract_memory.py": "post_tool_extract_memory",
         "post_tool_checkpoint.py": "post_tool_checkpoint",
@@ -149,7 +150,7 @@ def global_hook_diff() -> dict[str, Any]:
             "user_prompt_improve",
             "continuity_prompt_context",
         ],
-        "PostToolUse": ["post_tool_extract_memory", "post_tool_checkpoint", "post_tool_cost_ledger"],
+        "PostToolUse": ["post_tool_dispatch"],
         "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
     }
     order_failures: list[str] = []
@@ -175,6 +176,7 @@ def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
         "stop_persist_memory": 20,
         "stop_memory_promotion_review": 20,
         "session_start_wakeup": 45,
+        "post_tool_dispatch": 10,
     }
     entries: list[dict[str, Any]] = []
     failures: list[str] = []
