@@ -43,16 +43,15 @@ def is_nontrivial(payload: dict, message: str) -> bool:
     return len(message) >= 1200
 
 
-def main() -> int:
-    payload = read_hook_input()
+def run(payload: dict) -> bool:
     if payload.get("stop_hook_active"):
-        return 0
+        return False
 
     message = _message(payload)
     if not message or is_red(message):
-        return 0
+        return False
     if not is_nontrivial(payload, message) or has_route_decision(payload, message):
-        return 0
+        return False
 
     root = ensure_runtime()
     warning = {
@@ -62,6 +61,11 @@ def main() -> int:
         "reason": "Non-trivial session completed without a visible ROUTE_DECISION marker.",
     }
     append_jsonl(root / "cost" / "routing-warnings.jsonl", warning)
+    return True
+
+
+def main() -> int:
+    run(read_hook_input())
     return 0
 
 

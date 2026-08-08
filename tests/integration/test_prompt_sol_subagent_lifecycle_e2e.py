@@ -171,7 +171,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "cwd": str(ROOT),
         "last_assistant_message": "ROUTE_DECISION\nsubagent_route=sol-advisor\nCompleted local lifecycle proof.",
     }
-    final_guard = run_command(configured_command("Stop", "sol_advisor_stop_guard.py"), main_stop, env)
+    final_guard = run_command(configured_command("Stop", "stop_dispatch.py"), main_stop, env)
     assert final_guard.returncode == 0, final_guard.stderr
     assert blocking_payload(final_guard.stdout) is None
     assert_sources_unchanged(snapshot)
@@ -791,7 +791,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     assert "already reserved" in str(duplicate_block["reason"])
 
     run_command(
-        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        configured_command("PostToolUse", "post_tool_dispatch.py"),
         {
             "hook_event_name": "PostToolUse",
             "session_id": session_id,
@@ -825,7 +825,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
         "command": "spawn_agent unrelated failure",
         "tool_input": {key: value for key, value in spawn.items() if key != "invocation_id"},
     }
-    run_command(configured_command("PostToolUse", "sol_advisor_observer.py"), no_identity_failure, env)
+    run_command(configured_command("PostToolUse", "post_tool_dispatch.py"), no_identity_failure, env)
     no_identity_state, _ = routing_state(env, session_id)
     assert no_identity_state["phase_reservations"], no_identity_state
     no_identity_retry = run_pretool(base)
@@ -838,7 +838,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     assert "already reserved" in str(no_identity_block["reason"])
 
     run_command(
-        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        configured_command("PostToolUse", "post_tool_dispatch.py"),
         {
             "hook_event_name": "PostToolUse",
             "session_id": session_id,
@@ -871,7 +871,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     no_id_first = run_configured_event("PreToolUse", no_id_base, env)
     assert all(blocking_payload(result.stdout) is None for result in no_id_first)
     run_command(
-        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        configured_command("PostToolUse", "post_tool_dispatch.py"),
         {
             "hook_event_name": "PostToolUse",
             "session_id": no_id_session,
@@ -903,12 +903,13 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     assert all(blocking_payload(result.stdout) is None for result in top_level_first)
     top_level_failure = {
         **top_level_base,
+        "hook_event_name": "PostToolUse",
         "success": False,
         "command": "spawn_agent top-level brief failure",
         "message": top_level_brief,
         "tool_input": {key: value for key, value in top_level_spawn.items() if key != "message"},
     }
-    run_command(configured_command("PostToolUse", "sol_advisor_observer.py"), top_level_failure, env)
+    run_command(configured_command("PostToolUse", "post_tool_dispatch.py"), top_level_failure, env)
     top_level_retry = run_configured_event("PreToolUse", top_level_base, env)
     assert all(blocking_payload(result.stdout) is None for result in top_level_retry)
 

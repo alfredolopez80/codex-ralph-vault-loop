@@ -38,6 +38,7 @@ def hook_role(event: str, command: str) -> str:
         "sol_advisor_subagent_context.py": "sol_advisor_subagent_context",
         "sol_advisor_subagent_stop.py": "sol_advisor_subagent_stop",
         "post_tool_cost_ledger.py": "post_tool_cost_ledger",
+        "stop_dispatch.py": "stop_dispatch",
         "anti-rationalization-stop.sh": "anti_rationalization_stop",
         "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
         "stop_route_decision_warn.py": "stop_route_decision_warn",
@@ -179,9 +180,7 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
     assert post_tool == ["post_tool_dispatch"]
 
     stop = [name for name, _timeout in hook_pairs(local, "Stop")]
-    assert "implementation_notes_guard" in stop
-    assert "sol_advisor_stop_guard" in stop
-    assert stop.index("stop_persist_memory") < stop.index("stop_memory_promotion_review")
+    assert stop == ["stop_dispatch"]
 
 
 def test_configured_stop_hooks_emit_only_codex_supported_output(tmp_path: Path) -> None:

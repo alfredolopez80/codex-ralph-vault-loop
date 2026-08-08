@@ -36,6 +36,9 @@ ROLE_COMMANDS: dict[tuple[str, str], tuple[str, ...]] = {
     ("PostToolUse", "post_tool_cost_ledger"): ("post_tool_cost_ledger.py",),
     ("SubagentStart", "sol_advisor_subagent_context"): ("sol_advisor_subagent_context.py",),
     ("SubagentStop", "sol_advisor_subagent_stop"): ("sol_advisor_subagent_stop.py",),
+    ("Stop", "stop_dispatch"): ("stop_dispatch.py",),
+    # Compatibility aliases for direct historical diagnostics. The project
+    # and global configurations register only stop_dispatch.
     ("Stop", "anti_rationalization_stop"): ("anti-rationalization-stop.sh",),
     ("Stop", "ralph_stop_quality_gate"): ("ralph-stop-quality-gate.sh",),
     ("Stop", "file_line_guard_stop"): ("file_line_guard.py", "--event", "Stop"),
@@ -73,6 +76,7 @@ ROLE_BY_FILENAME = {
     "sol_advisor_subagent_context.py": "sol_advisor_subagent_context",
     "sol_advisor_subagent_stop.py": "sol_advisor_subagent_stop",
     "post_tool_cost_ledger.py": "post_tool_cost_ledger",
+    "stop_dispatch.py": "stop_dispatch",
     "anti-rationalization-stop.sh": "anti_rationalization_stop",
     "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
     "stop_route_decision_warn.py": "stop_route_decision_warn",

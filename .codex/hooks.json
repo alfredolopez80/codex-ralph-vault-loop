@@ -102,43 +102,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/anti-rationalization-stop.sh\"",
+            "command": "python3 .codex/hooks/stop_dispatch.py",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/ralph-stop-quality-gate.sh\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/file_line_guard.py --event Stop",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/stop_route_decision_warn.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/implementation_notes_guard.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_stop_guard.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/stop_persist_memory.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/stop_memory_promotion_review.py",
-            "timeout": 20
           }
         ]
       }

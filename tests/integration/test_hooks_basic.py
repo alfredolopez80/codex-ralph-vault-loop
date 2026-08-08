@@ -1287,12 +1287,18 @@ def test_file_line_guard_stop_ignores_unowned_dirty_files_by_default(tmp_path: P
     assert result.stdout == ""
 
 
-def test_global_hook_install_config_includes_file_line_guard() -> None:
+def test_global_hook_install_config_includes_file_line_guard(tmp_path: Path) -> None:
+    # Dry-run against an isolated home so a stale user-level migration marker
+    # cannot make this repository-level config assertion nondeterministic.
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path / "home")
+    env["USERPROFILE"] = env["HOME"]
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "setup" / "install-global-hooks.py"), "--dry-run"],
         cwd=ROOT,
         text=True,
         capture_output=True,
+        env=env,
         check=False,
     )
 
@@ -1309,6 +1315,7 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
             cwd=ROOT,
             text=True,
             capture_output=True,
+            env=env,
             check=False,
         )
 
@@ -1320,12 +1327,9 @@ def test_global_hook_install_config_includes_file_line_guard() -> None:
     stop_commands = [hook["command"] for hook in config["hooks"]["Stop"][0]["hooks"]]
     assert all("global_hook_dispatch.py" in command for command in post_commands + stop_commands)
     assert any("--role post_tool_dispatch" in command for command in post_commands)
-    assert any("--role file_line_guard_stop" in command for command in stop_commands)
+    assert any("--role stop_dispatch" in command for command in stop_commands)
     assert not any("codex_stop_slop_guard.py" in command for command in stop_commands)
-    assert any("--role stop_memory_promotion_review" in command for command in stop_commands)
-    assert next(i for i, command in enumerate(stop_commands) if "--role file_line_guard_stop" in command) < next(
-        i for i, command in enumerate(stop_commands) if "--role stop_route_decision_warn" in command
-    )
+    assert len(stop_commands) == 1
 
 
 def test_post_tool_memory_skips_red_output(tmp_path: Path) -> None:

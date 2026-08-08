@@ -427,7 +427,8 @@ check_global_hooks() {
     grep -q -- "--role session_start_wakeup" "$GLOBAL_HOOKS_JSON" &&
     grep -q -- "--role user_prompt_capture" "$GLOBAL_HOOKS_JSON" &&
     grep -q -- "--role user_prompt_improve" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role pre_tool_guard" "$GLOBAL_HOOKS_JSON"; then
+    grep -q -- "--role pre_tool_guard" "$GLOBAL_HOOKS_JSON" &&
+    grep -q -- "--role stop_dispatch" "$GLOBAL_HOOKS_JSON"; then
     ok "global hooks.json includes dispatcher lifecycle roles"
   else
     fail "global hooks.json missing Ralph lifecycle hooks"
@@ -439,6 +440,7 @@ check_global_hooks() {
   check_hook_file_matches_source "user_prompt_improve.py"
   check_hook_file_matches_source "pre_tool_guard.py"
   check_hook_file_matches_source "post_tool_dispatch.py"
+  check_hook_file_matches_source "stop_dispatch.py"
 
   local improve_payload
   local improve_output

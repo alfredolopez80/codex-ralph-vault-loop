@@ -27,27 +27,26 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Does not echo or persist the raw prompt and fails open on local runtime
     errors. Empty prompts produce no stdout.
 
-- `.codex/hooks/anti-rationalization-stop.sh`
-  - Runs on `Stop`.
-  - Allows immediately when `stop_hook_active == true`.
-  - Blocks excuse or fake-done language unless the message or safe transcript
-    tail includes factual verification evidence.
-  - Tracks up to three blocks in `.codex/state/<session>/anti-rat-blocks.json`,
-    then allows stop to prevent loops.
+- `.codex/hooks/stop_dispatch.py` (the only configured Stop handler)
+  - Reads the payload once and aggregates objective file, validation, notes, and
+    scoped pending-state evidence.
+  - Phrase scans, route markers, advisor eligibility, and stale or foreign state
+    are report-only. Only current objective evidence can produce a continuation.
+  - Reserves a continuation atomically under the project Ralph runtime. One
+    ordinary continuation is allowed per task signature; a second requires a
+    distinct critical evidence fingerprint.
+  - Writes a bounded local handoff and a fast promotion marker. Heavy promotion
+    is deliberately deferred outside the Stop critical path.
 
-- `.codex/hooks/ralph-stop-quality-gate.sh`
-  - Runs on `Stop`.
-  - Allows immediately when `stop_hook_active == true`.
-  - Checks Ralph/Codex state files for `verified_done`, active loops, failed
-    quality gates, pending tasks, and missing validation.
-  - Repo-global `plan-state.json` files only gate the current session when they
-    include a matching `session_id`/`sessionId`, or explicitly opt in with
-    `global: true` / `applies_to_all_sessions: true`.
-  - Tracks up to five blocks in `.codex/state/<session>/quality-blocks.json`
-    and logs to `.codex/state/<session>/stop-hook.log`.
+- Historical Stop wrappers (not independently registered)
+  - The quality, file-line, route, advisor, notes, handoff, and promotion
+    scripts remain available for direct migration tests.
+  - Their objective checks are composed by `stop_dispatch.py` on the active
+    path, so repeated Stop processes cannot create loops.
 
-- `.codex/hooks/implementation_notes_guard.py`
-  - Runs on `Stop`.
+- `.codex/hooks/implementation_notes_guard.py` (compatibility evaluator)
+  - Its evaluator is called by `stop_dispatch.py`; direct invocation remains
+    available for migration tests.
   - Blocks when a referenced approved plan requires implementation notes but the
     canonical repo-root notes file is missing, empty beyond the initial
     template, not approved, or present only inside an ephemeral Codex worktree.
@@ -125,7 +124,7 @@ writes. Set
 | Before prompt context    | `UserPromptSubmit` / classifier, `user_prompt_capture.py`, `user_prompt_improve.py`, continuity and recall | Classify complexity and sensitivity, reject unsafe prompt payloads, inject the compact Improve Prompt contract, then add scoped continuity/memory as non-authoritative context.     | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hook_config_lockstep.py tests/integration/test_hooks_basic.py -q`; `bash .codex/tests/run-hook-tests.sh`. |
 | Before command execution | `PreToolUse` / `pre_tool_guard.py`                                                                         | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations. | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                         |
 | After command execution  | `PostToolUse` / `post_tool_dispatch.py`                                                                    | Classify once, deduplicate once, run only relevant components, and capture bounded observer metrics.                                                                                | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_post_tool_dispatch.py tests/integration/test_hooks_basic.py -q`.                                                 |
-| Thread finalization      | `Stop` hooks and `implementation_notes_guard.py`                                                           | Enforce quality gates, safe handoff, route warnings, and approved-plan implementation notes.                                                                                        | `bash .codex/tests/run-hook-tests.sh`; implementation-notes integration tests.                                                                                                       |
+| Thread finalization      | `Stop` / `stop_dispatch.py`                                                                                | Aggregate scoped objective gates, preserve safe handoff, record report-only observations, and cap continuations.                                                                    | `bash .codex/tests/run-hook-tests.sh`; Stop dispatcher unit and implementation-notes integration tests.                                                                              |
 | Compact lifecycle        | `PreCompact` / `PostCompact`                                                                               | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                      |
 | Weekly validation        | Codex App automation                                                                                       | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                            |
 
@@ -179,6 +178,10 @@ Hooks that write to stdout must print valid JSON. `Stop` hooks block with:
 They allow stop by writing nothing to stdout. Report-only Stop findings, such
 as routing or vault-review reminders, are persisted to local reports or JSONL
 ledgers instead of emitting `decision:warn`.
+
+The active dispatcher reserves a continuation before emitting the single
+block. Once its scoped budget is exhausted, it records a local warning and
+allows Stop; it never claims that an unmet objective passed.
 
 ## Output Contract
 

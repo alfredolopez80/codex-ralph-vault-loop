@@ -167,7 +167,12 @@ def _should_checkpoint(tool: ToolClass) -> bool:
 
 
 def _should_advisor(payload: dict[str, Any], tool: ToolClass) -> bool:
-    return tool.agent or tool.external or _output_marker(payload, "ROUTE_DECISION") or _output_marker(payload, "APPROVAL_NEEDED")
+    # Failed objective commands are routing evidence for the existing Sol
+    # observer (two bounded failures can make a stuck route eligible). This is
+    # still selective: successful test/build output and ordinary read failures
+    # do not invoke the observer.
+    failed_objective = tool.success is False and tool.test_like
+    return tool.agent or tool.external or failed_objective or _output_marker(payload, "ROUTE_DECISION") or _output_marker(payload, "APPROVAL_NEEDED")
 
 
 def _response_bytes(response: dict[str, Any] | None) -> int:

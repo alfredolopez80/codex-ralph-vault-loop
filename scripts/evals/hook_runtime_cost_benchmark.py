@@ -27,7 +27,8 @@ LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolU
 ACTIVE_ROLE_COMMANDS = {
     key: value
     for key, value in ROLE_COMMANDS.items()
-    if key[0] != "PostToolUse" or key[1] == "post_tool_dispatch"
+    if (key[0] != "PostToolUse" or key[1] == "post_tool_dispatch")
+    and (key[0] != "Stop" or key[1] == "stop_dispatch")
 }
 
 
@@ -122,7 +123,7 @@ def run_once(command: list[str], payload: dict[str, str], env: dict[str, str], i
     return elapsed_ms, len(completed.stdout.strip())
 
 
-def lifecycle_payload(event: str, workspace: Path, session_id: str) -> dict[str, object]:
+def lifecycle_payload(event: str, workspace: Path, session_id: str, stop_mode: str = "allow") -> dict[str, object]:
     payload: dict[str, object] = {"hook_event_name": event, "cwd": str(workspace), "session_id": session_id}
     if event == "SessionStart":
         payload["source"] = "startup"
@@ -138,7 +139,19 @@ def lifecycle_payload(event: str, workspace: Path, session_id: str) -> dict[str,
         payload["tool_response"] = {"exit_code": 0, "stdout": "## branch\n"}
         payload["success"] = True
     elif event == "Stop":
-        payload["last_assistant_message"] = "Completed benchmark validation."
+        payload["task_signature"] = "benchmark-stop-task"
+        if stop_mode == "objective_failure":
+            payload.update(
+                {
+                    "last_assistant_message": "Objective validation is pending.",
+                    "tests_failed": True,
+                    "critical": True,
+                    "evidence_fingerprint": f"failure-{session_id}",
+                }
+            )
+        else:
+            payload["last_assistant_message"] = "Completed benchmark validation."
+            payload["scenario"] = "stop_allow"
     return payload
 
 
@@ -225,89 +238,102 @@ def measure(iterations: int) -> dict[str, object]:
         global_workspace = Path(tmp) / "global-only-workspace"
         global_workspace.mkdir()
         for event, role in ACTIVE_ROLE_COMMANDS:
-            for effective_config in ("project_only", "global_only", "global_plus_project"):
-                samples: list[float] = []
-                stdout_sizes: list[int] = []
-                blocks = 0
-                suppressed_samples: list[float] = []
-                for iteration in range(iterations):
-                    session_id = f"hook-cost-{event}-{role}-{effective_config}-{iteration}"
-                    before_bytes = directory_bytes(Path(env["RALPH_HOME"]))
-                    if effective_config == "project_only":
-                        payload = lifecycle_payload(event, ROOT, session_id)
-                        elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
-                    elif effective_config == "global_only":
-                        payload = lifecycle_payload(event, global_workspace, session_id)
-                        elapsed_ms, output = run_lifecycle_once(dispatcher_command(event, role), payload, env, global_workspace)
-                    else:
-                        payload = lifecycle_payload(event, ROOT, session_id)
-                        suppressed_ms, suppressed_output = run_lifecycle_once(dispatcher_command(event, role), payload, env, ROOT)
-                        if suppressed_output:
-                            raise RuntimeError(f"global dispatcher did not suppress {event}/{role}")
-                        suppressed_samples.append(suppressed_ms)
-                        elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
-                    after_bytes = directory_bytes(Path(env["RALPH_HOME"]))
-                    samples.append(elapsed_ms)
-                    stdout_sizes.append(len(output.encode("utf-8")))
-                    blocks += output_block_count(output)
+            modes = ("allow", "objective_failure") if event == "Stop" else ("default",)
+            for stop_mode in modes:
+                for effective_config in ("project_only", "global_only", "global_plus_project"):
+                    samples: list[float] = []
+                    stdout_sizes: list[int] = []
+                    blocks = 0
+                    suppressed_samples: list[float] = []
+                    for iteration in range(iterations):
+                        session_id = f"hook-cost-{event}-{role}-{stop_mode}-{effective_config}-{iteration}"
+                        before_bytes = directory_bytes(Path(env["RALPH_HOME"]))
+                        if effective_config == "project_only":
+                            payload = lifecycle_payload(event, ROOT, session_id, stop_mode)
+                            elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
+                        elif effective_config == "global_only":
+                            payload = lifecycle_payload(event, global_workspace, session_id, stop_mode)
+                            elapsed_ms, output = run_lifecycle_once(dispatcher_command(event, role), payload, env, global_workspace)
+                        else:
+                            payload = lifecycle_payload(event, ROOT, session_id, stop_mode)
+                            suppressed_ms, suppressed_output = run_lifecycle_once(dispatcher_command(event, role), payload, env, ROOT)
+                            if suppressed_output:
+                                raise RuntimeError(f"global dispatcher did not suppress {event}/{role}")
+                            suppressed_samples.append(suppressed_ms)
+                            elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
+                        after_bytes = directory_bytes(Path(env["RALPH_HOME"]))
+                        samples.append(elapsed_ms)
+                        stdout_sizes.append(len(output.encode("utf-8")))
+                        blocks += output_block_count(output)
 
-                p50_ms = statistics.median(samples)
-                p95_ms = percentile(samples, 95)
-                stdout_chars = int(statistics.median(stdout_sizes))
-                source_scope = "global" if effective_config == "global_only" else "project"
-                cases.append(
-                    {
-                        "payload": "lifecycle",
-                        "hook": role,
-                        "event": event,
-                        "role": role,
-                        "effective_config": effective_config,
-                        "source_scope": source_scope,
-                        "p50_ms": round(p50_ms, 3),
-                        "p95_ms": round(p95_ms, 3),
-                        "runtime_p50_ms": round(p50_ms, 3),
-                        "runtime_p95_ms": round(p95_ms, 3),
-                        "stdout_chars": stdout_chars,
-                        "context_units": estimate_context_units(stdout_chars),
-                        "estimated_context_units": estimate_context_units(stdout_chars),
-                        "block_count": blocks,
-                        "continuation_count": 0,
-                        "persisted_bytes": after_bytes,
-                        "persisted_bytes_delta": max(0, after_bytes - before_bytes),
-                        "output_bytes": int(stdout_chars),
-                        "configured_handler_count": 1,
-                        "matched_handler_count": 1 if effective_config != "global_plus_project" else 1,
-                        "executed_handler_count": 1 if effective_config != "global_plus_project" else 1,
-                        "child_process_count": 0,
-                    }
-                )
-                if suppressed_samples:
+                    p50_ms = statistics.median(samples)
+                    p95_ms = percentile(samples, 95)
+                    stdout_chars = int(statistics.median(stdout_sizes))
+                    source_scope = "global" if effective_config == "global_only" else "project"
+                    case_name = f"stop_{stop_mode}" if event == "Stop" else "lifecycle"
                     cases.append(
                         {
-                            "payload": "lifecycle",
+                            "payload": case_name,
+                            "scenario": case_name,
                             "hook": role,
                             "event": event,
                             "role": role,
                             "effective_config": effective_config,
-                            "source_scope": "suppressed_global",
-                            "p50_ms": round(statistics.median(suppressed_samples), 3),
-                            "p95_ms": round(percentile(suppressed_samples, 95), 3),
-                            "runtime_p50_ms": round(statistics.median(suppressed_samples), 3),
-                            "runtime_p95_ms": round(percentile(suppressed_samples, 95), 3),
-                            "stdout_chars": 0,
-                            "context_units": 0,
-                            "estimated_context_units": 0,
-                            "block_count": 0,
-                            "continuation_count": 0,
-                            "persisted_bytes": directory_bytes(Path(env["RALPH_HOME"])),
-                            "persisted_bytes_delta": 0,
-                            "output_bytes": 0,
+                            "source_scope": source_scope,
+                            "p50_ms": round(p50_ms, 3),
+                            "p95_ms": round(p95_ms, 3),
+                            "runtime_p50_ms": round(p50_ms, 3),
+                            "runtime_p95_ms": round(p95_ms, 3),
+                            "stdout_chars": stdout_chars,
+                            "context_units": estimate_context_units(stdout_chars),
+                            "estimated_context_units": estimate_context_units(stdout_chars),
+                            "block_count": blocks,
+                            "continuation_count": blocks if event == "Stop" else 0,
+                            "persisted_bytes": after_bytes,
+                            "persisted_bytes_delta": max(0, after_bytes - before_bytes),
+                            "output_bytes": int(stdout_chars),
                             "configured_handler_count": 1,
-                            "matched_handler_count": 0,
-                            "executed_handler_count": 0,
-                            "child_process_count": 0,
+                            "matched_handler_count": 1,
+                            "executed_handler_count": 1,
+                            "child_process_count": 1 if effective_config == "global_only" else 0,
+                            "known_subprocesses": (
+                                ["global_hook_dispatch", "hook_child", "git"]
+                                if effective_config == "global_only"
+                                else ["git"]
+                                if event == "Stop"
+                                else []
+                            ),
                         }
                     )
+                    if suppressed_samples:
+                        cases.append(
+                            {
+                                "payload": case_name,
+                                "scenario": case_name,
+                                "hook": role,
+                                "event": event,
+                                "role": role,
+                                "effective_config": effective_config,
+                                "source_scope": "suppressed_global",
+                                "p50_ms": round(statistics.median(suppressed_samples), 3),
+                                "p95_ms": round(percentile(suppressed_samples, 95), 3),
+                                "runtime_p50_ms": round(statistics.median(suppressed_samples), 3),
+                                "runtime_p95_ms": round(percentile(suppressed_samples, 95), 3),
+                                "stdout_chars": 0,
+                                "context_units": 0,
+                                "estimated_context_units": 0,
+                                "block_count": 0,
+                                "continuation_count": 0,
+                                "persisted_bytes": directory_bytes(Path(env["RALPH_HOME"])),
+                                "persisted_bytes_delta": 0,
+                                "output_bytes": 0,
+                                "configured_handler_count": 1,
+                                "matched_handler_count": 0,
+                                "executed_handler_count": 0,
+                                "child_process_count": 0,
+                                "known_subprocesses": ["global_hook_dispatch"],
+                            }
+                        )
 
     output_units = estimate_context_units(total_stdout_chars)
     score = total_p50_ms + (output_units * 2.0)
@@ -345,6 +371,10 @@ def measure(iterations: int) -> dict[str, object]:
         "post_tool_processes_after": 1,
         "post_tool_processes_reduction": 5,
         "active_post_tool_roles": ["post_tool_dispatch"],
+        "stop_processes_before": 8,
+        "stop_processes_after": 1,
+        "stop_processes_reduction": 7,
+        "active_stop_roles": ["stop_dispatch"],
         "matched_handler_count": sum(int(case.get("matched_handler_count", 0)) for case in effective_cases),
         "executed_handler_count": sum(int(case.get("executed_handler_count", 0)) for case in effective_cases),
     }
@@ -355,6 +385,7 @@ def measure(iterations: int) -> dict[str, object]:
         case.setdefault("matched_handler_count", 1)
         case.setdefault("executed_handler_count", 1)
         case.setdefault("child_process_count", 0)
+        case.setdefault("known_subprocesses", [])
         case.setdefault("persisted_bytes_delta", int(case.get("persisted_bytes", 0)))
     return report
 
@@ -366,6 +397,7 @@ def markdown_report(report: dict[str, object]) -> str:
         f"- Schema: `{report.get('schema_version', 1)}`",
         f"- Iterations: `{report.get('iterations', 0)}`",
         f"- PostToolUse processes: `{report.get('post_tool_processes_before', 6)}` → `{report.get('post_tool_processes_after', 1)}`",
+        f"- Stop processes: `{report.get('stop_processes_before', 8)}` → `{report.get('stop_processes_after', 1)}`",
         f"- Runtime p50/p95 aggregate: `{report.get('total_p50_ms', 0)} ms` / see JSON cases",
         f"- Subscription usage measured: `{report.get('subscription_usage_measured', False)}`",
         "",

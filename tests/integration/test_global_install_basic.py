@@ -430,7 +430,7 @@ def test_router_global_installer_dry_run_includes_agents_and_hooks(tmp_path: Pat
     assert ".codex/agents/ralph-coder.toml" in result.stdout
     assert ".codex/hooks.json" in result.stdout
     assert "global_hook_dispatch.py" in result.stdout
-    assert "--role stop_route_decision_warn" in result.stdout
+    assert "--role stop_dispatch" in result.stdout
     assert not (tmp_path / ".codex").exists()
 
 

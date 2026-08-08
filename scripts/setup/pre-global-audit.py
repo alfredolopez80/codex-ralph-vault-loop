@@ -71,6 +71,7 @@ def hook_role(event: str, command: str) -> str:
         "sol_advisor_subagent_context.py": "sol_advisor_subagent_context",
         "sol_advisor_subagent_stop.py": "sol_advisor_subagent_stop",
         "post_tool_cost_ledger.py": "post_tool_cost_ledger",
+        "stop_dispatch.py": "stop_dispatch",
         "anti-rationalization-stop.sh": "anti_rationalization_stop",
         "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
         "stop_route_decision_warn.py": "stop_route_decision_warn",
@@ -151,7 +152,7 @@ def global_hook_diff() -> dict[str, Any]:
             "continuity_prompt_context",
         ],
         "PostToolUse": ["post_tool_dispatch"],
-        "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
+        "Stop": ["stop_dispatch"],
     }
     order_failures: list[str] = []
     for event, names in preserved.items():
@@ -173,8 +174,7 @@ def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
         "user_prompt_improve": 10,
         "continuity_prompt_context": 10,
         "post_tool_checkpoint": 10,
-        "stop_persist_memory": 20,
-        "stop_memory_promotion_review": 20,
+        "stop_dispatch": 10,
         "session_start_wakeup": 45,
         "post_tool_dispatch": 10,
     }

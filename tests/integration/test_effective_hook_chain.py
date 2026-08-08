@@ -24,6 +24,7 @@ ROLE_COMMANDS: dict[tuple[str, str], list[str]] = {
     ("PreToolUse", "subagent_routing_pretool_guard"): [sys.executable, str(HOOKS / "subagent_routing_pretool_guard.py")],
     ("PreToolUse", "sol_advisor_pretool_guard"): [sys.executable, str(HOOKS / "sol_advisor_pretool_guard.py")],
     ("PostToolUse", "post_tool_dispatch"): [sys.executable, str(HOOKS / "post_tool_dispatch.py")],
+    ("Stop", "stop_dispatch"): [sys.executable, str(HOOKS / "stop_dispatch.py")],
     ("Stop", "anti_rationalization_stop"): ["bash", str(HOOKS / "anti-rationalization-stop.sh")],
     ("Stop", "ralph_stop_quality_gate"): ["bash", str(HOOKS / "ralph-stop-quality-gate.sh")],
     ("Stop", "file_line_guard_stop"): [sys.executable, str(HOOKS / "file_line_guard.py"), "--event", "Stop"],

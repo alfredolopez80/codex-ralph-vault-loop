@@ -43,17 +43,16 @@ def memory_trace_for_handoff(payload: dict) -> str:
     return "## Memory Trace\n\n" + "\n".join(lines)
 
 
-def main() -> int:
+def run(payload: dict, *, context: ActiveContext | None = None) -> bool:
     try:
-        payload = read_hook_input()
-        context = active_context_from_payload(payload)
+        context = context or active_context_from_payload(payload)
         if payload.get("stop_hook_active"):
-            return 0
+            return False
         message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
         if not isinstance(message, str) or not message.strip():
-            return 0
+            return False
         if is_red(message):
-            return 0
+            return False
         text = safe_preview(message, limit=2_000)
         checkpoint_section, next_step = checkpoint_for_handoff(context)
         memory_trace = memory_trace_for_handoff(payload)
@@ -64,8 +63,13 @@ def main() -> int:
             learning = extract_validated_learning(text)
             if learning:
                 save_learning(learning, source="Stop", classification="YELLOW", context=context)
+        return True
     except Exception:
-        return 0
+        return False
+
+
+def main() -> int:
+    run(read_hook_input())
     return 0
 
 

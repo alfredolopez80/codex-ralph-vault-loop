@@ -130,7 +130,7 @@ def main() -> int:
         ],
         "PreToolUse": ["pre_tool_guard"],
         "PostToolUse": ["post_tool_dispatch"],
-        "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
+        "Stop": ["stop_dispatch"],
     }
     for event, names in required.items():
         sequence = hook_roles(config, event)
@@ -244,11 +244,11 @@ def main() -> int:
             raise RuntimeError("pre_tool_guard did not block stale repo-local wakeup")
 
         stop = run_hook(
-            "stop_persist_memory.py",
+            "stop_dispatch.py",
             {"cwd": str(project_a), "last_assistant_message": "Global hook smoke finished."},
             env,
         )
-        assert_ok("stop_persist_memory.py", stop)
+        assert_ok("stop_dispatch.py", stop)
         handoff_path = one_match(sorted(Path(env["RALPH_HOME"]).glob("projects/*/handoffs/latest.md")), "project handoff")
         handoff = handoff_path.read_text(encoding="utf-8")
         if "## Rolling Checkpoint" not in handoff:

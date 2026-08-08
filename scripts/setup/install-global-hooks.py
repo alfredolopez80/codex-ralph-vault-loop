@@ -71,16 +71,7 @@ HOOK_ROLES: dict[str, tuple[tuple[str, int], ...]] = {
     ),
     "SubagentStart": (("sol_advisor_subagent_context", 10),),
     "SubagentStop": (("sol_advisor_subagent_stop", 10),),
-    "Stop": (
-        ("anti_rationalization_stop", 10),
-        ("ralph_stop_quality_gate", 10),
-        ("file_line_guard_stop", 20),
-        ("stop_route_decision_warn", 10),
-        ("implementation_notes_guard", 10),
-        ("sol_advisor_stop_guard", 10),
-        ("stop_persist_memory", 20),
-        ("stop_memory_promotion_review", 20),
-    ),
+    "Stop": (("stop_dispatch", 10),),
 }
 
 

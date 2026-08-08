@@ -5,20 +5,24 @@ from shared.paths import read_hook_input
 from shared.sol_advisor import mark_stop_guard, read_state, stop_review_recommendation_pending
 
 
-def main() -> int:
+def run(payload: dict) -> bool:
     try:
-        payload = read_hook_input()
         if payload.get("stop_hook_active"):
-            return 0
+            return False
         state = read_state(payload)
         if not stop_review_recommendation_pending(state):
-            return 0
+            return False
         # Stop is report-only for this policy. Record the bounded
         # recommendation so Codex main can decide whether to spawn the
         # eligible advisor; this hook never claims to enforce a final review.
         mark_stop_guard(payload)
+        return True
     except Exception:
-        pass
+        return False
+
+
+def main() -> int:
+    run(read_hook_input())
     return 0
 
 
