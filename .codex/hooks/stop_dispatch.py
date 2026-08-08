@@ -10,6 +10,9 @@ from shared.continuation_budget import Reservation, reserve
 from shared.objective_gates import GateFinding, collect_hard_findings, phrase_report_codes, route_report_codes
 from shared.stop_persistence import mark_promotion_pending, persist_event, persist_handoff
 from shared.stop_scope import StopScope, evidence_fingerprint, scope_from_payload
+from shared.paths import ralph_home
+from shared.post_tool_state import directory_bytes
+from shared.runtime_observability import record_event
 
 OUTPUT_LIMIT = 420
 
@@ -58,7 +61,17 @@ def _record_reports(scope: StopScope, codes: list[str], runtime_ms: float) -> No
         persist_event(scope, event="report_only", reason_codes=codes, runtime_ms=runtime_ms)
 
 
-def _record_stop(scope: StopScope, *, findings: list[GateFinding], reservation: Reservation | None, runtime_ms: float, output_bytes: int) -> None:
+def _record_stop(
+    scope: StopScope,
+    payload: Mapping[str, object],
+    *,
+    findings: list[GateFinding],
+    reservation: Reservation | None,
+    runtime_ms: float,
+    output_bytes: int,
+    persistence_bytes: int = 0,
+    started_ns: int | None = None,
+) -> None:
     codes = [finding.code for finding in findings]
     count = reservation.count if reservation is not None else 0
     persist_event(
@@ -68,6 +81,25 @@ def _record_stop(scope: StopScope, *, findings: list[GateFinding], reservation: 
         runtime_ms=runtime_ms,
         continuation_count=count,
         output_bytes=output_bytes,
+    )
+    record_event(
+        scope.context,
+        payload,
+        event="stop",
+        dispatcher="stop_dispatch",
+        duration_ns=max(0, time.perf_counter_ns() - started_ns) if started_ns is not None else max(0, int(runtime_ms * 1_000_000)),
+        process_count=1,
+        child_process_count=0,
+        components_considered=["hard_gates", "quality_evidence", "handoff", "continuation_budget"],
+        components_executed=["hard_gates", "handoff", "continuation_budget"],
+        components_skipped=["phrase_scan", "route_warning", "heavy_promotion"],
+        skipped_reason=["report_only", "deferred"],
+        persistence_bytes=persistence_bytes,
+        block_reason_code=codes,
+        continuation_count=count,
+        success=not findings,
+        scenario=payload.get("scenario") or ("stop_objective_failure" if findings else "stop_allow"),
+        maintenance_deferred=True,
     )
 
 
@@ -88,6 +120,7 @@ def main() -> int:
         sys.stderr.write("stop_dispatch context resolution failed; allowing Stop.\n")
         return 0
 
+    before_persistence = directory_bytes(ralph_home())
     findings, gate_reports = collect_hard_findings(payload, scope)
     report_codes = list(gate_reports.reports)
     report_codes.extend(route_report_codes(payload))
@@ -100,7 +133,16 @@ def main() -> int:
     _record_reports(scope, report_codes, runtime_ms)
 
     if not findings:
-        _record_stop(scope, findings=[], reservation=None, runtime_ms=runtime_ms, output_bytes=0)
+        _record_stop(
+            scope,
+            payload,
+            findings=[],
+            reservation=None,
+            runtime_ms=runtime_ms,
+            output_bytes=0,
+            persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
+            started_ns=started,
+        )
         return 0
 
     fingerprint = _evidence_fingerprint(payload, findings)
@@ -108,11 +150,29 @@ def main() -> int:
     reservation = reserve(scope, evidence_fingerprint=fingerprint, critical=critical)
     if not reservation.allowed:
         _record_reports(scope, [*report_codes, "continuation_budget_exhausted"], runtime_ms)
-        _record_stop(scope, findings=findings, reservation=reservation, runtime_ms=runtime_ms, output_bytes=0)
+        _record_stop(
+            scope,
+            payload,
+            findings=findings,
+            reservation=reservation,
+            runtime_ms=runtime_ms,
+            output_bytes=0,
+            persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
+            started_ns=started,
+        )
         return 0
 
     output = _block_response(_short_reason(findings))
-    _record_stop(scope, findings=findings, reservation=reservation, runtime_ms=runtime_ms, output_bytes=len(output.encode("utf-8")))
+    _record_stop(
+        scope,
+        payload,
+        findings=findings,
+        reservation=reservation,
+        runtime_ms=runtime_ms,
+        output_bytes=len(output.encode("utf-8")),
+        persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
+        started_ns=started,
+    )
     sys.stdout.write(output)
     return 0
 

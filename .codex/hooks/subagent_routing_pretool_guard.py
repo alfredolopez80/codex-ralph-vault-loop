@@ -2,7 +2,10 @@
 """Validate a proposed native subagent spawn against the bounded route state."""
 from __future__ import annotations
 
+import io
+import sys
 import time
+from contextlib import redirect_stdout
 from typing import Any
 
 from shared.paths import read_hook_input, write_json
@@ -16,6 +19,8 @@ from shared.sol_advisor import (
 )
 from shared.agent_budget import MAX_PACKET_BYTES, budget_decision, normalize_ledger
 from shared.runtime_profile import classify_model
+from shared.active_context import active_context_from_payload
+from shared.runtime_observability import record_event
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
@@ -139,12 +144,12 @@ def _live_budget_remaining(state: dict[str, Any]) -> int:
     return max(0, min(stored_remaining, consultation_budget - consultation_count))
 
 
-def main() -> int:
+def _routing_main(payload: dict[str, Any] | None = None) -> int:
     normalized_tool = ""
     native_tool = ""
     managed_spawn = False
     try:
-        payload = read_hook_input()
+        payload = payload if payload is not None else read_hook_input()
         # This guard is only for the native subagent-spawn tool.  Other
         # tools may legitimately carry fields named ``model``, ``route``, or
         # ``task_name`` and must not be classified as a spawn attempt.
@@ -367,6 +372,41 @@ def main() -> int:
                 pass
         return 0
     return 0
+
+
+def main() -> int:
+    started = time.perf_counter_ns()
+    payload = read_hook_input()
+    output = io.StringIO()
+    with redirect_stdout(output):
+        result = _routing_main(payload)
+    rendered = output.getvalue()
+    if rendered:
+        sys.stdout.write(rendered)
+    try:
+        tool_name = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
+        record_event(
+            active_context_from_payload(payload, resolve_git=False),
+            payload,
+            event="pre_tool",
+            dispatcher="subagent_routing_pretool_guard",
+            duration_ns=time.perf_counter_ns() - started,
+            process_count=1,
+            child_process_count=0,
+            tool_family="agent" if "agent" in tool_name.lower() else "other",
+            components_considered=["subagent_routing", "agent_budget"],
+            components_executed=["deny" if rendered else "allow"],
+            components_skipped=[],
+            skipped_reason=[],
+            output_bytes=len(rendered.encode("utf-8")),
+            block_reason_code=[],
+            success=not rendered,
+            advisor_count=1 if "advisor" in rendered.lower() else 0,
+            scenario=payload.get("scenario"),
+        )
+    except Exception:
+        pass
+    return result
 
 
 if __name__ == "__main__":

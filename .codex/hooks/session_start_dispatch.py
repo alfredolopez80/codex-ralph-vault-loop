@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping
@@ -25,6 +26,7 @@ from shared.runtime_profile import RuntimeProfile, profile_from_payload
 from shared.session_context_cache import read_state, session_entry, state_lock, write_state
 from shared.paths import now_iso, read_hook_input
 from shared.subagent_routing import session_routing_context
+from shared.runtime_observability import record_event
 
 
 CONTRACT_VERSION = "session-start-v1"
@@ -604,12 +606,38 @@ def run(payload: Mapping[str, object]) -> str:
 
 
 def main() -> int:
+    started = time.perf_counter_ns()
+    payload = read_hook_input()
+    output = ""
     try:
-        output = run(read_hook_input())
+        output = run(payload)
     except Exception:
         output = ""
     if output:
         print(output)
+    try:
+        context = active_context_from_payload(payload, resolve_git=False)
+        source = _source(payload)
+        record_event(
+            context,
+            payload,
+            event="session_start",
+            dispatcher="session_start_dispatch",
+            duration_ns=time.perf_counter_ns() - started,
+            process_count=1,
+            child_process_count=0,
+            components_considered=["handoff", "checkpoint", "memory_ids", "routing_delta"],
+            components_executed=["context" if output else "none"],
+            components_skipped=[] if output else ["no_continuity"],
+            skipped_reason=[] if output else ["no_delta"],
+            output_bytes=len((output + "\n").encode("utf-8")) if output else 0,
+            success=True,
+            source_scope=payload.get("source_scope"),
+            scenario=source,
+            maintenance_deferred=True,
+        )
+    except Exception:
+        pass
     return 0
 
 

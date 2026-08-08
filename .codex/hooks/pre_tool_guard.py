@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import re
 import shlex
+import sys
+import time
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +27,8 @@ from shared.local_minikube_grant import digest as approval_digest
 from shared.local_minikube_grant import targets as local_patch_targets
 from shared.paths import REPO_ROOT, read_hook_input, write_json
 from shared.redaction import is_red, sensitivity_report
+from shared.active_context import active_context_from_payload
+from shared.runtime_observability import record_event
 
 DESTRUCTIVE_PATTERNS = [
     re.compile(r"\brm\s+-rf\s+(/|~|\$HOME|\.)"),
@@ -811,8 +817,8 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
     return None
 
 
-def main() -> int:
-    payload = read_hook_input()
+def _guard_main(payload: dict[str, Any] | None = None) -> int:
+    payload = payload if payload is not None else read_hook_input()
     nested_patch = nested_patch_envelope(payload)
     record_patch_payload_shape(payload, nested_patch)
     if nested_patch and not nested_patch.safe:
@@ -958,6 +964,46 @@ def main() -> int:
         )
         return 0
     return 0
+
+
+def main() -> int:
+    started = time.perf_counter_ns()
+    payload = read_hook_input()
+    output = io.StringIO()
+    with redirect_stdout(output):
+        result = _guard_main(payload)
+    rendered = output.getvalue()
+    if rendered:
+        sys.stdout.write(rendered)
+    try:
+        context = active_context_from_payload(payload, resolve_git=False)
+        decision: dict[str, Any] = {}
+        try:
+            parsed = json.loads(rendered) if rendered.strip() else {}
+            decision = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            decision = {}
+        record_event(
+            context,
+            payload,
+            event="pre_tool",
+            dispatcher="pre_tool_guard",
+            duration_ns=time.perf_counter_ns() - started,
+            process_count=1,
+            child_process_count=0,
+            tool_family=str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "unknown"),
+            components_considered=["safety", "egress", "sfw", "workspace_integrity"],
+            components_executed=["deny" if decision.get("decision") == "block" else "allow"],
+            components_skipped=[],
+            skipped_reason=[],
+            output_bytes=len(rendered.encode("utf-8")),
+            block_reason_code=decision.get("reason_code") or [],
+            success=decision.get("decision") != "block",
+            scenario=payload.get("scenario"),
+        )
+    except Exception:
+        pass
+    return result
 
 
 if __name__ == "__main__":

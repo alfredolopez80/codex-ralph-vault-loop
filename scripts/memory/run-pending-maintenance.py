@@ -29,6 +29,7 @@ from shared.maintenance_queue import (  # noqa: E402
     instance_lock,
     queued_project_ids,
 )
+from shared.runtime_observability import record_event  # noqa: E402
 
 
 def _safe_int(value: str, default: int, minimum: int, maximum: int) -> int:
@@ -87,6 +88,29 @@ def _run_job(job: MaintenanceJob, *, max_seconds: int) -> tuple[bool, str, float
     return result.returncode == 0, ("scheduler_failed" if result.returncode else ""), runtime_ms, 1
 
 
+def _record_maintenance(project_id: str, summary: dict[str, object], started_ns: int) -> None:
+    try:
+        record_event(
+            None,
+            {"project_id": project_id},
+            event="maintenance",
+            dispatcher="run_pending_maintenance",
+            duration_ns=time.perf_counter_ns() - started_ns,
+            process_count=1,
+            child_process_count=int(summary.get("child_process_count", 0) or 0),
+            components_considered=["queue", "dream_scheduler", "vault_review"],
+            components_executed=["queue"],
+            components_skipped=["interactive_output"],
+            skipped_reason=["deferred"],
+            persistence_bytes=0,
+            success=summary.get("status") == "completed",
+            scenario="maintenance",
+            maintenance_deferred=True,
+        )
+    except Exception:
+        pass
+
+
 def run(project_ids: list[str], *, max_jobs: int, max_seconds: int) -> dict[str, object]:
     started = time.perf_counter_ns()
     processed = 0
@@ -96,7 +120,7 @@ def run(project_ids: list[str], *, max_jobs: int, max_seconds: int) -> dict[str,
     jobs_seen = 0
     with instance_lock() as locked:
         if not locked:
-            return {
+            summary = {
                 "schema_version": 1,
                 "status": "lock_unavailable",
                 "processed_jobs": 0,
@@ -105,6 +129,9 @@ def run(project_ids: list[str], *, max_jobs: int, max_seconds: int) -> dict[str,
                 "child_process_count": 0,
                 "runner_runtime_ms": round((time.perf_counter_ns() - started) / 1_000_000, 3),
             }
+            for project_id in project_ids:
+                _record_maintenance(project_id, summary, started)
+            return summary
         for project_id in project_ids:
             if processed >= max_jobs:
                 break
@@ -128,7 +155,7 @@ def run(project_ids: list[str], *, max_jobs: int, max_seconds: int) -> dict[str,
                     succeeded += 1
                 else:
                     failed += 1
-    return {
+    summary = {
         "schema_version": 1,
         "status": "completed",
         "project_count": len(project_ids),
@@ -139,6 +166,9 @@ def run(project_ids: list[str], *, max_jobs: int, max_seconds: int) -> dict[str,
         "child_process_count": child_processes,
         "runner_runtime_ms": round((time.perf_counter_ns() - started) / 1_000_000, 3),
     }
+    for project_id in project_ids:
+        _record_maintenance(project_id, summary, started)
+    return summary
 
 
 def main() -> int:

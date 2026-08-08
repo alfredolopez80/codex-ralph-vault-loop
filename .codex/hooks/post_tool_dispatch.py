@@ -27,6 +27,7 @@ from post_tool_cost_ledger import record as cost_record
 from post_tool_extract_memory import raw_learning_candidate, run as memory_run
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes
 from shared.redaction import is_red, safe_preview
+from shared.runtime_observability import record_event
 from shaping_ripple import evaluate as shaping_evaluate
 from sol_advisor_observer import run as advisor_run
 from shared.tool_result import success_from_payload
@@ -197,6 +198,19 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     components: list[str] = []
     errors: list[str] = []
     response: dict[str, Any] | None = None
+    considered: list[str] = []
+    if _should_file_line(tool):
+        considered.append("file_line_guard")
+    if _should_shaping(payload, tool, persistence_allowed):
+        considered.append("shaping_ripple")
+    if _should_memory(payload, tool):
+        considered.append("post_tool_extract_memory")
+    if _should_checkpoint(tool):
+        considered.append("post_tool_checkpoint")
+    if _should_advisor(payload, tool):
+        considered.append("sol_advisor_observer")
+    if persistence_allowed:
+        considered.append("post_tool_cost_ledger")
 
     with dedupe_claim(context, payload) as (duplicate, _key):
         if duplicate:
@@ -262,6 +276,26 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "output_bytes": _response_bytes(response),
                 "persisted_bytes_delta": max(0, after - before),
             },
+        )
+        record_event(
+            context,
+            payload,
+            event="post_tool",
+            dispatcher="post_tool_dispatch",
+            duration_ns=time.perf_counter_ns() - started,
+            process_count=1,
+            child_process_count=0,
+            tool_family=tool.family,
+            components_considered=considered,
+            components_executed=components,
+            components_skipped=[item for item in considered if item not in components],
+            skipped_reason=errors or (["duplicate"] if duplicate else []),
+            success=tool.success,
+            output_bytes=_response_bytes(response),
+            persistence_bytes=max(0, after - before),
+            duplicate_suppressed=duplicate,
+            block_reason_code=(response or {}).get("reason_code") if response else [],
+            scenario=payload.get("scenario"),
         )
     return response
 

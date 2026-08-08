@@ -8,10 +8,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 from shared.active_context import active_context_from_payload
+from shared.runtime_observability import record_event
 
 HOOK_DIR = Path(__file__).resolve().parent
 ROLE_COMMANDS: dict[tuple[str, str], tuple[str, ...]] = {
@@ -88,6 +90,15 @@ ROLE_BY_FILENAME = {
 DISPATCH_ROLE_RE = re.compile(r"global_hook_dispatch\.py\s+--event\s+(\S+)\s+--role\s+([A-Za-z0-9_]+)")
 ROLE_MATCHERS: dict[tuple[str, str], str] = {
     ("PostToolUse", "post_tool_dispatch"): ".*",
+}
+EVENT_NAMES = {
+    "SessionStart": "session_start",
+    "UserPromptSubmit": "user_prompt",
+    "PreToolUse": "pre_tool",
+    "PostToolUse": "post_tool",
+    "Stop": "stop",
+    "SubagentStart": "subagent",
+    "SubagentStop": "subagent",
 }
 
 
@@ -174,9 +185,30 @@ def main() -> int:
         return 0
 
     raw = sys.stdin.read()
-    context = active_context_from_payload(parse_payload(raw))
+    started = time.perf_counter_ns()
+    payload = parse_payload(raw)
+    context = active_context_from_payload(payload)
     expected_matcher = ROLE_MATCHERS.get(key, "")
     if (args.role, expected_matcher) in project_role_signatures(context.workspace_root, args.event):
+        event_name = EVENT_NAMES.get(args.event)
+        if event_name:
+            record_event(
+                context,
+                payload,
+                event=event_name,
+                dispatcher="global_hook_dispatch",
+                duration_ns=time.perf_counter_ns() - started,
+                process_count=1,
+                child_process_count=2 if context.git_root else 0,
+                components_considered=[args.role],
+                components_executed=[],
+                components_skipped=[args.role],
+                skipped_reason=["project_scope_wins"],
+                source_scope="suppressed-global",
+                duplicate_suppressed=True,
+                success=True,
+                scenario=payload.get("scenario"),
+            )
         return 0
     return invoke_child(args.event, args.role, raw, context.workspace_root)
 
