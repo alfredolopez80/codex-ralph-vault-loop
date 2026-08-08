@@ -277,6 +277,24 @@ check_project_mcp_config() {
   fi
 }
 
+check_project_agent_limits() {
+  local config="${SCRIPT_REPO_ROOT}/.codex/config.toml"
+  if python3 - "$config" << 'PY'; then
+from pathlib import Path
+import sys
+import tomllib
+
+config = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+agents = config.get("agents", {})
+if agents.get("max_threads") != 2 or agents.get("max_depth") != 1:
+    raise SystemExit("expected agents.max_threads=2 and agents.max_depth=1")
+PY
+    ok "project agent concurrency bounded (threads=2 depth=1)"
+  else
+    fail "project agent concurrency bounds"
+  fi
+}
+
 check_agents_policy() {
   if [[ ! -f "$GLOBAL_AGENTS_MD" ]]; then
     fail "global AGENTS.md missing Ralph policies: $GLOBAL_AGENTS_MD"
@@ -524,6 +542,7 @@ main() {
   fi
   check_config_not_managed
   check_project_mcp_config
+  check_project_agent_limits
 
   local skill
   for skill in "${DEFAULT_SKILLS[@]}"; do

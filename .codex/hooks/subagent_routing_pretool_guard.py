@@ -2,11 +2,20 @@
 """Validate a proposed native subagent spawn against the bounded route state."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from shared.paths import read_hook_input, write_json
 from shared.redaction import is_red
-from shared.sol_advisor import normalize_phase, read_state, reserve_sol_consultation
+from shared.sol_advisor import (
+    RESERVATION_LEASE_SECONDS,
+    normalize_phase,
+    read_state,
+    reserve_sol_consultation,
+    reserve_worker_spawn,
+)
+from shared.agent_budget import MAX_PACKET_BYTES, budget_decision, normalize_ledger
+from shared.runtime_profile import classify_model
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
@@ -16,7 +25,11 @@ MANAGED_AGENT_TYPES = {"sol-advisor"}
 NO_HISTORY_VALUES = {"none", "fresh", "no-history", "no_history"}
 BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
 NATIVE_BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
-MAX_BRIEF_CHARS = 8_000
+MAX_BRIEF_BYTES = MAX_PACKET_BYTES
+
+
+def _brief_bytes(briefs: list[str]) -> int:
+    return sum(len(brief.encode("utf-8")) for brief in briefs)
 
 
 def _sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -104,6 +117,7 @@ def _is_managed_spawn(
     """Return whether this spawn belongs to the Terra/Sol policy boundary."""
     return bool(
         model in SUPPORTED_MODELS
+        or classify_model(model) in {"terra", "sol"}
         or task_name in MANAGED_TASK_NAMES
         or route_requested in MANAGED_ROUTES
         or agent_type in MANAGED_AGENT_TYPES
@@ -186,7 +200,7 @@ def main() -> int:
             # validation. This keeps full conversation history local even when
             # the current task state is GREEN or YELLOW.
             native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
-            if sum(len(brief) for brief in native_briefs) > MAX_BRIEF_CHARS:
+            if _brief_bytes(native_briefs) > MAX_BRIEF_BYTES:
                 _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
                 return 0
             if not native_briefs:
@@ -203,7 +217,7 @@ def main() -> int:
             _block("RED-sensitive work remains local and cannot be delegated to a model subagent.")
             return 0
         native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
-        if sum(len(brief) for brief in native_briefs) > MAX_BRIEF_CHARS:
+        if _brief_bytes(native_briefs) > MAX_BRIEF_BYTES:
             _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
             return 0
         if not native_briefs:
@@ -293,6 +307,40 @@ def main() -> int:
         # This is deliberately the last mutation in the contract validator.
         # PreToolUse hooks continue after a block, so reserving in a later Sol
         # hook could poison a phase after this validator rejected the payload.
+        if expected_route in {"sol-advisor", "sol-active-analysis"}:
+            phase = normalize_phase(state.get("phase")) or "plan"
+            reservations = state.get("phase_reservations")
+            reservation = reservations.get(phase) if isinstance(reservations, dict) else None
+            live_reservation = False
+            if isinstance(reservation, dict):
+                try:
+                    reserved_at = int(reservation.get("reserved_at", 0) or 0)
+                except (TypeError, ValueError):
+                    reserved_at = 0
+                now = int(time.time())
+                live_reservation = bool(
+                    reserved_at > 0
+                    and reserved_at <= now + 120
+                    and now - reserved_at <= RESERVATION_LEASE_SECONDS
+                )
+            if live_reservation:
+                _block("A Sol consultation is already reserved for this lifecycle phase.")
+                return 0
+        ledger = normalize_ledger(state.get("agent_budget"), signature=str(state.get("task_signature") or ""))
+        kind = "advisor" if expected_route in {"sol-advisor", "sol-active-analysis"} else "worker"
+        budget_decision_result = budget_decision(
+            ledger,
+            kind=kind,
+            sensitivity=persisted_sensitivity,
+            executor_model=str(routing.get("configured_executor_model") or ""),
+            depth=int(state.get("delegation_depth", 0) or 0),
+            independent=bool(state.get("independent_block", False)),
+            critical_review=bool(state.get("critical_review", False)),
+            failure_fingerprints=tuple(str(value) for value in state.get("failure_fingerprints", [])),
+        )
+        if not budget_decision_result.allowed:
+            _block(f"Subagent budget denied: {budget_decision_result.reason}.")
+            return 0
         if expected_route in {"sol-advisor", "sol-active-analysis"} and state.get("final_review_eligible"):
             phase = normalize_phase(state.get("phase")) or "plan"
             reserved, reason = reserve_sol_consultation(
@@ -302,6 +350,11 @@ def main() -> int:
             )
             if not reserved:
                 _block(reason)
+                return 0
+        elif expected_route == "terra-implementation":
+            reserved, reason = reserve_worker_spawn(payload)
+            if not reserved:
+                _block(f"Subagent budget denied: {reason}.")
                 return 0
     except Exception:
         # Ordinary tools remain fail-open, but once a native spawn has been

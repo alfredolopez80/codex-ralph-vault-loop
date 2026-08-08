@@ -26,20 +26,22 @@ intent, impact class, sensitivity, bounded overrides, proven capabilities, and
 remaining budget. It returns an inspectable recommendation without filesystem,
 hook, clock, or configuration I/O.
 
-| Aristotle result        | Current executor | New-subagent recommendation    |
-| ----------------------- | ---------------- | ------------------------------ |
-| 1-3 routine or low-risk | Luna / Max       | None by default                |
-| 4-6 implementation      | Luna / Max       | Terra implementation / High    |
-| 7-8                     | Luna / Max       | Sol advisor / High             |
-| 9 deep decision         | Luna / Max       | Sol advisor / XHigh by default |
-| 10 exceptional decision | Luna / Max       | Sol advisor / Max by default   |
+| Aristotle result        | Current executor | New-subagent recommendation                                     |
+| ----------------------- | ---------------- | --------------------------------------------------------------- |
+| 1-3 routine or low-risk | Luna / Max       | None by default                                                 |
+| 4-6                     | Luna / Max       | Direct; Terra only for an explicit independent measurable block |
+| 7-8 high-value intent   | Luna / Max       | At most one Sol advisor / High or one independent worker        |
+| 9 deep decision         | Luna / Max       | One bounded Sol advisor / XHigh when the intent justifies it    |
+| 10 exceptional decision | Luna / Max       | One bounded Sol advisor / Max; no automatic fan-out             |
 
 Intent and sensitivity remain additional guards for the higher lanes. The
-effective 7-8 band deliberately qualifies for a read-only Sol advisor once the
-input is non-RED; complexity 9-10 still requires a deep intent for automatic
-advisor routing. A material impact signal can promote raw 1-3 work into the
-effective 4-6 review band, but it does not automatically delegate to Terra or
-Sol. RED input always stays local.
+effective 7-8 band qualifies for a read-only Sol advisor only for a high-value
+intent (`architecture`, `security`, `debugging`, `migration`, or
+`claim-adjudication`) and only when the executor is not Sol. Routine 7-8 work
+stays direct. Complexity 9-10 still requires a deep intent for automatic
+advisor routing and does not fan out automatically. A material impact signal
+can promote raw 1-3 work into the effective 4-6 review band, but it does not
+automatically delegate to Terra or Sol. RED input always stays local.
 
 The Sol advisor and active-analysis routes are separate. Advisor is the default
 Sol route at effective 7-10. Active analysis is never automatic and is only
@@ -99,9 +101,14 @@ reduce to local work. An override never changes the configured executor.
 
 ## Budget and context limits
 
-Use at most one Sol consultation per lifecycle phase (`plan`, `stuck`, or
-`final`) and at most two per task, unless the user explicitly requests a new,
-independent decision. Equivalent task/phase/evidence fingerprints reuse the
+The project ceiling is `max_threads=2` with `max_depth=1`. A task ledger uses a
+content-free task signature and allows at most two independent child jobs and
+one advisor by default. Complexity 7-8 therefore cannot combine a worker and
+advisor, while 9-10 may use a second independent job only when the user or
+main session supplies a separately measurable block; there is no automatic
+fan-out. The first objective failure stays with main; a second distinct,
+objective failure can qualify an advisor, while repeating the same failure
+does not escalate. Equivalent task/phase/evidence fingerprints reuse the
 existing verdict. Exhaustion does not cause retries or autonomous spawning.
 
 Send only the goal, decision fork, compact local evidence, constraints, and an
@@ -117,7 +124,7 @@ live consultation allowance changes; the pre-tool guard rechecks the current
 `consultation_budget`, `consultation_count`, and `budget_remaining` before each
 managed Sol spawn.
 The guard also rejects a second Sol spawn in an already consulted lifecycle
-phase and applies the 8,000-character bound to the aggregate native brief,
+phase and applies the 4,096-byte bound to the aggregate native brief,
 not just to one alias at a time. A pre-tool reservation is a 15-minute lease:
 matching start/failure callbacks release it earlier, while a missing callback
 eventually permits a bounded retry instead of permanently poisoning the phase.
@@ -142,6 +149,11 @@ value before the bounded pass-through path is allowed. The managed route
 remains compatible with runtimes that omit fork metadata because its generated
 contract and typed-route checks establish the fresh-fork requirement separately.
 
+The advisor packet contains only a concrete question, compact local evidence,
+relevant file identifiers, constraints, and the required output headings.
+Ledger fields record counts, hashes, byte totals, reason codes, and timestamps;
+they never record prompt, memory, transcript, or advisor-result bodies.
+
 ## Local-first rollout and rollback
 
 1. Prove the exact model IDs, effort names, typed-agent precedence, spawn
@@ -149,8 +161,9 @@ contract and typed-route checks establish the fresh-fork requirement separately.
    local Codex session.
 2. Keep active analysis disabled until that proof exists. Add the pure policy,
    bounded hook metadata, spawn guards, and focused tests repository-locally.
-3. Exercise Luna, Terra, Sol advisor 7-8, override, RED, and active analysis
-   rejection cases in repository-local fresh sessions.
+3. Exercise direct Luna routing, the explicit Terra independent-block lane,
+   one gated Sol advisor, override, RED, and active-analysis rejection cases in
+   repository-local fresh sessions.
 4. Only with separate explicit approval, install the source-parity-verified
    hooks and agents globally, then verify fresh App, CLI, and neutral-workspace
    sessions.

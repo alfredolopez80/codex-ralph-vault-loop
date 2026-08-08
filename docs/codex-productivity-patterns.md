@@ -25,13 +25,16 @@ govern the session.
 ## Runtime Posture
 
 Use `gpt-5.6-luna` with max reasoning as the project default. Keep
-`multi_agent = true`, use at most four concurrent threads, and keep
+`multi_agent = true`, use at most two concurrent threads, and keep
 `max_depth = 1` so delegated agents cannot create another delegation layer.
 
-For complexity 4-6 implementation work, recommend `gpt-5.6-terra` with high
-reasoning. For complexity 7-8 work, recommend the `gpt-5.6-sol` advisor with
-high reasoning; complexity 9-10 uses XHigh/Max when the deep-intent gates pass.
-Routing guidance is advisory; it does not switch the active main-thread model.
+Complexity 1-3 stays direct. Complexity 4-6 stays direct unless an independent
+measurable block is explicitly supplied; that block may use `gpt-5.6-terra`
+with high reasoning. Complexity 7-8 may use one bounded `gpt-5.6-sol` advisor
+only for architecture, security, debugging, migration, or claim adjudication;
+complexity 9-10 still does not fan out automatically. A Sol executor is not
+given routine Sol self-supervision. Routing guidance is advisory; it does not
+switch the active main-thread model.
 
 External MCP advisors retain their intent-first routing but default to bounded
 answers: 3,000 output tokens for deep Z.ai analysis, 1,500 for fast Z.ai or

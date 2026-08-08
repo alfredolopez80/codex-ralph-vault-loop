@@ -22,7 +22,8 @@ edit `.codex/config.toml` during a turn.
 
 Use the native `sol-advisor` agent only when the routing decision marks a new
 subagent eligible or when the user makes a supported explicit subagent request.
-Automatic advisor routing starts at effective complexity 7:
+Automatic advisor routing starts at effective complexity 7 only for a
+high-value intent and a non-Sol executor:
 
 | Effective complexity | Default Sol lane | Effort |
 | -------------------- | ---------------- | ------ |
@@ -30,8 +31,8 @@ Automatic advisor routing starts at effective complexity 7:
 | 9                    | Advisor          | XHigh  |
 | 10                   | Advisor          | Max    |
 
-Complexity 4-6 implementation routes to a Terra implementation subagent, not
-Sol. Complexity 1-3 stays Luna-only by default. A material impact signal may
+Complexity 4-6 stays direct unless an independent measurable block is proven;
+that block may route to a Terra implementation subagent, not Sol. Complexity 1-3 stays Luna-only. A material impact signal may
 promote raw 1-3 work into the effective 4-6 review band, but never
 automatically calls Sol.
 
@@ -39,12 +40,13 @@ Typical Sol decisions are architecture, authorization, schema, migration,
 rollout, external-interface, security, or difficult-to-reverse choices. Routine
 work cannot qualify merely because a prompt is long.
 
-Do not use it for mechanical edits, routine status work, simple reproduction, or a verified low-risk path when Aristotle remains in the 1–3 band. A validated effective 7–8 classification is itself the explicit Sol-advisor lane, even when the lightweight intent label is `routine`, so that the scale has no delegation gap. Respect the task budget: at most one consultation per phase and two per task; reuse an equivalent prior verdict.
+Do not use it for mechanical edits, routine status work, simple reproduction, or a verified low-risk path when Aristotle remains in the 1–3 band. Routine 7–8 work remains with Luna; a complexity score is not by itself an advisor request. Respect the task budget: at most one advisor and two independent child jobs per task, with no automatic fan-out; reuse an equivalent prior verdict.
 
 The hook state is versioned and bounded. It records a task identity, current
 phase (`plan`, `stuck`, or `final`), raw/effective complexity, route, effort,
-decision fingerprint, consultation budget/remaining budget, and a
-non-sensitive reference to the prior verdict. Equivalent fingerprints reuse
+decision fingerprint, consultation budget/remaining budget, child/advisor
+counts, failure hashes, byte totals, and a non-sensitive reference to the
+prior verdict. Equivalent fingerprints reuse
 the prior verdict; a second consultation in the same phase is not counted.
 New failure evidence changes the fingerprint and can qualify the `stuck`
 phase, while an unchanged plan verdict may be reused.
@@ -87,7 +89,9 @@ Give Sol only:
 Never include restricted material. Do not send a conversation dump.
 
 Codex main creates the native `sol-advisor` subagent with a fresh, no-history
-fork and puts this brief directly in its invocation. Use the compact, validated
+fork and puts this brief directly in its invocation. The packet is hard-capped
+at 4,096 bytes and contains only a concrete question, compact local evidence,
+file identifiers, constraints, and output headings. Use the compact, validated
 spawn contract: `task_name=sol_advisor`, `model=gpt-5.6-sol`, the routing
 decision's `reasoning_effort`, and `fork_turns=none`. The contract may include
 the typed `sol-advisor` agent profile after compatibility validation. Do not use

@@ -113,6 +113,23 @@ check_mcp_config() {
   fi
 }
 
+check_agent_limits() {
+  if "$PYTHON_BIN" - "$REPO_ROOT/.codex/config.toml" << 'PY'; then
+from pathlib import Path
+import sys
+import tomllib
+
+config = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+agents = config.get("agents", {})
+if agents.get("max_threads") != 2 or agents.get("max_depth") != 1:
+    raise SystemExit("expected agents.max_threads=2 and agents.max_depth=1")
+PY
+    ok "agent concurrency bounded (threads=2 depth=1)"
+  else
+    fail "agent concurrency bounds"
+  fi
+}
+
 check_scorecards() {
   if "$PYTHON_BIN" - "$REPO_ROOT/config/scorecards" << 'PY'; then
 from pathlib import Path
@@ -166,6 +183,7 @@ main() {
   fi
   check_file "AGENTS.md" "AGENTS.md exists"
   check_toml ".codex/config.toml" ".codex/config.toml parses"
+  check_agent_limits
   check_mcp_config
   check_dir ".agents/skills" ".agents/skills exists"
   check_dir ".codex/agents" ".codex/agents exists"

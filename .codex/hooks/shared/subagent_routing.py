@@ -13,6 +13,15 @@ from json import dumps
 from types import MappingProxyType
 from typing import Mapping
 
+from .agent_budget import (
+    MAX_DEPTH,
+    MAX_PACKET_BYTES,
+    MAX_TASK_ADVISORS,
+    MAX_TASK_JOBS,
+    MAX_THREADS,
+)
+from .runtime_profile import classify_model
+
 POLICY_VERSION = "subagent-routing-v2"
 LUNA_MODEL = "gpt-5.6-luna"
 TERRA_MODEL = "gpt-5.6-terra"
@@ -93,6 +102,13 @@ class RoutingRequest:
     # Gate evidence is safety-critical.  A caller must prove it explicitly;
     # omission cannot authorize active Sol analysis or an effort downgrade.
     hard_gates_pass: bool = False
+    # Delegation is opt-in even in high-complexity bands.  These fields are
+    # structured evidence supplied by the intake layer, never inferred from
+    # prompt length or transcript heuristics.
+    independent_block: bool = False
+    independent_block_count: int = 0
+    critical_review: bool = False
+    failure_fingerprints: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -123,6 +139,11 @@ class RoutingDecision:
     budget_remaining: int
     decision_fingerprint: str
     reason_code: str
+    max_threads: int
+    max_depth: int
+    max_task_jobs: int
+    max_task_advisors: int
+    packet_budget_bytes: int
 
 
 def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
@@ -136,7 +157,17 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
     active_ok, active_reason = _active_analysis_status(request, effective, sensitivity)
     override, scope, requested, expiry, override_error, override_rejections = _selected_override(request)
 
-    route, model, mode, effort, reason = _base_route(raw, effective, intent, sensitivity)
+    executor_family = classify_model(executor.model)
+    route, model, mode, effort, reason = _base_route(
+        raw,
+        effective,
+        intent,
+        sensitivity,
+        executor_family=executor_family,
+        independent_block=request.independent_block,
+        critical_review=request.critical_review,
+        failure_fingerprints=request.failure_fingerprints,
+    )
     effective_override: Mapping[str, object] = _frozen_map()
     if override is not None and override_error is None:
         routed = _apply_override(
@@ -174,6 +205,26 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
                     expiry=override.expires_at,
                     reason=override_error,
                 )
+
+    # Explicit overrides are still subordinate to the phase policy.  They may
+    # choose an eligible lane, but cannot turn trivial work into a child spawn,
+    # create a worker without an independently measurable block, or make Sol
+    # supervise itself outside a critical review phase.
+    if route != "none" and raw <= 3:
+        route, model, mode, effort = "none", None, "none", None
+        reason = "direct-1-3"
+        effective_override = _frozen_map()
+        override_error = override_error or "complexity-band-does-not-delegate"
+    elif route == "terra-implementation" and not request.independent_block:
+        route, model, mode, effort = "none", None, "none", None
+        reason = "independent-block-required"
+        effective_override = _frozen_map()
+        override_error = override_error or "independent-block-required"
+    elif route in {"sol-advisor", "sol-active-analysis"} and executor_family == "sol" and not request.critical_review:
+        route, model, mode, effort = "none", None, "none", None
+        reason = "sol-self-supervision-suppressed"
+        effective_override = _frozen_map()
+        override_error = override_error or "sol-self-supervision-suppressed"
 
     if route != "none" and not request.capabilities.spawn_model_effort:
         route, model, mode, effort = "none", None, "none", None
@@ -215,6 +266,10 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         override_expiry=expiry,
         capabilities=request.capabilities,
         explicit_budget=request.budget.explicit_class,
+        independent_block=request.independent_block,
+        independent_block_count=request.independent_block_count,
+        critical_review=request.critical_review,
+        failure_fingerprints=tuple(request.failure_fingerprints),
         # Consultation availability and explanatory status are live
         # lifecycle facts, not part of the decision identity. The pre-tool
         # guard rechecks the current budget immediately before a Sol spawn,
@@ -248,6 +303,11 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         budget_remaining=max(0, request.budget.remaining),
         decision_fingerprint=fingerprint,
         reason_code=reason,
+        max_threads=MAX_THREADS,
+        max_depth=MAX_DEPTH,
+        max_task_jobs=MAX_TASK_JOBS,
+        max_task_advisors=MAX_TASK_ADVISORS,
+        packet_budget_bytes=MAX_PACKET_BYTES,
     )
 
 
@@ -274,16 +334,44 @@ def _executor_defaults(request: RoutingRequest) -> tuple[ExecutorDefaults, str]:
     return request.global_default, "global"
 
 
-def _base_route(raw: int, effective: int, intent: str, sensitivity: str) -> tuple[str, str | None, str, str | None, str]:
+def _base_route(
+    raw: int,
+    effective: int,
+    intent: str,
+    sensitivity: str,
+    *,
+    executor_family: str,
+    independent_block: bool,
+    critical_review: bool,
+    failure_fingerprints: tuple[str, ...],
+) -> tuple[str, str | None, str, str | None, str]:
     if sensitivity == "RED":
         return "none", None, "none", None, "red-local-only"
     if raw <= 3:
         return "none", None, "none", None, "routine-luna-only"
-    if effective in range(4, 7) and intent == "implementation":
-        return "terra-implementation", TERRA_MODEL, "implementation", TERRA_EFFORT, "implementation-4-6"
+    distinct_failures = {fingerprint for fingerprint in failure_fingerprints if fingerprint}
+    if distinct_failures and len(distinct_failures) < 2:
+        return "none", None, "none", None, "inspect-first-failure-locally"
+    # 4-6 remains direct unless the caller proves a measurable independent
+    # block.  This avoids routine fan-out while retaining an explicit worker
+    # escape hatch for work that can be independently verified.
+    if effective in range(4, 7):
+        if independent_block and intent == "implementation":
+            return "terra-implementation", TERRA_MODEL, "implementation", TERRA_EFFORT, "independent-worker-4-6"
+        return "none", None, "none", None, "direct-4-6"
     if effective in range(7, 9):
-        return "sol-advisor", SOL_MODEL, "advisor", SOL_EFFORTS[8], "sol-advisor-7-8"
-    if effective >= 8 and intent in DEEP_INTENTS:
+        if independent_block and intent == "implementation":
+            return "terra-implementation", TERRA_MODEL, "implementation", TERRA_EFFORT, "independent-worker-7-8"
+        if executor_family == "sol" and not critical_review:
+            return "none", None, "none", None, "sol-self-supervision-suppressed"
+        if intent in DEEP_INTENTS:
+            return "sol-advisor", SOL_MODEL, "advisor", SOL_EFFORTS[8], "sol-advisor-7-8"
+        return "none", None, "none", None, "direct-7-8"
+    if effective >= 9 and independent_block:
+        return "terra-implementation", TERRA_MODEL, "implementation", TERRA_EFFORT, "independent-worker-9-10"
+    if effective >= 9 and intent in DEEP_INTENTS:
+        if executor_family == "sol" and not critical_review:
+            return "none", None, "none", None, "sol-self-supervision-suppressed"
         effort = SOL_EFFORTS[min(effective, 10)]
         return "sol-advisor", SOL_MODEL, "advisor", effort, f"sol-advisor-{effective}"
     return "none", None, "none", None, "intent-does-not-qualify-for-automatic-subagent"
@@ -460,11 +548,12 @@ def session_routing_context() -> str:
     return (
         f"Model routing policy {POLICY_VERSION} (non-authoritative reminder): "
         f"configured executor remains {LUNA_MODEL}/{LUNA_DEFAULT_EFFORT}. "
-        f"Effective Aristotle complexity routes new subagents as 1-3 {LUNA_MODEL}/max; "
-        f"4-6 {TERRA_MODEL}/{TERRA_EFFORT} implementation; "
-        f"7-8 {SOL_MODEL}/{SOL_EFFORTS[8]} advisor; "
+        f"max_threads={MAX_THREADS}, max_depth={MAX_DEPTH}; "
+        f"complexity 1-3 stays direct; 4-6 stays direct unless an independent measurable block is proven; "
+        f"7-8 uses at most one bounded {SOL_MODEL}/{SOL_EFFORTS[8]} advisor only for high-value intents; "
         f"9 {SOL_MODEL}/{SOL_EFFORTS[9]} advisor; "
         f"10 {SOL_MODEL}/{SOL_EFFORTS[10]} advisor. "
-        "Active Sol analysis is never automatic and requires every gate; RED stays local. "
+        f"At most {MAX_TASK_JOBS} independent jobs per task and no automatic fan-out. "
+        "SOL never self-supervises outside an explicitly critical independent review; RED stays local. "
         "Codex main owns decisions; this reminder never switches the current model or carries history."
     )
