@@ -120,11 +120,11 @@ writes. Set
 
 | Timing                   | Hook event / surface                                                                                       | Responsibility                                                                                                                                                                      | Validation evidence                                                                                                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session start            | `SessionStart` / `session_start_wakeup.py`                                                                 | Run dream catch-up when due, then Ralph wakeup for the active project.                                                                                                              | `bash scripts/setup/doctor-global.sh`; `python3 scripts/setup/smoke-global-hooks.py` after install.                                                                                  |
+| Session start            | `SessionStart` / `session_start_wakeup.py`                                                                 | Enqueue a bounded maintenance descriptor, then run Ralph wakeup immediately; dream/vault maintenance is explicit and out of the interaction path.                                   | `bash scripts/setup/doctor-global.sh`; `python3 scripts/setup/smoke-global-hooks.py`; `python3 scripts/memory/run-pending-maintenance.py --all --json`.                              |
 | Before prompt context    | `UserPromptSubmit` / classifier, `user_prompt_capture.py`, `user_prompt_improve.py`, continuity and recall | Classify complexity and sensitivity, reject unsafe prompt payloads, inject the compact Improve Prompt contract, then add scoped continuity/memory as non-authoritative context.     | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/integration/test_hook_config_lockstep.py tests/integration/test_hooks_basic.py -q`; `bash .codex/tests/run-hook-tests.sh`. |
 | Before command execution | `PreToolUse` / `pre_tool_guard.py`                                                                         | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations. | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                         |
 | After command execution  | `PostToolUse` / `post_tool_dispatch.py`                                                                    | Classify once, deduplicate once, run only relevant components, and capture bounded observer metrics.                                                                                | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_post_tool_dispatch.py tests/integration/test_hooks_basic.py -q`.                                                 |
-| Thread finalization      | `Stop` / `stop_dispatch.py`                                                                                | Aggregate scoped objective gates, preserve safe handoff, record report-only observations, and cap continuations.                                                                    | `bash .codex/tests/run-hook-tests.sh`; Stop dispatcher unit and implementation-notes integration tests.                                                                              |
+| Thread finalization      | `Stop` / `stop_dispatch.py`                                                                                | Aggregate scoped objective gates, preserve safe handoff, enqueue deferred maintenance, record report-only observations, and cap continuations.                                      | `bash .codex/tests/run-hook-tests.sh`; Stop dispatcher and maintenance-queue tests.                                                                                                  |
 | Compact lifecycle        | `PreCompact` / `PostCompact`                                                                               | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                      |
 | Weekly validation        | Codex App automation                                                                                       | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                            |
 
@@ -225,3 +225,18 @@ For isolated manual tests, set `CODEX_HOOK_STATE_ROOT` to any writable scratch
 directory before invoking hooks.
 
 Do not persist secrets, transcripts, or raw prompts in `.codex/state/`.
+
+## Deferred memory maintenance (Phase 10)
+
+The SessionStart and Stop hooks enqueue a small local maintenance descriptor
+and return to their normal wakeup/gate work. They do not launch dream,
+promotion, or vault review subprocesses. Run the bounded maintenance worker
+explicitly when a local doctor, cron, or approved automation is available:
+
+```bash
+python3 scripts/memory/run-pending-maintenance.py --all --json
+```
+
+The worker is singleton-locked, idempotent, TTL-bounded, and keeps its
+sanitized status output away from the model. Ambiguous inbox candidates remain
+human-review items; enqueueing never claims that maintenance has completed.

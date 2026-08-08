@@ -183,6 +183,29 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
     assert stop == ["stop_dispatch"]
 
 
+def test_temp_global_install_carries_deferred_maintenance_sources(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["RALPH_HOME"] = str(tmp_path / "ralph")
+    env["CODEX_MEMORY_HOME"] = str(tmp_path / "codex-memory")
+    env["VAULT_DIR"] = str(tmp_path / "vault")
+    env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    env["HOME"] = str(tmp_path / "home")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--allow-worktree-source"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    global_hooks = Path(env["HOME"]) / ".codex" / "hooks"
+    assert (global_hooks / "memory_maintenance_enqueue.py").is_file()
+    assert (global_hooks / "stop_memory_promotion_review.py").is_file()
+    assert (global_hooks / "shared" / "maintenance_queue.py").is_file()
+
+
 def test_configured_stop_hooks_emit_only_codex_supported_output(tmp_path: Path) -> None:
     config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     session_id = f"stop-contract-{uuid.uuid4()}"

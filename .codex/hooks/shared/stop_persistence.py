@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from .active_context import ActiveContext, project_runtime_root
 from .continuation_budget import append_event
+from .maintenance_queue import enqueue_maintenance
 from .paths import ralph_home
 from .stop_scope import StopScope
 
@@ -129,6 +130,9 @@ def persist_event(scope: StopScope, *, event: str, reason_codes: list[str] | tup
 def mark_promotion_pending(scope: StopScope, payload: Mapping[str, object]) -> bool:
     if not _safe_runtime(scope):
         return False
+    # Stop owns only the durable marker/enqueue.  Dream and vault review run
+    # later through scripts/memory/run-pending-maintenance.py.
+    enqueue_maintenance(scope.context, reason_code="stop", payload=payload)
     selected = payload.get("selected_memory_ids") or payload.get("selectedMemoryIds")
     candidates = payload.get("memory_candidates") or payload.get("memoryCandidates")
     promotion_required = bool(candidates or selected or payload.get("learning_candidate"))

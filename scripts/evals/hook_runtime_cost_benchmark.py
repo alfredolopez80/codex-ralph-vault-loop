@@ -187,6 +187,117 @@ def output_block_count(output: str) -> int:
     return 1 if isinstance(payload, dict) and payload.get("decision") == "block" else 0
 
 
+def maintenance_benchmark(iterations: int) -> dict[str, object]:
+    """Measure queue enqueue separately from the explicit maintenance runner."""
+    scenarios = ("stop_allow", "stop_allow_with_memory", "stop_objective_failure", "session_start_backlog")
+    cases: list[dict[str, object]] = []
+    for scenario in scenarios:
+        enqueue_samples: list[float] = []
+        runner_samples: list[float] = []
+        enqueue_outputs: list[int] = []
+        runner_outputs: list[int] = []
+        persisted_deltas: list[int] = []
+        runner_children: list[int] = []
+        blocks = 0
+        with tempfile.TemporaryDirectory(prefix="ralph-maintenance-bench-") as tmp:
+            env = os.environ.copy()
+            env["RALPH_HOME"] = str(Path(tmp) / "ralph")
+            env["CODEX_MEMORY_HOME"] = str(Path(tmp) / "codex-memory-empty")
+            env["VAULT_DIR"] = str(Path(tmp) / "vault-empty")
+            env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+            env["RALPH_MAINTENANCE_DEBOUNCE_SECONDS"] = "0"
+            for iteration in range(iterations):
+                session_id = f"maintenance-{scenario}-{iteration}"
+                before = directory_bytes(Path(env["RALPH_HOME"]))
+                if scenario == "session_start_backlog":
+                    payload = lifecycle_payload("SessionStart", ROOT, session_id)
+                    payload["memory_generation"] = f"{scenario}-{iteration}"
+                    command = direct_command("SessionStart", "session_start_wakeup")
+                else:
+                    payload = lifecycle_payload(
+                        "Stop",
+                        ROOT,
+                        session_id,
+                        "objective_failure" if scenario == "stop_objective_failure" else "allow",
+                    )
+                    if scenario == "stop_allow_with_memory":
+                        payload["selected_memory_ids"] = ["benchmark-sentinel-id"]
+                    payload["memory_generation"] = f"{scenario}-{iteration}"
+                    command = direct_command("Stop", "stop_dispatch")
+                started = time.perf_counter_ns()
+                completed = subprocess.run(
+                    command,
+                    cwd=ROOT,
+                    input=json.dumps(payload),
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                    check=False,
+                    timeout=30,
+                )
+                enqueue_ms = (time.perf_counter_ns() - started) / 1_000_000
+                if completed.returncode != 0:
+                    raise RuntimeError(f"maintenance enqueue failed: {completed.stderr[-500:]}")
+                enqueue_samples.append(enqueue_ms)
+                enqueue_outputs.append(len(completed.stdout.encode("utf-8")))
+                blocks += output_block_count(completed.stdout)
+
+                runner_started = time.perf_counter_ns()
+                runner = subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts" / "memory" / "run-pending-maintenance.py"),
+                        "--all",
+                        "--max-jobs",
+                        "1",
+                        "--max-seconds",
+                        "1",
+                        "--json",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                    check=False,
+                    timeout=20,
+                )
+                runner_ms = (time.perf_counter_ns() - runner_started) / 1_000_000
+                if runner.returncode != 0:
+                    raise RuntimeError(f"maintenance runner failed: {runner.stderr[-500:]}")
+                runner_samples.append(runner_ms)
+                runner_outputs.append(len(runner.stdout.encode("utf-8")))
+                try:
+                    runner_summary = json.loads(runner.stdout.strip() or "{}")
+                except json.JSONDecodeError:
+                    runner_summary = {}
+                runner_children.append(int(runner_summary.get("child_process_count", 0)))
+                persisted_deltas.append(max(0, directory_bytes(Path(env["RALPH_HOME"])) - before))
+        cases.append(
+            {
+                "schema_version": 1,
+                "scenario": scenario,
+                "event": "Stop" if scenario.startswith("stop_") else "SessionStart",
+                "runtime_wall_ms": round(statistics.median(enqueue_samples), 3),
+                "runtime_p50_ms": round(statistics.median(enqueue_samples), 3),
+                "runtime_p95_ms": round(percentile(enqueue_samples, 95), 3),
+                "enqueue_p50_ms": round(statistics.median(enqueue_samples), 3),
+                "enqueue_p95_ms": round(percentile(enqueue_samples, 95), 3),
+                "runner_p50_ms": round(statistics.median(runner_samples), 3),
+                "runner_p95_ms": round(percentile(runner_samples, 95), 3),
+                "output_bytes": int(statistics.median(enqueue_outputs)),
+                "runner_output_bytes": int(statistics.median(runner_outputs)),
+                "persisted_bytes_delta": int(statistics.median(persisted_deltas)),
+                "continuation_count": blocks if scenario == "stop_objective_failure" else 0,
+                "block_count": blocks,
+                "child_process_count": 1 if scenario == "session_start_backlog" else 0,
+                "known_subprocesses": ["wakeup"] if scenario == "session_start_backlog" else [],
+                "runner_child_process_count": int(statistics.median(runner_children)),
+                "subscription_usage_measured": False,
+            }
+        )
+    return {"schema_version": 1, "cases": cases}
+
+
 def measure(iterations: int) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="ralph-hook-cost-") as tmp:
         env = os.environ.copy()
@@ -335,6 +446,7 @@ def measure(iterations: int) -> dict[str, object]:
                             }
                         )
 
+    maintenance = maintenance_benchmark(iterations)
     output_units = estimate_context_units(total_stdout_chars)
     score = total_p50_ms + (output_units * 2.0)
     effective_cases = [case for case in cases if case["source_scope"] != "suppressed_global"]
@@ -377,6 +489,7 @@ def measure(iterations: int) -> dict[str, object]:
         "active_stop_roles": ["stop_dispatch"],
         "matched_handler_count": sum(int(case.get("matched_handler_count", 0)) for case in effective_cases),
         "executed_handler_count": sum(int(case.get("executed_handler_count", 0)) for case in effective_cases),
+        "maintenance": maintenance,
     }
     for case in report["cases"]:
         case.setdefault("schema_version", 2)
@@ -418,6 +531,31 @@ def markdown_report(report: dict[str, object]) -> str:
                 blocks=case.get("block_count", 0),
             )
         )
+    maintenance = report.get("maintenance", {})
+    if isinstance(maintenance, dict):
+        lines.extend([
+            "",
+            "## Deferred maintenance (separate from hook latency)",
+            "",
+            "| Scenario | enqueue p50/p95 ms | runner p50/p95 ms | enqueue output bytes | persisted delta | runner children | blocks |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        for case in maintenance.get("cases", []):
+            if not isinstance(case, dict):
+                continue
+            lines.append(
+                "| {scenario} | {ep50}/{ep95} | {rp50}/{rp95} | {output} | {persisted} | {children} | {blocks} |".format(
+                    scenario=case.get("scenario", ""),
+                    ep50=case.get("enqueue_p50_ms", 0),
+                    ep95=case.get("enqueue_p95_ms", 0),
+                    rp50=case.get("runner_p50_ms", 0),
+                    rp95=case.get("runner_p95_ms", 0),
+                    output=case.get("output_bytes", 0),
+                    persisted=case.get("persisted_bytes_delta", 0),
+                    children=case.get("runner_child_process_count", 0),
+                    blocks=case.get("block_count", 0),
+                )
+            )
     return "\n".join(lines) + "\n"
 
 

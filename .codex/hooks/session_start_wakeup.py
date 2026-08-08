@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from shared.active_context import active_context_from_payload
+from shared.maintenance_queue import enqueue_maintenance
 from shared.paths import REPO_ROOT, ensure_runtime, read_hook_input
 from shared.subagent_routing import session_routing_context
 
@@ -22,30 +23,9 @@ def main() -> int:
             "RALPH_WORKSPACE_ROOT": str(context.workspace_root),
             "RALPH_SESSION_ID": context.session_id,
         }
-        scheduler = REPO_ROOT / "scripts" / "memory" / "dream-scheduler.py"
-        if scheduler.exists():
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(scheduler),
-                    "--catch-up",
-                    "--target-time",
-                    "11:30",
-                    "--max-seconds",
-                    "15",
-                    "--vault-project",
-                    context.project_slug,
-                    "--project-id",
-                    context.project_id,
-                    "--workspace-root",
-                    str(context.workspace_root),
-                ],
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=20,
-                env=env,
-            )
+        # Startup is interaction-critical: enqueue a descriptor and let the
+        # explicit maintenance runner perform any catch-up after wakeup.
+        enqueue_maintenance(context, reason_code="session_start", payload=payload)
         wakeup = REPO_ROOT / "scripts" / "memory" / "wakeup.py"
         if not wakeup.exists():
             print(f"RALPH_WAKEUP_STATUS=missing path={wakeup}")

@@ -54,6 +54,23 @@ def run_bash_hook(
     )
 
 
+def run_maintenance(ralph_home: Path, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["RALPH_HOME"] = str(ralph_home)
+    env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
+    env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "memory" / "run-pending-maintenance.py"), "--all", "--max-jobs", "2", "--max-seconds", "5", "--json"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+
 def project_roots(ralph_home: Path) -> list[Path]:
     return sorted(path for path in (ralph_home / "projects").glob("*") if path.is_dir())
 
@@ -1426,6 +1443,8 @@ def test_stop_memory_promotion_review_warns_for_review_candidates(tmp_path: Path
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
+    maintenance = run_maintenance(tmp_path, {"VAULT_DIR": str(tmp_path / "vault")})
+    assert maintenance.returncode == 0, maintenance.stderr
     report = json.loads((project_root(tmp_path) / "reports" / "memory" / "promotion-latest.json").read_text(encoding="utf-8"))
     assert report["review_requested"]
     assert "security review" in json.dumps(report["review_requested"])

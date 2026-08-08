@@ -64,6 +64,17 @@ def test_hook_runtime_cost_benchmark_emits_metrics_contract(tmp_path: Path) -> N
     assert "METRIC hook_total_p50_ms=" in result.stdout
     assert "METRIC hook_output_context_units=" in result.stdout
     assert metric_text.startswith("hook_cost_score=")
+    maintenance_cases = report["maintenance"]["cases"]
+    assert {case["scenario"] for case in maintenance_cases} >= {
+        "stop_allow",
+        "stop_allow_with_memory",
+        "stop_objective_failure",
+        "session_start_backlog",
+    }
+    assert all(
+        {"enqueue_p50_ms", "enqueue_p95_ms", "runner_p50_ms", "runner_p95_ms", "runner_child_process_count"} <= set(case)
+        for case in maintenance_cases
+    )
 
 
 def test_hook_runtime_cost_benchmark_uses_empty_temp_vault(monkeypatch) -> None:

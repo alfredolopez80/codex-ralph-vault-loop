@@ -441,6 +441,8 @@ check_global_hooks() {
   check_hook_file_matches_source "pre_tool_guard.py"
   check_hook_file_matches_source "post_tool_dispatch.py"
   check_hook_file_matches_source "stop_dispatch.py"
+  check_hook_file_matches_source "memory_maintenance_enqueue.py"
+  check_hook_file_matches_source "stop_memory_promotion_review.py"
 
   local improve_payload
   local improve_output

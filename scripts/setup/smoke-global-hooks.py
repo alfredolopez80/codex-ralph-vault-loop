@@ -150,6 +150,13 @@ def main() -> int:
     if not (repo_root / "scripts" / "memory" / "wakeup.py").is_file():
         print(f"GLOBAL_HOOKS_SMOKE_FAIL invalid repo root {repo_root}", file=sys.stderr)
         return 1
+    for required in (
+        repo_root / ".codex" / "hooks" / "memory_maintenance_enqueue.py",
+        repo_root / "scripts" / "memory" / "run-pending-maintenance.py",
+    ):
+        if not required.is_file():
+            print(f"GLOBAL_HOOKS_SMOKE_FAIL missing maintenance source {required}", file=sys.stderr)
+            return 1
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
         env = {

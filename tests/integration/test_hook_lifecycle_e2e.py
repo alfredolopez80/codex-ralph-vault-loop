@@ -155,6 +155,8 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
 
     promotion = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": LEARNING_TEXT})
     assert promotion.returncode == 0, promotion.stderr
+    maintenance = run_memory(ralph_home, vault_dir, "run-pending-maintenance.py", "--all", "--max-jobs", "2", "--max-seconds", "5", "--json")
+    assert maintenance.returncode == 0, maintenance.stderr
     assert (project_root(ralph_home) / "reports" / "memory" / "dream-latest.json").is_file()
     assert (project_root(ralph_home) / "reports" / "memory" / "promotion-latest.json").is_file()
     assert LEARNING_TEXT in (project_root(ralph_home) / "layers" / "L2_project_rules.md").read_text(encoding="utf-8")
