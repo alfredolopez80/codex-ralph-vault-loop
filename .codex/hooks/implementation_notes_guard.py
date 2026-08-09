@@ -147,14 +147,13 @@ def markdown_plan_link_is_in_scope(plan_value: str, roots: Any) -> bool:
     return True
 
 
-def main() -> int:
-    payload = read_hook_input()
+def evaluate(payload: dict[str, Any]) -> dict[str, str] | None:
     if payload.get("stop_hook_active"):
-        return 0
+        return None
 
     message = _message(payload)
     if message and is_red(message):
-        return 0
+        return None
 
     try:
         plan_value, plan_source = _payload_plan_path(payload)
@@ -162,7 +161,7 @@ def main() -> int:
             roots = resolve_roots(_payload_cwd(payload) or Path.cwd())
         except ImplementationNotesError as exc:
             if "not inside a git repository" in str(exc):
-                return 0
+                return None
             raise
         if not plan_value:
             state = read_implementation_plan_state(roots.active_worktree_root, _payload_session_id(payload))
@@ -171,26 +170,26 @@ def main() -> int:
             plan_value = state.get("plan_path", "")
             plan_source = "state" if plan_value else ""
         if not plan_value:
-            return 0
+            return None
         if plan_source == "markdown" and not markdown_plan_link_is_in_scope(plan_value, roots):
-            return 0
+            return None
         plan_path = resolve_for_read(plan_value)
         ensure_plan_path_allowed(plan_path, roots)
         plan_path = canonical_plan_for_guard(plan_path, roots)
         ensure_plan_path_allowed(plan_path, roots)
         metadata = parse_plan_metadata(plan_path)
         if not metadata.implementation_notes_required:
-            return 0
+            return None
         if not is_plan_approved(metadata, explicit_approved=_explicit_approved(payload)):
-            return block("Implementation notes plan is marked required, but the referenced plan is not approved.")
+            return {"decision": "block", "reason": "Implementation notes plan is marked required, but the referenced plan is not approved."}
 
         notes_path = resolve_notes_path_for_plan(metadata, plan_path, roots.primary_repo_root)
         if not notes_path.exists():
-            return block("Plan requires implementation notes, but the notes file was not found.")
+            return {"decision": "block", "reason": "Plan requires implementation notes, but the notes file was not found."}
         if is_codex_worktree(notes_path):
-            return block("Implementation notes path points to an ephemeral Codex worktree.")
+            return {"decision": "block", "reason": "Implementation notes path points to an ephemeral Codex worktree."}
         if not notes_has_non_initial_entry(notes_path):
-            return block("Implementation notes exist but do not contain any decision entries beyond the initial template.")
+            return {"decision": "block", "reason": "Implementation notes exist but do not contain any decision entries beyond the initial template."}
         git_meta = current_git_metadata(roots.active_worktree_root)
         upsert_plan_entry(
             primary_root=roots.primary_repo_root,
@@ -203,15 +202,22 @@ def main() -> int:
             session_id=_payload_session_id(payload),
             event="implemented",
         )
-        return 0
+        return None
     except GitMetadataError:
         # Git metadata lookup is operational context, not proof that the
         # implementation-notes state is invalid. Stop hooks fail open on
         # transient local runtime failures and leave the next invocation
         # to retry the lifecycle update.
-        return 0
+        return None
     except ImplementationNotesError as exc:
-        return block(f"Implementation notes guard could not validate plan: {exc}")
+        return {"decision": "block", "reason": f"Implementation notes guard could not validate plan: {exc}"}
+
+
+def main() -> int:
+    response = evaluate(read_hook_input())
+    if response:
+        write_json(response)
+    return 0
 
 
 if __name__ == "__main__":

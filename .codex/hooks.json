@@ -2,11 +2,13 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/session_start_wakeup.py",
-            "timeout": 45
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start_dispatch.py\"",
+            "timeout": 45,
+            "additionalContextLimit": 800
           }
         ]
       }
@@ -16,48 +18,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/universal-prompt-classifier.sh\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_prompt_state.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/user_prompt_capture.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/user_prompt_improve.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/continuity_prompt_context.py",
-            "timeout": 10
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/user_prompt_dispatch.py\"",
+            "timeout": 10,
+            "additionalContextLimit": 500
           }
         ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": "Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/pre_tool_guard.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/subagent_routing_pretool_guard.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_pretool_guard.py",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_dispatch.py\"",
             "timeout": 10
           }
         ]
@@ -65,35 +39,11 @@
     ],
     "PostToolUse": [
       {
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/file_line_guard.py --event PostToolUse",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/shaping_ripple.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/post_tool_extract_memory.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/post_tool_checkpoint.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_observer.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/post_tool_cost_ledger.py",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/post_tool_dispatch.py\"",
             "timeout": 10
           }
         ]
@@ -104,8 +54,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_subagent_context.py",
-            "timeout": 10
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/sol_advisor_subagent_context.py\"",
+            "timeout": 10,
+            "additionalContextLimit": 400
           }
         ]
       }
@@ -115,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_subagent_stop.py",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/sol_advisor_subagent_stop.py\"",
             "timeout": 10
           }
         ]
@@ -126,43 +77,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/anti-rationalization-stop.sh\"",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/stop_dispatch.py\"",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/ralph-stop-quality-gate.sh\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/file_line_guard.py --event Stop",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/stop_route_decision_warn.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/implementation_notes_guard.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/sol_advisor_stop_guard.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/stop_persist_memory.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 .codex/hooks/stop_memory_promotion_review.py",
-            "timeout": 20
           }
         ]
       }

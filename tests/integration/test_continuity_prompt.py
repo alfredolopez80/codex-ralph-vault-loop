@@ -51,7 +51,8 @@ def test_continuity_prompt_updates_objective_and_injects_once(tmp_path: Path) ->
     assert new_task.returncode == 0, new_task.stderr
     assert new_task.stdout == ""
     checkpoint = latest_checkpoint(tmp_path)
-    assert checkpoint["objective"] == "Implement the rolling checkpoint continuation hook."
+    assert checkpoint["objective"].startswith("Task metadata: intent=code_change prompt_hash=")
+    assert "Implement the rolling checkpoint continuation hook." not in json.dumps(checkpoint)
     assert checkpoint["next_action"] == "Continue the user's latest requested task."
 
     continuation = run_hook(
@@ -62,7 +63,7 @@ def test_continuity_prompt_updates_objective_and_injects_once(tmp_path: Path) ->
     payload = json.loads(continuation.stdout)
     context = payload["hookSpecificOutput"]["additionalContext"]
     assert "Latest rolling checkpoint:" in context
-    assert "Objective: Implement the rolling checkpoint continuation hook." in context
+    assert "Objective: Task metadata: intent=code_change prompt_hash=" in context
 
     duplicate = run_hook(
         tmp_path,
@@ -98,7 +99,7 @@ def test_continuity_prompt_accepts_exact_resume_only(tmp_path: Path) -> None:
     assert exact_resume.returncode == 0, exact_resume.stderr
     context = json.loads(exact_resume.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "Latest rolling checkpoint:" in context
-    assert "Objective: Implement exact resume continuation behavior." in context
+    assert "Objective: Task metadata: intent=code_change prompt_hash=" in context
 
     spanish_summary_request = run_hook(
         tmp_path,
@@ -148,3 +149,19 @@ def test_continuity_prompt_does_not_inject_unrelated_or_red_prompt(tmp_path: Pat
     persisted = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in tmp_path.rglob("*") if path.is_file())
     assert red_text not in persisted
     assert "abc123" not in persisted
+
+
+def test_continuity_prompt_never_persists_raw_prompt(tmp_path: Path) -> None:
+    sentinel = "RAW_PROMPT_SENTINEL_8f3b2d implement safe context caching"
+    result = run_hook(
+        tmp_path,
+        {"hook_event_name": "UserPromptSubmit", "session_id": "fixture-no-raw", "prompt": sentinel},
+    )
+    assert result.returncode == 0, result.stderr
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    )
+    assert sentinel not in persisted
+    assert "RAW_PROMPT_SENTINEL_8f3b2d" not in persisted

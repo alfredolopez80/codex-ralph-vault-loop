@@ -10,17 +10,18 @@ The main runtime differences are deliberate. Codex main remains OpenAI-backed an
 
 The repository default is `gpt-5.6-luna` with `max` reasoning. This is the
 current executor for every turn; routing selects only newly spawned subagents.
-Multi-agent work remains enabled with four concurrent threads and one
-delegation level.
+Multi-agent work remains enabled with two concurrent threads and one
+delegation level (`max_depth = 1`).
 
-For implementation at complexity 4-6, Codex main may spawn Terra with high
-reasoning. Complexity 7-8 uses the same read-only Sol advisor lane with high
-reasoning. Eligible deep decisions at 9 and 10 use Sol XHigh and Sol Max
-respectively. The separate active-analysis route is read-only, gated, and
-limited to 9-10. Hooks can classify and guard spawn arguments; they never
-switch the current executor or mutate `config.toml`. See [Model-Level
-Routing](../model-level-routing.md) for the complete override, budget,
-rollout, and rollback contract.
+Complexity 1-3 stays direct. Complexity 4-6 stays direct unless an independent
+measurable block justifies Terra with high reasoning. Complexity 7-8 may use
+one bounded read-only Sol advisor for a high-value intent; deep decisions at 9
+and 10 use Sol XHigh and Sol Max respectively without automatic fan-out. A Sol
+executor is not routinely self-supervised. The separate active-analysis route
+is read-only, gated, and limited to 9-10. Hooks can classify and guard spawn
+arguments; they never switch the current executor or mutate `config.toml`. See
+[Model-Level Routing](../model-level-routing.md) for the complete override,
+budget, rollout, and rollback contract.
 
 Claude concepts that relied on broad team-style coordination or teammate lifecycle events were rewritten as Codex subagents, hooks, gates, ledgers, and handoff files. External model output is advisory. Local implementation happens through Codex main or a narrow coder/tester subagent.
 

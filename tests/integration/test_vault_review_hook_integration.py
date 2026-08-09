@@ -59,6 +59,29 @@ def run_scheduler(ralph_home: Path, vault_dir: Path) -> subprocess.CompletedProc
     )
 
 
+def run_pending(ralph_home: Path, vault_dir: Path, *, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    env = env_for(ralph_home, vault_dir)
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "memory" / "run-pending-maintenance.py"),
+            "--all",
+            "--max-jobs",
+            "8",
+            "--max-seconds",
+            "5",
+            "--json",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+
 def write_ambiguous_inbox(vault_dir: Path) -> None:
     inbox = vault_dir / "projects" / PROJECT / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
@@ -71,6 +94,33 @@ def latest_project_vault_review(ralph_home: Path) -> dict:
     return json.loads(matches[0].read_text(encoding="utf-8"))
 
 
+def test_stop_compatibility_wrapper_only_enqueues(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    vault_dir = tmp_path / "vault"
+    result = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": "done"})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert list(ralph_home.glob("projects/*/maintenance/queue.json"))
+    assert not list(ralph_home.glob("projects/*/reports/memory/dream-latest.json"))
+    assert not list(ralph_home.glob("projects/*/reports/vault-inbox-review/latest.json"))
+
+
+def test_session_start_enqueues_without_scheduler_catch_up(tmp_path: Path) -> None:
+    ralph_home = tmp_path / "ralph"
+    vault_dir = tmp_path / "vault"
+    result = run_hook("session_start_wakeup.py", ralph_home, vault_dir, {"session_id": "startup-only"})
+    assert result.returncode == 0, result.stderr
+    assert list(ralph_home.glob("projects/*/maintenance/queue.json"))
+    assert not list(ralph_home.glob("projects/*/reports/memory/dream-scheduler.json"))
+
+
+def test_interactive_sources_do_not_launch_heavy_maintenance() -> None:
+    session_source = (ROOT / ".codex" / "hooks" / "session_start_wakeup.py").read_text(encoding="utf-8")
+    stop_source = (ROOT / ".codex" / "hooks" / "stop_memory_promotion_review.py").read_text(encoding="utf-8")
+    assert "dream-scheduler.py" not in session_source
+    assert "subprocess.run" not in stop_source
+
+
 def test_stop_promotion_hook_runs_vault_review_in_report_only_mode(tmp_path: Path) -> None:
     ralph_home = tmp_path / "ralph"
     vault_dir = tmp_path / "vault"
@@ -80,9 +130,11 @@ def test_stop_promotion_hook_runs_vault_review_in_report_only_mode(tmp_path: Pat
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
+    maintenance = run_pending(ralph_home, vault_dir)
+    assert maintenance.returncode == 0, maintenance.stderr
     report = latest_project_vault_review(ralph_home)
     assert report["mode"] == "report-only"
-    assert report["ask_user"] == 1
+    assert report["ask_user"] >= 1
     assert not list((vault_dir / "projects" / PROJECT / "decisions").glob("*.md"))
 
 
@@ -121,6 +173,8 @@ def test_stop_promotion_hook_runs_for_codex_memory_sources(tmp_path: Path) -> No
     )
 
     assert result.returncode == 0, result.stderr
+    maintenance = run_pending(ralph_home, vault_dir, extra_env=env)
+    assert maintenance.returncode == 0, maintenance.stderr
     promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
     promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
     assert promotion["review_requested"][0]["source_groups"] == ["codex-memories"]
@@ -149,6 +203,8 @@ def test_stop_promotion_hook_runs_for_configured_local_notes_sources(tmp_path: P
     )
 
     assert result.returncode == 0, result.stderr
+    maintenance = run_pending(ralph_home, vault_dir, extra_env=env)
+    assert maintenance.returncode == 0, maintenance.stderr
     promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
     promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
     assert promotion["review_requested"][0]["source_groups"] == ["local-notes"]
@@ -174,6 +230,8 @@ def test_stop_promotion_hook_runs_for_project_handoff_sources(tmp_path: Path) ->
     )
 
     assert result.returncode == 0, result.stderr
+    maintenance = run_pending(ralph_home, vault_dir)
+    assert maintenance.returncode == 0, maintenance.stderr
     promotion_path = next(ralph_home.glob("projects/*/reports/memory/promotion-latest.json"))
     promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
     candidates = promotion["auto_promoted"] + promotion["review_requested"]

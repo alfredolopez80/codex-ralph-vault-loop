@@ -95,7 +95,8 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     assert prompt.returncode == 0, prompt.stderr
     assert prompt.stdout == ""
     checkpoint = latest_checkpoint(ralph_home)
-    assert checkpoint["objective"] == "Implement the lifecycle checkpoint validation path."
+    assert checkpoint["objective"].startswith("Task metadata: intent=code_change prompt_hash=")
+    assert prompt_payload["prompt"] not in generated_text(ralph_home)
 
     learning = run_hook("post_tool_extract_memory.py", ralph_home, vault_dir, {"output": LEARNING_TEXT})
     assert learning.returncode == 0, learning.stderr
@@ -138,26 +139,30 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     assert stop.returncode == 0, stop.stderr
     handoff = (project_root(ralph_home) / "handoffs" / "latest.md").read_text(encoding="utf-8")
     assert "## Rolling Checkpoint" in handoff
-    assert LEARNING_TEXT in handoff
+    assert LEARNING_TEXT not in handoff
     assert RAW_SENTINEL not in handoff
     handoff_wakeup = run_hook("session_start_wakeup.py", ralph_home, vault_dir, {"session_id": SESSION_ID})
     assert handoff_wakeup.returncode == 0, handoff_wakeup.stderr
     assert "## Latest Handoff" in handoff_wakeup.stdout
     assert "Handoff reinjection: full within 15% budget" in handoff_wakeup.stdout
-    assert LEARNING_TEXT in handoff_wakeup.stdout
+    assert LEARNING_TEXT not in handoff_wakeup.stdout
     assert "Model routing policy subagent-routing-v2" in handoff_wakeup.stdout
-    assert "1-3 gpt-5.6-luna/max" in handoff_wakeup.stdout
-    assert "4-6 gpt-5.6-terra/high implementation" in handoff_wakeup.stdout
-    assert "7-8 gpt-5.6-sol/high advisor" in handoff_wakeup.stdout
+    assert "max_threads=2, max_depth=1" in handoff_wakeup.stdout
+    assert "complexity 1-3 stays direct" in handoff_wakeup.stdout
+    assert "4-6 stays direct unless an independent measurable block is proven" in handoff_wakeup.stdout
+    assert "7-8 uses at most one bounded gpt-5.6-sol/high advisor only for high-value intents" in handoff_wakeup.stdout
     assert "9 gpt-5.6-sol/xhigh advisor" in handoff_wakeup.stdout
     assert "10 gpt-5.6-sol/max advisor" in handoff_wakeup.stdout
     assert "ultra" not in handoff_wakeup.stdout
 
     promotion = run_hook("stop_memory_promotion_review.py", ralph_home, vault_dir, {"last_assistant_message": LEARNING_TEXT})
     assert promotion.returncode == 0, promotion.stderr
+    maintenance = run_memory(ralph_home, vault_dir, "run-pending-maintenance.py", "--all", "--max-jobs", "2", "--max-seconds", "5", "--json")
+    assert maintenance.returncode == 0, maintenance.stderr
     assert (project_root(ralph_home) / "reports" / "memory" / "dream-latest.json").is_file()
-    assert (project_root(ralph_home) / "reports" / "memory" / "promotion-latest.json").is_file()
-    assert LEARNING_TEXT in (project_root(ralph_home) / "layers" / "L2_project_rules.md").read_text(encoding="utf-8")
+    promotion_report = read_json(project_root(ralph_home) / "reports" / "memory" / "promotion-latest.json")
+    assert any(item.get("text") == LEARNING_TEXT for item in promotion_report["review_requested"])
+    assert LEARNING_TEXT not in (project_root(ralph_home) / "layers" / "L2_project_rules.md").read_text(encoding="utf-8")
 
     curated = vault_dir / "projects" / PROJECT / "wiki" / "lifecycle.md"
     curated.parent.mkdir(parents=True, exist_ok=True)
@@ -223,10 +228,10 @@ def test_checkpoint_memory_lifecycle_e2e(tmp_path: Path) -> None:
     large_stop = run_hook("stop_persist_memory.py", ralph_home, vault_dir, {"last_assistant_message": large_message})
     assert large_stop.returncode == 0, large_stop.stderr
     large_handoff = (project_root(ralph_home) / "handoffs" / "latest.md").read_text(encoding="utf-8")
-    assert "w000" in large_handoff
-    assert "w359" in large_handoff
+    assert "w000" not in large_handoff
+    assert "w359" not in large_handoff
     large_wakeup = run_hook("session_start_wakeup.py", ralph_home, vault_dir, {"session_id": SESSION_ID})
     assert large_wakeup.returncode == 0, large_wakeup.stderr
-    assert "Handoff reinjection: compacted over 15% budget" in large_wakeup.stdout
-    assert "w000" in large_wakeup.stdout
+    assert "Handoff reinjection: full within 15% budget" in large_wakeup.stdout
+    assert "w000" not in large_wakeup.stdout
     assert "w359" not in large_wakeup.stdout

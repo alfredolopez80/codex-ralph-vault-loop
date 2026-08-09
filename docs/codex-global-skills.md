@@ -19,10 +19,11 @@ live in [`docs/codex-productivity-patterns.md`](./codex-productivity-patterns.md
 | Primary behavior  | Default design-minded workflow | Compact internal request framing  | Read-only PR review          | Standalone local HTML reports |
 
 `improve-prompt` converts prompt stacks into lean outcome contracts for the
-GPT-5.6 family. Luna with max reasoning remains the project default; Terra with
-high reasoning handles implementation at 4-6, and Sol with high reasoning is
-the advisory choice for scoped complexity 7-8 work. Sol XHigh/Max remains
-reserved for eligible complexity 9-10 work. The
+GPT-5.6 family. Luna with max reasoning remains the project default. Complexity
+1-3 and routine 4-6 work stay direct; Terra with high reasoning is reserved for
+an explicit independent measurable block. Sol with high reasoning is limited to
+one high-value complexity 7-8 review, while Sol XHigh/Max remains reserved for
+eligible complexity 9-10 work. The
 global prompt hook applies only its compact,
 safe framing to every non-empty user request: preserve task type and explicit
 values, infer the completion contract where useful, never expand authority, and

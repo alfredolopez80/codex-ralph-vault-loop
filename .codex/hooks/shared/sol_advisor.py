@@ -25,6 +25,17 @@ from .subagent_routing import (
     SubagentOverride,
     resolve_subagent_routing,
 )
+from .agent_budget import (
+    MAX_PACKET_BYTES,
+    MAX_TASK_JOBS,
+    bounded_packet,
+    budget_decision,
+    normalize_ledger,
+    record_result,
+    record_spawn,
+    task_signature as budget_task_signature,
+)
+from .runtime_profile import classify_model
 from .tool_result import success_from_payload
 
 STATE_FILE = "sol-advisor.json"
@@ -70,14 +81,40 @@ def state_path(payload: dict[str, Any]) -> Path:
     return root / safe_session_id(payload.get("session_id") or payload.get("sessionId")) / STATE_FILE
 
 
+def _safe_state_path(payload: dict[str, Any], *, create: bool = False) -> Path | None:
+    path = state_path(payload)
+    configured_root = os.environ.get("CODEX_HOOK_STATE_ROOT", "").strip()
+    root = Path(configured_root).expanduser() if configured_root else path.parent.parent
+    try:
+        if not root.is_absolute() or root.is_symlink() or path.is_symlink():
+            return None
+        path.relative_to(root)
+        current = root
+        if create:
+            current.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for part in path.parent.relative_to(root).parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+            if create:
+                current.mkdir(exist_ok=True, mode=0o700)
+        return path
+    except (OSError, ValueError):
+        return None
+
+
 def safe_session_id(value: object) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or "unknown"))[:80].strip("_")
     return cleaned or "unknown"
 
 
 def read_state(payload: dict[str, Any]) -> dict[str, Any]:
-    path = state_path(payload)
+    path = _safe_state_path(payload)
+    if path is None:
+        return {}
     try:
+        if path.stat().st_size > 512 * 1024:
+            return {}
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
@@ -86,11 +123,15 @@ def read_state(payload: dict[str, Any]) -> dict[str, Any]:
 
 @contextmanager
 def locked_state(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    path = state_path(payload)
+    path = _safe_state_path(payload, create=True)
+    if path is None:
+        yield {}
+        return
     lock_path = path.with_suffix(".lock")
     try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a", encoding="utf-8") as lock:
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(lock_path, flags, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             try:
                 state = read_state(payload)
@@ -108,15 +149,18 @@ def locked_state(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
 
 def atomic_write(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink() or path.parent.is_symlink():
+        raise OSError("advisor state path is a symlink")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        path.chmod(0o600)
     finally:
         with suppress(FileNotFoundError):
             temporary.unlink()
@@ -135,7 +179,7 @@ def classification_complexity(payload: dict[str, Any]) -> int:
             return 1
 
 
-def _bounded_text(value: object, *, limit: int = 80) -> str:
+def _bounded_text(value: object, limit: int = 80) -> str:
     if not isinstance(value, str):
         return ""
     return value.strip()[:limit]
@@ -264,7 +308,43 @@ def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, 
             record["brief_hash"] = brief_hash
         normalized[normalized_phase] = record
     state["phase_reservations"] = normalized
+    ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+    ledger["reserved_jobs"] = min(MAX_TASK_JOBS, ledger["worker_reserved_jobs"] + len(normalized))
+    state["agent_budget"] = ledger
+    state["reserved_jobs"] = ledger["reserved_jobs"]
     return normalized
+
+
+def _normalize_worker_reservations(state: dict[str, Any]) -> list[dict[str, object]]:
+    raw = state.get("worker_reservations")
+    if not isinstance(raw, list):
+        raw = []
+    now = int(time.time())
+    normalized: list[dict[str, object]] = []
+    for value in raw:
+        if not isinstance(value, dict):
+            continue
+        shape = _bounded_text(value.get("spawn_shape"), limit=64)
+        invocation_id = _bounded_text(value.get("invocation_id"), limit=80)
+        brief_hash = _bounded_text(value.get("brief_hash"), limit=64)
+        try:
+            reserved_at = int(value.get("reserved_at", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if not shape or reserved_at <= 0 or reserved_at > now + 120 or now - reserved_at > RESERVATION_LEASE_SECONDS:
+            continue
+        record: dict[str, object] = {"spawn_shape": shape, "reserved_at": reserved_at}
+        if invocation_id:
+            record["invocation_id"] = invocation_id
+        if brief_hash:
+            record["brief_hash"] = brief_hash
+        normalized.append(record)
+    state["worker_reservations"] = normalized[:MAX_TASK_JOBS]
+    ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+    ledger["worker_reserved_jobs"] = len(state["worker_reservations"])
+    state["agent_budget"] = ledger
+    state["worker_reserved_jobs"] = ledger["worker_reserved_jobs"]
+    return state["worker_reservations"]
 
 
 def _state_budget_remaining(state: dict[str, Any]) -> int:
@@ -351,6 +431,24 @@ def _spawn_brief_hash(payload: dict[str, Any]) -> str:
     return _hash_material("spawn-brief", *brief_material) if brief_material else ""
 
 
+def _spawn_brief_bytes(payload: dict[str, Any]) -> int:
+    """Count bounded native brief bytes without persisting the brief."""
+    total = 0
+    seen: set[tuple[str, str]] = set()
+    for index, source in enumerate(_spawn_sources(payload)):
+        for key in ("message", "prompt", "brief", "decision_brief", "decisionBrief"):
+            if index == 0 and key == "prompt":
+                continue
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                marker = (key, value)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                total += len(value.encode("utf-8"))
+    return min(total, MAX_PACKET_BYTES)
+
+
 def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: str) -> tuple[bool, str]:
     """Atomically reserve one Sol phase without consuming budget before start."""
     normalized_phase = normalize_phase(phase)
@@ -381,6 +479,56 @@ def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: s
         if brief_hash:
             reservations[normalized_phase]["brief_hash"] = brief_hash
         state["phase_reservations"] = reservations
+        ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+        ledger["reserved_jobs"] = min(MAX_TASK_JOBS, ledger["reserved_jobs"] + 1)
+        ledger["reasons"] = (ledger["reasons"] + ["sol-advisor-reserved"])[-8:]
+        state["agent_budget"] = ledger
+        state["reserved_jobs"] = ledger["reserved_jobs"]
+        return True, ""
+
+
+def reserve_worker_spawn(payload: dict[str, Any]) -> tuple[bool, str]:
+    """Atomically reserve one explicitly independent worker slot."""
+    with locked_state(payload) as state:
+        ensure_state_shape(state, payload)
+        routing = state.get("routing")
+        if not isinstance(routing, dict) or routing.get("subagent_route") != "terra-implementation":
+            return False, "Worker route is not eligible for this task."
+        reservations = _normalize_worker_reservations(state)
+        ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+        decision = budget_decision(
+            ledger,
+            kind="worker",
+            sensitivity=str(state.get("sensitivity", "GREEN")),
+            executor_model=str(routing.get("configured_executor_model") or ""),
+            depth=int(state.get("delegation_depth", 0) or 0),
+            independent=bool(state.get("independent_block", False)),
+            critical_review=bool(state.get("critical_review", False)),
+            failure_fingerprints=tuple(str(value) for value in state.get("failure_fingerprints", [])),
+        )
+        if not decision.allowed:
+            return False, decision.reason
+        shape, invocation_id = _spawn_metadata(payload)
+        if not shape:
+            return False, "Worker reservation lacks a bounded spawn identity."
+        if any(_worker_reservation_matches(item, payload) for item in reservations):
+            return False, "An equivalent worker spawn is already reserved."
+        record: dict[str, object] = {"spawn_shape": shape, "reserved_at": int(time.time())}
+        if invocation_id:
+            record["invocation_id"] = invocation_id
+        brief_hash = _spawn_brief_hash(payload)
+        if brief_hash:
+            record["brief_hash"] = brief_hash
+        reservations.append(record)
+        state["worker_reservations"] = reservations[-MAX_TASK_JOBS:]
+        phase_count = len(_normalize_phase_reservations(state))
+        ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+        ledger["worker_reserved_jobs"] = len(state["worker_reservations"])
+        ledger["reserved_jobs"] = min(MAX_TASK_JOBS, ledger["worker_reserved_jobs"] + phase_count)
+        ledger["reasons"] = (ledger["reasons"] + ["worker-reserved"])[-8:]
+        state["agent_budget"] = ledger
+        state["reserved_jobs"] = ledger["reserved_jobs"]
+        state["worker_reserved_jobs"] = ledger["worker_reserved_jobs"]
         return True, ""
 
 
@@ -491,6 +639,53 @@ def _capture_payload_overrides(state: dict[str, Any], payload: dict[str, Any]) -
             state[state_key] = _override_record(value)
 
 
+def _parse_delegation_bool(value: object) -> bool | None:
+    """Parse structured delegation evidence without inspecting prose."""
+    return _parse_bool(value)
+
+
+def _capture_delegation_evidence(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Persist only explicit, bounded evidence for optional delegation."""
+    independent = _payload_value(
+        payload,
+        "independent_block",
+        "independentBlock",
+        "independent_task",
+        "independentTask",
+    )
+    if isinstance(independent, dict):
+        measurable = _parse_delegation_bool(
+            independent.get("measurable", independent.get("measurable_success"))
+        )
+        isolated = _parse_delegation_bool(independent.get("isolated", independent.get("independent")))
+        independent = bool(measurable and isolated)
+    parsed_independent = _parse_delegation_bool(independent)
+    if parsed_independent is not None:
+        state["independent_block"] = parsed_independent
+    count_value = _payload_value(
+        payload,
+        "independent_block_count",
+        "independentBlockCount",
+        "independent_jobs",
+        "independentJobs",
+    )
+    if count_value is not None:
+        try:
+            state["independent_block_count"] = max(0, min(MAX_TASK_JOBS, int(count_value)))
+        except (TypeError, ValueError):
+            state["independent_block_count"] = 0
+    critical = _payload_value(
+        payload,
+        "critical_review",
+        "criticalReview",
+        "independent_review",
+        "independentReview",
+    )
+    parsed_critical = _parse_delegation_bool(critical)
+    if parsed_critical is not None:
+        state["critical_review"] = parsed_critical
+
+
 def _configured_executor_defaults(payload: dict[str, Any]) -> tuple[ExecutorDefaults, str]:
     """Read the immutable executor default; hooks never write this file."""
     cwd_value = payload.get("cwd")
@@ -593,6 +788,12 @@ def _routing_decision(
         remaining=remaining,
         explicit_class=_bounded_text(budget_class_value, limit=32) or None,
     )
+    failure_values = state.get("failure_fingerprints", [])
+    failure_fingerprints = (
+        tuple(str(value) for value in failure_values if str(value).strip())
+        if isinstance(failure_values, list)
+        else ()
+    )
     # Override expiry is a trust boundary. Never let an event payload choose
     # the clock used to decide whether a Terra/Sol request is still valid.
     current_epoch = int(time.time())
@@ -631,6 +832,10 @@ def _routing_decision(
             hard_gates_pass=_routing_bool(
                 state, payload, "hard_gates_pass", ("hard_gates_pass", "hardGatesPass"), False
             ),
+            independent_block=bool(state.get("independent_block", False)),
+            independent_block_count=max(0, min(MAX_TASK_JOBS, int(state.get("independent_block_count", 0) or 0))),
+            critical_review=bool(state.get("critical_review", False)),
+            failure_fingerprints=failure_fingerprints,
         )
     )
     serialized = {
@@ -660,6 +865,11 @@ def _routing_decision(
         "budget_remaining": decision.budget_remaining,
         "decision_fingerprint": decision.decision_fingerprint,
         "reason_code": decision.reason_code,
+        "max_threads": decision.max_threads,
+        "max_depth": decision.max_depth,
+        "max_task_jobs": decision.max_task_jobs,
+        "max_task_advisors": decision.max_task_advisors,
+        "packet_budget_bytes": decision.packet_budget_bytes,
     }
     # The resolver has only repository/global lanes; retain the loader's
     # explicit fallback label so the hook can distinguish a real repo config
@@ -781,6 +991,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
             safe_session_id(payload.get("session_id") or payload.get("sessionId")),
         ),
     )
+    state.setdefault("task_signature", _bounded_text(state.get("task_id"), 96))
+    state["task_signature"] = _bounded_text(state.get("task_signature"), 96) or _bounded_text(state.get("task_id"), 96)
     phase = normalize_phase(state.get("phase"))
     state["phase"] = phase or ("stuck" if state.get("stuck_eligible") else "plan")
     try:
@@ -836,6 +1048,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
         if normalized_phase and fingerprint:
             normalized_phases[normalized_phase] = str(fingerprint)
     state["consulted_phases"] = normalized_phases
+    state.setdefault("worker_reservations", [])
+    _normalize_worker_reservations(state)
     state.setdefault("phase_reservations", {})
     _normalize_phase_reservations(state)
     state.setdefault("prior_verdict_ref", "")
@@ -864,6 +1078,29 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
         parsed_failed = _parse_bool(state.get("hard_gates_failed"))
         state["hard_gates_failed"] = parsed_failed if parsed_failed is not None else True
     state["budget_class"] = _bounded_text(state.get("budget_class"), limit=32) or None
+    state["independent_block"] = bool(_parse_bool(state.get("independent_block")) or False)
+    try:
+        state["independent_block_count"] = max(0, min(MAX_TASK_JOBS, int(state.get("independent_block_count", 0) or 0)))
+    except (TypeError, ValueError):
+        state["independent_block_count"] = 0
+    state["critical_review"] = bool(_parse_bool(state.get("critical_review")) or False)
+    try:
+        state["delegation_depth"] = max(0, min(1, int(state.get("delegation_depth", 0) or 0)))
+    except (TypeError, ValueError):
+        state["delegation_depth"] = 1
+    budget = normalize_ledger(state.get("agent_budget"), signature=state["task_signature"])
+    state["agent_budget"] = budget
+    # Keep compact top-level counters for report consumers and compatibility
+    # with existing lifecycle state; the nested ledger remains canonical.
+    for key in (
+        "agents_started",
+        "advisors_started",
+        "workers_started",
+        "worker_reserved_jobs",
+        "bytes_sent",
+        "bytes_received",
+    ):
+        state[key] = budget[key]
     for override_key in ("task_subagent_override", "session_subagent_override"):
         state[override_key] = _override_record(state.get(override_key))
     state.setdefault("intent", "routine")
@@ -954,6 +1191,7 @@ def _record_red_local_state(payload: dict[str, Any], prompt: str) -> dict[str, A
                     "red-task",
                     safe_session_id(payload.get("session_id") or payload.get("sessionId")),
                 ),
+                "task_signature": budget_task_signature(payload, prompt=prompt),
                 "phase": "plan",
                 "complexity": 1,
                 "high_impact": False,
@@ -970,6 +1208,7 @@ def _record_red_local_state(payload: dict[str, Any], prompt: str) -> dict[str, A
                 "consulted_fingerprints": [],
                 "consulted_phases": {},
                 "phase_reservations": {},
+                "worker_reservations": [],
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
                 "active_advisor_ref": "",
@@ -1019,6 +1258,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
             )
             _capture_payload_overrides(state, payload)
             _capture_routing_evidence(state, payload)
+            _capture_delegation_evidence(state, payload)
             _refresh_routing(state, payload, prompt)
             state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
@@ -1046,6 +1286,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
             )
             _capture_payload_overrides(state, payload)
             _capture_routing_evidence(state, payload)
+            _capture_delegation_evidence(state, payload)
             _refresh_routing(state, payload, prompt)
             state["decision_fingerprint"] = decision_fingerprint(state)
             return dict(state)
@@ -1062,6 +1303,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "version": STATE_VERSION,
                 "task_id": task_identity(payload, prompt),
+                "task_signature": budget_task_signature(payload, prompt=prompt),
                 "phase": "plan",
                 "complexity": complexity,
                 "high_impact": high_impact,
@@ -1078,6 +1320,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "consulted_fingerprints": [],
                 "consulted_phases": {},
                 "phase_reservations": {},
+                "worker_reservations": [],
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
                 "active_advisor_ref": "",
@@ -1105,6 +1348,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
             }
         )
         _capture_routing_evidence(state, payload)
+        _capture_delegation_evidence(state, payload)
         _refresh_routing(state, payload, prompt)
         state["decision_fingerprint"] = decision_fingerprint(state)
         return dict(state)
@@ -1161,11 +1405,60 @@ def _release_failed_spawn_reservation(state: dict[str, Any], payload: dict[str, 
     }
 
 
+def _worker_reservation_matches(reservation: dict[str, object], payload: dict[str, Any]) -> bool:
+    shape, invocation_id = _spawn_metadata(payload)
+    recorded_id = _bounded_text(reservation.get("invocation_id"), limit=80)
+    if recorded_id:
+        return bool(invocation_id and invocation_id == recorded_id)
+    recorded_shape = _bounded_text(reservation.get("spawn_shape"), limit=64)
+    recorded_brief = _bounded_text(reservation.get("brief_hash"), limit=64)
+    return bool(
+        not invocation_id
+        and shape
+        and shape == recorded_shape
+        and recorded_brief
+        and _spawn_brief_hash(payload) == recorded_brief
+    )
+
+
+def _settle_worker_reservation(state: dict[str, Any], payload: dict[str, Any], *, started: bool) -> bool:
+    reservations = _normalize_worker_reservations(state)
+    matching = [item for item in reservations if _worker_reservation_matches(item, payload)]
+    if len(matching) != 1:
+        return False
+    target = matching[0]
+    remaining = [item for item in reservations if item is not target]
+    ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+    if started:
+        ledger = record_spawn(
+            ledger,
+            kind="worker",
+            reason="terra-worker-started",
+            bytes_sent=_spawn_brief_bytes(payload),
+            timestamp=str(time.time()),
+            signature=state.get("task_signature", ""),
+        )
+    state["worker_reservations"] = remaining
+    ledger["worker_reserved_jobs"] = len(remaining)
+    ledger["reserved_jobs"] = min(MAX_TASK_JOBS, len(remaining) + len(_normalize_phase_reservations(state)))
+    state["agent_budget"] = ledger
+    for key in ("agents_started", "workers_started", "worker_reserved_jobs", "reserved_jobs", "bytes_sent"):
+        state[key] = ledger[key]
+    return True
+
+
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
     success = success_from_payload(payload)
+    native_spawn = _is_native_spawn_payload(payload)
+    if native_spawn and success is not None:
+        with locked_state(payload) as state:
+            ensure_state_shape(state, payload)
+            routing = state.get("routing")
+            if isinstance(routing, dict) and routing.get("subagent_route") == "terra-implementation":
+                _settle_worker_reservation(state, payload, started=success is True)
+                return dict(state)
     if success is not False:
         return read_state(payload)
-    native_spawn = _is_native_spawn_payload(payload)
     candidate = command_text(payload)
     if not native_spawn and (not candidate or is_red(candidate)):
         return read_state(payload)
@@ -1175,8 +1468,11 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
         if native_spawn:
             # A failed native spawn never reaches SubagentStart. Release its
             # matching short-lived reservation so a bounded retry can be
-            # attempted; unrelated pending phases remain protected.
+            # attempted; unrelated pending phases remain protected. This is an
+            # operational launch failure, not objective task evidence, so it
+            # must not consume the distinct-failure escalation budget.
             _release_failed_spawn_reservation(state, payload)
+            return dict(state)
         if not candidate or is_red(candidate):
             return dict(state)
         failures = state.setdefault("failure_fingerprints", [])
@@ -1196,6 +1492,7 @@ def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
             state["phase"] = "stuck"
             _capture_payload_overrides(state, payload)
             _capture_routing_evidence(state, payload)
+            _capture_delegation_evidence(state, payload)
             _refresh_routing(state, payload, prompt_text(payload))
             state["decision_fingerprint"] = decision_fingerprint(state)
             routing = state.get("routing")
@@ -1249,7 +1546,7 @@ def is_sol_advisor(payload: dict[str, Any]) -> bool:
     ]
     named_advisor = any(str(value).strip().lower().replace("_", "-") == "sol-advisor" for value in values if value)
     model_values = [source.get(key) for source in sources for key in ("model", "model_name", "modelName")]
-    return named_advisor or any(str(value).strip().lower() == SOL_MODEL for value in model_values if value)
+    return named_advisor or any(classify_model(str(value)) == "sol" for value in model_values if value)
 
 
 def has_no_history_fork(payload: dict[str, Any]) -> bool:
@@ -1310,6 +1607,15 @@ def mark_advisor(
                 state["prior_verdict_ref"] = reference
             state["advisor_reused"] = False
             state["active_advisor_ref"] = ""
+            ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+            ledger = record_result(
+                ledger,
+                bytes_received=min(len(str(payload.get("result") or payload.get("output") or "").encode("utf-8")), MAX_PACKET_BYTES),
+                timestamp=str(time.time()),
+                signature=state.get("task_signature", ""),
+            )
+            state["agent_budget"] = ledger
+            state["bytes_received"] = ledger["bytes_received"]
         else:
             start_reference = advisor_reference(payload)
             if require_reservation and not start_reference:
@@ -1324,6 +1630,12 @@ def mark_advisor(
             if fingerprint in consulted_fingerprints or phase in consulted_phases:
                 state["advisor_reused"] = True
                 state["last_consultation_phase"] = phase
+                return dict(state)
+            ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+            if ledger["advisors_started"] >= 1 or ledger["agents_started"] + ledger["reserved_jobs"] >= 2:
+                state["advisor_budget_exhausted"] = True
+                state["budget_remaining"] = 0
+                state["agent_budget"] = ledger
                 return dict(state)
             count = state["consultation_count"]
             if count >= state["consultation_budget"]:
@@ -1340,6 +1652,17 @@ def mark_advisor(
             state["advisor_reused"] = False
             state["advisor_budget_exhausted"] = False
             state["last_consultation_phase"] = phase
+            ledger = record_spawn(
+                ledger,
+                kind="advisor",
+                reason=str((state.get("routing") or {}).get("reason_code") or "sol-advisor"),
+                bytes_sent=_spawn_brief_bytes(payload),
+                timestamp=str(time.time()),
+                signature=state.get("task_signature", ""),
+            )
+            state["agent_budget"] = ledger
+            for key in ("agents_started", "advisors_started", "workers_started", "bytes_sent", "bytes_received"):
+                state[key] = ledger[key]
         return dict(state)
 
 
@@ -1414,7 +1737,8 @@ def executor_context(state: dict[str, Any]) -> str:
         f"reasoning_effort=`{arguments.get('reasoning_effort', 'high')}`, and fork_turns=`none`; "
         "put the compact decision brief in the invocation rather than inheriting the conversation. "
         f"Basis: phase={state.get('phase', 'plan')}; effective={routing.get('effective_complexity', state.get('complexity', 1))}/10; "
-        f"signals={reasons}; budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}."
+        f"signals={reasons}; budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}; "
+        f"packet_budget_bytes={routing.get('packet_budget_bytes', MAX_PACKET_BYTES)}."
         f"{reuse} "
         "Give it a compact decision brief; retain final ownership and verify its advice locally."
     )
@@ -1422,9 +1746,34 @@ def executor_context(state: dict[str, Any]) -> str:
 
 def advisor_context(state: dict[str, Any]) -> str:
     reasons = ", ".join(str(value) for value in state.get("impact_reasons", [])[:3]) or "executor request"
+    packet = advisor_packet(state)
+    packet_text = json.dumps(packet, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return (
         "Advisor contract: read only. Return no more than 300 words with Verdict, Why, Risks, "
         "smallest next verification, and what would change your mind. Do not take actions or address the user. "
         f"Escalation signals: {reasons}; phase={state.get('phase', 'plan')}; "
-        f"budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}."
+        f"budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}; "
+        f"packet={packet_text}"
+    )
+
+
+def advisor_packet(state: dict[str, Any]) -> dict[str, Any]:
+    """Return the bounded, non-authoritative packet for a Sol invocation."""
+    routing = state.get("routing") if isinstance(state.get("routing"), dict) else {}
+    reasons = ", ".join(str(value) for value in state.get("impact_reasons", [])[:3]) or "executor request"
+    return bounded_packet(
+        question=(
+            f"Adjudicate the {routing.get('intent', state.get('intent', 'routine'))} decision "
+            f"for lifecycle phase {state.get('phase', 'plan')} and return the required headings."
+        ),
+        context=(
+            f"task_signature={state.get('task_signature', '')}; "
+            f"complexity={routing.get('effective_complexity', state.get('complexity', 1))}; "
+            f"signals={reasons}; failure_count={state.get('failure_count', 0)}"
+        ),
+        constraints=(
+            "Codex main is final owner; use only bounded local evidence; "
+            "RED stays local; do not spawn or edit; verify independently."
+        ),
+        budget_bytes=int(routing.get("packet_budget_bytes", MAX_PACKET_BYTES) or MAX_PACKET_BYTES),
     )

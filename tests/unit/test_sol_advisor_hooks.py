@@ -371,6 +371,7 @@ def test_session_override_survives_an_explicit_task_boundary(tmp_path: Path, mon
             "new_task": True,
             "complexity": 4,
             "intent": "implementation",
+            "independent_block": True,
             "prompt": "Implement the bounded migration change.",
             "session_subagent_override": None,
         }
@@ -425,7 +426,7 @@ def test_red_sensitivity_is_sticky_across_a_continuation(tmp_path: Path, monkeyp
     )
     assert quoted_boundary is not None
     assert quoted_boundary["sensitivity"] == "GREEN"
-    assert quoted_boundary["routing"]["subagent_route"] == "sol-advisor"
+    assert quoted_boundary["routing"]["subagent_route"] == "none"
 
     fresh = initialize({**event, "new_task": True, "sensitivity": "GREEN", "prompt": "Start a routine task."})
     assert fresh is not None
@@ -591,10 +592,10 @@ def test_new_failure_evidence_allows_one_stuck_phase_consultation(tmp_path: Path
     stuck = mark_advisor({**event, "phase": "stuck"}, completed=False)
 
     assert stuck["phase"] == "stuck"
-    assert stuck["consultation_count"] == 2
+    assert stuck["consultation_count"] == 1
+    assert stuck["advisor_budget_exhausted"] is True
     assert stuck["budget_remaining"] == 0
     assert stuck["consulted_phases"]["plan"]
-    assert stuck["consulted_phases"]["stuck"] == stuck["decision_fingerprint"]
 
 
 def test_stuck_transition_refreshes_routing_from_current_failure_payload(tmp_path: Path, monkeypatch) -> None:
@@ -653,9 +654,8 @@ def test_final_phase_consumes_remaining_budget_after_changed_evidence(tmp_path: 
         completed=True,
     )
 
-    assert started["consultation_count"] == 2
-    assert completed["prior_verdict_phase"] == "final"
-    assert stop_review_recommendation_pending(completed) is False
+    assert started["consultation_count"] == 1
+    assert started["advisor_budget_exhausted"] is True
 
 
 def test_completion_match_is_rechecked_inside_locked_mutation(tmp_path: Path, monkeypatch) -> None:
@@ -770,7 +770,7 @@ def test_sol_advisor_skill_contract_is_bounded_and_model_agnostic() -> None:
     skill = (ROOT / ".agents" / "skills" / "sol-advisor" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "GPT-5.6 Terra or Luna" in skill
-    assert "at most one consultation per phase and two per task" in skill
+    assert "at most one advisor and two independent child jobs per task" in skill
     assert "`plan`, `stuck`, or `final`" in skill
     assert "fresh, no-history fork" in skill
     assert "300 words" in (ROOT / ".codex" / "agents" / "sol-advisor.toml").read_text(encoding="utf-8")
@@ -795,17 +795,25 @@ def test_high_impact_lifecycle_enforces_fresh_fork_and_releases_completion(tmp_p
 
     wrong_fork = run_hook(
         "sol_advisor_pretool_guard.py",
-        {**event, "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol", "fork_turns": "all"}},
+        {
+            **event,
+            "tool_name": "spawn_agent",
+            "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol", "fork_turns": "all"},
+        },
     )
     assert wrong_fork.returncode == 0
     assert json.loads(wrong_fork.stdout)["decision"] == "block"
 
     omitted_fork = run_hook(
         "sol_advisor_pretool_guard.py",
-        {**event, "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol"}},
+        {
+            **event,
+            "tool_name": "spawn_agent",
+            "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol"},
+        },
     )
     assert omitted_fork.returncode == 0
-    assert omitted_fork.stdout == ""
+    assert json.loads(omitted_fork.stdout)["decision"] == "block"
 
     waiting = run_hook("sol_advisor_stop_guard.py", event)
     assert waiting.returncode == 0

@@ -258,6 +258,10 @@ def guidance() -> str:
 
 
 def emit_block(findings: list[FileLineFinding], limit: int | None = None) -> None:
+    write_json(block_payload(findings, limit))
+
+
+def block_payload(findings: list[FileLineFinding], limit: int | None = None) -> dict[str, str]:
     files = [
         f"{finding.path} ({finding.lines} lines, limit {finding.policy.limit}, {finding.policy.category})"
         for finding in findings[:8]
@@ -265,4 +269,4 @@ def emit_block(findings: list[FileLineFinding], limit: int | None = None) -> Non
     more = len(findings) - len(files)
     details = " Oversized files: " + "; ".join(files) + "."
     suffix = f" Additional oversized files: {more}." if more > 0 else ""
-    write_json({"decision": "block", "reason": guidance() + details + suffix})
+    return {"decision": "block", "reason": guidance() + details + suffix}

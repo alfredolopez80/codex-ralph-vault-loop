@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.active_context import active_context_from_payload, project_runtime_root
+from shared.active_context import ActiveContext, active_context_from_payload, project_runtime_root
 from shared.autoresearch_observer import safe_observe_post_tool_payload
 from shared.checkpoint_io import update_checkpoint
 from shared.context_budget import text_is_toxic
@@ -16,28 +16,32 @@ BUILD_MARKERS = ("build", "typecheck", "lint")
 GIT_MARKERS = ("git ", "git-")
 
 
+def run(payload: dict[str, Any], context: ActiveContext | None = None) -> dict[str, Any] | None:
+    context = context or active_context_from_payload(payload)
+    safe_observe_post_tool_payload(payload, context)
+    update = checkpoint_update_from_payload(payload)
+    if not update:
+        return None
+    result = update_checkpoint(update, context=context)
+    root = project_runtime_root(context)
+    append_jsonl(
+        root / "checkpoints" / "post-tool-events.jsonl",
+        {
+            "created_at": now_iso(),
+            "event": "post_tool_checkpoint",
+            "status": result.get("status", "unknown"),
+            "source": update.get("source", "PostToolUse"),
+            "project_id": context.project_id,
+            "project": context.project_slug,
+            "session_id": context.session_id,
+        },
+    )
+    return result
+
+
 def main() -> int:
     try:
-        payload = read_hook_input()
-        context = active_context_from_payload(payload)
-        safe_observe_post_tool_payload(payload, context)
-        update = checkpoint_update_from_payload(payload)
-        if not update:
-            return 0
-        result = update_checkpoint(update, context=context)
-        root = project_runtime_root(context)
-        append_jsonl(
-            root / "checkpoints" / "post-tool-events.jsonl",
-            {
-                "created_at": now_iso(),
-                "event": "post_tool_checkpoint",
-                "status": result.get("status", "unknown"),
-                "source": update.get("source", "PostToolUse"),
-                "project_id": context.project_id,
-                "project": context.project_slug,
-                "session_id": context.session_id,
-            },
-        )
+        run(read_hook_input())
     except Exception:
         return 0
     return 0

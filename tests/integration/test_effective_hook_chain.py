@@ -14,21 +14,20 @@ DISPATCHER = HOOKS / "global_hook_dispatch.py"
 INSTALLER = ROOT / "scripts" / "setup" / "install-global-hooks.py"
 
 ROLE_COMMANDS: dict[tuple[str, str], list[str]] = {
+    ("SessionStart", "session_start_dispatch"): [sys.executable, str(HOOKS / "session_start_dispatch.py")],
     ("SessionStart", "session_start_wakeup"): [sys.executable, str(HOOKS / "session_start_wakeup.py")],
+    ("UserPromptSubmit", "user_prompt_dispatch"): [sys.executable, str(HOOKS / "user_prompt_dispatch.py")],
     ("UserPromptSubmit", "universal_prompt_classifier"): ["bash", str(HOOKS / "universal-prompt-classifier.sh")],
     ("UserPromptSubmit", "sol_advisor_prompt_state"): [sys.executable, str(HOOKS / "sol_advisor_prompt_state.py")],
     ("UserPromptSubmit", "user_prompt_capture"): [sys.executable, str(HOOKS / "user_prompt_capture.py")],
     ("UserPromptSubmit", "user_prompt_improve"): [sys.executable, str(HOOKS / "user_prompt_improve.py")],
     ("UserPromptSubmit", "continuity_prompt_context"): [sys.executable, str(HOOKS / "continuity_prompt_context.py")],
+    ("PreToolUse", "pre_tool_dispatch"): [sys.executable, str(HOOKS / "pre_tool_dispatch.py")],
     ("PreToolUse", "pre_tool_guard"): [sys.executable, str(HOOKS / "pre_tool_guard.py")],
     ("PreToolUse", "subagent_routing_pretool_guard"): [sys.executable, str(HOOKS / "subagent_routing_pretool_guard.py")],
     ("PreToolUse", "sol_advisor_pretool_guard"): [sys.executable, str(HOOKS / "sol_advisor_pretool_guard.py")],
-    ("PostToolUse", "file_line_guard_post_tool"): [sys.executable, str(HOOKS / "file_line_guard.py"), "--event", "PostToolUse"],
-    ("PostToolUse", "shaping_ripple"): [sys.executable, str(HOOKS / "shaping_ripple.py")],
-    ("PostToolUse", "post_tool_extract_memory"): [sys.executable, str(HOOKS / "post_tool_extract_memory.py")],
-    ("PostToolUse", "post_tool_checkpoint"): [sys.executable, str(HOOKS / "post_tool_checkpoint.py")],
-    ("PostToolUse", "sol_advisor_observer"): [sys.executable, str(HOOKS / "sol_advisor_observer.py")],
-    ("PostToolUse", "post_tool_cost_ledger"): [sys.executable, str(HOOKS / "post_tool_cost_ledger.py")],
+    ("PostToolUse", "post_tool_dispatch"): [sys.executable, str(HOOKS / "post_tool_dispatch.py")],
+    ("Stop", "stop_dispatch"): [sys.executable, str(HOOKS / "stop_dispatch.py")],
     ("Stop", "anti_rationalization_stop"): ["bash", str(HOOKS / "anti-rationalization-stop.sh")],
     ("Stop", "ralph_stop_quality_gate"): ["bash", str(HOOKS / "ralph-stop-quality-gate.sh")],
     ("Stop", "file_line_guard_stop"): [sys.executable, str(HOOKS / "file_line_guard.py"), "--event", "Stop"],
@@ -140,7 +139,14 @@ def test_global_dispatcher_suppresses_every_project_equivalent(tmp_path: Path) -
     env = isolated_env(tmp_path)
     session_id = f"effective-chain-{uuid.uuid4()}"
 
-    for (event, role), command in ROLE_COMMANDS.items():
+    configured = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    configured_roles = {
+        (event, role)
+        for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+        for role in roles_for_config(configured, event)
+    }
+    for event, role in sorted(configured_roles):
+        command = ROLE_COMMANDS[(event, role)]
         payload = payload_for(event, ROOT, session_id)
         global_result = run(
             [sys.executable, str(DISPATCHER), "--event", event, "--role", role],
@@ -153,6 +159,22 @@ def test_global_dispatcher_suppresses_every_project_equivalent(tmp_path: Path) -
 
         project_result = run(command, payload, ROOT, env)
         assert project_result.returncode == 0, f"{event}/{role}: {project_result.stderr}"
+
+
+def test_global_dispatcher_finds_project_config_from_nested_workdir(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    nested = ROOT / "tests" / "unit"
+    payload = payload_for("PreToolUse", nested, "nested-project-suppression")
+    payload["cwd"] = str(nested)
+    payload["tool_input"] = {"cmd": "git status --short", "workdir": str(nested)}
+    result = run(
+        [sys.executable, str(DISPATCHER), "--event", "PreToolUse", "--role", "pre_tool_dispatch"],
+        payload,
+        nested,
+        env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
 
 
 def test_global_dispatcher_falls_back_when_project_role_is_missing(tmp_path: Path) -> None:
@@ -233,7 +255,9 @@ def test_effective_user_prompt_context_is_compact_and_nonduplicated(tmp_path: Pa
     outputs: list[str] = []
     config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
 
-    for role in roles_for_config(config, "UserPromptSubmit"):
+    roles = roles_for_config(config, "UserPromptSubmit")
+    assert roles == ["user_prompt_dispatch"]
+    for role in roles:
         global_result = run(
             [sys.executable, str(DISPATCHER), "--event", "UserPromptSubmit", "--role", role],
             payload,
@@ -255,3 +279,7 @@ def test_effective_user_prompt_context_is_compact_and_nonduplicated(tmp_path: Pa
     assert context.count("route=") == 1
     assert context.count("CLARIFICATION_REQUIRED=") == 1
     assert sentinel not in context
+
+    repeated = run(ROLE_COMMANDS[("UserPromptSubmit", "user_prompt_dispatch")], payload, ROOT, env)
+    assert repeated.returncode == 0, repeated.stderr
+    assert repeated.stdout == ""

@@ -1,49 +1,73 @@
-# PHASE 12 Checkpoint - AutoResearch Codex-native
+# PHASE 12 - Slim global agent instructions
 
-`docs/migration/checkpoints/PHASE_11.md` was reviewed first. It is marked PASS, so Phase 12 was allowed to proceed.
+Date: 2026-08-08
+Repository: `codex-ralph-vault-loop`
 
-This phase adds the Codex-native AutoResearch surface. The new skills are `autoresearch`, `evaluate`, and `scorecard` under `.agents/skills`. The runtime additions are `scripts/evals/autoresearch_dry_run.py`, `tests/evals/fixtures/autoresearch_toy_speed`, and an update to `scripts/evals/collect_baseline.py` so `--suite toy` is a valid baseline command. `scripts/setup/install-global-eval-skills.py` installs the three skills into `~/.codex/skills`.
+## Previous checkpoint
 
-AutoResearch now uses `ralph_autoresearch_v1` as a versioned scorecard. The dry-run records before/after digests for scorecards, eval scripts, and fixture files. Train and holdout splits are loaded when the fixture manifest provides them. For the toy suite, holdout drives the keep/discard decision. Reports are written under `.ralph-codex/reports/evals`, and each run appends one JSONL record. MiVault persistence is available only with explicit `--persist-vault`, and only for PASS results.
+`docs/migration/checkpoints/PHASE_11.md` exists and is marked `PASS`.
 
-The global activation step installed `<codex-skill-root>/autoresearch`, `<codex-skill-root>/evaluate`, and `<codex-skill-root>/scorecard`. The installer handles existing directories and symlinks by creating a backup before replacement.
+## Aristotle first-principles record
 
-The validation commands below were run with `PYTHONDONTWRITEBYTECODE=1`.
+### 1. Autopsia de suposiciones
 
-AutoResearch dry-run
+The old `AGENTS.md` assumed that every session needed the complete memory,
+routing, hook, AutoResearch, and operational recipe. That duplicated skill and
+document content and charged the fixed instruction cost even for trivial work.
 
-```text
-python3 scripts/evals/autoresearch_dry_run.py
-```
+### 2. Verdades irreductibles
 
-The command exited 0. The decision was `keep`, using `holdout` as the decision source. Holdout delta was `0.2143`; hard gates passed; protected eval files were unchanged; fixture files were unchanged. The report path is `.ralph-codex/reports/evals/autoresearch_toy_speed_latest.json`, and the JSONL log is `.ralph-codex/reports/evals/autoresearch_runs.jsonl`.
+Codex owns decisions and verification; RED stays local; irreversible actions
+need approval; hooks and gates keep their contracts; recall is non-authoritative;
+completion requires evidence; approved plans require canonical notes.
 
-Toy baseline
+### 3. Reconstrucción desde cero
 
-```text
-python3 scripts/evals/collect_baseline.py --suite toy
-```
+The root file now contains only mission, universal invariants, autonomy,
+sensitivity, context economy, progressive triggers, definition of done, minimal
+validation, and pointers. Domain procedures live in skills or linked docs.
 
-The baseline command exited 0. Baseline score was `0.645`, with hard gates passing.
+### 4. Mapa suposición vs verdad
 
-Eval tests
+`docs/architecture/agents-instruction-migration.md` records every original
+section's disposition, destination, trigger, and parity verification. A compact
+intent-routing summary remains in the root file; detailed lanes remain in the
+existing routing skills.
 
-```text
-python3 -m pytest tests/evals -q
-```
+### 5. Movimiento aristotélico
 
-Pytest reported `11 passed`.
+Progressive loading is the minimum structure that preserves safety before
+activation while avoiding procedure pages in every prompt. The test suite
+proves the root budget, required invariants, destinations, metadata, and
+representative trigger selection.
 
-Prose gate
+## Implementation
 
-```text
-uvx --from slop-guard sg -t 60 docs/migration/checkpoints/PHASE_12.md .agents/skills/autoresearch/SKILL.md .agents/skills/evaluate/SKILL.md .agents/skills/scorecard/SKILL.md
-```
+- `AGENTS.md` is 14,179 UTF-8 bytes, below the 14 KiB hard cap.
+- Added `ralph-hook-development`, `ralph-memory-validation`,
+  `ralph-plan-implementation-notes`, and `ralph-kubernetes-safety`.
+- Reused existing model-router, cost-router, sol-advisor, review-pr,
+  autoresearch, memory-session, handoff, and central-memory skills.
+- No hook runtime behavior, global installation, model default, or vault data
+  changed.
 
-All four files passed threshold 60.
+## Validation
 
-Security checks were run against the new files. No literal API keys were found. No direct Z.ai or MiniMax `model_provider` configuration was added. External model use remains MCP-only and advisory; the new skills name GLM-5.1 and MiniMax-highspeed only as optional GREEN/YELLOW advisors.
+- Instruction budget and trigger mini-eval: `4 passed`.
+- Repository unit and hook suite: `693 passed, 5 subtests passed`.
+- Implementation-notes suites: `44 passed`.
+- Memory flow validation: `PASS`; hook shell suite: `ALL_HOOK_TESTS_PASS`.
+- Minimal gate runner with test execution disabled for the already-run suite:
+  `status=passed`, security results without failures.
+- `git diff --check` passes.
 
-Residual risk is limited to fixture coverage. The toy suite proves the scoring flow, mutation guard, report output, global skill install, and keep/discard branch. It does not claim production research quality.
+## Risks and limitations
+
+- The full generic gate runner was interrupted after exceeding the practical
+  interactive wait while it reran the complete pytest suite; the direct suite
+  completed successfully and remains the authoritative evidence.
+- Existing skills with long descriptions were not rewritten in this phase;
+  the new descriptions stay concise and the catalog was not otherwise expanded.
+- The live global installation was not changed or installed.
 
 Decision: PASS

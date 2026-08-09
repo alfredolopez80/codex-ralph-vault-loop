@@ -193,7 +193,15 @@ def source_paths(
     yield from iter_skill_files()
     yield from iter_markdown_tree(runtime_root / "layers")
     yield from iter_markdown_tree(runtime_root / "handoffs")
-    yield from iter_markdown_tree(runtime_root / "ledgers")
+    # Stop-time candidates are durable inputs for deferred review, not recall
+    # context. Dream/review still scans the full ledgers tree explicitly.
+    for source in iter_markdown_tree(runtime_root / "ledgers"):
+        try:
+            relative = source.path.relative_to(runtime_root / "ledgers")
+        except ValueError:
+            continue
+        if "candidates" not in relative.parts:
+            yield source
     # Explicit user-authorized GREEN memories remain global even when the
     # active recall carries a project id.
     yield from iter_explicit_global_ledgers(ralph_home / "ledgers")

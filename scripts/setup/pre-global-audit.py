@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import re
@@ -54,15 +53,19 @@ def hook_role(event: str, command: str) -> str:
     matches = re.findall(r"([A-Za-z0-9_.-]+\.(?:py|sh))", command)
     basename = matches[-1] if matches else command
     roles = {
+        "session_start_dispatch.py": "session_start_dispatch",
         "session_start_wakeup.py": "session_start_wakeup",
         "universal-prompt-classifier.sh": "universal_prompt_classifier",
         "sol_advisor_prompt_state.py": "sol_advisor_prompt_state",
+        "user_prompt_dispatch.py": "user_prompt_dispatch",
         "user_prompt_capture.py": "user_prompt_capture",
         "user_prompt_improve.py": "user_prompt_improve",
         "continuity_prompt_context.py": "continuity_prompt_context",
+        "pre_tool_dispatch.py": "pre_tool_dispatch",
         "pre_tool_guard.py": "pre_tool_guard",
         "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
         "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
+        "post_tool_dispatch.py": "post_tool_dispatch",
         "shaping_ripple.py": "shaping_ripple",
         "post_tool_extract_memory.py": "post_tool_extract_memory",
         "post_tool_checkpoint.py": "post_tool_checkpoint",
@@ -70,6 +73,7 @@ def hook_role(event: str, command: str) -> str:
         "sol_advisor_subagent_context.py": "sol_advisor_subagent_context",
         "sol_advisor_subagent_stop.py": "sol_advisor_subagent_stop",
         "post_tool_cost_ledger.py": "post_tool_cost_ledger",
+        "stop_dispatch.py": "stop_dispatch",
         "anti-rationalization-stop.sh": "anti_rationalization_stop",
         "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
         "stop_route_decision_warn.py": "stop_route_decision_warn",
@@ -143,21 +147,19 @@ def global_hook_diff() -> dict[str, Any]:
         if not same:
             mismatches.append(event)
     preserved = {
-        "UserPromptSubmit": [
-            "universal_prompt_classifier",
-            "user_prompt_capture",
-            "user_prompt_improve",
-            "continuity_prompt_context",
-        ],
-        "PostToolUse": ["post_tool_extract_memory", "post_tool_checkpoint", "post_tool_cost_ledger"],
-        "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
+        "SessionStart": ["session_start_dispatch"],
+        "UserPromptSubmit": ["user_prompt_dispatch"],
+        "PreToolUse": ["pre_tool_dispatch"],
+        "PostToolUse": ["post_tool_dispatch"],
+        "SubagentStart": ["sol_advisor_subagent_context"],
+        "SubagentStop": ["sol_advisor_subagent_stop"],
+        "Stop": ["stop_dispatch"],
     }
     order_failures: list[str] = []
     for event, names in preserved.items():
         sequence = [pair["basename"] for pair in comparisons.get(event, {}).get("local", [])]
-        for left, right in itertools.pairwise(names):
-            if left not in sequence or right not in sequence or sequence.index(left) >= sequence.index(right):
-                order_failures.append(f"{event}:{left}>{right}")
+        if sequence != names:
+            order_failures.append(f"{event}:expected={','.join(names)} actual={','.join(sequence)}")
     return {
         "pass": dry_run.get("pass") is True and not mismatches and not order_failures,
         "dry_run": dry_run,
@@ -169,12 +171,13 @@ def global_hook_diff() -> dict[str, Any]:
 
 def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
     hook_budgets = {
-        "user_prompt_improve": 10,
-        "continuity_prompt_context": 10,
-        "post_tool_checkpoint": 10,
-        "stop_persist_memory": 20,
-        "stop_memory_promotion_review": 20,
-        "session_start_wakeup": 45,
+        "user_prompt_dispatch": 10,
+        "pre_tool_dispatch": 10,
+        "stop_dispatch": 10,
+        "session_start_dispatch": 45,
+        "post_tool_dispatch": 10,
+        "sol_advisor_subagent_context": 10,
+        "sol_advisor_subagent_stop": 10,
     }
     entries: list[dict[str, Any]] = []
     failures: list[str] = []

@@ -21,15 +21,19 @@ def hook_role(event: str, command: str) -> str:
     matches = re.findall(r"([A-Za-z0-9_.-]+\.(?:py|sh))", command)
     basename = matches[-1] if matches else command
     roles = {
+        "session_start_dispatch.py": "session_start_dispatch",
         "session_start_wakeup.py": "session_start_wakeup",
+        "user_prompt_dispatch.py": "user_prompt_dispatch",
         "universal-prompt-classifier.sh": "universal_prompt_classifier",
         "sol_advisor_prompt_state.py": "sol_advisor_prompt_state",
         "user_prompt_capture.py": "user_prompt_capture",
         "user_prompt_improve.py": "user_prompt_improve",
         "continuity_prompt_context.py": "continuity_prompt_context",
+        "pre_tool_dispatch.py": "pre_tool_dispatch",
         "pre_tool_guard.py": "pre_tool_guard",
         "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
         "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
+        "post_tool_dispatch.py": "post_tool_dispatch",
         "shaping_ripple.py": "shaping_ripple",
         "post_tool_extract_memory.py": "post_tool_extract_memory",
         "post_tool_checkpoint.py": "post_tool_checkpoint",
@@ -37,6 +41,7 @@ def hook_role(event: str, command: str) -> str:
         "sol_advisor_subagent_context.py": "sol_advisor_subagent_context",
         "sol_advisor_subagent_stop.py": "sol_advisor_subagent_stop",
         "post_tool_cost_ledger.py": "post_tool_cost_ledger",
+        "stop_dispatch.py": "stop_dispatch",
         "anti-rationalization-stop.sh": "anti_rationalization_stop",
         "ralph-stop-quality-gate.sh": "ralph_stop_quality_gate",
         "stop_route_decision_warn.py": "stop_route_decision_warn",
@@ -165,24 +170,41 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
         assert hook_pairs(global_config, event) == hook_pairs(local, event)
 
     user_prompt = [name for name, _timeout in hook_pairs(local, "UserPromptSubmit")]
-    assert user_prompt == [
-        "universal_prompt_classifier",
-        "sol_advisor_prompt_state",
-        "user_prompt_capture",
-        "user_prompt_improve",
-        "continuity_prompt_context",
-    ]
-    assert dict(hook_pairs(local, "UserPromptSubmit"))["user_prompt_improve"] == 10
+    assert user_prompt == ["user_prompt_dispatch"]
+    assert dict(hook_pairs(local, "UserPromptSubmit"))["user_prompt_dispatch"] == 10
+
+    pre_tool = [name for name, _timeout in hook_pairs(local, "PreToolUse")]
+    assert pre_tool == ["pre_tool_dispatch"]
 
     post_tool = [name for name, _timeout in hook_pairs(local, "PostToolUse")]
-    assert post_tool.index("post_tool_extract_memory") < post_tool.index("post_tool_checkpoint")
-    assert post_tool.index("post_tool_checkpoint") < post_tool.index("post_tool_cost_ledger")
-    assert post_tool.index("post_tool_checkpoint") < post_tool.index("sol_advisor_observer")
+    assert post_tool == ["post_tool_dispatch"]
 
     stop = [name for name, _timeout in hook_pairs(local, "Stop")]
-    assert "implementation_notes_guard" in stop
-    assert "sol_advisor_stop_guard" in stop
-    assert stop.index("stop_persist_memory") < stop.index("stop_memory_promotion_review")
+    assert stop == ["stop_dispatch"]
+
+
+def test_temp_global_install_carries_deferred_maintenance_sources(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["RALPH_HOME"] = str(tmp_path / "ralph")
+    env["CODEX_MEMORY_HOME"] = str(tmp_path / "codex-memory")
+    env["VAULT_DIR"] = str(tmp_path / "vault")
+    env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    env["HOME"] = str(tmp_path / "home")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--allow-worktree-source"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    global_hooks = Path(env["HOME"]) / ".codex" / "hooks"
+    assert (global_hooks / "session_start_dispatch.py").is_file()
+    assert (global_hooks / "memory_maintenance_enqueue.py").is_file()
+    assert (global_hooks / "stop_memory_promotion_review.py").is_file()
+    assert (global_hooks / "shared" / "maintenance_queue.py").is_file()
 
 
 def test_configured_stop_hooks_emit_only_codex_supported_output(tmp_path: Path) -> None:

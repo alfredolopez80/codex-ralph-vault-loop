@@ -42,10 +42,10 @@ def resolve(**changes: object):
     [
         (1, "routine", "none", None, False, "routine-luna-only"),
         (3, "implementation", "none", None, False, "routine-luna-only"),
-        (4, "implementation", "terra-implementation", "high", True, "implementation-4-6"),
-        (6, "implementation", "terra-implementation", "high", True, "implementation-4-6"),
-        (7, "routine", "sol-advisor", "high", True, "sol-advisor-7-8"),
-        (8, "routine", "sol-advisor", "high", True, "sol-advisor-7-8"),
+        (4, "implementation", "none", None, False, "direct-4-6"),
+        (6, "implementation", "none", None, False, "direct-4-6"),
+        (7, "routine", "none", None, False, "direct-7-8"),
+        (8, "routine", "none", None, False, "direct-7-8"),
         (8, "architecture", "sol-advisor", "high", True, "sol-advisor-7-8"),
         (9, "migration", "sol-advisor", "xhigh", True, "sol-advisor-9"),
         (10, "security", "sol-advisor", "max", True, "sol-advisor-10"),
@@ -68,14 +68,13 @@ def test_default_bands_are_deterministic(
     assert decision.configured_executor_effort == LUNA_DEFAULT_EFFORT
 
 
-def test_complexity_seven_and_eight_share_the_sol_advisor_lane() -> None:
+def test_complexity_seven_and_eight_keep_routine_work_local() -> None:
     seven = resolve(raw_complexity=7, intent="routine")
     eight = resolve(raw_complexity=8, intent="routine")
 
-    assert seven.subagent_route == eight.subagent_route == "sol-advisor"
-    assert seven.subagent_effort == eight.subagent_effort == "high"
-    assert seven.reason_code == eight.reason_code == "sol-advisor-7-8"
-    assert seven.spawn_required is eight.spawn_required is True
+    assert seven.subagent_route == eight.subagent_route == "none"
+    assert seven.reason_code == eight.reason_code == "direct-7-8"
+    assert seven.spawn_required is eight.spawn_required is False
 
 
 def test_material_low_score_promotes_effective_band_without_automatic_delegation() -> None:
@@ -103,7 +102,7 @@ def test_red_stays_local_even_when_an_override_requests_sol() -> None:
 
 
 def test_terra_route_exposes_only_real_spawn_arguments() -> None:
-    decision = resolve(raw_complexity=4, intent="implementation")
+    decision = resolve(raw_complexity=4, intent="implementation", independent_block=True)
 
     assert dict(decision.spawn_arguments) == {
         "agent_type": "ralph-coder",
@@ -126,12 +125,9 @@ def test_task_override_wins_over_session_without_changing_executor() -> None:
 
     assert decision.override_scope == "task"
     assert dict(decision.override_requested) == {"model": SOL_MODEL, "reasoning_effort": "high"}
-    assert dict(decision.override_effective) == {
-        "model": SOL_MODEL,
-        "reasoning_effort": "high",
-        "route": "sol-advisor",
-    }
-    assert decision.subagent_route == "sol-advisor"
+    assert dict(decision.override_effective) == {}
+    assert decision.subagent_route == "none"
+    assert decision.reason_code == "direct-1-3"
     assert decision.configured_executor_model == LUNA_MODEL
     assert decision.configured_executor_effort == LUNA_DEFAULT_EFFORT
 
@@ -168,18 +164,14 @@ def test_expired_task_override_falls_back_to_valid_session_override() -> None:
     assert decision.override_scope == "session"
     assert dict(decision.override_requested) == {"model": TERRA_MODEL, "reasoning_effort": "high"}
     assert decision.override_expiry == 100
-    assert decision.override_rejection_reason is None
+    assert decision.override_rejection_reason == "complexity-band-does-not-delegate"
     assert dict(decision.override_rejections)["task"] == {
         "requested": {"model": SOL_MODEL},
         "expires_at": 42,
         "reason": "override-expired",
     }
-    assert dict(decision.override_effective) == {
-        "model": TERRA_MODEL,
-        "reasoning_effort": "high",
-        "route": "terra-implementation",
-    }
-    assert decision.subagent_route == "terra-implementation"
+    assert dict(decision.override_effective) == {}
+    assert decision.subagent_route == "none"
 
 
 def test_expired_task_and_session_overrides_preserve_both_rejections() -> None:

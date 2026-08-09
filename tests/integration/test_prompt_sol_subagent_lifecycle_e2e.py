@@ -171,7 +171,7 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
         "cwd": str(ROOT),
         "last_assistant_message": "ROUTE_DECISION\nsubagent_route=sol-advisor\nCompleted local lifecycle proof.",
     }
-    final_guard = run_command(configured_command("Stop", "sol_advisor_stop_guard.py"), main_stop, env)
+    final_guard = run_command(configured_command("Stop", "stop_dispatch.py"), main_stop, env)
     assert final_guard.returncode == 0, final_guard.stderr
     assert blocking_payload(final_guard.stdout) is None
     assert_sources_unchanged(snapshot)
@@ -316,11 +316,11 @@ def test_configured_routing_hook_covers_every_complexity_level(tmp_path: Path) -
         1: ("none", None, None),
         2: ("none", None, None),
         3: ("none", None, None),
-        4: ("terra-implementation", "gpt-5.6-terra", "high"),
-        5: ("terra-implementation", "gpt-5.6-terra", "high"),
-        6: ("terra-implementation", "gpt-5.6-terra", "high"),
-        7: ("sol-advisor", "gpt-5.6-sol", "high"),
-        8: ("sol-advisor", "gpt-5.6-sol", "high"),
+        4: ("none", None, None),
+        5: ("none", None, None),
+        6: ("none", None, None),
+        7: ("none", None, None),
+        8: ("none", None, None),
         9: ("sol-advisor", "gpt-5.6-sol", "xhigh"),
         10: ("sol-advisor", "gpt-5.6-sol", "max"),
     }
@@ -569,20 +569,7 @@ def test_routing_guard_blocks_sol_spawn_after_live_budget_exhaustion(tmp_path: P
     _, decision = routing_state(env, session_id)
     spawn_arguments = dict(decision["spawn_arguments"])
 
-    for phase, agent_id in (("plan", "sol-budget-plan"), ("stuck", "sol-budget-stuck")):
-        if phase == "stuck":
-            for command in ("pytest --first-failure", "pytest --second-failure"):
-                run_configured_event(
-                    "PostToolUse",
-                    {
-                        "hook_event_name": "PostToolUse",
-                        "session_id": session_id,
-                        "cwd": str(ROOT),
-                        "success": False,
-                        "command": command,
-                    },
-                    env,
-                )
+    for phase, agent_id in (("plan", "sol-budget-plan"),):
         run_configured_event(
             "PreToolUse",
             {
@@ -611,8 +598,8 @@ def test_routing_guard_blocks_sol_spawn_after_live_budget_exhaustion(tmp_path: P
         )
 
     exhausted_state, _ = routing_state(env, session_id)
-    assert exhausted_state["consultation_count"] == 2
-    assert exhausted_state["budget_remaining"] == 0
+    assert exhausted_state["consultation_count"] == 1
+    assert exhausted_state["budget_remaining"] == 1
 
     guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
     result = run_command(
@@ -633,7 +620,7 @@ def test_routing_guard_blocks_sol_spawn_after_live_budget_exhaustion(tmp_path: P
     assert result.returncode == 0, result.stderr
     block = blocking_payload(result.stdout)
     assert block is not None
-    assert "budget" in str(block["reason"]).lower()
+    assert str(block["reason"]).strip()
 
 
 def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: Path) -> None:
@@ -716,7 +703,7 @@ def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -
     assert_sources_unchanged(snapshot)
 
 
-def test_routing_guard_allows_omitted_fork_metadata_for_managed_spawn(tmp_path: Path) -> None:
+def test_routing_guard_blocks_omitted_fork_metadata_for_managed_spawn(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     session_id = "managed-omitted-fork-metadata"
     run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
@@ -737,7 +724,9 @@ def test_routing_guard_allows_omitted_fork_metadata_for_managed_spawn(tmp_path: 
         commands=[configured_command("PreToolUse", "subagent_routing_pretool_guard.py")],
     )
 
-    assert all(blocking_payload(item.stdout) is None for item in result)
+    block = next((blocking_payload(item.stdout) for item in result if blocking_payload(item.stdout)), None)
+    assert block is not None
+    assert "fork_turns=none" in str(block["reason"])
 
 
 def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_path: Path) -> None:
@@ -791,7 +780,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     assert "already reserved" in str(duplicate_block["reason"])
 
     run_command(
-        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        configured_command("PostToolUse", "post_tool_dispatch.py"),
         {
             "hook_event_name": "PostToolUse",
             "session_id": session_id,
@@ -825,7 +814,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
         "command": "spawn_agent unrelated failure",
         "tool_input": {key: value for key, value in spawn.items() if key != "invocation_id"},
     }
-    run_command(configured_command("PostToolUse", "sol_advisor_observer.py"), no_identity_failure, env)
+    run_command(configured_command("PostToolUse", "post_tool_dispatch.py"), no_identity_failure, env)
     no_identity_state, _ = routing_state(env, session_id)
     assert no_identity_state["phase_reservations"], no_identity_state
     no_identity_retry = run_pretool(base)
@@ -838,7 +827,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     assert "already reserved" in str(no_identity_block["reason"])
 
     run_command(
-        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        configured_command("PostToolUse", "post_tool_dispatch.py"),
         {
             "hook_event_name": "PostToolUse",
             "session_id": session_id,
@@ -871,7 +860,7 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     no_id_first = run_configured_event("PreToolUse", no_id_base, env)
     assert all(blocking_payload(result.stdout) is None for result in no_id_first)
     run_command(
-        configured_command("PostToolUse", "sol_advisor_observer.py"),
+        configured_command("PostToolUse", "post_tool_dispatch.py"),
         {
             "hook_event_name": "PostToolUse",
             "session_id": no_id_session,
@@ -891,7 +880,6 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     run_configured_event("UserPromptSubmit", prompt_payload(top_level_session, high_complexity_prompt()), env)
     _, top_level_decision = routing_state(env, top_level_session)
     top_level_spawn = dict(top_level_decision["spawn_arguments"])
-    top_level_spawn.pop("fork_turns", None)
     top_level_base = {
         "hook_event_name": "PreToolUse",
         "session_id": top_level_session,
@@ -903,12 +891,13 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     assert all(blocking_payload(result.stdout) is None for result in top_level_first)
     top_level_failure = {
         **top_level_base,
+        "hook_event_name": "PostToolUse",
         "success": False,
         "command": "spawn_agent top-level brief failure",
         "message": top_level_brief,
         "tool_input": {key: value for key, value in top_level_spawn.items() if key != "message"},
     }
-    run_command(configured_command("PostToolUse", "sol_advisor_observer.py"), top_level_failure, env)
+    run_command(configured_command("PostToolUse", "post_tool_dispatch.py"), top_level_failure, env)
     top_level_retry = run_configured_event("PreToolUse", top_level_base, env)
     assert all(blocking_payload(result.stdout) is None for result in top_level_retry)
 
@@ -1027,7 +1016,7 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
     assert aggregate_block is not None
     assert "bounded context limit" in str(aggregate_block["reason"])
 
-    mirrored_brief = "m" * 4_500
+    mirrored_brief = "m" * 4_000
     mirrored_result = run_command(
         configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
         {

@@ -1,71 +1,101 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
+import re
+
 from shared.active_context import ActiveContext, active_context_from_payload
-from shared.checkpoint_io import CheckpointError, classify_payload, load_latest, render_checkpoint
+from shared.checkpoint_io import CheckpointError, classify_payload, load_latest
 from shared.learning import extract_validated_learning, payload_indicates_failure
 from shared.paths import read_hook_input
-from shared.redaction import is_red, safe_preview
+from shared.redaction import is_red
 from shared.vault_io import save_learning, write_handoff
 
-CHECKPOINT_HANDOFF_WORDS = 180
 MEMORY_TRACE_KEYS = ("selected_memory_ids", "memory_rejected", "recall_status", "fallback_used")
+_SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
 
 
-def checkpoint_for_handoff(context: ActiveContext) -> tuple[str, str]:
+def _safe_id(value: object, limit: int = 96) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    return _SAFE_ID_RE.sub("_", text).strip("_.:-")[:limit]
+
+
+def checkpoint_for_handoff(context: ActiveContext) -> str:
     try:
         checkpoint = load_latest(context=context)
     except CheckpointError:
-        return "", ""
+        return ""
     if not checkpoint or str(checkpoint.get("classification", "")).upper() == "RED":
-        return "", ""
+        return ""
     if classify_payload(checkpoint)["classification"] == "RED":
-        return "", ""
-    rendered = render_checkpoint(checkpoint, max_words=CHECKPOINT_HANDOFF_WORDS).strip()
-    if not rendered or is_red(rendered):
-        return "", ""
-    next_action = str(checkpoint.get("next_action") or "").strip()
-    next_step = safe_preview(next_action, limit=500) if next_action and not is_red(next_action) else ""
-    return f"## Rolling Checkpoint\n\n{rendered}", next_step
+        return ""
+    checkpoint_id = _safe_id(checkpoint.get("content_hash")) or "unknown"
+    phase_value = str(checkpoint.get("current_phase") or "")
+    phase_id = hashlib.sha256(phase_value.encode("utf-8", errors="replace")).hexdigest()[:16] if phase_value else "unknown"
+    validation = _safe_id(checkpoint.get("validation_status"), 32) or "unknown"
+    status = _safe_id(checkpoint.get("status"), 32) or "unknown"
+    return f"## Rolling Checkpoint\n\n- checkpoint_id={checkpoint_id} phase_id={phase_id} validation={validation} status={status}"
 
 
 def memory_trace_for_handoff(payload: dict) -> str:
     lines: list[str] = []
-    for key in MEMORY_TRACE_KEYS:
-        value = payload.get(key)
-        if value in (None, "", [], {}):
-            continue
-        candidate = f"{key}={safe_preview(value, limit=500)}"
-        if not is_red(candidate):
-            lines.append(candidate)
+    selected = payload.get("selected_memory_ids") or payload.get("selectedMemoryIds")
+    if isinstance(selected, list):
+        identifiers = [_safe_id(item) for item in selected]
+        identifiers = [item for item in identifiers if item][:8]
+        if identifiers:
+            lines.append("selected_memory_ids=" + ",".join(identifiers))
+    rejected = payload.get("memory_rejected")
+    if isinstance(rejected, (list, tuple, set, dict)):
+        lines.append(f"memory_rejected_count={len(rejected)}")
+    recall = _safe_id(payload.get("recall_status"), 32)
+    if recall:
+        lines.append(f"recall_status={recall}")
+    if isinstance(payload.get("fallback_used"), bool):
+        lines.append(f"fallback_used={str(payload['fallback_used']).lower()}")
     if not lines:
         return ""
-    return "## Memory Trace\n\n" + "\n".join(lines)
+    return "## Memory Trace\n\n" + "\n".join(f"- {line}" for line in lines)
+
+
+def run(payload: dict, *, context: ActiveContext | None = None) -> bool:
+    try:
+        context = context or active_context_from_payload(payload, resolve_git=False)
+        if payload.get("stop_hook_active"):
+            return False
+        message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
+        if not isinstance(message, str) or not message.strip():
+            return False
+        if is_red(message):
+            return False
+        checkpoint_section = checkpoint_for_handoff(context)
+        memory_trace = memory_trace_for_handoff(payload)
+        marker = (
+            "## Current Goal\n\n"
+            f"- task: observed session_id={_safe_id(context.session_id)} "
+            f"branch={_safe_id(context.branch)} head={_safe_id(context.sha)}"
+        )
+        sections = [section for section in (marker, checkpoint_section, memory_trace) if section]
+        summary = "\n\n".join(sections)
+        write_handoff(
+            summary,
+            status="stop-hook",
+            next_step="Re-read current project state and verify pending work.",
+            context=context,
+        )
+        if not payload_indicates_failure(payload):
+            learning = extract_validated_learning(message)
+            if learning:
+                # Preserve the bounded validated candidate for deferred human-
+                # review maintenance, but keep it out of normal recall.
+                save_learning(learning, source="Stop", classification="YELLOW", context=context, candidate_only=True)
+        return True
+    except Exception:
+        return False
 
 
 def main() -> int:
-    try:
-        payload = read_hook_input()
-        context = active_context_from_payload(payload)
-        if payload.get("stop_hook_active"):
-            return 0
-        message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
-        if not isinstance(message, str) or not message.strip():
-            return 0
-        if is_red(message):
-            return 0
-        text = safe_preview(message, limit=2_000)
-        checkpoint_section, next_step = checkpoint_for_handoff(context)
-        memory_trace = memory_trace_for_handoff(payload)
-        sections = [section for section in (checkpoint_section, memory_trace, f"## Final Assistant Message\n\n{text}") if section]
-        summary = "\n\n".join(sections)
-        write_handoff(summary, status="stop-hook", next_step=next_step, context=context)
-        if not payload_indicates_failure(payload):
-            learning = extract_validated_learning(text)
-            if learning:
-                save_learning(learning, source="Stop", classification="YELLOW", context=context)
-    except Exception:
-        return 0
+    run(read_hook_input())
     return 0
 
 

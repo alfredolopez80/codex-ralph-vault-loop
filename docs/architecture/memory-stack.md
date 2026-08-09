@@ -94,9 +94,15 @@ Use `--auto-update-state` to write the project `layers/L4_dream_state.md` and `.
 
 Use `--assist-promote` to let Ralph Memory promote only high-confidence, runtime-corroborated L2/L3 candidates into runtime canonical layers and queue ambiguous, L1, Codex memory, Claude import, and `.local-notes/` candidates for review when they are not sufficiently corroborated. The promotion path writes `reports/memory/promotion-latest.{json,md}` and `promotion-events.jsonl`. It does not write to `~/.codex/memories` or source `.local-notes/`, and RED inputs remain skipped. The Stop hook runs this assisted promotion path and emits a warning when review candidates should be shown to the user instead of silently becoming canonical.
 
+Interactive Stop never invokes the assisted promotion or inbox review commands;
+it only records the maintenance descriptor described below.
+
+> Phase 10 supersedes the older interactive sentence above: promotion and
+> inbox review are invoked only by the explicit maintenance runner.
+
 Use `--vault-inbox` to write a reviewable digest under `~/Documents/Obsidian/MiVault/projects/<project>/inbox/`. This is not canonical MiVault memory; it is an inbox for human/Codex review before promotion.
 
-`scripts/memory/dream-scheduler.py --catch-up` is the non-blocking automation wrapper. The `SessionStart` hook runs it before `wakeup.py` with a default target time of 11:30 local. If the machine was asleep or off, the next Codex session after the target time performs the catch-up; if L4 is fresh, the scheduler is a no-op. Failures are recorded under `~/.ralph-codex/reports/memory/dream-scheduler.json` and do not block session startup.
+`scripts/memory/dream-scheduler.py --catch-up` remains the maintenance implementation, but it is no longer launched from an interactive hook. `SessionStart` and `Stop` enqueue a descriptor under `~/.ralph-codex/projects/<project_id>/maintenance/queue.json`; `session_start_wakeup.py` runs `wakeup.py` immediately. Operators or controlled local automation run `scripts/memory/run-pending-maintenance.py --all --json`, which claims jobs under a singleton lock and invokes the existing scheduler with bounded retries. Queue records contain hashes, IDs, branch/HEAD and timing metadata only. Failures are retried or dead-lettered and logged as sanitized codes without stdout toward the model.
 
 ## Memory Tree v2 Experimental Path
 
@@ -160,3 +166,35 @@ Use `--include-raw` only for explicit diagnostics. It may include inbox/raw cand
 Spec execution starts in MiVault with `obsidian-spec`. `scripts/vault/obsidian-spec-plan.py` creates a dry-run plan and handoff path before implementation.
 
 Related phases: [PHASE_05](../migration/checkpoints/PHASE_05.md), [PHASE_06](../migration/checkpoints/PHASE_06.md), [PHASE_14](../migration/checkpoints/PHASE_14.md), [PHASE_21](../migration/checkpoints/PHASE_21.md), and [PHASE_MEMORY_TREE_V2](../migration/checkpoints/PHASE_MEMORY_TREE_V2.md).
+
+## Deferred maintenance boundary (Phase 10)
+
+Dream consolidation, assisted promotion, and vault inbox review are
+maintenance work, not interaction decisions. `SessionStart` and `Stop` now
+write only a schema-versioned descriptor under the project runtime queue;
+`session_start_wakeup.py` proceeds directly to the incremental dispatcher. The explicit
+`scripts/memory/run-pending-maintenance.py --all --json` runner claims jobs
+under a singleton lock and invokes the existing scheduler with bounded retries.
+
+Queue records contain hashes, project/session IDs, branch/HEAD and timing
+metadata only. They do not contain prompt, memory, vault, or tool-output
+bodies. Failures are retried or dead-lettered as sanitized error codes, and
+runner metrics are reported separately from interactive hook latency. The
+compatibility Stop promotion wrapper is enqueue-only. Because this repository
+does not have a verified asynchronous SessionEnd contract, no orphan daemon is
+created; a controlled local automation or operator invokes the explicit runner.
+
+## Incremental SessionStart boundary (Phase 11)
+
+`session_start_dispatch.py` reduces source, model profile, active workspace
+metadata, and scoped checkpoint/handoff fingerprints. `startup` emits bounded
+orientation, `resume` emits only changed fields, `clear` drops ephemeral
+continuity, and `compact` restores only objective, in-progress files,
+pending validation, and selected memory IDs.
+
+The runtime cache stores only schema-versioned hashes and bounded identifiers.
+LUNA uses a 1500/2200-byte soft/hard SessionStart budget; SOL uses 500/800;
+unknown models use the conservative 1500/2200 budget. Foreign, stale,
+corrupt, or sensitive artifacts are ignored or marked non-authoritative.
+Fast-path subprocess count is zero; outer Python startup time is measured
+separately.

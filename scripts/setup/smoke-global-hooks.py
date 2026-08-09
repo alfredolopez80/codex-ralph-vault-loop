@@ -12,6 +12,7 @@ from pathlib import Path
 
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
 GLOBAL_HOOKS_JSON = Path.home() / ".codex" / "hooks.json"
+SCRIPT_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def run_hook(name: str, payload: dict, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -76,6 +77,21 @@ def assert_hook_output_contract(event: str, label: str, result: subprocess.Compl
             raise RuntimeError(f"{label} emitted unsupported Stop fields {sorted(extra)}: {output[:200]}")
 
 
+def check_project_mcp_config() -> None:
+    checker = SCRIPT_REPO_ROOT / "scripts" / "model-router" / "check_mcp_config.py"
+    config = SCRIPT_REPO_ROOT / ".codex" / "config.toml"
+    migration = SCRIPT_REPO_ROOT / "docs" / "migration" / "mcp-tool-names.md"
+    result = subprocess.run(
+        [sys.executable, str(checker), "--config", str(config), "--migration-doc", str(migration), "--json"],
+        cwd=SCRIPT_REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"MCP config audit failed: {result.stderr or result.stdout}")
+
+
 def hook_roles(config: dict, event: str) -> list[str]:
     names: list[str] = []
     for group in config.get("hooks", {}).get(event, []):
@@ -116,27 +132,23 @@ def one_match(paths: list[Path], label: str) -> Path:
 
 
 def main() -> int:
+    try:
+        check_project_mcp_config()
+    except RuntimeError as exc:
+        print(f"GLOBAL_HOOKS_SMOKE_FAIL {exc}", file=sys.stderr)
+        return 1
     if not GLOBAL_HOOKS_JSON.is_file():
         print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {GLOBAL_HOOKS_JSON}", file=sys.stderr)
         return 1
     config = json.loads(GLOBAL_HOOKS_JSON.read_text(encoding="utf-8"))
     required = {
-        "SessionStart": ["session_start_wakeup"],
-        "UserPromptSubmit": [
-            "universal_prompt_classifier",
-            "user_prompt_capture",
-            "user_prompt_improve",
-            "continuity_prompt_context",
-        ],
-        "PreToolUse": ["pre_tool_guard"],
-        "PostToolUse": [
-            "file_line_guard_post_tool",
-            "shaping_ripple",
-            "post_tool_extract_memory",
-            "post_tool_checkpoint",
-            "post_tool_cost_ledger",
-        ],
-        "Stop": ["stop_persist_memory", "stop_memory_promotion_review"],
+        "SessionStart": ["session_start_dispatch"],
+        "UserPromptSubmit": ["user_prompt_dispatch"],
+        "PreToolUse": ["pre_tool_dispatch"],
+        "PostToolUse": ["post_tool_dispatch"],
+        "SubagentStart": ["sol_advisor_subagent_context"],
+        "SubagentStop": ["sol_advisor_subagent_stop"],
+        "Stop": ["stop_dispatch"],
     }
     for event, names in required.items():
         sequence = hook_roles(config, event)
@@ -156,6 +168,14 @@ def main() -> int:
     if not (repo_root / "scripts" / "memory" / "wakeup.py").is_file():
         print(f"GLOBAL_HOOKS_SMOKE_FAIL invalid repo root {repo_root}", file=sys.stderr)
         return 1
+    for required in (
+        repo_root / ".codex" / "hooks" / "session_start_dispatch.py",
+        repo_root / ".codex" / "hooks" / "memory_maintenance_enqueue.py",
+        repo_root / "scripts" / "memory" / "run-pending-maintenance.py",
+    ):
+        if not required.is_file():
+            print(f"GLOBAL_HOOKS_SMOKE_FAIL missing maintenance source {required}", file=sys.stderr)
+            return 1
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
         env = {
@@ -207,8 +227,11 @@ def main() -> int:
         assert_ok("continuity_prompt_context.py", prompt)
         checkpoint_path = one_match(sorted(Path(env["RALPH_HOME"]).glob("projects/*/checkpoints/latest.json")), "project checkpoint")
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-        if checkpoint["objective"] != "Implement global hook smoke validation.":
-            raise RuntimeError("prompt checkpoint objective mismatch")
+        objective = str(checkpoint.get("objective", ""))
+        if not objective.startswith("Task metadata: intent=code_change prompt_hash="):
+            raise RuntimeError("prompt checkpoint safe objective metadata mismatch")
+        if "Implement global hook smoke validation." in checkpoint_path.read_text(encoding="utf-8"):
+            raise RuntimeError("prompt checkpoint persisted the raw prompt")
         if checkpoint["project"] != "project-a":
             raise RuntimeError("prompt checkpoint project mismatch")
 
@@ -222,7 +245,7 @@ def main() -> int:
             raise RuntimeError("project-b received project-a checkpoint")
 
         post_tool = run_hook(
-            "post_tool_checkpoint.py",
+            "post_tool_dispatch.py",
             {
                 "cwd": str(project_a),
                 "tool_input": {"command": "python3 -m pytest tests/integration/test_hook_lifecycle_e2e.py"},
@@ -230,7 +253,7 @@ def main() -> int:
             },
             env,
         )
-        assert_ok("post_tool_checkpoint.py", post_tool)
+        assert_ok("post_tool_dispatch.py", post_tool)
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         if checkpoint["validation_status"] != "pass":
             raise RuntimeError("post tool checkpoint did not mark validation pass")
@@ -241,20 +264,21 @@ def main() -> int:
             raise RuntimeError("session start did not include rolling checkpoint")
 
         stale_wakeup = run_hook(
-            "pre_tool_guard.py",
-            {"tool_input": {"command": "python3 scripts/memory/wakeup.py", "workdir": str(project_a)}},
+            "pre_tool_dispatch.py",
+            {"hook_event_name": "PreToolUse", "cwd": str(project_a), "tool_name": "exec_command",
+             "tool_input": {"cmd": "python3 scripts/memory/wakeup.py", "workdir": str(project_a)}},
             env,
         )
-        assert_ok("pre_tool_guard.py stale wakeup", stale_wakeup)
-        if '"decision": "block"' not in stale_wakeup.stdout or "repo-local Ralph wakeup" not in stale_wakeup.stdout:
-            raise RuntimeError("pre_tool_guard did not block stale repo-local wakeup")
+        assert_ok("pre_tool_dispatch.py stale wakeup", stale_wakeup)
+        if '"decision":"block"' not in stale_wakeup.stdout or "repo-local Ralph wakeup" not in stale_wakeup.stdout:
+            raise RuntimeError("pre_tool_dispatch did not block stale repo-local wakeup")
 
         stop = run_hook(
-            "stop_persist_memory.py",
+            "stop_dispatch.py",
             {"cwd": str(project_a), "last_assistant_message": "Global hook smoke finished."},
             env,
         )
-        assert_ok("stop_persist_memory.py", stop)
+        assert_ok("stop_dispatch.py", stop)
         handoff_path = one_match(sorted(Path(env["RALPH_HOME"]).glob("projects/*/handoffs/latest.md")), "project handoff")
         handoff = handoff_path.read_text(encoding="utf-8")
         if "## Rolling Checkpoint" not in handoff:

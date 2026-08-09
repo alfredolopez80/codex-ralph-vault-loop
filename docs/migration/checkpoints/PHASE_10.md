@@ -1,30 +1,87 @@
-# PHASE 10 - Quality Gates
+# PHASE 10 - Deferred Memory Maintenance
 
-Date: 2026-04-27
-Repository: `<repo-root>`
+> Historical note: the earlier checkpoint with this number covered the
+> deterministic scripts under `scripts/gates` and remains recoverable in git
+> history. This file now records the active runtime-maintenance phase requested
+> by the optimization sequence.
 
-## Previous Checkpoint
+Date: 2026-08-08
+Repository: `codex-ralph-vault-loop`
 
-`docs/migration/checkpoints/PHASE_09.md` exists and ends with decision `PASS`.
+## Previous checkpoint
 
-## Scope
+`docs/migration/checkpoints/PHASE_09.md` exists and is marked `PASS`.
 
-This phase adds deterministic quality gate scripts under `scripts/gates`. The gates detect project capabilities, run available checks, and write reports without inventing unavailable results.
+## First-principles decision
 
-## Implementation
+Interactive hooks have two irreducible responsibilities: preserve safety and
+handoff evidence, then return a valid hook response quickly. Dream
+consolidation, assisted promotion, and inbox review are maintenance work;
+their output cannot change the Stop decision already made. The boundary is
+therefore rebuilt around a small descriptor-only queue and an explicit runner,
+instead of hiding heavyweight subprocesses behind shorter timeouts.
 
-`detect-project.py` reports Python, Node, shell, and security capabilities. `run-tests.py` runs pytest when tests exist, then optional Python, Node, and shell gates depending on mode and installed tools. `run-security.py` runs gitleaks and semgrep when present; missing tools are skipped unless strict or critical mode is used.
+## Scope and implementation
 
-`run-gates.py` orchestrates test and security gates for minimal, standard, full, or critical mode. `summarize-gates.py` renders Markdown from a JSON report. Reports are written to `.ralph-codex/reports/gates/latest.json` and `.ralph-codex/reports/gates/latest.md`.
+- `maintenance_queue.py` provides schema-versioned project queues,
+  idempotency, debounce, TTL/eviction, singleton locking, leases, bounded
+  retries/dead-lettering, atomic writes, corrupt-file quarantine, symlink
+  rejection, restrictive permissions, and sanitized event logs.
+- `memory_maintenance_enqueue.py` and the compatibility Stop wrapper enqueue
+  and exit 0; neither launches dream or vault-review code.
+- `stop_dispatch.py` retains handoff and objective gates while adding the
+  deferred marker. `session_start_wakeup.py` enqueues before immediately
+  running `wakeup.py`; it no longer starts the dream scheduler.
+- `run-pending-maintenance.py` is the controlled runner. It invokes the
+  existing scheduler only after claiming a job, keeps scheduler output away
+  from the model path, and reports runner metrics separately.
+- Ambiguous inbox candidates remain `ask_user`; promotion decisions are not
+  changed.
 
-## Validation Results
+The host configuration does not provide a verified asynchronous SessionEnd
+contract in this repository, so no orphan daemon or unbounded background child
+was introduced. A local doctor, cron, or approved automation may invoke the
+explicit runner. This limitation is intentional and documented.
 
-`python3 scripts/gates/run-gates.py --minimal` completed successfully and generated both latest report files. Integration tests in `tests/integration/test_gates_basic.py` passed with pytest. Python syntax checks passed for all gate scripts. Secret scans returned no findings. Direct provider scans found no Z.ai or MiniMax `model_provider` configuration.
+## Validation
 
-## Global Activation
+- Queue unit coverage: idempotency, branch/generation separation, corrupt
+  recovery, bounded retry/dead-letter, concurrency, TTL, symlink fail-open,
+  and raw-content exclusion.
+- Lifecycle and vault integration call the explicit runner after enqueue;
+  direct Stop remains stdout-empty and fast.
+- SessionStart source contains no scheduler subprocess; the compatibility
+  wrapper contains no subprocess invocation.
+- Runner JSON reports `child_process_count`, processed jobs, failures, and
+  `runner_runtime_ms`; interactive hook latency remains separate.
 
-The reports live under repo-local `.ralph-codex` for this phase and are ignored by git. Global hooks from Phase 07 can call `run-gates.py` later without changing these scripts.
+## Risks and limits
 
-## Decision
+- Queue delivery is at-least-once. Existing sinks must remain idempotent; a
+  crash after a sink write and before completion can retry.
+- The explicit runner must be scheduled or invoked by an operator; the hook
+  path does not claim maintenance has completed.
+- Tests use temporary runtime and vault fixtures only. User-level Codex
+  configuration and real vault data were not changed.
 
-PASS
+## Benchmark delta
+
+The ten-iteration report is `/tmp/ralph-hook-phase10.json` with
+`subscription_usage_measured=false`. Interactive Stop allow measured p50/p95
+`81.497/85.312 ms`; objective-failure Stop measured `82.332/90.516 ms`, with
+one continuation per failed fixture and no plain output on allow. Deferred
+maintenance is reported separately: Stop enqueue p95 is `82.733 ms` for the
+allow fixture and `84.693 ms` for the objective-failure fixture; the runner
+p95 is `193.478/190.346 ms` and launches one known scheduler child. The
+pre-Phase-11 SessionStart enqueue p95 was `790.030 ms` because the old wakeup
+subprocess was still in that hook; Phase 11 removes that cost from the fast
+path.
+
+Comparing the candidate with the valid Phase 09 report yields `cambio no
+comparable` at a 5% noise threshold because the aggregate contains both small
+runtime improvements and noisy prompt-hook deltas; it reports zero semantic
+gate changes. Stop p95 remains below the strict `max(250 ms, 40% baseline)`
+target. The older 00-baseline file in `/tmp` is not valid standalone JSON, so
+no delta against it is claimed.
+
+Decision: PASS

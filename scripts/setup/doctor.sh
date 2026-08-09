@@ -21,15 +21,14 @@ find_python() {
     if [[ -z "$candidate" ]]; then
       continue
     fi
-    if ! command -v "$candidate" >/dev/null 2>&1; then
+    if ! command -v "$candidate" > /dev/null 2>&1; then
       continue
     fi
-    if "$candidate" - <<'PY' >/dev/null 2>&1
+    if "$candidate" - << 'PY' > /dev/null 2>&1; then
 import sys
 if sys.version_info < (3, 9):
     raise SystemExit(1)
 PY
-    then
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -60,7 +59,7 @@ check_dir() {
 check_toml() {
   local path="$1"
   local label="$2"
-  if "$PYTHON_BIN" - "$REPO_ROOT/$path" <<'PY'
+  if "$PYTHON_BIN" - "$REPO_ROOT/$path" << 'PY'; then
 from pathlib import Path
 import sys
 try:
@@ -79,7 +78,6 @@ else:
         if "=" not in stripped and not stripped.endswith(","):
             raise SystemExit(f"unsupported TOML line without assignment: {line}")
 PY
-  then
     ok "${label}"
   else
     fail "${label} does not parse"
@@ -89,22 +87,51 @@ PY
 check_json() {
   local path="$1"
   local label="$2"
-  if "$PYTHON_BIN" - "$REPO_ROOT/$path" <<'PY'
+  if "$PYTHON_BIN" - "$REPO_ROOT/$path" << 'PY'; then
 from pathlib import Path
 import json
 import sys
 
 json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 PY
-  then
     ok "${label}"
   else
     fail "${label} does not parse"
   fi
 }
 
+check_mcp_config() {
+  local output
+  if output="$($PYTHON_BIN "$REPO_ROOT/scripts/model-router/check_mcp_config.py" \
+    --config "$REPO_ROOT/.codex/config.toml" \
+    --migration-doc "$REPO_ROOT/docs/migration/mcp-tool-names.md" \
+    --json 2>&1)"; then
+    ok "MCP config has canonical unique exposure"
+  else
+    fail "MCP config audit"
+    printf 'DOCTOR_FAIL_DETAIL %s\n' "$output" >&2
+  fi
+}
+
+check_agent_limits() {
+  if "$PYTHON_BIN" - "$REPO_ROOT/.codex/config.toml" << 'PY'; then
+from pathlib import Path
+import sys
+import tomllib
+
+config = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+agents = config.get("agents", {})
+if agents.get("max_threads") != 2 or agents.get("max_depth") != 1:
+    raise SystemExit("expected agents.max_threads=2 and agents.max_depth=1")
+PY
+    ok "agent concurrency bounded (threads=2 depth=1)"
+  else
+    fail "agent concurrency bounds"
+  fi
+}
+
 check_scorecards() {
-  if "$PYTHON_BIN" - "$REPO_ROOT/config/scorecards" <<'PY'
+  if "$PYTHON_BIN" - "$REPO_ROOT/config/scorecards" << 'PY'; then
 from pathlib import Path
 import sys
 
@@ -123,7 +150,6 @@ for path in scorecards:
         if key not in data:
             raise SystemExit(f"{path} missing {key}")
 PY
-  then
     ok "scorecards parse"
   else
     fail "scorecards parse"
@@ -157,6 +183,8 @@ main() {
   fi
   check_file "AGENTS.md" "AGENTS.md exists"
   check_toml ".codex/config.toml" ".codex/config.toml parses"
+  check_agent_limits
+  check_mcp_config
   check_dir ".agents/skills" ".agents/skills exists"
   check_dir ".codex/agents" ".codex/agents exists"
   check_json ".codex/hooks.json" ".codex/hooks.json parses"

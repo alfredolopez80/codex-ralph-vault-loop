@@ -1,330 +1,183 @@
 #!/usr/bin/env python3
+"""Run reproducible, privacy-safe hook runtime scenarios."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
-import statistics
-import subprocess
 import sys
-import tempfile
-import time
 from pathlib import Path
+from typing import Mapping
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from hook_benchmark_config import configured_handler_counts, load_hook_config, matched_handlers
+from hook_benchmark_maintenance import measure_maintenance
+from hook_benchmark_results import measure_scenarios
+from hook_benchmark_scenarios import PROFILES, SCENARIOS, percentile
+from hook_benchmark_scope import measure_scopes
+
 
 ROOT = Path(__file__).resolve().parents[2]
-HOOKS = ROOT / ".codex" / "hooks"
-sys.path.insert(0, str(HOOKS))
-from global_hook_dispatch import ROLE_COMMANDS
-
-USER_PROMPT_HOOKS = (
-    ("universal_prompt_classifier", ["bash", str(HOOKS / "universal-prompt-classifier.sh")]),
-    ("user_prompt_capture", [sys.executable, str(HOOKS / "user_prompt_capture.py")]),
-    ("user_prompt_improve", [sys.executable, str(HOOKS / "user_prompt_improve.py")]),
-    ("continuity_prompt_context", [sys.executable, str(HOOKS / "continuity_prompt_context.py")]),
-)
-DISPATCHER = HOOKS / "global_hook_dispatch.py"
-LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+HOOK_CONFIG = ROOT / ".codex" / "hooks.json"
+SCHEMA_VERSION = 2
 
 
-def direct_command(event: str, role: str) -> list[str]:
-    child = ROLE_COMMANDS[(event, role)]
-    script = HOOKS / child[0]
-    return ["bash", str(script), *child[1:]] if script.suffix == ".sh" else [sys.executable, str(script), *child[1:]]
+def estimate_context_units(output_bytes: int) -> int:
+    return max(0, (output_bytes + 3) // 4)
 
 
-def dispatcher_command(event: str, role: str) -> list[str]:
-    return [sys.executable, str(DISPATCHER), "--event", event, "--role", role]
-
-
-def percentile(values: list[float], pct: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, round((pct / 100.0) * (len(ordered) - 1)))
-    return ordered[index]
-
-
-def estimate_context_units(chars: int) -> int:
-    return max(0, (chars + 3) // 4)
-
-
-def payloads() -> list[dict[str, str]]:
-    return [
-        {
-            "name": "simple",
-            "prompt": "ok revisa hooks y memoria del repo para rendimiento",
-        },
-        {
-            "name": "implementation",
-            "prompt": "Optimize Codex hooks for faster execution and compact context output while keeping recall and safety features",
-        },
-        {
-            "name": "continuation",
-            "prompt": "continua donde quedamos",
-        },
-    ]
-
-
-def session_id_for(payload: dict[str, str], iteration: int) -> str:
-    return f"hook-cost-{payload['name']}-{iteration}"
-
-
-def hook_payload(payload: dict[str, str], iteration: int, prompt: str | None = None) -> str:
-    return json.dumps(
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "session_id": session_id_for(payload, iteration),
-            "cwd": str(ROOT),
-            "prompt": prompt if prompt is not None else payload["prompt"],
-        }
-    )
-
-
-def seed_continuation_checkpoint(payload: dict[str, str], iteration: int, env: dict[str, str]) -> None:
-    completed = subprocess.run(
-        [sys.executable, str(HOOKS / "continuity_prompt_context.py")],
-        cwd=ROOT,
-        input=hook_payload(
-            payload,
-            iteration,
-            "Optimize Codex hooks for faster execution while preserving memory checkpoints",
-        ),
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
-        timeout=30,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(f"continuity seed failed: {completed.stderr[-500:]}")
-
-
-def run_once(command: list[str], payload: dict[str, str], env: dict[str, str], iteration: int) -> tuple[float, int]:
-    started = time.perf_counter()
-    completed = subprocess.run(
-        command,
-        cwd=ROOT,
-        input=hook_payload(payload, iteration),
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
-        timeout=30,
-    )
-    elapsed_ms = (time.perf_counter() - started) * 1000
-    if completed.returncode != 0:
-        raise RuntimeError(f"{Path(command[-1]).name} failed: {completed.stderr[-500:]}")
-    return elapsed_ms, len(completed.stdout.strip())
-
-
-def lifecycle_payload(event: str, workspace: Path, session_id: str) -> dict[str, object]:
-    payload: dict[str, object] = {"hook_event_name": event, "cwd": str(workspace), "session_id": session_id}
-    if event == "SessionStart":
-        payload["source"] = "startup"
-    elif event == "UserPromptSubmit":
-        payload["prompt"] = "Review the effective hook pipeline without changing unrelated files."
-    elif event == "PreToolUse":
-        payload["tool_name"] = "exec_command"
-        payload["tool_input"] = {"cmd": "git status --short", "workdir": str(workspace)}
-    elif event == "PostToolUse":
-        payload["tool_name"] = "exec_command"
-        payload["tool_use_id"] = f"toolu_{session_id}"
-        payload["tool_input"] = {"cmd": "git status --short", "workdir": str(workspace)}
-        payload["tool_response"] = {"exit_code": 0, "stdout": "## branch\n"}
-        payload["success"] = True
-    elif event == "Stop":
-        payload["last_assistant_message"] = "Completed benchmark validation."
-    return payload
-
-
-def run_lifecycle_once(command: list[str], payload: dict[str, object], env: dict[str, str], cwd: Path) -> tuple[float, str]:
-    started = time.perf_counter()
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        input=json.dumps(payload),
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
-        timeout=30,
-    )
-    elapsed_ms = (time.perf_counter() - started) * 1000
-    if completed.returncode != 0:
-        raise RuntimeError(f"{Path(command[-1]).name} failed: {completed.stderr[-500:]}")
-    return elapsed_ms, completed.stdout
-
-
-def directory_bytes(path: Path) -> int:
-    if not path.exists():
-        return 0
-    return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
-
-
-def output_block_count(output: str) -> int:
-    try:
-        payload = json.loads(output)
-    except json.JSONDecodeError:
-        return 0
-    return 1 if isinstance(payload, dict) and payload.get("decision") == "block" else 0
-
-
-def measure(iterations: int) -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix="ralph-hook-cost-") as tmp:
-        env = os.environ.copy()
-        env["RALPH_HOME"] = str(Path(tmp) / "ralph")
-        env["CODEX_MEMORY_HOME"] = str(Path(tmp) / "codex-memory-empty")
-        env["VAULT_DIR"] = str(Path(tmp) / "vault-empty")
-        env["RALPH_LOCAL_NOTES_ROOTS"] = ""
-        env.pop("RALPH_MEMORY_TRACE", None)
-
-        cases: list[dict[str, object]] = []
-        total_p50_ms = 0.0
-        total_stdout_chars = 0
-        for payload in payloads():
-            for hook_name, command in USER_PROMPT_HOOKS:
-                samples: list[float] = []
-                stdout_sizes: list[int] = []
-                for iteration in range(iterations):
-                    if payload["name"] == "continuation" and hook_name == "continuity_prompt_context":
-                        seed_continuation_checkpoint(payload, iteration, env)
-                    elapsed_ms, stdout_chars = run_once(command, payload, env, iteration)
-                    samples.append(elapsed_ms)
-                    stdout_sizes.append(stdout_chars)
-                p50_ms = statistics.median(samples)
-                p95_ms = percentile(samples, 95)
-                stdout_chars = int(statistics.median(stdout_sizes))
-                total_p50_ms += p50_ms
-                total_stdout_chars += stdout_chars
-                cases.append(
-                    {
-                        "payload": payload["name"],
-                        "hook": hook_name,
-                        "event": "UserPromptSubmit",
-                        "role": hook_name,
-                        "effective_config": "project_only",
-                        "source_scope": "project",
-                        "p50_ms": round(p50_ms, 3),
-                        "p95_ms": round(p95_ms, 3),
-                        "runtime_p50_ms": round(p50_ms, 3),
-                        "runtime_p95_ms": round(p95_ms, 3),
-                        "stdout_chars": stdout_chars,
-                        "context_units": estimate_context_units(stdout_chars),
-                        "estimated_context_units": estimate_context_units(stdout_chars),
-                        "block_count": 0,
-                        "continuation_count": 1 if payload["name"] == "continuation" else 0,
-                        "persisted_bytes": 0,
-                    }
-                )
-
-        global_workspace = Path(tmp) / "global-only-workspace"
-        global_workspace.mkdir()
-        for event, role in ROLE_COMMANDS:
-            for effective_config in ("project_only", "global_only", "global_plus_project"):
-                samples: list[float] = []
-                stdout_sizes: list[int] = []
-                blocks = 0
-                suppressed_samples: list[float] = []
-                for iteration in range(iterations):
-                    session_id = f"hook-cost-{event}-{role}-{effective_config}-{iteration}"
-                    if effective_config == "project_only":
-                        payload = lifecycle_payload(event, ROOT, session_id)
-                        elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
-                    elif effective_config == "global_only":
-                        payload = lifecycle_payload(event, global_workspace, session_id)
-                        elapsed_ms, output = run_lifecycle_once(dispatcher_command(event, role), payload, env, global_workspace)
-                    else:
-                        payload = lifecycle_payload(event, ROOT, session_id)
-                        suppressed_ms, suppressed_output = run_lifecycle_once(dispatcher_command(event, role), payload, env, ROOT)
-                        if suppressed_output:
-                            raise RuntimeError(f"global dispatcher did not suppress {event}/{role}")
-                        suppressed_samples.append(suppressed_ms)
-                        elapsed_ms, output = run_lifecycle_once(direct_command(event, role), payload, env, ROOT)
-                    samples.append(elapsed_ms)
-                    stdout_sizes.append(len(output.encode("utf-8")))
-                    blocks += output_block_count(output)
-
-                p50_ms = statistics.median(samples)
-                p95_ms = percentile(samples, 95)
-                stdout_chars = int(statistics.median(stdout_sizes))
-                source_scope = "global" if effective_config == "global_only" else "project"
-                cases.append(
-                    {
-                        "payload": "lifecycle",
-                        "hook": role,
-                        "event": event,
-                        "role": role,
-                        "effective_config": effective_config,
-                        "source_scope": source_scope,
-                        "p50_ms": round(p50_ms, 3),
-                        "p95_ms": round(p95_ms, 3),
-                        "runtime_p50_ms": round(p50_ms, 3),
-                        "runtime_p95_ms": round(p95_ms, 3),
-                        "stdout_chars": stdout_chars,
-                        "context_units": estimate_context_units(stdout_chars),
-                        "estimated_context_units": estimate_context_units(stdout_chars),
-                        "block_count": blocks,
-                        "continuation_count": 0,
-                        "persisted_bytes": directory_bytes(Path(env["RALPH_HOME"])),
-                    }
-                )
-                if suppressed_samples:
-                    cases.append(
-                        {
-                            "payload": "lifecycle",
-                            "hook": role,
-                            "event": event,
-                            "role": role,
-                            "effective_config": effective_config,
-                            "source_scope": "suppressed_global",
-                            "p50_ms": round(statistics.median(suppressed_samples), 3),
-                            "p95_ms": round(percentile(suppressed_samples, 95), 3),
-                            "runtime_p50_ms": round(statistics.median(suppressed_samples), 3),
-                            "runtime_p95_ms": round(percentile(suppressed_samples, 95), 3),
-                            "stdout_chars": 0,
-                            "context_units": 0,
-                            "estimated_context_units": 0,
-                            "block_count": 0,
-                            "continuation_count": 0,
-                            "persisted_bytes": directory_bytes(Path(env["RALPH_HOME"])),
-                        }
-                    )
-
-    output_units = estimate_context_units(total_stdout_chars)
-    score = total_p50_ms + (output_units * 2.0)
-    effective_cases = [case for case in cases if case["source_scope"] != "suppressed_global"]
-    stdout_by_event = {
-        event: sum(int(case["stdout_chars"]) for case in effective_cases if case["event"] == event)
-        for event in LIFECYCLE_EVENTS
+def measure(iterations: int, *, warmup: int = 0, include_maintenance: bool = True) -> dict[str, object]:
+    if iterations < 1:
+        raise ValueError("iterations must be positive")
+    if warmup < 0:
+        raise ValueError("warmup must not be negative")
+    config = load_hook_config(HOOK_CONFIG)
+    counts = configured_handler_counts(config)
+    matrix = measure_scenarios(config, ROOT, iterations, warmup)
+    scope_cases = measure_scopes(config, ROOT, iterations)
+    maintenance = measure_maintenance(ROOT, iterations) if include_maintenance else {
+        "schema_version": SCHEMA_VERSION,
+        "cases": [],
+        "skipped_reason": "explicit_skip",
     }
-    units_by_event = {event: estimate_context_units(chars) for event, chars in stdout_by_event.items()}
-    suppressed_roles = sorted({str(case["role"]) for case in cases if case["source_scope"] == "suppressed_global"})
+    total_p50_ms = round(sum(float(case["runtime_p50_ms"]) for case in matrix), 3)
+    total_p95_ms = round(sum(float(case["runtime_p95_ms"]) for case in matrix), 3)
+    total_output = sum(int(case["output_bytes"]) for case in matrix)
+    context_units = estimate_context_units(total_output)
+    measured_children = all(case.get("child_process_count_measured") is True for case in matrix)
+    child_total = sum(int(case["child_process_count"]) for case in matrix) if measured_children else None
     return {
+        "schema_version": SCHEMA_VERSION,
         "iterations": iterations,
-        "cases": cases,
-        "total_p50_ms": round(total_p50_ms, 3),
-        "total_stdout_chars": total_stdout_chars,
-        "estimated_context_units": output_units,
-        "hook_cost_score": round(score, 3),
-        "effective_stdout_chars_by_event": stdout_by_event,
-        "effective_context_units_by_event": units_by_event,
+        "warmup_iterations": warmup,
+        "scenario_names": list(SCENARIOS),
+        "profiles": list(PROFILES),
+        "scenario_matrix": matrix,
+        "scope_cases": scope_cases,
+        "cases": matrix,
+        "configured_handlers_by_event": counts,
+        "matched_handler_count": sum(int(case["matched_handler_count"]) for case in matrix),
+        "executed_handler_count": sum(int(case["executed_handler_count"]) for case in matrix),
+        "process_count": sum(int(case["process_count"]) for case in matrix),
+        "child_process_count": child_total,
+        "child_process_count_measured": measured_children,
+        "block_count": sum(int(case["block_count"]) for case in matrix),
+        "continuation_count": sum(int(case["continuation_count"]) for case in matrix),
+        "advisor_count": sum(int(case["advisor_count"]) for case in matrix),
+        "cache_hits": sum(int(case["cache_hits"]) for case in matrix),
+        "persisted_bytes_delta": sum(int(case["persisted_bytes_delta"]) for case in matrix),
+        "total_p50_ms": total_p50_ms,
+        "total_p95_ms": total_p95_ms,
+        "total_stdout_chars": total_output,
+        "estimated_context_units": context_units,
+        "hook_cost_score": round(total_p50_ms + (context_units * 2.0), 3),
+        "effective_stdout_chars_by_event": {
+            event: sum(int(case["output_bytes"]) for case in matrix if event in str(case["event"]).split("+"))
+            for event in counts
+        },
         "duplicate_roles": [],
-        "suppressed_roles": suppressed_roles,
+        "suppressed_roles": sorted({str(case["role"]) for case in scope_cases if case["source_scope"] == "suppressed-global"}),
+        "source_scopes_measured": ["project", "global", "suppressed-global"],
+        "source_scopes_not_measured": [],
         "successful_post_tool_stdout_chars": sum(
-            int(case["stdout_chars"])
-            for case in effective_cases
-            if case["event"] == "PostToolUse" and int(case["block_count"]) == 0
+            int(case["output_bytes"])
+            for case in matrix
+            if "PostToolUse" in str(case["event"]).split("+") and int(case["block_count"]) == 0
         ),
         "successful_stop_stdout_chars": sum(
-            int(case["stdout_chars"])
-            for case in effective_cases
-            if case["event"] == "Stop" and int(case["block_count"]) == 0
+            int(case["output_bytes"])
+            for case in matrix
+            if str(case["event"]) == "Stop" and int(case["block_count"]) == 0
         ),
+        "subscription_usage_measured": False,
+        "post_tool_processes_before": None,
+        "post_tool_processes_after": counts.get("PostToolUse"),
+        "post_tool_processes_reduction": None,
+        "active_post_tool_roles": sorted({str(case["role"]) for case in scope_cases if case["event"] == "PostToolUse"}),
+        "stop_processes_before": None,
+        "stop_processes_after": counts.get("Stop"),
+        "stop_processes_reduction": None,
+        "active_stop_roles": sorted({str(case["role"]) for case in scope_cases if case["event"] == "Stop"}),
+        "session_start": {
+            "schema_version": SCHEMA_VERSION,
+            "cases": [case for case in matrix if str(case["scenario"]).startswith("session_start_")],
+        },
+        "maintenance": maintenance,
+        "limitations": [
+            "No provider or account usage is measured.",
+            "Context units are estimated as ceil(output bytes / 4).",
+            "Deferred maintenance time is excluded from interactive scenario runtime.",
+            "Global scope timing measures the wrapper and its configured child; project scenarios time the configured child directly.",
+        ],
     }
 
 
-def main() -> int:
-    iterations = int(os.environ.get("RALPH_HOOK_COST_ITERATIONS", "3"))
-    report = measure(max(1, iterations))
+def markdown_report(report: Mapping[str, object]) -> str:
+    lines = [
+        "# Hook runtime benchmark",
+        "",
+        f"- Schema: `{report.get('schema_version')}`",
+        f"- Measured iterations: `{report.get('iterations')}` after `{report.get('warmup_iterations')}` warmup iteration(s)",
+        f"- Aggregate p50/p95: `{report.get('total_p50_ms')} ms` / `{report.get('total_p95_ms')} ms`",
+        f"- Subscription usage measured: `{report.get('subscription_usage_measured')}`",
+        "",
+        "| Scenario | Profile | Event | configured | matched | executed | children | p50 ms | p95 ms | output B | persisted B | blocks | continuations | cache hits |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    matrix = report.get("scenario_matrix", [])
+    for case in matrix if isinstance(matrix, list) else []:
+        if not isinstance(case, Mapping):
+            continue
+        child = case.get("child_process_count") if case.get("child_process_count_measured") else "unknown"
+        lines.append(
+            "| {scenario} | {profile} | {event} | {configured} | {matched} | {executed} | {child} | {p50} | {p95} | {output} | {persisted} | {blocks} | {continuations} | {hits} |".format(
+                scenario=case.get("scenario"),
+                profile=case.get("profile"),
+                event=case.get("event"),
+                configured=case.get("configured_handler_count"),
+                matched=case.get("matched_handler_count"),
+                executed=case.get("executed_handler_count"),
+                child=child,
+                p50=case.get("runtime_p50_ms"),
+                p95=case.get("runtime_p95_ms"),
+                output=case.get("output_bytes"),
+                persisted=case.get("persisted_bytes_delta"),
+                blocks=case.get("block_count"),
+                continuations=case.get("continuation_count"),
+                hits=case.get("cache_hits"),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Limitations",
+            "",
+            *[f"- {item}" for item in report.get("limitations", []) if isinstance(item, str)],
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--iterations", type=int)
+    parser.add_argument("--warmup", type=int)
+    parser.add_argument("--skip-maintenance", action="store_true")
+    parser.add_argument("--json-out", type=Path)
+    parser.add_argument("--markdown-out", type=Path)
+    args = parser.parse_args(argv)
+    iterations = args.iterations if args.iterations is not None else int(os.environ.get("RALPH_HOOK_COST_ITERATIONS", "3"))
+    warmup = args.warmup if args.warmup is not None else int(os.environ.get("RALPH_HOOK_COST_WARMUP", "1"))
+    report = measure(iterations, warmup=warmup, include_maintenance=not args.skip_maintenance)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if args.markdown_out:
+        args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown_out.write_text(markdown_report(report), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     print(f"METRIC hook_cost_score={report['hook_cost_score']}")
     print(f"METRIC hook_total_p50_ms={report['total_p50_ms']}")
@@ -334,3 +187,16 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+__all__ = [
+    "SCHEMA_VERSION",
+    "configured_handler_counts",
+    "estimate_context_units",
+    "load_hook_config",
+    "main",
+    "markdown_report",
+    "matched_handlers",
+    "measure",
+    "percentile",
+]

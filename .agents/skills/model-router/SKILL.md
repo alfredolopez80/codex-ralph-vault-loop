@@ -2,6 +2,7 @@
 name: model-router
 description: Route sanitized work to intent-appropriate Z.ai, MiniMax, ralph_coding_models, official MCPs, and local Codex tools while keeping Codex main as final owner.
 ---
+
 # Model Router
 
 ## Core Rule
@@ -18,7 +19,11 @@ Use `ralph_coding_models` for sanitized coding support. It provides `validate_co
 
 ### Z.ai Official MCPs
 
-Use Z.ai official MCPs or configured aliases for external context. `zai_web_search` and `web-search-prime` cover current web search. `zai_web_reader` and `web-reader` read a specific URL. `zai_zread` and `zread` handle public GitHub repository research. `zai_vision` handles image, screenshot, diagram, chart, or video understanding.
+Use the canonical Z.ai MCPs for external context. `zai_web_search` covers
+current web search, `zai_web_reader` reads a specific URL, and `zai_zread`
+handles public GitHub repository research. `zai_vision` handles image,
+screenshot, diagram, chart, or video understanding. Legacy names are listed
+only in the migration table and are not active configuration entries.
 
 ### MiniMax Official MCP
 

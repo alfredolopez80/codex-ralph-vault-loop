@@ -85,7 +85,9 @@ def test_continuation_checkpoint_is_project_scoped(tmp_path: Path) -> None:
     )
     assert same_project.returncode == 0, same_project.stderr
     payload = json.loads(same_project.stdout)
-    assert "Implement project A scoped rolling checkpoint behavior." in payload["hookSpecificOutput"]["additionalContext"]
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert checkpoint_a["objective"] in context
+    assert "Implement project A scoped rolling checkpoint behavior." not in context
 
 
 def test_continuation_checkpoint_is_session_scoped_within_same_project(tmp_path: Path) -> None:
@@ -104,6 +106,7 @@ def test_continuation_checkpoint_is_session_scoped_within_same_project(tmp_path:
         },
     )
     assert created.returncode == 0, created.stderr
+    checkpoint = json.loads(latest_checkpoints(ralph_home)[0].read_text(encoding="utf-8"))
 
     other_session = run_hook(
         CONTINUITY,
@@ -120,7 +123,9 @@ def test_continuation_checkpoint_is_session_scoped_within_same_project(tmp_path:
     )
     assert same_session.returncode == 0, same_session.stderr
     payload = json.loads(same_session.stdout)
-    assert "Implement session scoped checkpoint behavior." in payload["hookSpecificOutput"]["additionalContext"]
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert checkpoint["objective"] in context
+    assert "Implement session scoped checkpoint behavior." not in context
 
 
 def test_continuation_checkpoint_is_workspace_scoped_for_same_remote_project(tmp_path: Path) -> None:
@@ -170,7 +175,8 @@ def test_continuation_checkpoint_is_workspace_scoped_for_same_remote_project(tmp
     )
     assert wakeup_source_workspace.returncode == 0, wakeup_source_workspace.stderr
     assert "## Latest Rolling Checkpoint" in wakeup_source_workspace.stdout
-    assert "Implement workspace scoped checkpoint behavior." in wakeup_source_workspace.stdout
+    assert checkpoint["objective"] in wakeup_source_workspace.stdout
+    assert "Implement workspace scoped checkpoint behavior." not in wakeup_source_workspace.stdout
 
 
 def test_same_remote_workspaces_keep_independent_latest_checkpoints(tmp_path: Path) -> None:
@@ -207,9 +213,16 @@ def test_same_remote_workspaces_keep_independent_latest_checkpoints(tmp_path: Pa
 
     checkpoints = latest_checkpoints(ralph_home)
     assert len(checkpoints) == 2
+    checkpoint_by_workspace = {
+        json.loads(path.read_text(encoding="utf-8"))["workspace_root"]: json.loads(path.read_text(encoding="utf-8"))
+        for path in checkpoints
+    }
+    checkpoint_a = checkpoint_by_workspace[str(worktree_a)]
+    checkpoint_b = checkpoint_by_workspace[str(worktree_b)]
+    assert checkpoint_a["objective"] != checkpoint_b["objective"]
     checkpoint_text = "\n".join(path.read_text(encoding="utf-8") for path in checkpoints)
-    assert "workspace A" in checkpoint_text
-    assert "workspace B" in checkpoint_text
+    assert "workspace A" not in checkpoint_text
+    assert "workspace B" not in checkpoint_text
 
     continue_a = run_hook(
         CONTINUITY,
@@ -217,7 +230,9 @@ def test_same_remote_workspaces_keep_independent_latest_checkpoints(tmp_path: Pa
         {"hook_event_name": "UserPromptSubmit", "session_id": "same-session", "cwd": str(worktree_a), "prompt": "continua"},
     )
     assert continue_a.returncode == 0, continue_a.stderr
-    assert "workspace A" in json.loads(continue_a.stdout)["hookSpecificOutput"]["additionalContext"]
+    context_a = json.loads(continue_a.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert checkpoint_a["objective"] in context_a
+    assert checkpoint_b["objective"] not in context_a
 
     continue_b = run_hook(
         CONTINUITY,
@@ -225,7 +240,9 @@ def test_same_remote_workspaces_keep_independent_latest_checkpoints(tmp_path: Pa
         {"hook_event_name": "UserPromptSubmit", "session_id": "same-session", "cwd": str(worktree_b), "prompt": "continua"},
     )
     assert continue_b.returncode == 0, continue_b.stderr
-    assert "workspace B" in json.loads(continue_b.stdout)["hookSpecificOutput"]["additionalContext"]
+    context_b = json.loads(continue_b.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert checkpoint_b["objective"] in context_b
+    assert checkpoint_a["objective"] not in context_b
 
 
 def test_session_start_handoff_is_workspace_scoped_for_same_remote_project(tmp_path: Path) -> None:
@@ -245,7 +262,9 @@ def test_session_start_handoff_is_workspace_scoped_for_same_remote_project(tmp_p
     assert stopped.returncode == 0, stopped.stderr
     handoffs = sorted(ralph_home.glob("projects/*/handoffs/latest.md"))
     assert len(handoffs) == 1
-    assert marker in handoffs[0].read_text(encoding="utf-8")
+    handoff = handoffs[0].read_text(encoding="utf-8")
+    assert marker not in handoff
+    assert "task: observed session_id=same-session" in handoff
     project_runtime = handoffs[0].parents[1]
     scheduler_state = project_runtime / "reports" / "memory" / "dream-scheduler.json"
     scheduler_state.parent.mkdir(parents=True, exist_ok=True)
@@ -279,7 +298,8 @@ def test_session_start_handoff_is_workspace_scoped_for_same_remote_project(tmp_p
 
     assert source_workspace.returncode == 0, source_workspace.stderr
     assert "## Latest Handoff" in source_workspace.stdout
-    assert marker in source_workspace.stdout
+    assert marker not in source_workspace.stdout
+    assert "task: observed session_id=same-session" in source_workspace.stdout
 
 
 def test_user_prompt_capture_uses_active_project_and_hash_only_prompt_ledger(tmp_path: Path) -> None:
