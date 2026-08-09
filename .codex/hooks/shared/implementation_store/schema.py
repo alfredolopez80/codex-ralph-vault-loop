@@ -13,6 +13,7 @@ from ..redaction import is_red
 
 CURRENT_SCHEMA_VERSION = 1
 STATE_TARGET_BYTES = 2 * 1024
+STATE_WARNING_BYTES = 6 * 1024
 STATE_HARD_LIMIT_BYTES = 8 * 1024
 MANIFEST_HARD_LIMIT_BYTES = 8 * 1024
 EVENT_HARD_LIMIT_BYTES = 4 * 1024
@@ -44,6 +45,29 @@ MATERIAL_EVENT_KINDS = frozenset(
 _HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$")
 _CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+STATE_PATCH_KEYS = frozenset(
+    {
+        "plan_path",
+        "status",
+        "classification",
+        "phase",
+        "objective",
+        "latest_decision",
+        "next_action",
+        "open_blockers",
+        "open_questions",
+        "validation",
+        "active_files",
+        "git",
+        "model_family",
+        "model_source",
+        "model_verified",
+        "origin",
+        "intent",
+    }
+)
 
 
 class SchemaError(ValueError):
@@ -66,6 +90,20 @@ def encoded_size(value: Any) -> int:
     return len(canonical_json(value).encode("utf-8"))
 
 
+def state_size_band(size: int) -> str:
+    """Classify an encoded snapshot without changing the persisted schema."""
+
+    if size <= STATE_TARGET_BYTES:
+        return "target"
+    if size < STATE_HARD_LIMIT_BYTES:
+        return "warning"
+    return "hard"
+
+
+def validate_operation_id(value: str) -> str:
+    return _identifier(value, "operation_id")
+
+
 def digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
@@ -74,7 +112,17 @@ def state_semantic_hash(state: Mapping[str, Any]) -> str:
     """Hash lifecycle/model state while excluding observational metadata."""
 
     projection = deepcopy(dict(state))
-    for key in ("semantic_hash", "updated_at", "created_at", "writer_session_id", "writer_process_id"):
+    for key in (
+        "semantic_hash",
+        "generation",
+        "last_operation_id",
+        "last_event_sequence",
+        "last_event_hash",
+        "updated_at",
+        "created_at",
+        "writer_session_id",
+        "writer_process_id",
+    ):
         projection.pop(key, None)
     return digest(projection)
 
@@ -153,6 +201,7 @@ def validate_state(
     intent = _text(obj.get("intent", "progress-maintenance"), "intent", 80)
     created_at = _timestamp(obj.get("created_at", ""), "created_at", allow_empty=True)
     updated_at = _timestamp(obj.get("updated_at", ""), "updated_at", allow_empty=True)
+    supplied_semantic_hash = _hash(obj.get("semantic_hash", ""), "semantic_hash", allow_empty=True)
     normalized = {
         "schema_version": CURRENT_SCHEMA_VERSION,
         "plan_id": plan_id,
@@ -183,6 +232,8 @@ def validate_state(
         "updated_at": updated_at,
     }
     normalized["semantic_hash"] = state_semantic_hash(normalized)
+    if supplied_semantic_hash and supplied_semantic_hash != normalized["semantic_hash"]:
+        raise SchemaError("state semantic_hash does not match the state")
     _reject_red(normalized, "state")
     size = encoded_size(normalized)
     if size > hard_limit:
@@ -224,6 +275,8 @@ def validate_event(
         "model_verified",
         "origin",
         "intent",
+        "state_patch",
+        "operation_payload_hash",
         "state_semantic_hash",
         "previous_event_hash",
         "record_hash",
@@ -257,6 +310,8 @@ def validate_event(
         raise SchemaError("model_verified must be boolean")
     origin = _text(obj.get("origin", "implementation-progress"), "origin", 80)
     intent = _text(obj.get("intent", "progress-maintenance"), "intent", 80)
+    state_patch = _state_patch(obj.get("state_patch", {}))
+    operation_payload_hash = _hash(obj.get("operation_payload_hash", ""), "operation_payload_hash", allow_empty=True)
     # The field is an optional integrity aid for operations created by this
     # implementation.  Older/manual material records remain valid without it;
     # the required chain fields are sequence, operation ID, previous hash, and
@@ -290,6 +345,8 @@ def validate_event(
         "model_verified": model_verified,
         "origin": origin,
         "intent": intent,
+        "state_patch": state_patch,
+        "operation_payload_hash": operation_payload_hash,
         "state_semantic_hash": resulting_state_hash,
         "previous_event_hash": previous,
         "record_hash": record_hash,
@@ -517,13 +574,72 @@ def _validation(value: Any) -> dict[str, str]:
     return result
 
 
+def _state_patch(value: Any) -> dict[str, Any]:
+    obj = _object(value, "state_patch")
+    if len(obj) > len(STATE_PATCH_KEYS):
+        raise SchemaError("state_patch contains too many fields")
+    _unknown_keys(obj, set(STATE_PATCH_KEYS), "state_patch")
+    result: dict[str, Any] = {}
+    if "plan_path" in obj:
+        result["plan_path"] = _repo_relative_path(obj["plan_path"], "state_patch.plan_path", allow_empty=True)
+    if "status" in obj:
+        result["status"] = _enum(obj["status"], VALID_STATUSES, "state_patch.status")
+    if "classification" in obj:
+        result["classification"] = _enum(obj["classification"], VALID_CLASSIFICATIONS, "state_patch.classification")
+    if "phase" in obj:
+        result["phase"] = _text(obj["phase"], "state_patch.phase", 160, allow_empty=True)
+    if "objective" in obj:
+        result["objective"] = _text(obj["objective"], "state_patch.objective", 480, allow_empty=True)
+    if "latest_decision" in obj:
+        decision = obj["latest_decision"]
+        if decision is None:
+            result["latest_decision"] = None
+        else:
+            decision_obj = _object(decision, "state_patch.latest_decision")
+            _unknown_keys(decision_obj, {"event_id", "summary"}, "state_patch.latest_decision")
+            result["latest_decision"] = {
+                "event_id": _identifier(decision_obj.get("event_id", ""), "state_patch.latest_decision.event_id", allow_empty=True),
+                "summary": _text(decision_obj.get("summary", ""), "state_patch.latest_decision.summary", 400, allow_empty=True),
+            }
+    if "next_action" in obj:
+        result["next_action"] = _text(obj["next_action"], "state_patch.next_action", 400, allow_empty=True)
+    if "open_blockers" in obj:
+        result["open_blockers"] = _text_list(obj["open_blockers"], "state_patch.open_blockers", max_items=8, max_length=400)
+    if "open_questions" in obj:
+        result["open_questions"] = _text_list(obj["open_questions"], "state_patch.open_questions", max_items=8, max_length=400)
+    if "validation" in obj:
+        result["validation"] = _validation(obj["validation"])
+    if "active_files" in obj:
+        result["active_files"] = _path_list(obj["active_files"], "state_patch.active_files", max_items=16, max_length=320)
+    if "git" in obj:
+        result["git"] = _git(obj["git"])
+    if "model_family" in obj:
+        result["model_family"] = _enum(obj["model_family"], VALID_MODEL_FAMILIES, "state_patch.model_family")
+    if "model_source" in obj:
+        result["model_source"] = _enum(obj["model_source"], VALID_MODEL_SOURCES, "state_patch.model_source")
+    if "model_verified" in obj:
+        if not isinstance(obj["model_verified"], bool):
+            raise SchemaError("state_patch.model_verified must be boolean")
+        result["model_verified"] = obj["model_verified"]
+    if "origin" in obj:
+        result["origin"] = _text(obj["origin"], "state_patch.origin", 80)
+    if "intent" in obj:
+        result["intent"] = _text(obj["intent"], "state_patch.intent", 80)
+    _reject_red(result, "state_patch")
+    return result
+
+
 def _git(value: Any) -> dict[str, str]:
     obj = _object(value, "git")
-    _unknown_keys(obj, {"branch", "commit", "workspace_instance_id"}, "git")
+    _unknown_keys(obj, {"branch", "commit", "workspace_instance_id", "repository_id"}, "git")
+    commit = _text(obj.get("commit", ""), "git.commit", 80, allow_empty=True)
+    if commit and not _COMMIT_RE.fullmatch(commit):
+        raise SchemaError("git.commit must be a hexadecimal Git commit")
     return {
         "branch": _text(obj.get("branch", ""), "git.branch", 240, allow_empty=True),
-        "commit": _text(obj.get("commit", ""), "git.commit", 80, allow_empty=True),
+        "commit": commit,
         "workspace_instance_id": _identifier(obj.get("workspace_instance_id", ""), "git.workspace_instance_id", allow_empty=True),
+        "repository_id": _identifier(obj.get("repository_id", ""), "git.repository_id", allow_empty=True),
     }
 
 

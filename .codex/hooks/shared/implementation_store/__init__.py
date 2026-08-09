@@ -16,6 +16,10 @@ from .paths import (
 )
 from .schema import (
     CURRENT_SCHEMA_VERSION,
+    STATE_HARD_LIMIT_BYTES,
+    STATE_PATCH_KEYS,
+    STATE_TARGET_BYTES,
+    STATE_WARNING_BYTES,
     MATERIAL_EVENT_KINDS,
     FutureSchemaError,
     RedContentError,
@@ -23,14 +27,20 @@ from .schema import (
     event_record_hash,
     new_state,
     state_semantic_hash,
+    state_size_band,
     validate_event,
     validate_manifest,
+    validate_operation_id,
     validate_state,
 )
 from .store import IdempotencyError, ImplementationStore, IntegrityError, StoreError, StoreResult
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
+    "STATE_HARD_LIMIT_BYTES",
+    "STATE_PATCH_KEYS",
+    "STATE_TARGET_BYTES",
+    "STATE_WARNING_BYTES",
     "CorruptRecordError",
     "FutureSchemaError",
     "IdempotencyError",
@@ -52,8 +62,10 @@ __all__ = [
     "resolve_primary_checkout_root",
     "resolve_store_paths",
     "state_semantic_hash",
+    "state_size_band",
     "validate_event",
     "validate_manifest",
+    "validate_operation_id",
     "validate_plan_id",
     "validate_state",
 ]

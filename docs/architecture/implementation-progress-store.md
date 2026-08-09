@@ -57,9 +57,10 @@ as stable provenance fields. RED-sensitive values are rejected before any
 publication.
 
 The `semantic_hash` is `sha256:<64 hex characters>`. It covers lifecycle and
-model-relevant fields while excluding `semantic_hash`, `updated_at`,
-`created_at`, writer session/process identifiers, and other observational
-metadata. A repeated semantic state is therefore a physical no-op.
+model-relevant fields while excluding `semantic_hash`, generation and journal
+cursor linkage, `updated_at`, `created_at`, writer session/process identifiers,
+and other observational metadata. A repeated semantic state is therefore a
+physical no-op; the cursor itself is verified separately against the journal.
 
 ## Material events
 
@@ -74,12 +75,45 @@ loose_commit_recorded
 
 Each record has an explicit sequence, deterministic event ID, operation ID,
 timestamp, bounded summary/reason/next-action fields, references, evidence
-codes, Git/model provenance, `previous_event_hash`, and `record_hash`.
-Records are bounded to 4 KiB. Sequence and hash-chain failures block mutation
-and preserve the source. Reusing an operation ID with the same material
-payload succeeds as a no-op; reusing it with a different payload is a hard
-logical error. A partial final JSONL line is retained as evidence and is
-ignored by the read-only parser until explicit repair.
+codes, Git/model provenance, a bounded reduced-state patch,
+`operation_payload_hash`, `previous_event_hash`, and `record_hash`. Records
+are bounded to 4 KiB. The payload hash is a digest only; raw operation input is
+not stored. Sequence and hash-chain failures block mutation and preserve the
+source. Reusing an operation ID with the same material payload succeeds as a
+no-op even if later operations changed unrelated state; reusing it with a
+different payload is a hard logical error. Operation IDs are scoped to one
+plan. A partial final JSONL line is retained as evidence and is ignored by the
+read-only parser until explicit repair; mutating calls reject it rather than
+truncating it.
+
+## Transaction and replay contract
+
+Material plan operations hold the plan's `state.lock` for the complete
+append-first transaction:
+
+1. validate the exact store path, current schema, ownership, limits, operation
+   ID, RED sensitivity, and Git provenance;
+2. compute the event payload hash, reduced-state patch, and candidate snapshot;
+3. if the candidate semantic hash is unchanged, return a physical no-op;
+4. append exactly one journal record and `fsync` it;
+5. atomically replace `state.json` and `fsync` its directory;
+6. release the lock.
+
+`state.json` records `last_event_sequence` and `last_event_hash`. A reader
+rejects a cursor ahead of the verified journal or a cursor/hash mismatch. A
+writer may replay only the verified tail after the cursor, then publishes one
+recovery snapshot. If a process stops after append but before replacement, the
+next retry therefore applies the event once and does not append a duplicate.
+Bad checksums, sequence gaps, hash-chain mismatches, malformed current records,
+and future schemas are blocking integrity errors. Repair is an explicit
+operation that preserves evidence or quarantines malformed current snapshots;
+there is no silent journal truncation or schema downgrade.
+
+The writer result exposes `changed`, `bytes_written`, `files_written`,
+`appends`, `replacements`, and `fsync_publications`. An ordinary material
+phase update reports at most one journal append and one snapshot replacement;
+an unchanged retry reports zero writes and does not change snapshot bytes or
+mtime. Status transitions may additionally update the pointer-only manifest.
 
 `unplanned-events.jsonl` shares the bounded record format but accepts only
 `loose_commit_recorded`; it is not a plan history and is never folded into the

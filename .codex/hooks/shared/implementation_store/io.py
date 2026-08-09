@@ -212,7 +212,7 @@ def publish_json(path: Path, payload: Mapping[str, Any], *, hard_limit: int) -> 
             regular_file_stat(path)
         os.replace(temporary, path)
         _fsync_directory(path.parent)
-    except OSError as exc:
+    except (OSError, StoreIOError) as exc:
         try:
             os.close(fd)
         except OSError:

@@ -30,13 +30,16 @@ from .schema import (
     MATERIAL_EVENT_KINDS,
     MANIFEST_HARD_LIMIT_BYTES,
     SchemaError,
+    STATE_PATCH_KEYS,
     UNPLANNED_EVENT_HARD_LIMIT_BYTES,
     CURRENT_SCHEMA_VERSION,
+    digest,
     event_record_hash,
     new_state,
     state_semantic_hash,
     validate_event,
     validate_manifest,
+    validate_operation_id,
     validate_state,
 )
 from .schema import canonical_json
@@ -89,11 +92,17 @@ class ImplementationStore:
 
     def read_state(self, plan_id: str) -> dict[str, Any] | None:
         plan = self.plan_paths(plan_id)
-        return read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label="state")
+        state = read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label="state")
+        if state is None:
+            return None
+        events = self._read_plan_events(plan, reject_partial=False).records
+        self._validate_ownership(state)
+        self._validate_state_cursor(state, events)
+        return state
 
     def read_events(self, plan_id: str) -> tuple[dict[str, Any], ...]:
         plan = self.plan_paths(plan_id)
-        result = self._read_plan_events(plan)
+        result = self._read_plan_events(plan, reject_partial=False)
         return result.records
 
     def read_unplanned_events(self) -> tuple[dict[str, Any], ...]:
@@ -104,6 +113,7 @@ class ImplementationStore:
             unplanned=True,
         )
         self._validate_sequence_and_hashes(result.records, plan_id=None)
+        self._validate_event_ownership(result.records)
         return result.records
 
     # ----- plan lifecycle ----------------------------------------------------------
@@ -135,27 +145,43 @@ class ImplementationStore:
             objective=objective,
             phase=phase,
             next_action=next_action,
-            **_provenance_fields(provenance),
+            **self._provenance_for_store(provenance),
         )
         ensure_store_layout(self.paths)
         ensure_directory_chain(plan.root, mode=0o700)
         with locked_file(plan.state_lock):
             current = self._load_state_for_write(plan)
+            events_result = self._read_plan_events(plan, reject_partial=True)
+            events = events_result.records
+            recovery_needed = False
+            if current is None and events:
+                current = self._reconstruct_state(plan, events, timestamp=timestamp)
+                recovery_needed = True
+            elif current is not None:
+                self._validate_ownership(current)
+                current, recovery_needed = self._reconcile_state(current, events, timestamp=timestamp)
             if current is not None:
-                existing = self._operation_event(plan, operation)
+                existing = self._operation_event_from_records(events, operation)
                 if existing is not None:
-                    self._assert_same_operation(existing, kind="started", summary="Plan registered", operation=operation)
-                    for field in ("plan_path", "status", "phase", "objective", "next_action", "git", "model_family", "model_source", "model_verified"):
-                        if current.get(field) != initial_state.get(field):
-                            raise IdempotencyError(f"operation_id {operation} was reused with a different payload")
-                    return StoreResult(False, operation, existing["event_id"], reason="idempotent retry", state=current)
+                    expected = self._build_event(
+                        plan,
+                        initial_state,
+                        operation_id=operation,
+                        kind="started",
+                        summary="Plan registered",
+                        timestamp=timestamp,
+                        sequence=existing["sequence"],
+                        previous_event_hash=existing["previous_event_hash"],
+                        state_patch=_material_state_patch({}, initial_state, include_all=True),
+                        operation_payload=_registration_operation_payload(initial_state),
+                    )
+                    self._assert_same_operation(existing, candidate_event=expected, operation=operation)
+                    metadata = publish_json(plan.state, current, hard_limit=8 * 1024) if recovery_needed else WriteMetadata()
+                    manifest, manifest_meta = self._publish_manifest_pointer(current, force=False)
+                    return StoreResult(False, operation, existing["event_id"], metadata=metadata.plus(manifest_meta), reason="idempotent retry", state=current, manifest=manifest)
                 # Registration is a discovery transition; an existing plan is
                 # not silently reset or overwritten.
                 raise StoreError("plan is already registered")
-            if plan.events.exists():
-                # A journal without a readable snapshot is crash/recovery
-                # evidence, not permission to start a second sequence at one.
-                raise StoreError("plan has journal evidence but no usable state; replay is required")
             state = initial_state
             event = self._build_event(
                 plan,
@@ -166,6 +192,8 @@ class ImplementationStore:
                 timestamp=timestamp,
                 sequence=1,
                 previous_event_hash="",
+                state_patch=_material_state_patch({}, state, include_all=True),
+                operation_payload=_registration_operation_payload(state),
                 provenance=provenance,
             )
             metadata = append_jsonl(plan.events, event, hard_limit=EVENT_HARD_LIMIT_BYTES)
@@ -195,38 +223,86 @@ class ImplementationStore:
             raise SchemaError("unknown or out-of-scope material event kind")
         operation = _operation_id(operation_id)
         timestamp = now or _now()
+        provenance_fields = self._provenance_for_store(provenance) if provenance is not None else None
         # Validate bounded caller input before creating a lock or directory.
         # The locked read below repeats the computation against the current
         # state to close the normal concurrent-writer race.
         try:
             preview_state = self.read_state(plan_id)
         except CorruptRecordError:
-            # A write/recovery boundary may preserve malformed current bytes
-            # in a quarantine sibling.  Future schemas are intentionally not
-            # caught here and remain hard-blocked.
-            ensure_store_layout(self.paths)
-            ensure_directory_chain(plan.root, mode=0o700)
-            with locked_file(plan.state_lock):
-                self._load_state_for_write(plan)
-            raise StoreError("plan is not registered")
+            # Preserve the historical malformed-state recovery boundary, but
+            # never mistake a malformed journal for an unregistered plan.
+            # Future schemas are intentionally not caught here and remain
+            # hard-blocked.
+            try:
+                read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label=f"state for {plan.plan_id}")
+            except CorruptRecordError:
+                ensure_store_layout(self.paths)
+                ensure_directory_chain(plan.root, mode=0o700)
+                with locked_file(plan.state_lock):
+                    self._load_state_for_write(plan)
+                raise StoreError("plan is not registered")
+            raise
         if preview_state is None:
             raise StoreError("plan is not registered")
         preview_candidate = self._apply_update(preview_state, state_update or {}, kind=kind, summary=summary, next_action=next_action)
-        if provenance is not None:
-            preview_candidate.update(_provenance_fields(provenance))
+        if provenance_fields is not None:
+            preview_candidate.update(provenance_fields)
         validate_state(preview_candidate, expected_plan_id=plan.plan_id)
+        self._validate_ownership(preview_candidate)
         ensure_store_layout(self.paths)
         ensure_directory_chain(plan.root, mode=0o700)
         with locked_file(plan.state_lock):
             state = self._load_state_for_write(plan)
+            events_result = self._read_plan_events(plan, reject_partial=True)
+            events = events_result.records
+            recovery_needed = False
             if state is None:
-                raise StoreError("plan is not registered")
-            events = self._read_plan_events(plan).records
+                if not events:
+                    raise StoreError("plan is not registered")
+                state = self._reconstruct_state(plan, events, timestamp=timestamp)
+                recovery_needed = True
+            else:
+                self._validate_ownership(state)
+                state, recovery_needed = self._reconcile_state(state, events, timestamp=timestamp)
             candidate = self._apply_update(state, state_update or {}, kind=kind, summary=summary, next_action=next_action)
-            if provenance is not None:
-                candidate.update(_provenance_fields(provenance))
+            if provenance_fields is not None:
+                candidate.update(provenance_fields)
             candidate = validate_state(candidate, expected_plan_id=plan.plan_id)
+            self._validate_ownership(candidate)
             existing = self._operation_event_from_records(events, operation)
+            operation_payload = _record_operation_payload(
+                kind=kind,
+                summary=summary,
+                reason=reason,
+                next_action=next_action,
+                references=references,
+                evidence_codes=evidence_codes,
+                state_update=state_update,
+                provenance=provenance_fields,
+            )
+            candidate_patch = _material_state_patch(state, candidate)
+            # Build a side-effect-free candidate event before the semantic
+            # no-op check.  This validates summary/reason/references/evidence
+            # sensitivity and event limits even when the state itself is
+            # unchanged.
+            self._build_event(
+                plan,
+                candidate,
+                operation_id=operation,
+                kind=kind,
+                summary=summary,
+                reason=reason,
+                next_action=next_action,
+                references=references,
+                evidence_codes=evidence_codes,
+                timestamp=timestamp,
+                sequence=1,
+                previous_event_hash="",
+                state_patch=candidate_patch,
+                operation_payload=operation_payload,
+                provenance=provenance,
+            )
             if existing is not None:
                 candidate_event = self._build_event(
                     plan,
@@ -241,12 +317,16 @@ class ImplementationStore:
                     timestamp=timestamp,
                     sequence=existing["sequence"],
                     previous_event_hash=existing["previous_event_hash"],
+                    state_patch=candidate_patch,
+                    operation_payload=operation_payload,
                     provenance=provenance,
                 )
                 self._assert_same_operation(existing, candidate_event=candidate_event, operation=operation)
-                return StoreResult(False, operation, existing["event_id"], reason="idempotent retry", state=state)
+                metadata = publish_json(plan.state, state, hard_limit=8 * 1024) if recovery_needed else WriteMetadata()
+                return StoreResult(False, operation, existing["event_id"], metadata=metadata, reason="idempotent retry", state=state)
             if state_semantic_hash(candidate) == state_semantic_hash(state):
-                return StoreResult(False, operation, reason="semantic state unchanged", state=state)
+                metadata = publish_json(plan.state, state, hard_limit=8 * 1024) if recovery_needed else WriteMetadata()
+                return StoreResult(False, operation, metadata=metadata, reason="semantic state unchanged", state=state)
             sequence = len(events) + 1
             previous = events[-1]["record_hash"] if events else ""
             event = self._build_event(
@@ -262,6 +342,8 @@ class ImplementationStore:
                 timestamp=timestamp,
                 sequence=sequence,
                 previous_event_hash=previous,
+                state_patch=candidate_patch,
+                operation_payload=operation_payload,
                 provenance=provenance,
             )
             metadata = append_jsonl(plan.events, event, hard_limit=EVENT_HARD_LIMIT_BYTES)
@@ -324,12 +406,16 @@ class ImplementationStore:
         )
         ensure_store_layout(self.paths)
         with locked_file(self.paths.manifest_lock):
-            events = read_jsonl(
+            events_result = read_jsonl(
                 self.paths.unplanned_events,
                 lambda value: validate_event(value, unplanned=True),
                 label="unplanned-events.jsonl",
                 unplanned=True,
-            ).records
+            )
+            if events_result.partial_final_line:
+                raise IntegrityError("unplanned journal has an incomplete final line; explicit repair is required")
+            events = events_result.records
+            self._validate_sequence_and_hashes(events, plan_id=None)
             existing = self._operation_event_from_records(events, operation)
             if existing is not None:
                 candidate = self._build_unplanned_event(
@@ -367,48 +453,120 @@ class ImplementationStore:
         timestamp = now or _now()
         with locked_file(plan.state_lock):
             state = self._load_state_for_write(plan)
-            events = self._read_plan_events(plan).records
-            self._validate_sequence_and_hashes(events, plan_id=plan.plan_id)
+            events_result = self._read_plan_events(plan, reject_partial=False)
+            events = events_result.records
             if state is None:
                 if not events:
                     return StoreResult(False, "", reason="no state to replay")
-                first = events[0]
-                state = new_state(
-                    plan.plan_id,
-                    plan_path=first.get("plan_path", ""),
-                    now=timestamp,
-                    status=first.get("status", "planned"),
-                    phase=first.get("phase", ""),
-                    git=first.get("git", {}),
-                    writer_session_id=first.get("writer_session_id", ""),
-                    model_family=first.get("model_family", "unknown"),
-                    model_source=first.get("model_source", "unknown"),
-                    model_verified=first.get("model_verified", False),
-                    origin=first.get("origin", "implementation-progress"),
-                    intent=first.get("intent", "progress-maintenance"),
-                )
-            if state["last_event_sequence"] > len(events):
-                raise IntegrityError("state points beyond the end of its journal")
-            if state["last_event_sequence"] > 0 and state["last_event_hash"] != events[state["last_event_sequence"] - 1]["record_hash"]:
-                raise IntegrityError("state last_event_hash does not match its journal")
-            if state["last_event_sequence"] == len(events):
+                state = self._reconstruct_state(plan, events, timestamp=timestamp)
+                metadata = publish_json(plan.state, state, hard_limit=8 * 1024)
+                return StoreResult(True, state.get("last_operation_id", ""), metadata=metadata, state=state, reason="replayed journal")
+            self._validate_ownership(state)
+            state, recovery_needed = self._reconcile_state(state, events, timestamp=timestamp)
+            if not recovery_needed:
                 return StoreResult(False, "", state=state, reason="already current")
-            recovered = dict(state)
-            for event in events[state["last_event_sequence"] :]:
-                recovered = self._state_after_event(recovered, event, timestamp=timestamp)
-            recovered = validate_state(recovered, expected_plan_id=plan.plan_id)
-            metadata = publish_json(plan.state, recovered, hard_limit=8 * 1024)
-        return StoreResult(True, recovered.get("last_operation_id", ""), metadata=metadata, state=recovered, reason="replayed journal")
+            metadata = publish_json(plan.state, state, hard_limit=8 * 1024)
+        return StoreResult(True, state.get("last_operation_id", ""), metadata=metadata, state=state, reason="replayed journal")
 
     # ----- internal helpers --------------------------------------------------------
 
-    def _read_plan_events(self, plan: PlanPaths):
-        result = read_jsonl(
-            plan.events,
-            lambda value: validate_event(value, expected_plan_id=plan.plan_id),
-            label=f"events for {plan.plan_id}",
+    def _provenance_for_store(self, provenance: Mapping[str, Any] | None) -> dict[str, Any]:
+        fields = _provenance_fields(provenance)
+        git = dict(fields.get("git") or {})
+        expected = _repo_identity(self.paths.primary_root)
+        supplied = git.get("repository_id", "")
+        if supplied and supplied != expected:
+            raise StoreError("Git provenance belongs to a different canonical repository")
+        if fields.get("origin") != "implementation-progress" or fields.get("intent") != "progress-maintenance":
+            raise StoreError("implementation progress provenance has an invalid origin or intent")
+        git["repository_id"] = expected
+        fields["git"] = git
+        return fields
+
+    def _validate_ownership(self, state: Mapping[str, Any]) -> None:
+        repository_id = state.get("git", {}).get("repository_id", "")
+        expected = _repo_identity(self.paths.primary_root)
+        if repository_id and repository_id != expected:
+            raise IntegrityError("state Git provenance belongs to a different canonical repository")
+
+    def _validate_event_ownership(self, events: tuple[dict[str, Any], ...]) -> None:
+        expected = _repo_identity(self.paths.primary_root)
+        for event in events:
+            repository_id = event.get("git", {}).get("repository_id", "")
+            if repository_id and repository_id != expected:
+                raise IntegrityError("journal Git provenance belongs to a different canonical repository")
+
+    def _validate_state_cursor(self, state: Mapping[str, Any], events: tuple[dict[str, Any], ...]) -> None:
+        sequence = state.get("last_event_sequence", 0)
+        if sequence > len(events):
+            raise IntegrityError("state points beyond the end of its verified journal")
+        if sequence == 0:
+            if state.get("last_event_hash", ""):
+                raise IntegrityError("state has a hash without an applied journal sequence")
+            return
+        if state.get("last_event_hash") != events[sequence - 1].get("record_hash"):
+            raise IntegrityError("state last_event_hash does not match its verified journal")
+
+    def _reconcile_state(
+        self,
+        state: dict[str, Any],
+        events: tuple[dict[str, Any], ...],
+        *,
+        timestamp: str,
+    ) -> tuple[dict[str, Any], bool]:
+        self._validate_state_cursor(state, events)
+        sequence = state["last_event_sequence"]
+        if sequence == len(events):
+            return state, False
+        recovered = dict(state)
+        for event in events[sequence:]:
+            recovered = self._state_after_event(recovered, event, timestamp=timestamp)
+        return validate_state(recovered, expected_plan_id=state["plan_id"]), True
+
+    def _reconstruct_state(
+        self,
+        plan: PlanPaths,
+        events: tuple[dict[str, Any], ...],
+        *,
+        timestamp: str,
+    ) -> dict[str, Any]:
+        if not events:
+            raise StoreError("cannot reconstruct a plan without journal evidence")
+        first = events[0]
+        state = new_state(
+            plan.plan_id,
+            plan_path=first.get("plan_path", ""),
+            now=timestamp,
+            status=first.get("status", "planned"),
+            classification=first.get("classification", "GREEN"),
+            phase=first.get("phase", ""),
+            git=first.get("git", {}),
+            writer_session_id=first.get("writer_session_id", ""),
+            model_family=first.get("model_family", "unknown"),
+            model_source=first.get("model_source", "unknown"),
+            model_verified=first.get("model_verified", False),
+            origin=first.get("origin", "implementation-progress"),
+            intent=first.get("intent", "progress-maintenance"),
         )
+        for event in events:
+            state = self._state_after_event(state, event, timestamp=timestamp)
+        return validate_state(state, expected_plan_id=plan.plan_id)
+
+    def _read_plan_events(self, plan: PlanPaths, *, reject_partial: bool) -> Any:
+        try:
+            result = read_jsonl(
+                plan.events,
+                lambda value: validate_event(value, expected_plan_id=plan.plan_id),
+                label=f"events for {plan.plan_id}",
+            )
+        except CorruptRecordError as exc:
+            # A malformed journal is an integrity failure, not an absent plan;
+            # callers must preserve the bytes and perform explicit repair.
+            raise IntegrityError(str(exc)) from exc
+        if reject_partial and result.partial_final_line:
+            raise IntegrityError("plan journal has an incomplete final line; explicit repair is required")
         self._validate_sequence_and_hashes(result.records, plan_id=plan.plan_id)
+        self._validate_event_ownership(result.records)
         return result
 
     def _load_state_for_write(self, plan: PlanPaths) -> dict[str, Any] | None:
@@ -488,7 +646,9 @@ class ImplementationStore:
         timestamp: str,
         sequence: int,
         previous_event_hash: str,
-        provenance: Mapping[str, Any] | None,
+        state_patch: Mapping[str, Any] | None = None,
+        operation_payload: Mapping[str, Any] | None = None,
+        provenance: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         material = {
             "plan_id": plan.plan_id,
@@ -526,6 +686,8 @@ class ImplementationStore:
             "model_verified": state.get("model_verified", False),
             "origin": state.get("origin", "implementation-progress"),
             "intent": state.get("intent", "progress-maintenance"),
+            "state_patch": dict(state_patch or {}),
+            "operation_payload_hash": digest(operation_payload or _event_payload_from_fields(event)),
             "state_semantic_hash": _operation_state_hash(state),
             "previous_event_hash": previous_event_hash,
             "record_hash": "",
@@ -545,7 +707,7 @@ class ImplementationStore:
         previous_event_hash: str,
         provenance: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        fields = _provenance_fields(provenance)
+        fields = self._provenance_for_store(provenance)
         event = {
             "schema_version": CURRENT_SCHEMA_VERSION,
             "sequence": sequence,
@@ -570,6 +732,14 @@ class ImplementationStore:
             "model_verified": fields.get("model_verified", False),
             "origin": "implementation-progress",
             "intent": "progress-maintenance",
+            "operation_payload_hash": digest(
+                {
+                    "kind": "loose_commit_recorded",
+                    "summary": summary,
+                    "references": references,
+                    "evidence_codes": evidence_codes,
+                }
+            ),
             "state_semantic_hash": "",
             "previous_event_hash": previous_event_hash,
             "record_hash": "",
@@ -580,6 +750,9 @@ class ImplementationStore:
     @staticmethod
     def _state_after_event(state: Mapping[str, Any], event: Mapping[str, Any], *, timestamp: str) -> dict[str, Any]:
         result = dict(state)
+        # The snapshot hash is derived after applying the journal record.  Do
+        # not carry the predecessor's digest into the next candidate.
+        result["semantic_hash"] = ""
         result.update(
             {
                 "generation": int(state.get("generation", 0)) + 1,
@@ -589,6 +762,9 @@ class ImplementationStore:
                 "updated_at": timestamp,
             }
         )
+        patch = event.get("state_patch") or {}
+        if patch:
+            result.update(patch)
         for field in ("status", "classification", "phase", "next_action"):
             if field in event:
                 result[field] = event[field]
@@ -601,15 +777,25 @@ class ImplementationStore:
                 result[field] = event[field]
         if event.get("kind") == "decision":
             result["latest_decision"] = {"event_id": event["event_id"], "summary": event.get("summary", "")}
-        return result
+        return validate_state(result, expected_plan_id=event.get("plan_id") or result.get("plan_id"))
 
     @staticmethod
     def _apply_update(state: Mapping[str, Any], updates: Mapping[str, Any], *, kind: str, summary: str, next_action: str) -> dict[str, Any]:
+        if not isinstance(updates, Mapping):
+            raise SchemaError("state_update must be a mapping")
         result = dict(state)
+        result["semantic_hash"] = ""
         for key, value in updates.items():
             if key in {"schema_version", "plan_id", "semantic_hash", "generation", "last_operation_id", "last_event_sequence", "last_event_hash", "created_at", "updated_at"}:
                 raise SchemaError(f"{key} is derived and cannot be directly updated")
-            result[key] = value
+            if key == "git" and isinstance(value, Mapping):
+                git_update = dict(value)
+                existing_repository_id = (result.get("git") or {}).get("repository_id", "")
+                if existing_repository_id and "repository_id" not in git_update:
+                    git_update["repository_id"] = existing_repository_id
+                result[key] = git_update
+            else:
+                result[key] = value
         if next_action:
             result["next_action"] = next_action
         if kind == "decision" and summary:
@@ -651,8 +837,56 @@ class ImplementationStore:
         candidate_event: Mapping[str, Any] | None = None,
     ) -> None:
         if candidate_event is not None:
-            left = {key: value for key, value in existing.items() if key not in {"event_id", "timestamp", "record_hash"}}
-            right = {key: value for key, value in candidate_event.items() if key not in {"event_id", "timestamp", "record_hash"}}
+            left_hash = existing.get("operation_payload_hash", "")
+            right_hash = candidate_event.get("operation_payload_hash", "")
+            if left_hash and right_hash:
+                if left_hash != right_hash:
+                    raise IdempotencyError(f"operation_id {operation} was reused with a different payload")
+                return
+            left = {
+                key: value
+                for key, value in existing.items()
+                if key not in {
+                    "event_id",
+                    "timestamp",
+                    "record_hash",
+                    "state_semantic_hash",
+                    "operation_payload_hash",
+                    "status",
+                    "classification",
+                    "phase",
+                    "plan_path",
+                    "git",
+                    "writer_session_id",
+                    "model_family",
+                    "model_source",
+                    "model_verified",
+                    "origin",
+                    "intent",
+                }
+            }
+            right = {
+                key: value
+                for key, value in candidate_event.items()
+                if key not in {
+                    "event_id",
+                    "timestamp",
+                    "record_hash",
+                    "state_semantic_hash",
+                    "operation_payload_hash",
+                    "status",
+                    "classification",
+                    "phase",
+                    "plan_path",
+                    "git",
+                    "writer_session_id",
+                    "model_family",
+                    "model_source",
+                    "model_verified",
+                    "origin",
+                    "intent",
+                }
+            }
             if left != right:
                 raise IdempotencyError(f"operation_id {operation} was reused with a different payload")
             return
@@ -674,7 +908,7 @@ class ImplementationStore:
 
 def _operation_id(value: str | None) -> str:
     if value:
-        return value
+        return validate_operation_id(value)
     return "op-" + uuid.uuid4().hex
 
 
@@ -715,3 +949,70 @@ def _operation_state_hash(state: Mapping[str, Any]) -> str:
     ):
         projection.pop(key, None)
     return state_semantic_hash(projection)
+
+
+def _material_state_patch(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    include_all: bool = False,
+) -> dict[str, Any]:
+    patch: dict[str, Any] = {}
+    for key in STATE_PATCH_KEYS:
+        if include_all or before.get(key) != after.get(key):
+            patch[key] = after.get(key)
+    return patch
+
+
+def _event_payload_from_fields(event: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a stable fallback payload for manually-created current events."""
+
+    return {
+        "kind": event.get("kind", ""),
+        "summary": event.get("summary", ""),
+        "reason": event.get("reason", ""),
+        "next_action": event.get("next_action", ""),
+        "references": event.get("references", []),
+        "evidence_codes": event.get("evidence_codes", []),
+        "state_patch": event.get("state_patch", {}),
+    }
+
+
+def _registration_operation_payload(state: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "started",
+        "summary": "Plan registered",
+        "plan_path": state.get("plan_path", ""),
+        "status": state.get("status", "planned"),
+        "classification": state.get("classification", "GREEN"),
+        "phase": state.get("phase", ""),
+        "objective": state.get("objective", ""),
+        "next_action": state.get("next_action", ""),
+        "git": state.get("git", {}),
+        "model_family": state.get("model_family", "unknown"),
+        "model_source": state.get("model_source", "unknown"),
+        "model_verified": state.get("model_verified", False),
+    }
+
+
+def _record_operation_payload(
+    *,
+    kind: str,
+    summary: str,
+    reason: str,
+    next_action: str,
+    references: list[str] | None,
+    evidence_codes: list[str] | None,
+    state_update: Mapping[str, Any] | None,
+    provenance: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "summary": summary,
+        "reason": reason,
+        "next_action": next_action,
+        "references": list(references or []),
+        "evidence_codes": list(evidence_codes or []),
+        "state_update": dict(state_update or {}),
+        "provenance": dict(provenance or {}),
+    }
