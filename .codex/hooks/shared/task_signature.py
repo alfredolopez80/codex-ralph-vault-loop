@@ -47,6 +47,8 @@ class TaskSignature:
     sensitivity: str
     model_family: str
     checkpoint_identity: str
+    model_source: str = "unknown"
+    model_verified: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -71,12 +73,17 @@ def signature_from_prompt(
         "prompt_hash": prompt_hash,
         "intent": intent,
         "sensitivity": sensitivity,
+        "model_family": profile.model_family,
+        "model_source": profile.model_source,
+        "model_verified": profile.model_verified,
     }
     anchor = _digest(json.dumps(anchor_material, sort_keys=True, separators=(",", ":")))
     value_material = {
         **anchor_material,
         "head": context.sha,
         "model_family": profile.model_family,
+        "model_source": profile.model_source,
+        "model_verified": profile.model_verified,
         "checkpoint_identity": checkpoint,
     }
     return TaskSignature(
@@ -92,6 +99,8 @@ def signature_from_prompt(
         sensitivity=sensitivity,
         model_family=profile.model_family,
         checkpoint_identity=checkpoint,
+        model_source=profile.model_source,
+        model_verified=profile.model_verified,
     )
 
 

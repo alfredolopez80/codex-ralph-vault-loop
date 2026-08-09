@@ -11,7 +11,8 @@ Each JSONL record has `schema_name=ralph_runtime_overhead` and
 `pre_tool`, `post_tool`, `stop`, `subagent`, and `maintenance`.
 
 Records contain monotonic duration in nanoseconds; hashed session, turn, and
-task identifiers; profile/model family; tool family; bounded component lists;
+task identifiers; safety profile/model family plus model source and verified
+provenance; tool family; bounded component lists;
 process counts; output bytes; estimated context units; persistence bytes;
 reason codes; continuation/advisor counts; cache/duplicate flags; source
 scope; and the fixed `subscription_usage_measured=false` field.
@@ -53,6 +54,12 @@ samples receive low/medium confidence rather than fabricated zeroes.
 heuristic rather than model accounting. The stream cannot observe internal
 units, cached input, output billing, account limits, credits, or real
 subscription consumption.
+
+`model_source=repository-default` is intentionally not equivalent to a
+verified active turn. The source and boolean `model_verified` fields are
+content-free provenance labels only; they do not change the configured
+executor. Progress-maintenance records are local bookkeeping and carry no
+advisor or worker allowance.
 
 An optional CSV/JSON export may be passed with `--usage`. It is supplied by the
 user, accepts only unambiguous ISO timestamps, and is reported separately as

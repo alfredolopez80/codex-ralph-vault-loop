@@ -270,6 +270,8 @@ def claim(
             "intent": signature.intent,
             "sensitivity": signature.sensitivity,
             "model_family": signature.model_family,
+            "model_source": signature.model_source,
+            "model_verified": signature.model_verified,
             "checkpoint_identity": signature.checkpoint_identity,
             "selected_memory_ids": [],
             "created_at": now_iso(),

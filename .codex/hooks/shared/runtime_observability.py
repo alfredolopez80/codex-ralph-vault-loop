@@ -17,7 +17,7 @@ from typing import Any, Mapping
 
 from .active_context import ActiveContext
 from .cost_policy import estimate_context_units, measured_output, source_scope
-from .runtime_profile import profile_from_payload
+from .runtime_profile import MODEL_SOURCES, profile_from_payload
 from .runtime_event_store import append_normalized, event_path
 
 
@@ -185,6 +185,9 @@ def normalize_event(event: Mapping[str, object]) -> dict[str, Any] | None:
         return None
     profile = _code(event.get("profile"), prefix="profile") or "conservative_unknown"
     family = _code(event.get("model_family"), prefix="model") or "unknown"
+    source_candidate = _text(event.get("model_source"), 32).lower()
+    model_source = source_candidate if source_candidate in MODEL_SOURCES else "unknown"
+    model_verified = _bounded_bool(event.get("model_verified"))
     output_bytes = _bounded_int(event.get("output_bytes"), maximum=MAX_EVENT_BYTES)
     context_units = event.get("estimated_context_units")
     if context_units is None:
@@ -203,6 +206,8 @@ def normalize_event(event: Mapping[str, object]) -> dict[str, Any] | None:
         "dispatcher": _code(event.get("dispatcher"), prefix="dispatcher") or "unknown",
         "profile": profile,
         "model_family": family,
+        "model_source": model_source,
+        "model_verified": model_verified if model_verified is not None else False,
         "tool_family": _code(event.get("tool_family"), prefix="tool") or "none",
         "components_considered": _codes(event.get("components_considered"), prefix="component"),
         "components_executed": _codes(event.get("components_executed"), prefix="component"),
@@ -254,6 +259,8 @@ def build_event(
     session = _payload_value(payload, "session_id", "sessionId") or (context.session_id if context else "")
     turn = _payload_value(payload, "turn_id", "turnId", "conversation_turn_id")
     project_id = context.project_id if context else _text(payload.get("project_id"), 64)
+    model_source = metrics.pop("model_source", None)
+    model_verified = metrics.pop("model_verified", None)
     source = metrics.pop("source_scope", None) or source_scope()
     event_payload: dict[str, object] = {
         "project_id": project_id,
@@ -264,6 +271,8 @@ def build_event(
         "task_signature": metrics.pop("task_signature", None) or task_signature_for_payload(payload),
         "profile": metrics.pop("profile", None) or profile.name,
         "model_family": metrics.pop("model_family", None) or profile.model_family,
+        "model_source": model_source or profile.model_source,
+        "model_verified": profile.model_verified if model_verified is None else model_verified,
         "source_scope": source,
         "monotonic_duration_ns": duration_ns
         if duration_ns is not None

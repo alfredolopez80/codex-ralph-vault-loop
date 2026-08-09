@@ -18,7 +18,7 @@ from shared.sol_advisor import (
     reserve_worker_spawn,
 )
 from shared.agent_budget import MAX_PACKET_BYTES, budget_decision, normalize_ledger
-from shared.runtime_profile import classify_model
+from shared.runtime_profile import PROGRESS_REASON_CODE, classify_model, is_progress_maintenance
 from shared.active_context import active_context_from_payload
 from shared.runtime_observability import record_event
 
@@ -188,6 +188,13 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
         requested_fork = str(_value(payload, "fork_turns", "forkTurns", "history_mode", "historyMode") or "").strip().lower()
         state = read_state(payload)
         routing = state.get("routing")
+        routed_origin = routing.get("origin") if isinstance(routing, dict) else None
+        routed_intent = routing.get("intent") if isinstance(routing, dict) else None
+        progress_origin = _value(payload, "origin", "task_origin", "taskOrigin") or state.get("origin") or routed_origin
+        progress_intent = _value(payload, "intent", "task_type", "taskType") or state.get("intent") or routed_intent
+        if is_progress_maintenance(progress_origin, progress_intent):
+            _block(PROGRESS_REASON_CODE)
+            return 0
         persisted_sensitivity = str(state.get("sensitivity", "GREEN")).strip().upper()
         if isinstance(routing, dict):
             persisted_sensitivity = max(
@@ -342,6 +349,8 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
             independent=bool(state.get("independent_block", False)),
             critical_review=bool(state.get("critical_review", False)),
             failure_fingerprints=tuple(str(value) for value in state.get("failure_fingerprints", [])),
+            origin=str(progress_origin or ""),
+            intent=str(progress_intent or ""),
         )
         if not budget_decision_result.allowed:
             _block(f"Subagent budget denied: {budget_decision_result.reason}.")

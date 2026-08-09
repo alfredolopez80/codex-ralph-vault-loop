@@ -9,6 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / ".codex" / "hooks" / "post_tool_dispatch.py"
+if str(ROOT / ".codex" / "hooks") not in sys.path:
+    sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
+
+import post_tool_dispatch
 
 
 def env_for(tmp_path: Path) -> dict[str, str]:
@@ -67,6 +71,18 @@ def read_jsonl(path: Path) -> list[dict]:
 def runtime_files(tmp_path: Path) -> list[Path]:
     root = tmp_path / "ralph"
     return [path for path in root.rglob("*") if path.is_file()] if root.exists() else []
+
+
+def test_progress_maintenance_cannot_trigger_post_tool_advisor() -> None:
+    progress = {
+        "origin": "implementation-progress",
+        "intent": "progress-maintenance",
+        "tool_name": "Agent",
+        "output": "ROUTE_DECISION",
+    }
+    ordinary = {"tool_name": "Agent", "output": "ROUTE_DECISION"}
+    assert post_tool_dispatch._should_advisor(progress, post_tool_dispatch.classify_tool(progress)) is False
+    assert post_tool_dispatch._should_advisor(ordinary, post_tool_dispatch.classify_tool(ordinary)) is True
 
 
 def test_read_only_call_records_compact_telemetry_without_checkpoint(tmp_path: Path) -> None:

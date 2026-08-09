@@ -295,6 +295,8 @@ def _snapshot(context: ActiveContext, payload: Mapping[str, object], source: str
         "source": source,
         "profile": profile.name,
         "model_family": profile.model_family,
+        "model_source": profile.model_source,
+        "model_verified": profile.model_verified,
         "handoff_id": _safe_id(handoff.get("id")),
         "handoff_hash": _safe_id(handoff.get("hash")),
         "handoff_status": _safe_id(handoff.get("status")),

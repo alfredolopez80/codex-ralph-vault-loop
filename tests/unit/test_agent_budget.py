@@ -129,6 +129,20 @@ def test_red_and_depth_limits_fail_closed_for_optional_delegation() -> None:
     assert depth.allowed is False and depth.reason == "max-depth-reached"
 
 
+def test_progress_maintenance_has_no_worker_or_advisor_budget() -> None:
+    decision = budget_decision(
+        {},
+        kind="advisor",
+        origin="implementation-progress",
+        intent="progress-maintenance",
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "local-deterministic-progress-maintenance"
+    assert decision.remaining_jobs == 0
+    assert decision.remaining_advisors == 0
+
+
 def test_task_signature_is_content_free_and_scoped_to_workspace_branch_and_prompt() -> None:
     base = {
         "project_id": "fixture-project",

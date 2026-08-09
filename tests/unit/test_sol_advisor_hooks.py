@@ -70,6 +70,29 @@ def test_routine_task_stays_local_and_does_not_consult_sol(tmp_path: Path, monke
     assert stop_review_recommendation_pending(state) is False
 
 
+def test_progress_maintenance_state_is_local_even_at_maximum_complexity(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
+    state = initialize(
+        payload(
+            tmp_path,
+            complexity=10,
+            prompt="Internal progress bookkeeping.",
+            origin="implementation-progress",
+            intent="progress-maintenance",
+            model="gpt-5.6-luna",
+        )
+    )
+
+    assert state is not None
+    assert state["routing"]["origin"] == "implementation-progress"
+    assert state["routing"]["intent"] == "progress-maintenance"
+    assert state["routing"]["subagent_route"] == "none"
+    assert state["routing"]["spawn_required"] is False
+    assert state["routing"]["worker_budget"] == 0
+    assert state["routing"]["advisor_budget"] == 0
+    assert state["consultation_eligible"] is False
+
+
 def test_neutral_workspace_records_luna_fallback_as_global_executor_source(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(tmp_path / "state"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-codex-home"))

@@ -29,6 +29,7 @@ from shared.post_tool_ledger import append_cost_event
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
 from shared.redaction import is_red, safe_preview
 from shared.runtime_observability import record_event
+from shared.runtime_profile import is_progress_maintenance
 from shaping_ripple import evaluate as shaping_evaluate
 from sol_advisor_observer import run as advisor_run
 from shared.tool_result import success_from_payload
@@ -171,6 +172,11 @@ def _should_checkpoint(tool: ToolClass) -> bool:
 
 
 def _should_advisor(payload: dict[str, Any], tool: ToolClass) -> bool:
+    if is_progress_maintenance(
+        payload.get("origin") or _tool_input(payload).get("origin"),
+        payload.get("intent") or _tool_input(payload).get("intent"),
+    ):
+        return False
     # Failed objective commands are routing evidence for the existing Sol
     # observer (two bounded failures can make a stuck route eligible). This is
     # still selective: successful test/build output and ordinary read failures
