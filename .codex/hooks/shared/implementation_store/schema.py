@@ -1,0 +1,532 @@
+"""Bounded schemas and deterministic hashes for the implementation store."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from copy import deepcopy
+from typing import Any, Mapping
+
+from ..redaction import is_red
+
+
+CURRENT_SCHEMA_VERSION = 1
+STATE_TARGET_BYTES = 2 * 1024
+STATE_HARD_LIMIT_BYTES = 8 * 1024
+MANIFEST_HARD_LIMIT_BYTES = 8 * 1024
+EVENT_HARD_LIMIT_BYTES = 4 * 1024
+UNPLANNED_EVENT_HARD_LIMIT_BYTES = 4 * 1024
+
+VALID_STATUSES = frozenset({"planned", "active", "completed", "blocked", "superseded", "reopened"})
+VALID_CLASSIFICATIONS = frozenset({"GREEN", "YELLOW"})
+VALID_VALIDATION = frozenset({"not_run", "pending", "partial", "pass", "fail", "blocked"})
+VALID_MODEL_FAMILIES = frozenset({"luna", "terra", "sol", "unknown"})
+VALID_MODEL_SOURCES = frozenset({"payload", "environment", "repository-default", "unknown"})
+MATERIAL_EVENT_KINDS = frozenset(
+    {
+        "started",
+        "phase_changed",
+        "decision",
+        "deviation",
+        "blocker_opened",
+        "blocker_resolved",
+        "question_opened",
+        "question_resolved",
+        "validation_changed",
+        "completed",
+        "reopened",
+        "migration_imported",
+        "loose_commit_recorded",
+    }
+)
+
+_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$")
+_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+
+
+class SchemaError(ValueError):
+    """Raised when a current-schema record is malformed or unbounded."""
+
+
+class FutureSchemaError(SchemaError):
+    """Raised for a newer schema; callers must not quarantine or downgrade it."""
+
+
+class RedContentError(SchemaError):
+    """Raised when a bounded field contains RED-sensitive content."""
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def encoded_size(value: Any) -> int:
+    return len(canonical_json(value).encode("utf-8"))
+
+
+def digest(value: Any) -> str:
+    return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def state_semantic_hash(state: Mapping[str, Any]) -> str:
+    """Hash lifecycle/model state while excluding observational metadata."""
+
+    projection = deepcopy(dict(state))
+    for key in ("semantic_hash", "updated_at", "created_at", "writer_session_id", "writer_process_id"):
+        projection.pop(key, None)
+    return digest(projection)
+
+
+def validate_state(
+    state: Mapping[str, Any],
+    *,
+    expected_plan_id: str | None = None,
+    hard_limit: int = STATE_HARD_LIMIT_BYTES,
+) -> dict[str, Any]:
+    obj = _object(state, "state")
+    _schema_version(obj, "state")
+    allowed = {
+        "schema_version",
+        "plan_id",
+        "plan_path",
+        "generation",
+        "semantic_hash",
+        "status",
+        "classification",
+        "phase",
+        "objective",
+        "latest_decision",
+        "next_action",
+        "open_blockers",
+        "open_questions",
+        "validation",
+        "active_files",
+        "last_operation_id",
+        "last_event_sequence",
+        "last_event_hash",
+        "git",
+        "writer_session_id",
+        "model_family",
+        "model_source",
+        "model_verified",
+        "origin",
+        "intent",
+        "created_at",
+        "updated_at",
+    }
+    _unknown_keys(obj, allowed, "state")
+    plan_id = _plan_id(obj.get("plan_id"))
+    if expected_plan_id is not None and plan_id != expected_plan_id:
+        raise SchemaError("state plan_id does not match its directory")
+    _repo_relative_path(obj.get("plan_path", ""), "plan_path", allow_empty=True)
+    generation = _integer(obj.get("generation", 0), "generation", minimum=0)
+    status = _enum(obj.get("status", "planned"), VALID_STATUSES, "status")
+    classification = _enum(obj.get("classification", "GREEN"), VALID_CLASSIFICATIONS, "classification")
+    phase = _text(obj.get("phase", ""), "phase", 160, allow_empty=True)
+    objective = _text(obj.get("objective", ""), "objective", 480, allow_empty=True)
+    next_action = _text(obj.get("next_action", ""), "next_action", 400, allow_empty=True)
+    latest_decision = obj.get("latest_decision", None)
+    if latest_decision is not None:
+        latest_decision = _object(latest_decision, "latest_decision")
+        _unknown_keys(latest_decision, {"event_id", "summary"}, "latest_decision")
+        latest_decision = {
+            "event_id": _identifier(latest_decision.get("event_id", ""), "latest_decision.event_id", allow_empty=True),
+            "summary": _text(latest_decision.get("summary", ""), "latest_decision.summary", 400, allow_empty=True),
+        }
+    blockers = _text_list(obj.get("open_blockers", []), "open_blockers", max_items=8, max_length=400)
+    questions = _text_list(obj.get("open_questions", []), "open_questions", max_items=8, max_length=400)
+    validation = _validation(obj.get("validation", {}))
+    active_files = _path_list(obj.get("active_files", []), "active_files", max_items=16, max_length=320)
+    last_operation_id = _identifier(obj.get("last_operation_id", ""), "last_operation_id", allow_empty=True)
+    last_event_sequence = _integer(obj.get("last_event_sequence", 0), "last_event_sequence", minimum=0)
+    last_event_hash = _hash(obj.get("last_event_hash", ""), "last_event_hash", allow_empty=True)
+    git = _git(obj.get("git", {}))
+    writer_session_id = _identifier(obj.get("writer_session_id", ""), "writer_session_id", allow_empty=True)
+    model_family = _enum(obj.get("model_family", "unknown"), VALID_MODEL_FAMILIES, "model_family")
+    model_source = _enum(obj.get("model_source", "unknown"), VALID_MODEL_SOURCES, "model_source")
+    model_verified = obj.get("model_verified", False)
+    if not isinstance(model_verified, bool):
+        raise SchemaError("model_verified must be boolean")
+    origin = _text(obj.get("origin", "implementation-progress"), "origin", 80)
+    intent = _text(obj.get("intent", "progress-maintenance"), "intent", 80)
+    created_at = _timestamp(obj.get("created_at", ""), "created_at", allow_empty=True)
+    updated_at = _timestamp(obj.get("updated_at", ""), "updated_at", allow_empty=True)
+    normalized = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "plan_id": plan_id,
+        "plan_path": obj.get("plan_path", ""),
+        "generation": generation,
+        "semantic_hash": "",
+        "status": status,
+        "classification": classification,
+        "phase": phase,
+        "objective": objective,
+        "latest_decision": latest_decision,
+        "next_action": next_action,
+        "open_blockers": blockers,
+        "open_questions": questions,
+        "validation": validation,
+        "active_files": active_files,
+        "last_operation_id": last_operation_id,
+        "last_event_sequence": last_event_sequence,
+        "last_event_hash": last_event_hash,
+        "git": git,
+        "writer_session_id": writer_session_id,
+        "model_family": model_family,
+        "model_source": model_source,
+        "model_verified": model_verified,
+        "origin": origin,
+        "intent": intent,
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+    normalized["semantic_hash"] = state_semantic_hash(normalized)
+    _reject_red(normalized, "state")
+    size = encoded_size(normalized)
+    if size > hard_limit:
+        raise SchemaError(f"state exceeds hard limit of {hard_limit} UTF-8 bytes")
+    return normalized
+
+
+def validate_event(
+    event: Mapping[str, Any],
+    *,
+    expected_plan_id: str | None = None,
+    unplanned: bool = False,
+    hard_limit: int | None = None,
+    allow_unhashed: bool = False,
+) -> dict[str, Any]:
+    obj = _object(event, "event")
+    _schema_version(obj, "event")
+    allowed = {
+        "schema_version",
+        "sequence",
+        "event_id",
+        "operation_id",
+        "timestamp",
+        "kind",
+        "summary",
+        "reason",
+        "next_action",
+        "status",
+        "classification",
+        "phase",
+        "plan_id",
+        "plan_path",
+        "references",
+        "evidence_codes",
+        "git",
+        "writer_session_id",
+        "model_family",
+        "model_source",
+        "model_verified",
+        "origin",
+        "intent",
+        "state_semantic_hash",
+        "previous_event_hash",
+        "record_hash",
+    }
+    _unknown_keys(obj, allowed, "event")
+    sequence = _integer(obj.get("sequence", 0), "sequence", minimum=1)
+    event_id = _identifier(obj.get("event_id"), "event_id")
+    operation_id = _identifier(obj.get("operation_id"), "operation_id")
+    timestamp = _timestamp(obj.get("timestamp"), "timestamp")
+    kind = _enum(obj.get("kind"), MATERIAL_EVENT_KINDS, "kind")
+    if unplanned and kind != "loose_commit_recorded":
+        raise SchemaError("unplanned-events.jsonl accepts only loose_commit_recorded events")
+    plan_id = _plan_id(obj.get("plan_id", ""), allow_empty=unplanned)
+    if expected_plan_id is not None and plan_id != expected_plan_id:
+        raise SchemaError("event plan_id does not match its journal")
+    plan_path = _repo_relative_path(obj.get("plan_path", ""), "plan_path", allow_empty=True)
+    summary = _text(obj.get("summary", ""), "summary", 400, allow_empty=True)
+    reason = _text(obj.get("reason", ""), "reason", 400, allow_empty=True)
+    next_action = _text(obj.get("next_action", ""), "next_action", 400, allow_empty=True)
+    status = _enum(obj.get("status", "planned"), VALID_STATUSES, "status")
+    classification = _enum(obj.get("classification", "GREEN"), VALID_CLASSIFICATIONS, "classification")
+    phase = _text(obj.get("phase", ""), "phase", 160, allow_empty=True)
+    references = _path_list(obj.get("references", []), "references", max_items=8, max_length=320)
+    evidence_codes = _code_list(obj.get("evidence_codes", []), "evidence_codes", max_items=8)
+    git = _git(obj.get("git", {}))
+    writer_session_id = _identifier(obj.get("writer_session_id", ""), "writer_session_id", allow_empty=True)
+    model_family = _enum(obj.get("model_family", "unknown"), VALID_MODEL_FAMILIES, "model_family")
+    model_source = _enum(obj.get("model_source", "unknown"), VALID_MODEL_SOURCES, "model_source")
+    model_verified = obj.get("model_verified", False)
+    if not isinstance(model_verified, bool):
+        raise SchemaError("model_verified must be boolean")
+    origin = _text(obj.get("origin", "implementation-progress"), "origin", 80)
+    intent = _text(obj.get("intent", "progress-maintenance"), "intent", 80)
+    # The field is an optional integrity aid for operations created by this
+    # implementation.  Older/manual material records remain valid without it;
+    # the required chain fields are sequence, operation ID, previous hash, and
+    # record hash.
+    resulting_state_hash = _hash(obj.get("state_semantic_hash", ""), "state_semantic_hash", allow_empty=True)
+    previous = _hash(obj.get("previous_event_hash", ""), "previous_event_hash", allow_empty=True)
+    record_hash = _hash(obj.get("record_hash", ""), "record_hash", allow_empty=allow_unhashed)
+    if not allow_unhashed and not record_hash:
+        raise SchemaError("event record_hash is required")
+    normalized = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "sequence": sequence,
+        "event_id": event_id,
+        "operation_id": operation_id,
+        "timestamp": timestamp,
+        "kind": kind,
+        "summary": summary,
+        "reason": reason,
+        "next_action": next_action,
+        "status": status,
+        "classification": classification,
+        "phase": phase,
+        "plan_id": plan_id,
+        "plan_path": plan_path,
+        "references": references,
+        "evidence_codes": evidence_codes,
+        "git": git,
+        "writer_session_id": writer_session_id,
+        "model_family": model_family,
+        "model_source": model_source,
+        "model_verified": model_verified,
+        "origin": origin,
+        "intent": intent,
+        "state_semantic_hash": resulting_state_hash,
+        "previous_event_hash": previous,
+        "record_hash": record_hash,
+    }
+    _reject_red(normalized, "event")
+    if record_hash and record_hash != event_record_hash(normalized):
+        raise SchemaError("event record_hash does not match the record")
+    size = encoded_size(normalized)
+    limit = hard_limit or (UNPLANNED_EVENT_HARD_LIMIT_BYTES if unplanned else EVENT_HARD_LIMIT_BYTES)
+    if size > limit:
+        raise SchemaError(f"event exceeds hard limit of {limit} UTF-8 bytes")
+    return normalized
+
+
+def event_record_hash(event: Mapping[str, Any]) -> str:
+    material = dict(event)
+    material.pop("record_hash", None)
+    return digest(material)
+
+
+def validate_manifest(manifest: Mapping[str, Any], *, hard_limit: int = MANIFEST_HARD_LIMIT_BYTES) -> dict[str, Any]:
+    obj = _object(manifest, "manifest")
+    _schema_version(obj, "manifest")
+    _unknown_keys(obj, {"schema_version", "canonical_repo_identity", "generation", "plans"}, "manifest")
+    identity = _identifier(obj.get("canonical_repo_identity", ""), "canonical_repo_identity", allow_empty=True)
+    generation = _integer(obj.get("generation", 0), "generation", minimum=0)
+    plans_raw = obj.get("plans", [])
+    if not isinstance(plans_raw, list) or len(plans_raw) > 64:
+        raise SchemaError("manifest plans must be a bounded list")
+    plans: list[dict[str, Any]] = []
+    seen_plan_ids: set[str] = set()
+    for index, item in enumerate(plans_raw):
+        pointer = _object(item, f"manifest.plans[{index}]")
+        _unknown_keys(
+            pointer,
+            {"plan_id", "plan_path", "state_path", "status", "branch", "workspace_instance_id", "semantic_hash", "last_event_sequence"},
+            f"manifest.plans[{index}]",
+        )
+        pointer_out = {
+            "plan_id": _plan_id(pointer.get("plan_id")),
+            "plan_path": _repo_relative_path(pointer.get("plan_path", ""), "manifest.plan_path", allow_empty=True),
+            "state_path": _store_relative_path(pointer.get("state_path", ""), "manifest.state_path"),
+            "status": _enum(pointer.get("status", "planned"), VALID_STATUSES, "manifest.status"),
+            "branch": _text(pointer.get("branch", ""), "manifest.branch", 240, allow_empty=True),
+            "workspace_instance_id": _identifier(pointer.get("workspace_instance_id", ""), "manifest.workspace_instance_id", allow_empty=True),
+            "semantic_hash": _hash(pointer.get("semantic_hash", ""), "manifest.semantic_hash", allow_empty=True),
+            "last_event_sequence": _integer(pointer.get("last_event_sequence", 0), "manifest.last_event_sequence", minimum=0),
+        }
+        if pointer_out["plan_id"] in seen_plan_ids:
+            raise SchemaError("manifest contains duplicate plan pointers")
+        seen_plan_ids.add(pointer_out["plan_id"])
+        plans.append(pointer_out)
+    normalized = {"schema_version": CURRENT_SCHEMA_VERSION, "canonical_repo_identity": identity, "generation": generation, "plans": plans}
+    _reject_red(normalized, "manifest")
+    if encoded_size(normalized) > hard_limit:
+        raise SchemaError(f"manifest exceeds hard limit of {hard_limit} UTF-8 bytes")
+    return normalized
+
+
+def new_state(plan_id: str, *, plan_path: str = "", now: str = "", **fields: Any) -> dict[str, Any]:
+    base = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "plan_id": plan_id,
+        "plan_path": plan_path,
+        "generation": 0,
+        "status": "planned",
+        "classification": "GREEN",
+        "phase": "",
+        "objective": "",
+        "latest_decision": None,
+        "next_action": "",
+        "open_blockers": [],
+        "open_questions": [],
+        "validation": {},
+        "active_files": [],
+        "last_operation_id": "",
+        "last_event_sequence": 0,
+        "last_event_hash": "",
+        "git": {},
+        "writer_session_id": "",
+        "model_family": "unknown",
+        "model_source": "unknown",
+        "model_verified": False,
+        "origin": "implementation-progress",
+        "intent": "progress-maintenance",
+        "created_at": now,
+        "updated_at": now,
+    }
+    base.update(fields)
+    return validate_state(base, expected_plan_id=plan_id)
+
+
+def _schema_version(obj: Mapping[str, Any], label: str) -> None:
+    version = obj.get("schema_version")
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise SchemaError(f"{label}.schema_version must be an integer")
+    if version > CURRENT_SCHEMA_VERSION:
+        raise FutureSchemaError(f"{label} uses unsupported future schema {version}")
+    if version != CURRENT_SCHEMA_VERSION:
+        raise SchemaError(f"{label} schema_version {version} is unsupported")
+
+
+def _object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise SchemaError(f"{label} must be a JSON object")
+    return dict(value)
+
+
+def _unknown_keys(obj: Mapping[str, Any], allowed: set[str], label: str) -> None:
+    unknown = set(obj) - allowed
+    if unknown:
+        raise SchemaError(f"{label} contains unknown fields: {', '.join(sorted(unknown))}")
+
+
+def _enum(value: Any, allowed: frozenset[str], label: str) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        raise SchemaError(f"{label} has an unsupported value")
+    return value
+
+
+def _integer(value: Any, label: str, *, minimum: int) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        raise SchemaError(f"{label} must be an integer >= {minimum}")
+    return value
+
+
+def _text(value: Any, label: str, limit: int, *, allow_empty: bool = False) -> str:
+    if not isinstance(value, str) or (not allow_empty and not value.strip()) or len(value) > limit:
+        raise SchemaError(f"{label} must be a bounded string")
+    if "\x00" in value or any(ord(char) < 32 and char not in "\n\t" for char in value):
+        raise SchemaError(f"{label} contains a control character")
+    if is_red(value):
+        raise RedContentError(f"{label} contains RED-sensitive content")
+    return value
+
+
+def _timestamp(value: Any, label: str, *, allow_empty: bool = False) -> str:
+    return _text(value, label, 64, allow_empty=allow_empty)
+
+
+def _identifier(value: Any, label: str, *, allow_empty: bool = False) -> str:
+    if allow_empty and value == "":
+        return ""
+    if not isinstance(value, str) or not _ID_RE.fullmatch(value):
+        raise SchemaError(f"{label} must be a bounded identifier")
+    if is_red(value):
+        raise RedContentError(f"{label} contains RED-sensitive content")
+    return value
+
+
+def _plan_id(value: Any, *, allow_empty: bool = False) -> str:
+    if allow_empty and value == "":
+        return ""
+    if not isinstance(value, str) or not value or len(value) > 180 or "\\" in value or value.startswith("/"):
+        raise SchemaError("plan_id must be a bounded relative identifier")
+    parts = value.split("/")
+    if len(parts) > 8 or any(not part or part in {".", ".."} for part in parts):
+        raise SchemaError("plan_id contains traversal")
+    if any(part.startswith("~") or any(ord(char) < 32 for char in part) for part in parts):
+        raise SchemaError("plan_id contains an invalid component")
+    if is_red(value):
+        raise RedContentError("plan_id contains RED-sensitive content")
+    return value
+
+
+def _hash(value: Any, label: str, *, allow_empty: bool = False) -> str:
+    if allow_empty and value == "":
+        return ""
+    if not isinstance(value, str) or not _HASH_RE.fullmatch(value):
+        raise SchemaError(f"{label} must be a sha256 digest")
+    return value
+
+
+def _text_list(value: Any, label: str, *, max_items: int, max_length: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > max_items:
+        raise SchemaError(f"{label} must be a bounded list")
+    return [_text(item, f"{label}[{index}]", max_length) for index, item in enumerate(value)]
+
+
+def _code_list(value: Any, label: str, *, max_items: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > max_items:
+        raise SchemaError(f"{label} must be a bounded list")
+    result: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not _CODE_RE.fullmatch(item):
+            raise SchemaError(f"{label}[{index}] must be a bounded evidence code")
+        result.append(item)
+    return result
+
+
+def _path_list(value: Any, label: str, *, max_items: int, max_length: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > max_items:
+        raise SchemaError(f"{label} must be a bounded list")
+    return [_repo_relative_path(item, f"{label}[{index}]") for index, item in enumerate(value)]
+
+
+def _repo_relative_path(value: Any, label: str, *, allow_empty: bool = False) -> str:
+    if allow_empty and value == "":
+        return ""
+    if not isinstance(value, str) or not value or len(value) > 320 or value.startswith("/") or "\\" in value:
+        raise SchemaError(f"{label} must be a repository-relative path")
+    if any(part in {"", ".", ".."} for part in value.split("/")):
+        raise SchemaError(f"{label} contains traversal or empty components")
+    if is_red(value):
+        raise RedContentError(f"{label} contains RED-sensitive content")
+    return value
+
+
+def _store_relative_path(value: Any, label: str) -> str:
+    path = _repo_relative_path(value, label)
+    if not path.startswith(".local-notes/ralph/implementation/") or not path.endswith("/state.json"):
+        raise SchemaError(f"{label} must point inside the canonical implementation store")
+    return path
+
+
+def _validation(value: Any) -> dict[str, str]:
+    obj = _object(value, "validation")
+    if len(obj) > 16:
+        raise SchemaError("validation has too many keys")
+    result: dict[str, str] = {}
+    for key, status in obj.items():
+        if not isinstance(key, str) or not _CODE_RE.fullmatch(key):
+            raise SchemaError("validation keys must be bounded evidence codes")
+        result[key] = _enum(status, VALID_VALIDATION, f"validation.{key}")
+    return result
+
+
+def _git(value: Any) -> dict[str, str]:
+    obj = _object(value, "git")
+    _unknown_keys(obj, {"branch", "commit", "workspace_instance_id"}, "git")
+    return {
+        "branch": _text(obj.get("branch", ""), "git.branch", 240, allow_empty=True),
+        "commit": _text(obj.get("commit", ""), "git.commit", 80, allow_empty=True),
+        "workspace_instance_id": _identifier(obj.get("workspace_instance_id", ""), "git.workspace_instance_id", allow_empty=True),
+    }
+
+
+def _reject_red(value: Any, label: str) -> None:
+    if is_red(canonical_json(value)):
+        raise RedContentError(f"{label} contains RED-sensitive content")
