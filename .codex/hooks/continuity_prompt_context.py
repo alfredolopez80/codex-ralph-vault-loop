@@ -110,6 +110,8 @@ def maybe_update_objective(prompt: str, context: ActiveContext) -> None:
         context=context,
     )
     status = str(result.get("status", ""))
+    if not result.get("changed", False):
+        return
     root = project_runtime_root(context)
     append_jsonl(root / "checkpoints" / "prompt-events.jsonl", {"created_at": now_iso(), "event": "objective_update", "status": status})
 

@@ -23,6 +23,8 @@ def run(payload: dict[str, Any], context: ActiveContext | None = None) -> dict[s
     if not update:
         return None
     result = update_checkpoint(update, context=context)
+    if not result.get("changed", False):
+        return result
     root = project_runtime_root(context)
     append_jsonl(
         root / "checkpoints" / "post-tool-events.jsonl",

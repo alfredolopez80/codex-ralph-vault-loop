@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -9,7 +11,7 @@ HOOKS = ROOT / ".codex" / "hooks"
 if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
-from shared.active_context import active_context_from_payload
+from shared.active_context import active_context_from_payload, ensure_project_runtime
 
 
 def init_git(path: Path, remote: str | None = None) -> None:
@@ -49,3 +51,22 @@ def test_active_context_uses_tool_workdir_and_workspace_scoped_remote_identity(t
     assert context_b.workspace_root == repo_b.resolve()
     assert context_a.project_id != context_b.project_id
     assert context_a.workspace_instance_id != context_b.workspace_instance_id
+
+
+def test_project_runtime_metadata_repeat_is_a_physical_noop(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    context = active_context_from_payload({"cwd": str(workspace), "session_id": "session-a"}, resolve_git=False)
+    base = ensure_project_runtime(context)
+    path = base / "project.json"
+    before_bytes = path.read_bytes()
+    before = (hashlib.sha256(before_bytes).hexdigest(), len(before_bytes), path.stat().st_mtime_ns)
+    time.sleep(0.01)
+
+    ensure_project_runtime(context)
+
+    after_bytes = path.read_bytes()
+    after = (hashlib.sha256(after_bytes).hexdigest(), len(after_bytes), path.stat().st_mtime_ns)
+    assert after_bytes == before_bytes
+    assert after == before

@@ -6,9 +6,10 @@ import os
 import subprocess
 import tempfile
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 try:
     import fcntl
@@ -29,10 +30,34 @@ VALID_VALIDATION_STATUSES = {"not_run", "partial", "pass", "fail"}
 VALID_SOURCES = {"UserPromptSubmit", "PostToolUse", "Stop", "manual"}
 SESSION_START_ACTIVE_TTL_HOURS = 24
 SESSION_START_INACTIVE_TTL_HOURS = 12
+OBSERVATIONAL_CHECKPOINT_FIELDS = frozenset({"updated_at", "content_hash"})
+MATERIAL_CHECKPOINT_FIELDS = (
+    "status",
+    "classification",
+    "current_phase",
+    "objective",
+    "next_action",
+    "validation_status",
+    "blockers",
+    "risk_flags",
+)
 
 
 class CheckpointError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class CheckpointWriteResult:
+    """Content-free publication metadata for one checkpoint update."""
+
+    changed: bool = False
+    bytes_written: int = 0
+    files_written: tuple[str, ...] = ()
+    archived: bool = False
+
+    def __bool__(self) -> bool:
+        return self.changed
 
 
 def checkpoint_root(root: Path | None = None, context: ActiveContext | None = None) -> Path:
@@ -139,8 +164,9 @@ def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = N
 def update_checkpoint(update: dict[str, Any], root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any]:
     paths = ensure_checkpoint_runtime(root, context)
     with checkpoint_lock(paths):
-        current = load_latest_for_update(paths, root, context) or default_checkpoint(context)
-        merged = merge_checkpoint(current, update, context)
+        current = load_latest_for_update(paths, root, context)
+        baseline = current or default_checkpoint(context)
+        merged = merge_checkpoint(baseline, update, context)
         safety = classify_payload(merged)
         if safety["classification"] == "RED":
             append_jsonl(
@@ -152,34 +178,90 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
                     "source": merged.get("source", "manual"),
                 },
             )
-            return {"status": "skipped_red", "findings": safety["findings"]}
+            return {
+                "status": "skipped_red",
+                "changed": False,
+                "bytes_written": 0,
+                "files_written": [],
+                "findings": safety["findings"],
+            }
 
         merged["classification"] = str(safety["classification"])
         rendered = render_checkpoint(merged)
         merged["content_hash"] = content_hash(rendered)
-        write_checkpoint(paths, merged, rendered)
-        return {"status": "ok", "checkpoint": merged, "markdown": rendered}
+        fingerprint = semantic_fingerprint(merged)
+        if current is not None and semantic_fingerprint(current) == fingerprint:
+            # Timestamps and the derived content hash are observational.  A
+            # repeated semantic update must not publish any checkpoint file or
+            # append an event.
+            return {
+                "status": "unchanged",
+                "changed": False,
+                "bytes_written": 0,
+                "files_written": [],
+                "archived": False,
+                "checkpoint": current,
+                "markdown": rendered,
+                "semantic_fingerprint": fingerprint,
+            }
+
+        write_result = write_checkpoint(
+            paths,
+            merged,
+            rendered,
+            archive=current is None or material_checkpoint_transition(current, merged),
+        )
+        return {
+            "status": "ok",
+            "changed": write_result.changed,
+            "bytes_written": write_result.bytes_written,
+            "files_written": list(write_result.files_written),
+            "archived": write_result.archived,
+            "checkpoint": merged,
+            "markdown": rendered,
+            "semantic_fingerprint": fingerprint,
+        }
 
 
-def write_checkpoint(paths: dict[str, Path], checkpoint: dict[str, Any], rendered: str) -> None:
+def write_checkpoint(
+    paths: dict[str, Path],
+    checkpoint: dict[str, Any],
+    rendered: str,
+    *,
+    archive: bool = True,
+) -> CheckpointWriteResult:
     json_text = json.dumps(checkpoint, indent=2, sort_keys=True) + "\n"
     atomic_write_text(paths["latest_json"], json_text)
     atomic_write_text(paths["latest_md"], rendered)
-    timestamp = str(checkpoint["updated_at"]).replace(":", "").replace("+", "Z")
-    atomic_write_text(paths["archive"] / f"{timestamp}.json", json_text)
-    append_jsonl(
-        paths["events"],
-        {
-            "created_at": checkpoint["updated_at"],
-            "event": "updated",
-            "content_hash": checkpoint["content_hash"],
-            "classification": checkpoint["classification"],
-            "source": checkpoint.get("source", "manual"),
-            "status": checkpoint.get("status", "active"),
-            "project_id": checkpoint.get("project_id", ""),
-            "project": checkpoint.get("project", ""),
-            "session_id": checkpoint.get("session_id", ""),
-        },
+    files = ["latest.json", "latest.md"]
+    bytes_written = len(json_text.encode("utf-8")) + len(rendered.encode("utf-8"))
+    archived = False
+    if archive:
+        timestamp = str(checkpoint["updated_at"]).replace(":", "").replace("+", "Z")
+        atomic_write_text(paths["archive"] / f"{timestamp}.json", json_text)
+        files.append(f"archive/{timestamp}.json")
+        bytes_written += len(json_text.encode("utf-8"))
+        archived = True
+    event = {
+        "created_at": checkpoint["updated_at"],
+        "event": "updated",
+        "content_hash": checkpoint["content_hash"],
+        "classification": checkpoint["classification"],
+        "source": checkpoint.get("source", "manual"),
+        "status": checkpoint.get("status", "active"),
+        "project_id": checkpoint.get("project_id", ""),
+        "project": checkpoint.get("project", ""),
+        "session_id": checkpoint.get("session_id", ""),
+    }
+    append_jsonl(paths["events"], event)
+    event_text = json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n"
+    bytes_written += len(event_text.encode("utf-8"))
+    files.append("events.jsonl")
+    return CheckpointWriteResult(
+        changed=True,
+        bytes_written=bytes_written,
+        files_written=tuple(files),
+        archived=archived,
     )
 
 
@@ -306,6 +388,34 @@ def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
             raise CheckpointError(f"{field} must be a list")
 
 
+def _semantic_payload(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the checkpoint fields that describe durable task state."""
+
+    return {
+        str(key): value
+        for key, value in checkpoint.items()
+        if str(key) not in OBSERVATIONAL_CHECKPOINT_FIELDS
+    }
+
+
+def semantic_fingerprint(checkpoint: Mapping[str, Any]) -> str:
+    """Hash checkpoint meaning without observational publication fields."""
+
+    encoded = json.dumps(_semantic_payload(checkpoint), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def material_checkpoint_transition(current: Mapping[str, Any], candidate: Mapping[str, Any]) -> bool:
+    """Identify boundaries worth retaining in the rolling archive.
+
+    Command/file observations still update ``latest.json`` and its event, but
+    they do not grow the archive unless task status, phase, validation, safety,
+    or the explicit objective/action state changes.
+    """
+
+    return any(current.get(field) != candidate.get(field) for field in MATERIAL_CHECKPOINT_FIELDS)
+
+
 def classify_payload(checkpoint: dict[str, Any]) -> dict[str, Any]:
     requested = str(checkpoint.get("classification") or "YELLOW").upper()
     if requested == "RED":
@@ -429,13 +539,13 @@ def merge_commands(current: object, update: object) -> list[dict[str, str]]:
     for item in incoming:
         if not isinstance(item, dict):
             continue
-        values.append(
-            {
-                "command": compact_text(str(item.get("command", "")), 180),
-                "result": compact_text(str(item.get("result", "unknown")), 20),
-                "summary": compact_text(str(item.get("summary", "")), 220),
-            }
-        )
+        normalized = {
+            "command": compact_text(str(item.get("command", "")), 180),
+            "result": compact_text(str(item.get("result", "unknown")), 20),
+            "summary": compact_text(str(item.get("summary", "")), 220),
+        }
+        if normalized not in values:
+            values.append(normalized)
     return values[-MAX_COMMANDS:]
 
 

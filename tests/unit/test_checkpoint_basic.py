@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+HOOKS = ROOT / ".codex" / "hooks"
+if str(HOOKS) not in sys.path:
+    sys.path.insert(0, str(HOOKS))
+
+from shared.checkpoint_io import checkpoint_paths, update_checkpoint
 
 
 def run_memory(name: str, ralph_home: Path, *args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -33,6 +40,19 @@ def latest_json(root: Path) -> dict:
 
 def all_checkpoint_text(root: Path) -> str:
     return "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in root.rglob("*") if path.is_file())
+
+
+def checkpoint_snapshot(root: Path) -> dict[str, tuple[bytes, str, int, int]]:
+    base = root / "checkpoints"
+    snapshot: dict[str, tuple[bytes, str, int, int]] = {}
+    for path in sorted(base.rglob("*")) if base.exists() else []:
+        if not path.is_file():
+            continue
+        data = path.read_bytes()
+        stat = path.stat()
+        relative = str(path.relative_to(base))
+        snapshot[relative] = (data, hashlib.sha256(data).hexdigest(), len(data), stat.st_mtime_ns)
+    return snapshot
 
 
 def init_committed_git_repo(path: Path) -> tuple[str, str]:
@@ -221,6 +241,97 @@ def test_checkpoint_content_hash_is_stable_for_same_operational_state(tmp_path: 
     assert first.returncode == 0, first.stderr
     assert second.returncode == 0, second.stderr
     assert first_hash == second_hash
+
+
+def test_semantically_unchanged_checkpoint_is_a_physical_noop(tmp_path: Path) -> None:
+    update = {
+        "source": "manual",
+        "objective": "Stable semantic checkpoint.",
+        "current_phase": "physical-noops",
+        "next_action": "Run focused tests.",
+        "validation_status": "partial",
+    }
+    first = update_checkpoint(update, root=tmp_path)
+    assert first["status"] == "ok"
+    assert first["changed"] is True
+    assert first["bytes_written"] > 0
+    assert "latest.json" in first["files_written"]
+    before = checkpoint_snapshot(tmp_path)
+
+    second = update_checkpoint(update, root=tmp_path)
+    after = checkpoint_snapshot(tmp_path)
+
+    assert second["status"] == "unchanged"
+    assert second["changed"] is False
+    assert second["bytes_written"] == 0
+    assert second["files_written"] == []
+    assert second["semantic_fingerprint"] == first["semantic_fingerprint"]
+    assert after == before
+
+
+def test_unchanged_checkpoint_does_not_recreate_derived_markdown(tmp_path: Path) -> None:
+    update = {"source": "manual", "objective": "Derived view checkpoint.", "next_action": "Keep latest JSON authoritative."}
+    assert update_checkpoint(update, root=tmp_path)["changed"] is True
+    paths = checkpoint_paths(root=tmp_path)
+    paths["latest_md"].unlink()
+    before = checkpoint_snapshot(tmp_path)
+
+    result = update_checkpoint(update, root=tmp_path)
+
+    assert result["status"] == "unchanged"
+    assert result["changed"] is False
+    assert not paths["latest_md"].exists()
+    assert checkpoint_snapshot(tmp_path) == before
+
+
+def test_concurrent_identical_checkpoint_updates_publish_once(tmp_path: Path) -> None:
+    update = {
+        "source": "manual",
+        "objective": "Concurrent checkpoint.",
+        "current_phase": "physical-noops",
+        "next_action": "Compare publication metadata.",
+    }
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: update_checkpoint(update, root=tmp_path), range(16)))
+
+    changed = [result for result in results if result.get("changed")]
+    unchanged = [result for result in results if not result.get("changed")]
+    assert len(changed) == 1
+    assert len(unchanged) == 15
+    assert all(result["bytes_written"] == 0 and result["files_written"] == [] for result in unchanged)
+    events = (tmp_path / "checkpoints" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(events) == 1
+    assert len(list((tmp_path / "checkpoints" / "archive").glob("*.json"))) == 1
+
+
+def test_observation_update_does_not_create_archive_boundary(tmp_path: Path) -> None:
+    first = update_checkpoint(
+        {
+            "source": "PostToolUse",
+            "current_phase": "PostToolUse",
+            "objective": "Observe tool progress.",
+            "next_action": "Continue the task.",
+            "commands_run": [{"command": "tool-one", "result": "pass", "summary": "one"}],
+        },
+        root=tmp_path,
+    )
+    assert first["archived"] is True
+    archive = next((tmp_path / "checkpoints" / "archive").glob("*.json"))
+    archive_before = (archive.read_bytes(), archive.stat().st_mtime_ns)
+
+    second = update_checkpoint(
+        {
+            "source": "PostToolUse",
+            "current_phase": "PostToolUse",
+            "commands_run": [{"command": "tool-two", "result": "pass", "summary": "two"}],
+        },
+        root=tmp_path,
+    )
+
+    assert second["changed"] is True
+    assert second["archived"] is False
+    assert second["files_written"] == ["latest.json", "latest.md", "events.jsonl"]
+    assert (archive.read_bytes(), archive.stat().st_mtime_ns) == archive_before
 
 
 def test_wakeup_includes_fresh_checkpoint_under_budget(tmp_path: Path) -> None:

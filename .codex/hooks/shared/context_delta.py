@@ -30,6 +30,28 @@ class CacheClaim:
     invalidation_reason: str
     selected_memory_ids: tuple[str, ...] = ()
     fingerprint: str = ""
+    changed: bool = False
+    bytes_written: int = 0
+    files_written: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CacheWriteResult:
+    """Content-free publication metadata for cache writers.
+
+    The result is intentionally not stored in the cache.  ``__bool__`` keeps
+    the historical truthiness contract for callers that only need to know
+    whether a publication succeeded.
+    """
+
+    changed: bool = False
+    bytes_written: int = 0
+    files_written: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return self.changed
+
+
 def _int_env(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int(os.environ.get(name, str(default)))
@@ -228,7 +250,8 @@ def claim(
             return CacheClaim("unavailable", "cache_unavailable")
         now = time.time()
         state = _load(path)
-        entries = _prune(state.get("entries", {}), now)
+        raw_entries = state.get("entries", {})
+        entries = _prune(raw_entries, now)
         key = f"{_session_key(context)}:{signature.value}"
         current = entries.get(key)
         if isinstance(current, dict):
@@ -246,11 +269,26 @@ def claim(
                 checkpoint_hash=checkpoint_hash,
             )
             if current.get("status") == "ready" and current.get("fingerprint") == expected:
-                current["updated_at"] = now_iso()
-                current["updated_epoch"] = now
-                entries[key] = current
-                _write(path, entries)
-                return CacheClaim("hit", "unchanged", selected, expected)
+                # A valid hit is a read-only operation.  Pruning other entries
+                # is the only permitted amortized maintenance publication.
+                changed = False
+                bytes_written = 0
+                files_written: tuple[str, ...] = ()
+                if entries != raw_entries:
+                    changed = _write(path, entries)
+                    if changed:
+                        with contextlib.suppress(OSError):
+                            bytes_written = path.stat().st_size
+                        files_written = ("cache.json",)
+                return CacheClaim(
+                    "hit",
+                    "unchanged",
+                    selected,
+                    expected,
+                    changed=changed,
+                    bytes_written=bytes_written,
+                    files_written=files_written,
+                )
             if current.get("status") == "inflight" and now - float(current.get("updated_epoch", 0)) <= DEFAULT_INFLIGHT_SECONDS:
                 return CacheClaim("inflight", "concurrent_claim")
             reason = "context_fingerprint_changed"
@@ -280,7 +318,10 @@ def claim(
         }
         if not _write(path, entries):
             return CacheClaim("unavailable", "cache_write_failed")
-        return CacheClaim("miss", reason)
+        bytes_written = 0
+        with contextlib.suppress(OSError):
+            bytes_written = path.stat().st_size
+        return CacheClaim("miss", reason, changed=True, bytes_written=bytes_written, files_written=("cache.json",))
 
 
 def finalize(
@@ -293,18 +334,18 @@ def finalize(
     profile: str,
     clarification_state: str,
     checkpoint_hash: str,
-) -> bool:
+) -> CacheWriteResult:
     path = cache_path(context)
     with _locked(context) as locked:
         if not locked:
-            return False
+            return CacheWriteResult()
         now = time.time()
         state = _load(path)
         entries = _prune(state.get("entries", {}), now)
         key = f"{_session_key(context)}:{signature.value}"
         current = entries.get(key)
         if not isinstance(current, dict) or current.get("status") != "inflight":
-            return False
+            return CacheWriteResult()
         selected = sorted({_safe_id(item) for item in selected_memory_ids if _safe_id(item)})[:8]
         fingerprint = context_fingerprint(
             signature,
@@ -330,21 +371,31 @@ def finalize(
             }
         )
         entries[key] = current
-        return _write(path, entries)
+        if not _write(path, entries):
+            return CacheWriteResult()
+        bytes_written = 0
+        with contextlib.suppress(OSError):
+            bytes_written = path.stat().st_size
+        return CacheWriteResult(changed=True, bytes_written=bytes_written, files_written=("cache.json",))
 
 
-def discard(context: ActiveContext, signature: TaskSignature) -> None:
+def discard(context: ActiveContext, signature: TaskSignature) -> CacheWriteResult:
     path = cache_path(context)
     with _locked(context) as locked:
         if not locked:
-            return
+            return CacheWriteResult()
         state = _load(path)
         entries = dict(state.get("entries", {})) if isinstance(state.get("entries"), dict) else {}
         entries.pop(f"{_session_key(context)}:{signature.value}", None)
-        _write(path, _prune(entries, time.time()))
+        if not _write(path, _prune(entries, time.time())):
+            return CacheWriteResult()
+        bytes_written = 0
+        with contextlib.suppress(OSError):
+            bytes_written = path.stat().st_size
+        return CacheWriteResult(changed=True, bytes_written=bytes_written, files_written=("cache.json",))
 
 
 __all__ = [
-    "CONTRACT_VERSION", "CacheClaim", "cache_path", "claim", "context_fingerprint", "discard", "finalize",
+    "CONTRACT_VERSION", "CacheClaim", "CacheWriteResult", "cache_path", "claim", "context_fingerprint", "discard", "finalize",
     "max_entries", "ttl_seconds",
 ]

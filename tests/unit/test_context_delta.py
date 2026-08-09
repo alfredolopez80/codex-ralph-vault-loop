@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +51,53 @@ def test_same_fingerprint_hits_and_preserves_selected_ids(tmp_path: Path, monkey
     hit = claim(context, signature, **kwargs())
     assert hit.status == "hit"
     assert hit.selected_memory_ids == ("memory-sentinel",)
+
+
+def _cache_snapshot(path: Path) -> dict[str, tuple[bytes, str, int, int]]:
+    snapshot: dict[str, tuple[bytes, str, int, int]] = {}
+    for candidate in sorted(path.parent.iterdir()):
+        if not candidate.is_file():
+            continue
+        data = candidate.read_bytes()
+        stat = candidate.stat()
+        snapshot[candidate.name] = (data, hashlib.sha256(data).hexdigest(), len(data), stat.st_mtime_ns)
+    return snapshot
+
+
+def test_unchanged_cache_hit_is_a_physical_noop(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
+    context, signature = fixture(tmp_path)
+    assert claim(context, signature, **kwargs()).status == "miss"
+    finalized = finalize(context, signature, selected_memory_ids=["memory-sentinel"], **kwargs())
+    assert finalized.changed is True
+
+    path = cache_path(context)
+    before = _cache_snapshot(path)
+    time.sleep(0.01)
+    hit = claim(context, signature, **kwargs())
+    after = _cache_snapshot(path)
+
+    assert hit.status == "hit"
+    assert hit.changed is False
+    assert hit.bytes_written == 0
+    assert hit.files_written == ()
+    assert after == before
+
+
+def test_concurrent_unchanged_cache_hits_do_not_publish(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
+    context, signature = fixture(tmp_path)
+    assert claim(context, signature, **kwargs()).status == "miss"
+    assert finalize(context, signature, selected_memory_ids=[], **kwargs())
+    path = cache_path(context)
+    before = _cache_snapshot(path)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: claim(context, signature, **kwargs()), range(16)))
+
+    assert all(result.status == "hit" for result in results)
+    assert all(result.changed is False and result.bytes_written == 0 for result in results)
+    assert _cache_snapshot(path) == before
 
 
 def test_generation_change_is_a_miss(tmp_path: Path, monkeypatch) -> None:

@@ -249,7 +249,20 @@ def ensure_project_runtime(context: ActiveContext, root: Path | None = None) -> 
     base = project_runtime_root(context, root)
     for relative in ("layers", "ledgers", "handoffs", "reports", "cost", "checkpoints"):
         (base / relative).mkdir(parents=True, exist_ok=True)
-    (base / "project.json").write_text(project_metadata_json(context), encoding="utf-8")
+    metadata_path = base / "project.json"
+    metadata = project_metadata_json(context)
+    if metadata_path.is_symlink():
+        raise OSError("refusing symlink project metadata")
+    try:
+        unchanged = metadata_path.read_text(encoding="utf-8") == metadata
+    except FileNotFoundError:
+        unchanged = False
+    except OSError:
+        # Preserve the existing write attempt for unreadable or malformed
+        # metadata; the caller's established fail-open boundary handles it.
+        unchanged = False
+    if not unchanged:
+        metadata_path.write_text(metadata, encoding="utf-8")
     return base
 
 

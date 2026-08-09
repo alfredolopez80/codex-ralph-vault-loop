@@ -255,7 +255,9 @@ def _block(output: str, event: str) -> bool:
 def run_sample(config: Mapping[str, object], root: Path, scenario: str, profile: str, identity: str) -> Sample:
     temporary_root = Path(tempfile.gettempdir()).resolve()
     with tempfile.TemporaryDirectory(prefix="ralph-hook-scenario-", dir=temporary_root) as temporary:
-        case_root = Path(temporary)
+        # Runtime writers reject symlink ancestors.  Resolve the OS temporary
+        # directory for deterministic fixtures without weakening that refusal.
+        case_root = Path(temporary).resolve()
         workspace = case_root / "workspace"
         (workspace / "src").mkdir(parents=True)
         (workspace / "notes.md").write_text("old\n", encoding="utf-8")

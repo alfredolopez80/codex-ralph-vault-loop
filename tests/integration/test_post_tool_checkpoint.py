@@ -93,6 +93,27 @@ def test_post_tool_checkpoint_records_touched_files(tmp_path: Path) -> None:
     assert checkpoint["last_verified_state"] == "Tracked file changes for current task."
 
 
+def test_repeated_post_tool_observation_does_not_append_checkpoint_event(tmp_path: Path) -> None:
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "functions.exec_command",
+        "success": True,
+        "tool_input": {"command": "python3 -m pytest tests/unit/test_checkpoint_basic.py"},
+    }
+    first = run_hook(tmp_path, payload)
+    assert first.returncode == 0, first.stderr
+    event_paths = sorted(tmp_path.glob("projects/*/checkpoints/post-tool-events.jsonl"))
+    assert len(event_paths) == 1
+    event_path = event_paths[0]
+    before = (event_path.read_bytes(), event_path.stat().st_mtime_ns)
+
+    second = run_hook(tmp_path, payload)
+    assert second.returncode == 0, second.stderr
+
+    assert (event_path.read_bytes(), event_path.stat().st_mtime_ns) == before
+    assert len(event_path.read_text(encoding="utf-8").splitlines()) == 1
+
+
 def test_post_tool_checkpoint_skips_red_output_without_leak(tmp_path: Path) -> None:
     red_text = "token" + "=abc123"
     result = run_hook(
