@@ -20,6 +20,7 @@ from shared.runtime_observability import (
     build_event,
     event_path,
     normalize_event,
+    record_event,
 )
 
 
@@ -80,6 +81,25 @@ def test_writer_is_atomic_under_concurrent_writes(tmp_path: Path, monkeypatch) -
     lines = event_path(context.project_id).read_text(encoding="utf-8").splitlines()
     assert len(lines) == 24
     assert all(json.loads(line)["schema_name"] == SCHEMA_NAME for line in lines)
+
+
+def test_record_event_hashes_safe_ids_exactly_once(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "runtime"))
+    payload = _payload(tmp_path)
+    context = active_context_from_payload(payload, resolve_git=False)
+    expected = _event(tmp_path)
+    assert record_event(
+        context,
+        payload,
+        event="post_tool",
+        dispatcher="test_dispatcher",
+        duration_ns=1,
+        process_count=1,
+    )
+    stored = json.loads(event_path(context.project_id).read_text(encoding="utf-8").splitlines()[0])
+    assert stored["session_id"] == expected["session_id"]
+    assert stored["turn_id"] == expected["turn_id"]
+    assert stored["task_signature"] == expected["task_signature"]
 
 
 def test_rotation_is_bounded(tmp_path: Path, monkeypatch) -> None:

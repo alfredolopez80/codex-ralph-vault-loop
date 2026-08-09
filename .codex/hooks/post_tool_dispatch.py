@@ -18,14 +18,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from shared.active_context import active_context_from_payload
+from shared.active_context import active_context_from_payload, project_runtime_root
 from shared.file_line_candidates import candidate_paths
 from file_line_guard import evaluate as file_line_evaluate
 from shared.paths import ralph_home, read_hook_input, write_json
 from post_tool_checkpoint import run as checkpoint_run
 from post_tool_cost_ledger import record as cost_record
 from post_tool_extract_memory import raw_learning_candidate, run as memory_run
-from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes
+from shared.post_tool_ledger import append_cost_event
+from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
 from shared.redaction import is_red, safe_preview
 from shared.runtime_observability import record_event
 from shaping_ripple import evaluate as shaping_evaluate
@@ -84,6 +85,8 @@ def _tokens(command: str) -> list[str]:
 def _command_is_read(command: str) -> bool:
     tokens = _tokens(command)
     if not tokens:
+        return False
+    if any(token in {"&&", "||", ";", "|", ">", ">>", "<", "2>", "2>>"} for token in tokens):
         return False
     executable = Path(tokens[0]).name.lower()
     if executable in READ_WORDS:
@@ -191,30 +194,35 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     if payload.get("hook_event_name") not in (None, "PostToolUse"):
         return None
     started = time.perf_counter_ns()
-    context = active_context_from_payload(payload)
+    context = active_context_from_payload(payload, resolve_git=False)
     tool = classify_tool(payload)
+    stage = result_stage(payload)
+    pending_stream = stage == "partial"
     persistence_allowed = _runtime_safe()
-    before = directory_bytes(ralph_home())
+    persistence_root = project_runtime_root(context)
+    before = directory_bytes(persistence_root)
     components: list[str] = []
     errors: list[str] = []
     response: dict[str, Any] | None = None
     considered: list[str] = []
-    if _should_file_line(tool):
+    if not pending_stream and _should_file_line(tool):
         considered.append("file_line_guard")
-    if _should_shaping(payload, tool, persistence_allowed):
+    if not pending_stream and _should_shaping(payload, tool, persistence_allowed):
         considered.append("shaping_ripple")
-    if _should_memory(payload, tool):
+    if not pending_stream and _should_memory(payload, tool):
         considered.append("post_tool_extract_memory")
-    if _should_checkpoint(tool):
+    if not pending_stream and _should_checkpoint(tool):
         considered.append("post_tool_checkpoint")
-    if _should_advisor(payload, tool):
+    if not pending_stream and _should_advisor(payload, tool):
         considered.append("sol_advisor_observer")
-    if persistence_allowed:
+    if persistence_allowed and not pending_stream:
         considered.append("post_tool_cost_ledger")
 
     with dedupe_claim(context, payload) as (duplicate, _key):
         if duplicate:
             components = ["dedupe"]
+        elif pending_stream:
+            components = ["stream_pending"]
         else:
             if _should_file_line(tool):
                 components.append("file_line_guard")
@@ -253,12 +261,11 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
             if persistence_allowed:
                 components.append("post_tool_cost_ledger")
                 try:
-                    from shared.paths import ensure_runtime, append_jsonl
-                    append_jsonl(ensure_runtime() / "cost" / "tool-ledger.jsonl", cost_record(payload))
+                    append_cost_event(cost_record(payload))
                 except Exception:
                     errors.append("post_tool_cost_ledger")
 
-        after = directory_bytes(ralph_home())
+        after = directory_bytes(persistence_root)
         append_metric(
             context,
             {

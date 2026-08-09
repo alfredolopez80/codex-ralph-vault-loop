@@ -8,25 +8,17 @@ and are not token, credit, or subscription measurements.
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
-import os
 import re
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, Mapping
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - POSIX is the supported runtime.
-    fcntl = None  # type: ignore[assignment]
 
 from .active_context import ActiveContext
 from .cost_policy import estimate_context_units, measured_output, source_scope
-from .paths import ralph_home
 from .runtime_profile import profile_from_payload
+from .runtime_event_store import append_normalized, event_path
 
 
 SCHEMA_VERSION = 1
@@ -41,8 +33,6 @@ EVENTS = {
     "maintenance",
 }
 INTERACTIVE_EVENTS = EVENTS - {"maintenance"}
-DEFAULT_MAX_BYTES = 4 * 1024 * 1024
-DEFAULT_MAX_FILES = 3
 MAX_EVENT_BYTES = 16 * 1024
 PROJECT_ID_RE = re.compile(r"^p-[a-f0-9]{16}$")
 SAFE_CODE_RE = re.compile(r"^[a-z0-9_.:-]{1,96}$")
@@ -107,6 +97,8 @@ def _digest(value: object, *, prefix: str = "id") -> str:
     text = _text(value, 512)
     if not text:
         return ""
+    if re.fullmatch(rf"{re.escape(prefix)}-[a-f0-9]{{24}}", text):
+        return text
     return f"{prefix}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}"
 
 
@@ -145,18 +137,6 @@ def _project_id(context: ActiveContext | None, event: Mapping[str, object]) -> s
     # An event without a valid project identity is not written.  Returning an
     # empty value lets append_event fail open without creating an unsafe path.
     return ""
-
-
-def _runtime_limits() -> tuple[int, int]:
-    try:
-        max_bytes = int(os.environ.get("RALPH_RUNTIME_EVENTS_MAX_BYTES", DEFAULT_MAX_BYTES))
-    except (TypeError, ValueError):
-        max_bytes = DEFAULT_MAX_BYTES
-    try:
-        max_files = int(os.environ.get("RALPH_RUNTIME_EVENTS_MAX_FILES", DEFAULT_MAX_FILES))
-    except (TypeError, ValueError):
-        max_files = DEFAULT_MAX_FILES
-    return max(32 * 1024, min(max_bytes, 32 * 1024 * 1024)), max(1, min(max_files, 16))
 
 
 def estimated_context_for_payload(payload: Mapping[str, object]) -> int:
@@ -297,95 +277,12 @@ def build_event(
     return normalize_event(event_payload)
 
 
-def _safe_root(project_id: str) -> Path | None:
-    if not PROJECT_ID_RE.fullmatch(project_id):
-        return None
-    try:
-        home = ralph_home()
-        candidate = Path(os.path.abspath(os.fspath(home)))
-        for part in (candidate, *candidate.parents):
-            if part.is_symlink():
-                return None
-            if part == part.parent:
-                break
-        home = home.resolve(strict=False)
-        home.mkdir(parents=True, exist_ok=True, mode=0o700)
-        home.chmod(0o700)
-        projects = home / "projects"
-        if projects.is_symlink():
-            return None
-        projects.mkdir(parents=True, exist_ok=True, mode=0o700)
-        projects.chmod(0o700)
-        project = projects / project_id
-        if project.is_symlink():
-            return None
-        project.mkdir(parents=True, exist_ok=True, mode=0o700)
-        project.chmod(0o700)
-        root = project / "observability"
-        if root.is_symlink():
-            return None
-        root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        root.chmod(0o700)
-        return root
-    except OSError:
-        return None
-
-
-def event_path(project_id: str) -> Path | None:
-    root = _safe_root(project_id)
-    return root / "runtime-events.jsonl" if root is not None else None
-
-
-def _rotate(path: Path, *, max_bytes: int, max_files: int) -> None:
-    try:
-        if not path.exists() or path.stat().st_size < max_bytes:
-            return
-    except OSError:
-        return
-    for index in range(max_files - 1, 0, -1):
-        source = path.with_name(f"{path.name}.{index}")
-        target = path.with_name(f"{path.name}.{index + 1}")
-        with contextlib.suppress(OSError):
-            if index == max_files - 1:
-                source.unlink()
-            else:
-                os.replace(source, target)
-    if max_files == 1:
-        with contextlib.suppress(OSError):
-            path.with_name(f"{path.name}.1").unlink()
-    with contextlib.suppress(OSError):
-        os.replace(path, path.with_name(f"{path.name}.1"))
-
-
 def append_event(context: ActiveContext | None, event: Mapping[str, object]) -> bool:
     """Append one event atomically; all local runtime errors fail open."""
     normalized = normalize_event(event)
     if normalized is None:
         return False
-    path = event_path(_project_id(context, normalized))
-    if path is None or fcntl is None:
-        return False
-    lock_path = path.with_name(f".{path.name}.lock")
-    try:
-        if lock_path.is_symlink() or path.is_symlink():
-            return False
-        with lock_path.open("a+", encoding="utf-8") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            max_bytes, max_files = _runtime_limits()
-            _rotate(path, max_bytes=max_bytes, max_files=max_files)
-            encoded = (json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-            if len(encoded) > MAX_EVENT_BYTES:
-                return False
-            fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
-            try:
-                os.write(fd, encoded)
-            finally:
-                os.close(fd)
-            path.chmod(0o600)
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        return True
-    except (OSError, TypeError, ValueError):
-        return False
+    return append_normalized(_project_id(context, normalized), normalized, max_event_bytes=MAX_EVENT_BYTES)
 
 
 def record_event(

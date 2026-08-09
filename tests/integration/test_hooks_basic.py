@@ -1383,7 +1383,8 @@ def test_stop_hook_creates_handoff_without_red(tmp_path: Path) -> None:
         "## Next actions",
     ]:
         assert section in text
-    assert "deterministic hook persistence" in text
+    assert "task: observed" in text
+    assert "deterministic hook persistence" not in text
     assert "selected_memory_ids" in text
     assert "node-alpha" in text
     assert not (ROOT / "HANDOFF.md").exists()
@@ -1407,7 +1408,7 @@ def test_stop_hook_compacts_runtime_handoff(tmp_path: Path) -> None:
     text = latest.read_text(encoding="utf-8")
     assert "[handoff compacted:" in text
     assert "# Latest Handoff" in text
-    assert "handoff-word-0" in text
+    assert "handoff-word-0" not in text
     assert "handoff-word-79" not in text
     body = text.split("---", 2)[-1]
     assert len(body.split()) <= 70
@@ -1422,8 +1423,11 @@ def test_stop_hook_persists_learning_when_message_has_conclusion(tmp_path: Path)
 
     assert result.returncode == 0, result.stderr
     assert project_handoff(tmp_path).is_file()
-    assert project_learning_paths(tmp_path)
-    assert (project_root(tmp_path) / "ledgers" / "learning-events.jsonl").is_file()
+    candidates = sorted((project_root(tmp_path) / "ledgers" / "candidates").glob("learning-*.md"))
+    assert candidates
+    assert "memory_kind: \"learning_candidate\"" in candidates[0].read_text(encoding="utf-8")
+    events = (project_root(tmp_path) / "ledgers" / "learning-events.jsonl").read_text(encoding="utf-8")
+    assert '"candidate_only": true' in events
 
 
 def test_stop_memory_promotion_review_warns_for_review_candidates(tmp_path: Path) -> None:

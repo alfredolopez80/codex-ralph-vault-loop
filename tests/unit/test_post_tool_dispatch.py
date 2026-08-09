@@ -168,6 +168,39 @@ def test_duplicate_tool_use_and_write_stdin_alias_are_idempotent(tmp_path: Path)
     assert len(list((tmp_path / "ralph").rglob("learning-*.md"))) == 1
 
 
+def test_partial_exec_does_not_suppress_its_terminal_poll(tmp_path: Path) -> None:
+    partial = payload(tmp_path, tool="exec_command", tool_input={"cmd": "pytest -q"})
+    partial.pop("success")
+    partial["tool_response"] = {"session_id": 41, "output": "still running"}
+    assert run_dispatch(tmp_path, partial).returncode == 0
+    assert not read_jsonl(tmp_path / "ralph" / "cost" / "tool-ledger.jsonl")
+
+    terminal = payload(
+        tmp_path,
+        tool="write_stdin",
+        tool_use_id="poll-terminal",
+        parent_tool_use_id="tool-use-1",
+        output="Decision: terminal result is now complete",
+    )
+    assert run_dispatch(tmp_path, terminal).returncode == 0
+    assert len(read_jsonl(tmp_path / "ralph" / "cost" / "tool-ledger.jsonl")) == 1
+    assert len(list((tmp_path / "ralph").rglob("learning-*.md"))) == 1
+    assert run_dispatch(tmp_path, terminal).returncode == 0
+    assert len(read_jsonl(tmp_path / "ralph" / "cost" / "tool-ledger.jsonl")) == 1
+
+
+def test_mixed_shell_command_is_not_classified_as_read_only(tmp_path: Path) -> None:
+    target = tmp_path / "mixed.txt"
+    data = payload(
+        tmp_path,
+        tool="exec_command",
+        tool_input={"cmd": f"git status --short && touch {target}"},
+        tool_use_id="mixed-command",
+    )
+    assert run_dispatch(tmp_path, data).returncode == 0
+    assert list((tmp_path / "ralph" / "projects").glob("*/checkpoints/latest.json"))
+
+
 def test_corrupt_state_recovers_and_two_processes_do_not_duplicate_ledger(tmp_path: Path) -> None:
     data = payload(tmp_path, tool="Agent", output="Decision: recover dedupe state")
     assert run_dispatch(tmp_path, data).returncode == 0

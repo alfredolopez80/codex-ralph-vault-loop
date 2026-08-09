@@ -303,10 +303,10 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
         if expected_task and requested_task != expected_task:
             _block(f"Subagent task_name must be {expected_task}; do not substitute another lane.")
             return 0
-        # Codex runtimes may omit fork metadata.  Reject only an explicit
-        # inherited-history request; generated managed arguments still carry
-        # fork_turns=none whenever the native schema accepts the field.
-        if requested_fork and requested_fork not in NO_HISTORY_VALUES:
+        # Managed spawns must explicitly prove that no conversation history is
+        # inherited. The native default is full history when this field is
+        # omitted, so absence is not a safe compatibility fallback.
+        if requested_fork not in NO_HISTORY_VALUES:
             _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
         # This is deliberately the last mutation in the contract validator.

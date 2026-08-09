@@ -142,15 +142,12 @@ def main() -> int:
         return 1
     config = json.loads(GLOBAL_HOOKS_JSON.read_text(encoding="utf-8"))
     required = {
-        "SessionStart": ["session_start_wakeup"],
-        "UserPromptSubmit": [
-            "universal_prompt_classifier",
-            "user_prompt_capture",
-            "user_prompt_improve",
-            "continuity_prompt_context",
-        ],
-        "PreToolUse": ["pre_tool_guard"],
+        "SessionStart": ["session_start_dispatch"],
+        "UserPromptSubmit": ["user_prompt_dispatch"],
+        "PreToolUse": ["pre_tool_dispatch"],
         "PostToolUse": ["post_tool_dispatch"],
+        "SubagentStart": ["sol_advisor_subagent_context"],
+        "SubagentStop": ["sol_advisor_subagent_stop"],
         "Stop": ["stop_dispatch"],
     }
     for event, names in required.items():
@@ -230,8 +227,11 @@ def main() -> int:
         assert_ok("continuity_prompt_context.py", prompt)
         checkpoint_path = one_match(sorted(Path(env["RALPH_HOME"]).glob("projects/*/checkpoints/latest.json")), "project checkpoint")
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-        if checkpoint["objective"] != "Implement global hook smoke validation.":
-            raise RuntimeError("prompt checkpoint objective mismatch")
+        objective = str(checkpoint.get("objective", ""))
+        if not objective.startswith("Task metadata: intent=code_change prompt_hash="):
+            raise RuntimeError("prompt checkpoint safe objective metadata mismatch")
+        if "Implement global hook smoke validation." in checkpoint_path.read_text(encoding="utf-8"):
+            raise RuntimeError("prompt checkpoint persisted the raw prompt")
         if checkpoint["project"] != "project-a":
             raise RuntimeError("prompt checkpoint project mismatch")
 
@@ -264,13 +264,14 @@ def main() -> int:
             raise RuntimeError("session start did not include rolling checkpoint")
 
         stale_wakeup = run_hook(
-            "pre_tool_guard.py",
-            {"tool_input": {"command": "python3 scripts/memory/wakeup.py", "workdir": str(project_a)}},
+            "pre_tool_dispatch.py",
+            {"hook_event_name": "PreToolUse", "cwd": str(project_a), "tool_name": "exec_command",
+             "tool_input": {"cmd": "python3 scripts/memory/wakeup.py", "workdir": str(project_a)}},
             env,
         )
-        assert_ok("pre_tool_guard.py stale wakeup", stale_wakeup)
-        if '"decision": "block"' not in stale_wakeup.stdout or "repo-local Ralph wakeup" not in stale_wakeup.stdout:
-            raise RuntimeError("pre_tool_guard did not block stale repo-local wakeup")
+        assert_ok("pre_tool_dispatch.py stale wakeup", stale_wakeup)
+        if '"decision":"block"' not in stale_wakeup.stdout or "repo-local Ralph wakeup" not in stale_wakeup.stdout:
+            raise RuntimeError("pre_tool_dispatch did not block stale repo-local wakeup")
 
         stop = run_hook(
             "stop_dispatch.py",

@@ -9,7 +9,6 @@ from contextlib import redirect_stdout
 from shared.active_context import active_context_from_payload
 from shared.paths import read_hook_input, write_json
 from shared.sol_advisor import (
-    has_fork_metadata,
     has_no_history_fork,
     is_sol_advisor,
     read_state,
@@ -17,9 +16,16 @@ from shared.sol_advisor import (
 from shared.runtime_observability import record_event
 
 
+def _native_spawn(payload: dict) -> bool:
+    value = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
+    return value.strip().lower().replace("-", "_").rsplit(".", 1)[-1] in {"spawn_agent", "spawnagent"}
+
+
 def _advisor_main(payload: dict | None = None) -> int:
     try:
         payload = payload if payload is not None else read_hook_input()
+        if not _native_spawn(payload):
+            return 0
         state = read_state(payload)
         routing = state.get("routing")
         if (
@@ -37,10 +43,7 @@ def _advisor_main(payload: dict | None = None) -> int:
             return 0
         if not state.get("final_review_eligible"):
             return 0
-        # Codex currently omits fork metadata from some PreToolUse payloads.
-        # Reject an explicit inherited fork, but let the native instruction
-        # contract carry a missing field rather than suppressing Sol entirely.
-        if is_sol_advisor(payload) and has_fork_metadata(payload) and not has_no_history_fork(payload):
+        if is_sol_advisor(payload) and not has_no_history_fork(payload):
             write_json(
                 {
                     "decision": "block",

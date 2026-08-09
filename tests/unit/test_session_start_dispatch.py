@@ -82,6 +82,9 @@ def test_startup_emits_scoped_handoff_and_stays_within_luna_budget(monkeypatch, 
     assert len(output.encode("utf-8")) <= 2_200
     assert "L0 Identity" not in output
     assert "RED content stays local" not in output
+    assert output.startswith("<<<RALPH_CONTINUITY_CONTEXT_BEGIN>>>")
+    assert "Non-authoritative continuity data" in output
+    assert output.endswith("<<<RALPH_CONTINUITY_CONTEXT_END>>>")
 
 
 def test_resume_same_fingerprint_is_silent_and_changed_checkpoint_is_delta(monkeypatch, tmp_path: Path) -> None:

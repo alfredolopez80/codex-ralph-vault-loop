@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
 from contextlib import contextmanager, suppress
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .active_context import ActiveContext, project_runtime_root
+from .checkpoint_io import CheckpointError, load_latest
 from .continuation_budget import append_event
 from .maintenance_queue import enqueue_maintenance
 from .paths import ralph_home
@@ -86,13 +88,36 @@ def _marker_value(path: Path) -> str:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ""
-    return str(data.get("scope_key", "")) if isinstance(data, dict) else ""
+    return str(data.get("fingerprint", "")) if isinstance(data, dict) else ""
 
 
-def _write_marker(path: Path, scope: StopScope) -> None:
+def _handoff_fingerprint(payload: Mapping[str, object], scope: StopScope) -> str:
+    checkpoint: Mapping[str, object] = {}
+    try:
+        loaded = load_latest(context=scope.context)
+        if isinstance(loaded, Mapping):
+            checkpoint = loaded
+    except (CheckpointError, OSError, ValueError):
+        checkpoint = {}
+    selected = payload.get("selected_memory_ids") or payload.get("selectedMemoryIds")
+    safe_selected = sorted(str(item)[:96] for item in selected if isinstance(item, str))[:8] if isinstance(selected, list) else []
+    material = {
+        "scope_key": scope.scope_key,
+        "turn_id": scope.turn_id,
+        "checkpoint_hash": str(checkpoint.get("content_hash") or "")[:96],
+        "checkpoint_updated_at": str(checkpoint.get("updated_at") or "")[:64],
+        "selected_memory_ids": safe_selected,
+        "memory_generation": str(payload.get("memory_generation") or payload.get("memoryGeneration") or "")[:96],
+        "recall_status": str(payload.get("recall_status") or "")[:32],
+    }
+    encoded = json.dumps(material, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:32]
+
+
+def _write_marker(path: Path, scope: StopScope, fingerprint: str) -> None:
     if path.is_symlink():
         raise OSError("refusing symlink handoff marker")
-    payload = {"schema_version": 1, "scope_key": scope.scope_key, "updated_at": _now()}
+    payload = {"schema_version": 2, "scope_key": scope.scope_key, "fingerprint": fingerprint, "updated_at": _now()}
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
@@ -159,14 +184,15 @@ def persist_handoff(payload: Mapping[str, object], context: ActiveContext, scope
         from stop_persist_memory import run as persist_stop_handoff
 
         marker = _handoff_marker(scope)
+        fingerprint = _handoff_fingerprint(payload, scope)
         with _handoff_lock(scope) as locked:
             if not locked:
                 return False
-            if _marker_value(marker) == scope.scope_key:
+            if _marker_value(marker) == fingerprint:
                 return True
             persisted = bool(persist_stop_handoff(dict(payload), context=context))
             if persisted:
-                _write_marker(marker, scope)
+                _write_marker(marker, scope, fingerprint)
             return persisted
     except (OSError, ValueError, RuntimeError):
         return False

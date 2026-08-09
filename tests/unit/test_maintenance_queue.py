@@ -18,6 +18,7 @@ from shared.maintenance_queue import (  # noqa: E402
     complete_job,
     enqueue_maintenance,
     queue_path,
+    validate_job_descriptor,
 )
 
 
@@ -48,15 +49,41 @@ def test_enqueue_is_idempotent_and_descriptor_has_no_raw_content(tmp_path: Path,
     assert text.count('"job_id"') == 1
 
 
-def test_generation_change_is_debounced_then_creates_new_job(tmp_path: Path, monkeypatch) -> None:
+def test_generation_change_bypasses_debounce_and_creates_new_job(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
-    monkeypatch.setenv("RALPH_MAINTENANCE_DEBOUNCE_SECONDS", "0")
     context = context_for(tmp_path)
     first = enqueue_maintenance(context, reason_code="stop", payload={"memory_generation": "one"})
     second = enqueue_maintenance(context, reason_code="stop", payload={"memory_generation": "two"})
     assert first.accepted and second.accepted
     state = json.loads(queue_path(context.project_id).read_text(encoding="utf-8"))
     assert len(state["jobs"]) == 2
+
+
+def test_expired_final_lease_is_dead_lettered_instead_of_reclaimed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
+    monkeypatch.setenv("RALPH_MAINTENANCE_MAX_ATTEMPTS", "1")
+    context = context_for(tmp_path)
+    result = enqueue_maintenance(context, reason_code="stop")
+    path = queue_path(context.project_id)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["jobs"][0].update({"status": "leased", "attempts": 1, "lease_until": 0})
+    path.write_text(json.dumps(state), encoding="utf-8")
+    assert claim_jobs(context.project_id) == []
+    recovered = json.loads(path.read_text(encoding="utf-8"))["jobs"][0]
+    assert recovered["status"] == "dead_lettered"
+    assert recovered["last_error_code"] == "lease_attempts_exhausted"
+
+
+def test_descriptor_validation_rejects_forged_workspace_and_stale_head(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
+    context = active_context_from_payload({"cwd": str(ROOT), "session_id": "maintenance-current-repo"})
+    enqueue_maintenance(context, reason_code="stop")
+    job = claim_jobs(context.project_id)[0]
+    assert validate_job_descriptor(job) == ""
+    assert validate_job_descriptor(replace(job, sha="deadbeefdeadbeef")) == "stale_head"
+    forged = replace(job, workspace_root=str(tmp_path / "other"))
+    (tmp_path / "other").mkdir()
+    assert validate_job_descriptor(forged) == "workspace_identity_mismatch"
 
 
 def test_branch_change_does_not_share_job(tmp_path: Path, monkeypatch) -> None:

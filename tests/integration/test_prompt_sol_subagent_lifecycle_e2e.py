@@ -703,7 +703,7 @@ def test_configured_lifecycle_accepts_a_gated_active_sol_route(tmp_path: Path) -
     assert_sources_unchanged(snapshot)
 
 
-def test_routing_guard_allows_omitted_fork_metadata_for_managed_spawn(tmp_path: Path) -> None:
+def test_routing_guard_blocks_omitted_fork_metadata_for_managed_spawn(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     session_id = "managed-omitted-fork-metadata"
     run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
@@ -724,7 +724,9 @@ def test_routing_guard_allows_omitted_fork_metadata_for_managed_spawn(tmp_path: 
         commands=[configured_command("PreToolUse", "subagent_routing_pretool_guard.py")],
     )
 
-    assert all(blocking_payload(item.stdout) is None for item in result)
+    block = next((blocking_payload(item.stdout) for item in result if blocking_payload(item.stdout)), None)
+    assert block is not None
+    assert "fork_turns=none" in str(block["reason"])
 
 
 def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_path: Path) -> None:
@@ -878,7 +880,6 @@ def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_
     run_configured_event("UserPromptSubmit", prompt_payload(top_level_session, high_complexity_prompt()), env)
     _, top_level_decision = routing_state(env, top_level_session)
     top_level_spawn = dict(top_level_decision["spawn_arguments"])
-    top_level_spawn.pop("fork_turns", None)
     top_level_base = {
         "hook_event_name": "PreToolUse",
         "session_id": top_level_session,

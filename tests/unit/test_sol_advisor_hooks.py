@@ -795,17 +795,25 @@ def test_high_impact_lifecycle_enforces_fresh_fork_and_releases_completion(tmp_p
 
     wrong_fork = run_hook(
         "sol_advisor_pretool_guard.py",
-        {**event, "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol", "fork_turns": "all"}},
+        {
+            **event,
+            "tool_name": "spawn_agent",
+            "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol", "fork_turns": "all"},
+        },
     )
     assert wrong_fork.returncode == 0
     assert json.loads(wrong_fork.stdout)["decision"] == "block"
 
     omitted_fork = run_hook(
         "sol_advisor_pretool_guard.py",
-        {**event, "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol"}},
+        {
+            **event,
+            "tool_name": "spawn_agent",
+            "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol"},
+        },
     )
     assert omitted_fork.returncode == 0
-    assert omitted_fork.stdout == ""
+    assert json.loads(omitted_fork.stdout)["decision"] == "block"
 
     waiting = run_hook("sol_advisor_stop_guard.py", event)
     assert waiting.returncode == 0

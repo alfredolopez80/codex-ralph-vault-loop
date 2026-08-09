@@ -18,7 +18,7 @@ def _module():
     return module
 
 
-def _report(*, runtime: float = 100.0, blocks: int = 0, schema: int = 2) -> dict:
+def _report(*, runtime: float = 100.0, blocks: int = 0, schema: int = 2, profile: str = "luna") -> dict:
     return {
         "schema_version": schema,
         "subscription_usage_measured": False,
@@ -27,6 +27,7 @@ def _report(*, runtime: float = 100.0, blocks: int = 0, schema: int = 2) -> dict
                 "event": "Stop",
                 "role": "stop_dispatch",
                 "scenario": "stop_allow",
+                "profile": profile,
                 "effective_config": "project_only",
                 "source_scope": "project",
                 "runtime_p50_ms": runtime,
@@ -57,6 +58,13 @@ def test_compare_rejects_semantic_change_as_non_comparable() -> None:
     result = module.compare(_report(), _report(blocks=1), 0.05)
     assert result["classification"] == "cambio no comparable"
     assert result["semantic_changes"]
+
+
+def test_profile_is_part_of_case_identity() -> None:
+    module = _module()
+    result = module.compare(_report(profile="luna"), _report(profile="sol"), 0.05)
+    assert result["classification"] == "cambio no comparable"
+    assert result["shared_case_count"] == 0
 
 
 def test_compare_rejects_incompatible_schema(tmp_path: Path) -> None:

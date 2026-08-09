@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - POSIX is the supported runtime.
 
 from .active_context import ActiveContext
 from .paths import ralph_home
+from .post_tool_ledger import jsonl_max_bytes, rotate_jsonl
 
 STATE_VERSION = 1
 DEFAULT_TTL_SECONDS = 60 * 60
@@ -123,6 +124,29 @@ def original_tool_use_id(payload: dict[str, Any]) -> str:
     )
 
 
+def result_stage(payload: dict[str, Any]) -> str:
+    """Distinguish an in-flight process observation from its terminal result."""
+    sources = [payload]
+    for name in ("tool_response", "toolResponse"):
+        value = payload.get(name)
+        if isinstance(value, dict):
+            sources.append(value)
+    for source in sources:
+        if isinstance(source.get("success"), bool):
+            return "terminal"
+        if any(isinstance(source.get(key), int) and not isinstance(source.get(key), bool) for key in ("exit_code", "returncode", "return_code")):
+            return "terminal"
+    tool = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
+    tool = tool.strip().lower().replace("-", "_").rsplit(".", 1)[-1]
+    if tool in {"exec_command", "write_stdin"} and any(
+        source.get(key) is not None
+        for source in sources
+        for key in ("session_id", "sessionId", "chunk_id", "chunkId")
+    ):
+        return "partial"
+    return "event"
+
+
 def turn_id(payload: dict[str, Any]) -> str:
     return _id_from_sources(payload, ("turn_id", "turnId", "conversation_turn_id", "conversationTurnId")) or "unknown"
 
@@ -133,7 +157,7 @@ def dedupe_key(context: ActiveContext, payload: dict[str, Any]) -> str | None:
         return None
     material = "\0".join(
         (
-            "post-tool-dedupe-v1",
+            "post-tool-dedupe-v2",
             context.project_id,
             context.workspace_instance_id,
             context.branch,
@@ -141,6 +165,7 @@ def dedupe_key(context: ActiveContext, payload: dict[str, Any]) -> str | None:
             context.session_id,
             turn_id(payload),
             tool_use_id,
+            result_stage(payload),
         )
     )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -265,6 +290,7 @@ def append_metric(context: ActiveContext, event: dict[str, Any]) -> bool:
             if lock_path.is_symlink() or path.is_symlink():
                 return False
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            rotate_jsonl(path, jsonl_max_bytes("RALPH_POST_TOOL_METRICS_MAX_BYTES"))
             fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
             try:
                 os.write(fd, (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8"))
@@ -278,17 +304,26 @@ def append_metric(context: ActiveContext, event: dict[str, Any]) -> bool:
         return False
 
 
-def directory_bytes(root: Path | None) -> int:
+def directory_bytes(root: Path | None, *, max_entries: int = 512) -> int:
     if root is None or not root.exists() or root.is_symlink():
         return 0
     total = 0
+    pending = [root]
+    seen = 0
     try:
-        for item in root.rglob("*"):
-            if item.is_symlink() or not item.is_file():
-                continue
-            total += item.stat().st_size
-            if total > 16 * 1024 * 1024:
-                return 16 * 1024 * 1024
+        while pending and seen < max_entries:
+            parent = pending.pop()
+            with os.scandir(parent) as entries:
+                for entry in entries:
+                    seen += 1
+                    if seen > max_entries or entry.is_symlink():
+                        break
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                        if total > 16 * 1024 * 1024:
+                            return 16 * 1024 * 1024
     except OSError:
         return total
     return total

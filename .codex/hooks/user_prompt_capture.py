@@ -13,20 +13,10 @@ from shared.active_context import ActiveContext, active_context_from_payload, ha
 from shared.context_budget import classify_prompt
 from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input, write_json
 from shared.redaction import is_red
+from shared.runtime_budget import child_timeout_for
 from shared.runtime_observability import record_event
 
-TASK_INTAKE_TIMEOUT_SECONDS = 12
-
-
-def prompt_terms(prompt: str) -> list[str]:
-    terms: list[str] = []
-    for raw in prompt.replace("/", " ").replace("-", " ").split():
-        value = "".join(char for char in raw.lower() if char.isalnum() or char in "._")
-        if len(value) >= 4 and value not in terms:
-            terms.append(value)
-        if len(terms) >= 12:
-            break
-    return terms
+TASK_INTAKE_TIMEOUT_SECONDS = child_timeout_for("UserPromptSubmit", "user_prompt_capture")
 
 
 def capture_safe_prompt(prompt: str, context: ActiveContext) -> None:
@@ -38,11 +28,10 @@ def capture_safe_prompt(prompt: str, context: ActiveContext) -> None:
                 "created_at": now_iso(),
                 "event": "UserPromptSubmit",
                 "prompt_hash": hash_text(prompt),
-                "prompt_terms": prompt_terms(prompt),
                 "project_id": context.project_id,
                 "project": context.project_slug,
                 "session_id": context.session_id,
-                "workspace_root": str(context.workspace_root),
+                "workspace_instance_id": context.workspace_instance_id,
             },
         )
     except Exception:
@@ -93,7 +82,7 @@ def run_task_intake(payload: dict, context: ActiveContext) -> None:
 
 
 def _capture_main(payload: dict, context: ActiveContext | None = None) -> int:
-    context = context or active_context_from_payload(payload)
+    context = context or active_context_from_payload(payload, resolve_git=False)
     prompt = payload.get("prompt") or payload.get("user_prompt") or ""
     if not isinstance(prompt, str) or not prompt.strip():
         return 0
@@ -113,7 +102,7 @@ def main() -> int:
     started = time.perf_counter_ns()
     payload = read_hook_input()
     try:
-        context = active_context_from_payload(payload)
+        context = active_context_from_payload(payload, resolve_git=False)
     except Exception:
         context = None
     output = io.StringIO()
@@ -133,7 +122,7 @@ def main() -> int:
                 dispatcher="user_prompt_capture",
                 duration_ns=time.perf_counter_ns() - started,
                 process_count=1,
-                child_process_count=(1 if intake_path.exists() and has_prompt else 0) + 1,
+                child_process_count=1 if intake_path.exists() and has_prompt else 0,
                 components_considered=["prompt_capture", "task_intake"],
                 components_executed=["prompt_capture" if isinstance(payload.get("prompt") or payload.get("user_prompt"), str) else "none"],
                 components_skipped=[],

@@ -81,14 +81,40 @@ def state_path(payload: dict[str, Any]) -> Path:
     return root / safe_session_id(payload.get("session_id") or payload.get("sessionId")) / STATE_FILE
 
 
+def _safe_state_path(payload: dict[str, Any], *, create: bool = False) -> Path | None:
+    path = state_path(payload)
+    configured_root = os.environ.get("CODEX_HOOK_STATE_ROOT", "").strip()
+    root = Path(configured_root).expanduser() if configured_root else path.parent.parent
+    try:
+        if not root.is_absolute() or root.is_symlink() or path.is_symlink():
+            return None
+        path.relative_to(root)
+        current = root
+        if create:
+            current.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for part in path.parent.relative_to(root).parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+            if create:
+                current.mkdir(exist_ok=True, mode=0o700)
+        return path
+    except (OSError, ValueError):
+        return None
+
+
 def safe_session_id(value: object) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or "unknown"))[:80].strip("_")
     return cleaned or "unknown"
 
 
 def read_state(payload: dict[str, Any]) -> dict[str, Any]:
-    path = state_path(payload)
+    path = _safe_state_path(payload)
+    if path is None:
+        return {}
     try:
+        if path.stat().st_size > 512 * 1024:
+            return {}
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
@@ -97,11 +123,15 @@ def read_state(payload: dict[str, Any]) -> dict[str, Any]:
 
 @contextmanager
 def locked_state(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    path = state_path(payload)
+    path = _safe_state_path(payload, create=True)
+    if path is None:
+        yield {}
+        return
     lock_path = path.with_suffix(".lock")
     try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a", encoding="utf-8") as lock:
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(lock_path, flags, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             try:
                 state = read_state(payload)
@@ -119,15 +149,18 @@ def locked_state(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
 
 def atomic_write(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink() or path.parent.is_symlink():
+        raise OSError("advisor state path is a symlink")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        path.chmod(0o600)
     finally:
         with suppress(FileNotFoundError):
             temporary.unlink()
@@ -282,6 +315,38 @@ def _normalize_phase_reservations(state: dict[str, Any]) -> dict[str, dict[str, 
     return normalized
 
 
+def _normalize_worker_reservations(state: dict[str, Any]) -> list[dict[str, object]]:
+    raw = state.get("worker_reservations")
+    if not isinstance(raw, list):
+        raw = []
+    now = int(time.time())
+    normalized: list[dict[str, object]] = []
+    for value in raw:
+        if not isinstance(value, dict):
+            continue
+        shape = _bounded_text(value.get("spawn_shape"), limit=64)
+        invocation_id = _bounded_text(value.get("invocation_id"), limit=80)
+        brief_hash = _bounded_text(value.get("brief_hash"), limit=64)
+        try:
+            reserved_at = int(value.get("reserved_at", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if not shape or reserved_at <= 0 or reserved_at > now + 120 or now - reserved_at > RESERVATION_LEASE_SECONDS:
+            continue
+        record: dict[str, object] = {"spawn_shape": shape, "reserved_at": reserved_at}
+        if invocation_id:
+            record["invocation_id"] = invocation_id
+        if brief_hash:
+            record["brief_hash"] = brief_hash
+        normalized.append(record)
+    state["worker_reservations"] = normalized[:MAX_TASK_JOBS]
+    ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+    ledger["worker_reserved_jobs"] = len(state["worker_reservations"])
+    state["agent_budget"] = ledger
+    state["worker_reserved_jobs"] = ledger["worker_reserved_jobs"]
+    return state["worker_reservations"]
+
+
 def _state_budget_remaining(state: dict[str, Any]) -> int:
     try:
         budget = int(state["consultation_budget"])
@@ -429,6 +494,7 @@ def reserve_worker_spawn(payload: dict[str, Any]) -> tuple[bool, str]:
         routing = state.get("routing")
         if not isinstance(routing, dict) or routing.get("subagent_route") != "terra-implementation":
             return False, "Worker route is not eligible for this task."
+        reservations = _normalize_worker_reservations(state)
         ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
         decision = budget_decision(
             ledger,
@@ -442,11 +508,27 @@ def reserve_worker_spawn(payload: dict[str, Any]) -> tuple[bool, str]:
         )
         if not decision.allowed:
             return False, decision.reason
-        ledger["reserved_jobs"] = min(MAX_TASK_JOBS, ledger["reserved_jobs"] + 1)
-        ledger["worker_reserved_jobs"] = min(MAX_TASK_JOBS, ledger["worker_reserved_jobs"] + 1)
+        shape, invocation_id = _spawn_metadata(payload)
+        if not shape:
+            return False, "Worker reservation lacks a bounded spawn identity."
+        if any(_worker_reservation_matches(item, payload) for item in reservations):
+            return False, "An equivalent worker spawn is already reserved."
+        record: dict[str, object] = {"spawn_shape": shape, "reserved_at": int(time.time())}
+        if invocation_id:
+            record["invocation_id"] = invocation_id
+        brief_hash = _spawn_brief_hash(payload)
+        if brief_hash:
+            record["brief_hash"] = brief_hash
+        reservations.append(record)
+        state["worker_reservations"] = reservations[-MAX_TASK_JOBS:]
+        phase_count = len(_normalize_phase_reservations(state))
+        ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+        ledger["worker_reserved_jobs"] = len(state["worker_reservations"])
+        ledger["reserved_jobs"] = min(MAX_TASK_JOBS, ledger["worker_reserved_jobs"] + phase_count)
         ledger["reasons"] = (ledger["reasons"] + ["worker-reserved"])[-8:]
         state["agent_budget"] = ledger
         state["reserved_jobs"] = ledger["reserved_jobs"]
+        state["worker_reserved_jobs"] = ledger["worker_reserved_jobs"]
         return True, ""
 
 
@@ -966,6 +1048,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
         if normalized_phase and fingerprint:
             normalized_phases[normalized_phase] = str(fingerprint)
     state["consulted_phases"] = normalized_phases
+    state.setdefault("worker_reservations", [])
+    _normalize_worker_reservations(state)
     state.setdefault("phase_reservations", {})
     _normalize_phase_reservations(state)
     state.setdefault("prior_verdict_ref", "")
@@ -1124,6 +1208,7 @@ def _record_red_local_state(payload: dict[str, Any], prompt: str) -> dict[str, A
                 "consulted_fingerprints": [],
                 "consulted_phases": {},
                 "phase_reservations": {},
+                "worker_reservations": [],
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
                 "active_advisor_ref": "",
@@ -1235,6 +1320,7 @@ def initialize(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "consulted_fingerprints": [],
                 "consulted_phases": {},
                 "phase_reservations": {},
+                "worker_reservations": [],
                 "prior_verdict_ref": "",
                 "prior_verdict_fingerprint": "",
                 "active_advisor_ref": "",
@@ -1319,11 +1405,60 @@ def _release_failed_spawn_reservation(state: dict[str, Any], payload: dict[str, 
     }
 
 
+def _worker_reservation_matches(reservation: dict[str, object], payload: dict[str, Any]) -> bool:
+    shape, invocation_id = _spawn_metadata(payload)
+    recorded_id = _bounded_text(reservation.get("invocation_id"), limit=80)
+    if recorded_id:
+        return bool(invocation_id and invocation_id == recorded_id)
+    recorded_shape = _bounded_text(reservation.get("spawn_shape"), limit=64)
+    recorded_brief = _bounded_text(reservation.get("brief_hash"), limit=64)
+    return bool(
+        not invocation_id
+        and shape
+        and shape == recorded_shape
+        and recorded_brief
+        and _spawn_brief_hash(payload) == recorded_brief
+    )
+
+
+def _settle_worker_reservation(state: dict[str, Any], payload: dict[str, Any], *, started: bool) -> bool:
+    reservations = _normalize_worker_reservations(state)
+    matching = [item for item in reservations if _worker_reservation_matches(item, payload)]
+    if len(matching) != 1:
+        return False
+    target = matching[0]
+    remaining = [item for item in reservations if item is not target]
+    ledger = normalize_ledger(state.get("agent_budget"), signature=state.get("task_signature", ""))
+    if started:
+        ledger = record_spawn(
+            ledger,
+            kind="worker",
+            reason="terra-worker-started",
+            bytes_sent=_spawn_brief_bytes(payload),
+            timestamp=str(time.time()),
+            signature=state.get("task_signature", ""),
+        )
+    state["worker_reservations"] = remaining
+    ledger["worker_reserved_jobs"] = len(remaining)
+    ledger["reserved_jobs"] = min(MAX_TASK_JOBS, len(remaining) + len(_normalize_phase_reservations(state)))
+    state["agent_budget"] = ledger
+    for key in ("agents_started", "workers_started", "worker_reserved_jobs", "reserved_jobs", "bytes_sent"):
+        state[key] = ledger[key]
+    return True
+
+
 def observe_failure(payload: dict[str, Any]) -> dict[str, Any]:
     success = success_from_payload(payload)
+    native_spawn = _is_native_spawn_payload(payload)
+    if native_spawn and success is not None:
+        with locked_state(payload) as state:
+            ensure_state_shape(state, payload)
+            routing = state.get("routing")
+            if isinstance(routing, dict) and routing.get("subagent_route") == "terra-implementation":
+                _settle_worker_reservation(state, payload, started=success is True)
+                return dict(state)
     if success is not False:
         return read_state(payload)
-    native_spawn = _is_native_spawn_payload(payload)
     candidate = command_text(payload)
     if not native_spawn and (not candidate or is_red(candidate)):
         return read_state(payload)

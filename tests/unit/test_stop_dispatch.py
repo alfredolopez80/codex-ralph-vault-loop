@@ -268,6 +268,44 @@ def test_corrupt_budget_recovers_and_still_requires_independent_evidence(tmp_pat
     assert list(budget_files[0].parent.glob("continuation.invalid.*.json"))
 
 
+def test_symlinked_primary_budget_uses_approved_state_root_without_losing_gate(tmp_path: Path) -> None:
+    target = tmp_path / "runtime-target"
+    target.mkdir()
+    link = tmp_path / "runtime-link"
+    link.symlink_to(target, target_is_directory=True)
+    state_root = tmp_path / "approved-hook-state"
+    event = payload(tmp_path, task="storage-fallback-hard-gate")
+    event["tests_failed"] = True
+    result = run_dispatch(
+        tmp_path,
+        event,
+        extra_env={"RALPH_HOME": str(link), "CODEX_HOOK_STATE_ROOT": str(state_root)},
+    )
+    assert parse_output(result) is not None
+    assert list(state_root.rglob("continuation.json"))
+
+
+def test_no_safe_budget_is_reported_as_storage_failure_not_exhaustion(tmp_path: Path) -> None:
+    primary_target = tmp_path / "primary-target"
+    primary_target.mkdir()
+    primary_link = tmp_path / "primary-link"
+    primary_link.symlink_to(primary_target, target_is_directory=True)
+    state_target = tmp_path / "state-target"
+    state_target.mkdir()
+    state_link = tmp_path / "state-link"
+    state_link.symlink_to(state_target, target_is_directory=True)
+    event = payload(tmp_path, task="no-safe-budget")
+    event["tests_failed"] = True
+    result = run_dispatch(
+        tmp_path,
+        event,
+        extra_env={"RALPH_HOME": str(primary_link), "CODEX_HOOK_STATE_ROOT": str(state_link)},
+    )
+    assert parse_output(result) is None
+    assert "continuation state unavailable" in result.stderr
+    assert "exhaust" not in result.stderr.lower()
+
+
 def test_route_marker_absence_is_report_only(tmp_path: Path) -> None:
     event = payload(tmp_path)
     event.update({"tool_call_count": 5, "turn_count": 8})
@@ -292,7 +330,8 @@ def test_handoff_marker_is_bounded_and_does_not_store_message_body(tmp_path: Pat
     marker_files = list((tmp_path / "ralph").rglob("promotion-pending.jsonl"))
     assert marker_files
     assert marker not in marker_files[0].read_text(encoding="utf-8")
-    assert list((tmp_path / "ralph").rglob("handoffs/latest.md"))
+    handoff = next((tmp_path / "ralph").rglob("handoffs/latest.md"))
+    assert marker not in handoff.read_text(encoding="utf-8")
 
 
 def test_dispatcher_is_the_only_configured_stop_command() -> None:
@@ -300,4 +339,4 @@ def test_dispatcher_is_the_only_configured_stop_command() -> None:
     stop_hooks = config["hooks"]["Stop"][0]["hooks"]
     commands = [str(item["command"]) for item in stop_hooks]
     assert len(commands) == 1
-    assert commands[0].endswith(".codex/hooks/stop_dispatch.py")
+    assert ".codex/hooks/stop_dispatch.py" in commands[0]

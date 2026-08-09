@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover - POSIX is the supported hook host.
     fcntl = None  # type: ignore[assignment]
 
 from .active_context import ActiveContext, project_runtime_root
-from .paths import now_iso
+from .paths import now_iso, ralph_home
 
 
 SCHEMA_VERSION = 1
@@ -38,14 +38,34 @@ def _state_dir(context: ActiveContext) -> Path:
     return project_runtime_root(context) / STATE_DIR
 
 
-def _safe_path(parent: Path, child: Path) -> Path | None:
+def _safe_directory(context: ActiveContext, *, create: bool) -> Path | None:
+    root = ralph_home().expanduser()
+    directory = _state_dir(context)
     try:
-        parent_resolved = parent.resolve()
-        candidate = child.resolve(strict=False)
-        candidate.relative_to(parent_resolved)
+        if not root.is_absolute() or root.is_symlink():
+            return None
+        relative = directory.relative_to(root)
+        current = root
+        if create:
+            current.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+            if create:
+                current.mkdir(exist_ok=True, mode=0o700)
     except (OSError, ValueError):
         return None
-    return candidate
+    return directory
+
+
+def _safe_path(parent: Path, child: Path) -> Path | None:
+    try:
+        if child.parent != parent or child.is_symlink() or parent.is_symlink():
+            return None
+    except OSError:
+        return None
+    return child
 
 
 def state_path(context: ActiveContext) -> Path:
@@ -65,7 +85,9 @@ def _empty_state() -> dict[str, Any]:
 
 
 def read_state(context: ActiveContext) -> dict[str, Any]:
-    directory = _state_dir(context)
+    directory = _safe_directory(context, create=False)
+    if directory is None:
+        return _empty_state()
     path = _safe_path(directory, state_path(context))
     if path is None or not path.exists() or path.is_symlink():
         return _empty_state()
@@ -116,14 +138,13 @@ def _prune(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def write_state(context: ActiveContext, state: dict[str, Any]) -> bool:
-    directory = _state_dir(context)
+    directory = _safe_directory(context, create=True)
+    if directory is None:
+        return False
     path = _safe_path(directory, state_path(context))
     if path is None:
         return False
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        if directory.is_symlink():
-            return False
         clean = _prune(state)
         payload = json.dumps(clean, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n"
         fd, temporary = tempfile.mkstemp(prefix=".state.", suffix=".tmp", dir=directory)
@@ -147,17 +168,18 @@ def write_state(context: ActiveContext, state: dict[str, Any]) -> bool:
 
 @contextmanager
 def state_lock(context: ActiveContext) -> Iterator[bool]:
-    directory = _state_dir(context)
+    directory = _safe_directory(context, create=True)
+    if directory is None:
+        yield False
+        return
     lock = _safe_path(directory, directory / LOCK_FILE)
     if lock is None:
         yield False
         return
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        if directory.is_symlink():
-            yield False
-            return
-        with lock.open("a", encoding="utf-8") as handle:
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(lock, flags, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as handle:
             with contextlib.suppress(OSError):
                 os.chmod(lock, 0o600)
             if fcntl is not None:

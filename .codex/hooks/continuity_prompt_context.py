@@ -17,7 +17,7 @@ from shared.checkpoint_io import (
 )
 from shared.checkpoint_io import content_hash as hash_text
 from shared.paths import REPO_ROOT, append_jsonl, now_iso, read_hook_input, write_json
-from shared.redaction import is_red, safe_preview
+from shared.redaction import is_red
 
 PLANS_DIR = REPO_ROOT / "scripts" / "plans"
 if str(PLANS_DIR) not in sys.path:
@@ -88,11 +88,22 @@ def is_continuation(prompt: str) -> bool:
 def maybe_update_objective(prompt: str, context: ActiveContext) -> None:
     if is_red(prompt) or not looks_like_new_task(prompt):
         return
+    objective = f"Task metadata: intent={normalized_intent(prompt)} prompt_hash={hash_text(prompt)[:24]}"
+    try:
+        current = load_latest(context=context)
+    except Exception:
+        current = None
+    if (
+        isinstance(current, dict)
+        and current.get("objective") == objective
+        and current.get("session_id") == context.session_id
+    ):
+        return
     result = update_checkpoint(
         {
             "source": "UserPromptSubmit",
             "session_id": context.session_id,
-            "objective": safe_preview(prompt, 240),
+            "objective": objective,
             "current_phase": "UserPromptSubmit",
             "next_action": "Continue the user's latest requested task.",
         },
@@ -101,6 +112,21 @@ def maybe_update_objective(prompt: str, context: ActiveContext) -> None:
     status = str(result.get("status", ""))
     root = project_runtime_root(context)
     append_jsonl(root / "checkpoints" / "prompt-events.jsonl", {"created_at": now_iso(), "event": "objective_update", "status": status})
+
+
+def normalized_intent(prompt: str) -> str:
+    normalized = normalize(prompt)
+    if any(marker in normalized for marker in ("debug", "diagnos", "root cause", "falla", "error")):
+        return "debug"
+    if any(marker in normalized for marker in ("review", "revisa", "audit", "audita")):
+        return "review"
+    if any(marker in normalized for marker in ("document", "docs", "readme")):
+        return "documentation"
+    if any(marker in normalized for marker in ("implement", "fix", "corrige", "crea", "refactor", "cambia")):
+        return "code_change"
+    if prompt.strip().endswith("?"):
+        return "question"
+    return "general"
 
 
 def looks_like_new_task(prompt: str) -> bool:

@@ -13,6 +13,7 @@ from .active_context import ActiveContext, active_context_from_payload
 SCHEMA_VERSION = 1
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_SAFE_TASK_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
 @dataclass(frozen=True)
@@ -64,15 +65,20 @@ def _normalized_objective(payload: Mapping[str, object]) -> str:
 def task_signature_for_payload(payload: Mapping[str, object], context: ActiveContext) -> tuple[str, bool]:
     explicit = _first(payload, "task_signature", "taskSignature", "task_fingerprint", "taskFingerprint")
     objective = _normalized_objective(payload)
-    if explicit or objective:
-        material = explicit or objective
-        return f"task-{_digest(material)}", True
-    fallback = "|".join((context.project_id, context.workspace_instance_id, context.branch, context.sha, context.session_id))
+    if explicit:
+        # Explicit opaque fingerprints are already identifiers. Preserve safe
+        # values so separate events do not hash the same task repeatedly.
+        if _SAFE_TASK_RE.fullmatch(explicit):
+            return explicit, True
+        return f"task-{_digest(explicit)}", True
+    if objective:
+        return f"task-{_digest(objective)}", True
+    fallback = "|".join((context.project_id, context.workspace_instance_id, context.branch, context.session_id))
     return f"session-{_digest(fallback)}", False
 
 
 def scope_from_payload(payload: Mapping[str, object]) -> StopScope:
-    context = active_context_from_payload(dict(payload))
+    context = active_context_from_payload(dict(payload), resolve_git=False)
     task_signature, present = task_signature_for_payload(payload, context)
     turn_id = _first(payload, "turn_id", "turnId", "event_id", "eventId") or "turn-unknown"
     # The continuation budget is task-scoped.  A new Stop event/turn for the
@@ -84,7 +90,6 @@ def scope_from_payload(payload: Mapping[str, object]) -> StopScope:
             context.project_id,
             context.workspace_instance_id,
             context.branch,
-            context.sha,
             context.session_id,
             task_signature,
         )
@@ -151,7 +156,12 @@ def state_matches_scope(state: Mapping[str, object], scope: StopScope) -> tuple[
         return False, "unscoped"
     if session != scope.context.session_id:
         return False, "foreign_session"
-    if task and task not in {scope.task_signature, _digest(task), f"task-{_digest(task)}"}:
+    compatible_tasks = {
+        scope.task_signature,
+        _digest(scope.task_signature),
+        f"task-{_digest(scope.task_signature)}",
+    }
+    if task and task not in compatible_tasks:
         return False, "foreign_task"
     if workspace:
         try:
@@ -165,7 +175,9 @@ def state_matches_scope(state: Mapping[str, object], scope: StopScope) -> tuple[
     if branch and branch != scope.context.branch:
         return False, "foreign_branch"
     sha = _first(state, "sha", "git_sha", "head")
-    if sha and scope.context.sha and sha != scope.context.sha:
+    if sha and scope.context.sha and not (
+        scope.context.sha.startswith(sha) or sha.startswith(scope.context.sha)
+    ):
         return False, "foreign_head"
     return True, "matched"
 

@@ -148,6 +148,20 @@ def main() -> int:
     fingerprint = _evidence_fingerprint(payload, findings)
     critical = any(finding.critical for finding in findings)
     reservation = reserve(scope, evidence_fingerprint=fingerprint, critical=critical)
+    if reservation.storage_error:
+        sys.stderr.write("stop_dispatch continuation state unavailable; hard evidence reported locally and Stop allowed.\n")
+        _record_reports(scope, [*report_codes, "continuation_state_unavailable"], runtime_ms)
+        _record_stop(
+            scope,
+            payload,
+            findings=findings,
+            reservation=reservation,
+            runtime_ms=runtime_ms,
+            output_bytes=0,
+            persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
+            started_ns=started,
+        )
+        return 0
     if not reservation.allowed:
         _record_reports(scope, [*report_codes, "continuation_budget_exhausted"], runtime_ms)
         _record_stop(

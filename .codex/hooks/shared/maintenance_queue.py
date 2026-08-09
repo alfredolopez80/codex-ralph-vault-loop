@@ -255,9 +255,13 @@ def _trim_jobs(raw_jobs: object, now: float) -> list[dict[str, object]]:
             continue
         job = dict(raw)
         if job.get("status") == "leased" and _timestamp(job.get("lease_until")) <= now:
-            job["status"] = "retryable"
-            job["next_attempt_at"] = now
+            attempts = max(0, int(job.get("attempts", 0) or 0))
+            maximum = max(1, int(job.get("max_attempts", DEFAULT_MAX_ATTEMPTS) or DEFAULT_MAX_ATTEMPTS))
+            job["status"] = "dead_lettered" if attempts >= maximum else "retryable"
+            job["next_attempt_at"] = 0.0 if attempts >= maximum else now
             job["lease_until"] = 0.0
+            if attempts >= maximum:
+                job["last_error_code"] = "lease_attempts_exhausted"
         jobs.append(job)
     jobs.sort(key=lambda item: _timestamp(item.get("updated_epoch")), reverse=True)
     return jobs[: max_entries()]
@@ -359,6 +363,8 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
                     and str(item.get("workspace_instance_id")) == str(job.get("workspace_instance_id"))
                     and str(item.get("branch")) == str(job.get("branch"))
                     and str(item.get("sha")) == str(job.get("sha"))
+                    and str(item.get("source_generation")) == str(job.get("source_generation"))
+                    and str(item.get("policy_version")) == str(job.get("policy_version"))
                     and _timestamp(item.get("created_epoch")) >= recent_cutoff
                 ):
                     return EnqueueResult(False, True, str(item.get("job_id") or job_id), "debounced", path)
@@ -395,6 +401,40 @@ def _job_from_dict(raw: Mapping[str, object]) -> MaintenanceJob | None:
         return None
 
 
+def validate_job_descriptor(job: MaintenanceJob) -> str:
+    """Return an enumerated error when a queued workspace identity is stale or forged."""
+    if job.operation != OPERATION or _safe_identifier(job.project_id) != job.project_id:
+        return "invalid_job_identity"
+    workspace = Path(job.workspace_root).expanduser()
+    try:
+        if not workspace.is_absolute() or not workspace.is_dir():
+            return "workspace_unavailable"
+        for part in (workspace, *workspace.parents):
+            if part.is_symlink():
+                return "workspace_symlink"
+            if part == part.parent:
+                break
+        context = active_context_from_payload(
+            {"cwd": str(workspace), "session_id": job.session_id},
+            resolve_git=False,
+        )
+    except (OSError, ValueError):
+        return "workspace_unavailable"
+    if context.project_id != job.project_id or context.workspace_instance_id != job.workspace_instance_id:
+        return "workspace_identity_mismatch"
+    if job.branch and context.branch != job.branch:
+        return "stale_branch"
+    if job.sha and context.sha and not (context.sha.startswith(job.sha) or job.sha.startswith(context.sha)):
+        return "stale_head"
+    expected_policy = _safe_component(
+        os.environ.get("RALPH_MAINTENANCE_POLICY_VERSION", "maintenance-v1"),
+        limit=64,
+    )
+    if job.policy_version != expected_policy:
+        return "stale_policy"
+    return ""
+
+
 def claim_jobs(project_id: str, *, limit: int = 1, lease: int | None = None) -> list[MaintenanceJob]:
     path = queue_path(project_id)
     lock_path = path.with_suffix(path.suffix + ".lock")
@@ -407,8 +447,9 @@ def claim_jobs(project_id: str, *, limit: int = 1, lease: int | None = None) -> 
                 return []
             state = _load(path)
             now = _epoch()
-            jobs = _trim_jobs(state.get("jobs"), now)
-            changed = False
+            original_jobs = state.get("jobs")
+            jobs = _trim_jobs(original_jobs, now)
+            changed = jobs != original_jobs
             for raw in jobs:
                 if len(claimed) >= max(1, min(limit, 32)):
                     break
@@ -431,7 +472,14 @@ def claim_jobs(project_id: str, *, limit: int = 1, lease: int | None = None) -> 
     return claimed
 
 
-def complete_job(project_id: str, job_id: str, *, success: bool, error_code: str = "") -> bool:
+def complete_job(
+    project_id: str,
+    job_id: str,
+    *,
+    success: bool,
+    error_code: str = "",
+    retryable: bool = True,
+) -> bool:
     path = queue_path(project_id)
     lock_path = path.with_suffix(path.suffix + ".lock")
     if not _safe_runtime(path) or not _safe_runtime(lock_path):
@@ -451,7 +499,7 @@ def complete_job(project_id: str, job_id: str, *, success: bool, error_code: str
                 attempts = int(raw.get("attempts", 0))
                 if success:
                     raw.update({"status": "completed", "last_error_code": "", "lease_until": 0.0})
-                elif attempts >= int(raw.get("max_attempts", DEFAULT_MAX_ATTEMPTS)):
+                elif not retryable or attempts >= int(raw.get("max_attempts", DEFAULT_MAX_ATTEMPTS)):
                     raw.update({"status": "dead_lettered", "last_error_code": _safe_component(error_code, limit=80), "lease_until": 0.0})
                 else:
                     raw.update({"status": "retryable", "last_error_code": _safe_component(error_code, limit=80), "next_attempt_at": now + min(300, 2**attempts), "lease_until": 0.0})

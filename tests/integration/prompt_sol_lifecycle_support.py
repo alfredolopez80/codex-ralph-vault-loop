@@ -21,7 +21,15 @@ IMMUTABLE_SOURCES = (
     ROOT / ".codex" / "hooks" / "sol_advisor_subagent_context.py",
     ROOT / ".codex" / "hooks" / "sol_advisor_subagent_stop.py",
     ROOT / ".codex" / "hooks" / "sol_advisor_stop_guard.py",
+    ROOT / ".codex" / "hooks" / "user_prompt_dispatch.py",
+    ROOT / ".codex" / "hooks" / "pre_tool_dispatch.py",
 )
+
+COMPATIBILITY_WRAPPERS = {
+    "sol_advisor_prompt_state.py",
+    "subagent_routing_pretool_guard.py",
+    "sol_advisor_pretool_guard.py",
+}
 
 
 def isolated_env(tmp_path: Path) -> dict[str, str]:
@@ -54,7 +62,14 @@ def configured_commands(event: str) -> list[str]:
 
 
 def configured_command(event: str, script_name: str) -> str:
-    return next(command for command in configured_commands(event) if script_name in command)
+    for command in configured_commands(event):
+        if script_name in command:
+            return command
+    if script_name in COMPATIBILITY_WRAPPERS:
+        wrapper = ROOT / ".codex" / "hooks" / script_name
+        assert wrapper.is_file(), f"missing compatibility wrapper: {wrapper}"
+        return f'python3 "{wrapper}"'
+    raise AssertionError(f"{script_name} is neither configured nor an approved compatibility wrapper")
 
 
 def run_command(command: str, payload: dict[str, Any], env: dict[str, str]) -> subprocess.CompletedProcess[str]:

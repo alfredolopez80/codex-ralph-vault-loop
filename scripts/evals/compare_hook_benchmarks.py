@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = 2
 DEFAULT_NOISE_THRESHOLD = 0.05
-IDENTITY_FIELDS = ("event", "role", "scenario", "effective_config", "source_scope")
+IDENTITY_FIELDS = ("event", "role", "scenario", "profile", "effective_config", "source_scope")
 LOWER_IS_BETTER = (
     "runtime_p50_ms",
     "runtime_p95_ms",
@@ -86,7 +86,17 @@ def compare(baseline: Mapping[str, Any], candidate: Mapping[str, Any], threshold
     candidate_cases = {_identity(case): case for case in candidate["cases"] if isinstance(case, dict)}
     shared = sorted(set(baseline_cases) & set(candidate_cases))
     if not shared:
-        return {"classification": "cambio no comparable", "reason": "no shared case identities", "cases": []}
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "classification": "cambio no comparable",
+            "reason": "no shared case identities",
+            "shared_case_count": 0,
+            "missing_from_candidate": [list(item) for item in sorted(set(baseline_cases) - set(candidate_cases))],
+            "new_in_candidate": [list(item) for item in sorted(set(candidate_cases) - set(baseline_cases))],
+            "semantic_changes": [],
+            "cases": [],
+            "subscription_usage_measured": False,
+        }
 
     rows: list[dict[str, Any]] = []
     semantic_changes: list[dict[str, Any]] = []

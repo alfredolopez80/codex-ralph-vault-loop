@@ -28,6 +28,7 @@ from shared.maintenance_queue import (  # noqa: E402
     complete_job,
     instance_lock,
     queued_project_ids,
+    validate_job_descriptor,
 )
 from shared.runtime_observability import record_event  # noqa: E402
 
@@ -140,6 +141,24 @@ def run(project_ids: list[str], *, max_jobs: int, max_seconds: int) -> dict[str,
             for job in jobs:
                 if processed >= max_jobs:
                     break
+                validation_error = validate_job_descriptor(job)
+                if validation_error:
+                    complete_job(
+                        project_id,
+                        job.job_id,
+                        success=False,
+                        error_code=validation_error,
+                        retryable=False,
+                    )
+                    append_runner_event(
+                        project_id=project_id,
+                        event="job_rejected",
+                        job_id=job.job_id,
+                        error_code=validation_error,
+                    )
+                    processed += 1
+                    failed += 1
+                    continue
                 ok, error_code, runtime_ms, children = _run_job(job, max_seconds=max_seconds)
                 child_processes += children
                 complete_job(project_id, job.job_id, success=ok, error_code=error_code)

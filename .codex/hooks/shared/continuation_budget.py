@@ -30,6 +30,7 @@ class Reservation:
     exhausted: bool
     evidence_fingerprint: str
     state_corrupt: bool = False
+    storage_error: bool = False
 
 
 def _now() -> float:
@@ -45,11 +46,13 @@ def _max_entries() -> int:
     return max(8, min(value, 2048))
 
 
-def _runtime_safe(path: Path) -> bool:
+def _runtime_safe(path: Path, root: Path | None = None) -> bool:
     try:
         if path.is_symlink():
             return False
-        root = ralph_home()
+        root = (root or ralph_home()).expanduser()
+        if not root.is_absolute() or root.is_symlink():
+            return False
         try:
             relative = path.relative_to(root)
         except ValueError:
@@ -66,6 +69,18 @@ def _runtime_safe(path: Path) -> bool:
 
 def budget_path(scope: StopScope) -> Path:
     return project_runtime_root(scope.context) / "stop" / "continuation.json"
+
+
+def fallback_budget_path(scope: StopScope) -> tuple[Path, Path] | None:
+    configured = os.environ.get("CODEX_HOOK_STATE_ROOT", "").strip()
+    if not configured or "\n" in configured:
+        return None
+    root = Path(configured).expanduser()
+    if not root.is_absolute():
+        return None
+    project = "".join(char for char in scope.context.project_id if char.isalnum() or char in "._-")[:80] or "unknown"
+    path = root / "ralph-stop" / project / "continuation.json"
+    return root, path
 
 
 def events_path(scope: StopScope, name: str = "stop-events.jsonl") -> Path:
@@ -135,11 +150,17 @@ def _trim(entries: dict[str, Any], now: float) -> dict[str, Any]:
     return dict(ordered[: _max_entries()])
 
 
-def reserve(scope: StopScope, *, evidence_fingerprint: str, critical: bool) -> Reservation:
-    path = budget_path(scope)
+def _reserve_at(
+    scope: StopScope,
+    *,
+    root: Path,
+    path: Path,
+    evidence_fingerprint: str,
+    critical: bool,
+) -> Reservation | None:
     lock = path.with_suffix(path.suffix + ".lock")
-    if not _runtime_safe(ralph_home()) or not _runtime_safe(path.parent) or not _runtime_safe(path) or not _runtime_safe(lock):
-        return Reservation(False, 0, True, evidence_fingerprint)
+    if not all(_runtime_safe(candidate, root) for candidate in (root, path.parent, path, lock)):
+        return None
     try:
         with _locked(lock):
             state, corrupt = _load(path)
@@ -165,7 +186,35 @@ def reserve(scope: StopScope, *, evidence_fingerprint: str, critical: bool) -> R
             _atomic_json(path, {"schema_version": STATE_SCHEMA_VERSION, "updated_at": now, "entries": entries})
             return Reservation(allowed, next_count, not allowed, evidence_fingerprint, corrupt)
     except (OSError, ValueError, TypeError):
-        return Reservation(False, 0, True, evidence_fingerprint)
+        return None
+
+
+def reserve(scope: StopScope, *, evidence_fingerprint: str, critical: bool) -> Reservation:
+    primary_root = ralph_home().expanduser()
+    primary = _reserve_at(
+        scope,
+        root=primary_root,
+        path=budget_path(scope),
+        evidence_fingerprint=evidence_fingerprint,
+        critical=critical,
+    )
+    if primary is not None:
+        return primary
+    fallback = fallback_budget_path(scope)
+    if fallback is not None:
+        fallback_root, fallback_path = fallback
+        secondary = _reserve_at(
+            scope,
+            root=fallback_root,
+            path=fallback_path,
+            evidence_fingerprint=evidence_fingerprint,
+            critical=critical,
+        )
+        if secondary is not None:
+            return secondary
+    # Preserve fail-open semantics when neither approved runtime can store a
+    # loop counter, but distinguish the condition from a consumed budget.
+    return Reservation(False, 0, False, evidence_fingerprint, storage_error=True)
 
 
 def append_event(scope: StopScope, event: dict[str, Any], *, name: str = "stop-events.jsonl") -> bool:

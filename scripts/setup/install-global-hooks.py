@@ -5,9 +5,15 @@ import argparse
 import json
 import shlex
 import shutil
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+HOOK_SOURCE = REPO / ".codex" / "hooks"
+if str(HOOK_SOURCE) not in sys.path:
+    sys.path.insert(0, str(HOOK_SOURCE))
+
+from shared.runtime_budget import context_capable_events, context_limit_for, external_timeout_for
 GLOBAL_HOOKS = Path.home() / ".codex" / "hooks.json"
 GLOBAL_HOOK_DIR = Path.home() / ".codex" / "hooks"
 GLOBAL_SKILL_ROOTS = (Path.home() / ".agents" / "skills", Path.home() / ".codex" / "skills")
@@ -52,26 +58,20 @@ def q(path: Path) -> str:
     return shlex.quote(str(path))
 
 
-HOOK_ROLES: dict[str, tuple[tuple[str, int], ...]] = {
-    "SessionStart": (("session_start_wakeup", 45),),
-    "UserPromptSubmit": (
-        ("universal_prompt_classifier", 10),
-        ("sol_advisor_prompt_state", 10),
-        ("user_prompt_capture", 10),
-        ("user_prompt_improve", 10),
-        ("continuity_prompt_context", 10),
-    ),
-    "PreToolUse": (
-        ("pre_tool_guard", 10),
-        ("subagent_routing_pretool_guard", 10),
-        ("sol_advisor_pretool_guard", 10),
-    ),
-    "PostToolUse": (
-        ("post_tool_dispatch", 10),
-    ),
-    "SubagentStart": (("sol_advisor_subagent_context", 10),),
-    "SubagentStop": (("sol_advisor_subagent_stop", 10),),
-    "Stop": (("stop_dispatch", 10),),
+HOOK_ROLES: dict[str, tuple[str, ...]] = {
+    "SessionStart": ("session_start_dispatch",),
+    "UserPromptSubmit": ("user_prompt_dispatch",),
+    "PreToolUse": ("pre_tool_dispatch",),
+    "PostToolUse": ("post_tool_dispatch",),
+    "SubagentStart": ("sol_advisor_subagent_context",),
+    "SubagentStop": ("sol_advisor_subagent_stop",),
+    "Stop": ("stop_dispatch",),
+}
+
+MATCHERS = {
+    "SessionStart": "startup|resume|clear|compact",
+    "PreToolUse": "Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*",
+    "PostToolUse": ".*",
 }
 
 
@@ -83,11 +83,21 @@ def dispatch_command(event: str, role: str) -> str:
 def hook_config() -> dict:
     groups: dict[str, list[dict[str, object]]] = {}
     for event, roles in HOOK_ROLES.items():
+        hooks: list[dict[str, object]] = []
+        for role in roles:
+            hook: dict[str, object] = {
+                "type": "command",
+                "command": dispatch_command(event, role),
+                "timeout": external_timeout_for(event, role),
+            }
+            if event in context_capable_events():
+                hook["additionalContextLimit"] = context_limit_for(event)
+            hooks.append(hook)
         group: dict[str, object] = {
-            "hooks": [{"type": "command", "command": dispatch_command(event, role), "timeout": timeout} for role, timeout in roles]
+            "hooks": hooks
         }
-        if event == "PostToolUse":
-            group["matcher"] = ".*"
+        if event in MATCHERS:
+            group["matcher"] = MATCHERS[event]
         groups[event] = [group]
     return {"hooks": groups}
 

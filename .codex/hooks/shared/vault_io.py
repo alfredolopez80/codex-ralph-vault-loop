@@ -77,14 +77,23 @@ def learning_trust_status(context: ActiveContext | None) -> str:
     return "provisional"
 
 
-def save_learning(text: str, source: str, classification: str = "YELLOW", context: ActiveContext | None = None) -> Path | None:
+def save_learning(
+    text: str,
+    source: str,
+    classification: str = "YELLOW",
+    context: ActiveContext | None = None,
+    *,
+    candidate_only: bool = False,
+) -> Path | None:
     if not text.strip() or classification == "RED" or is_red(text):
         return None
     root = runtime_root(context)
     clean = redact_text(text.strip())
-    path = root / "ledgers" / f"learning-{digest(clean)[:12]}.md"
+    directory = root / "ledgers" / "candidates" if candidate_only else root / "ledgers"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"learning-{digest(clean)[:12]}.md"
     created = not path.exists()
-    trust_status = learning_trust_status(context)
+    trust_status = "provisional" if candidate_only else learning_trust_status(context)
     confidence = "0.80" if trust_status == "trusted" else "0.40"
     if not path.exists():
         path.write_text(
@@ -94,7 +103,7 @@ def save_learning(text: str, source: str, classification: str = "YELLOW", contex
                     f'created_at: "{now_iso()}"',
                     f'updated_at: "{now_iso()}"',
                     f'classification: "{classification}"',
-                    'memory_kind: "validated_learning"',
+                    f'memory_kind: "{"learning_candidate" if candidate_only else "validated_learning"}"',
                     f'trust_status: "{trust_status}"',
                     f'provisional: "{str(trust_status == "provisional").lower()}"',
                     'deprecated: "false"',
@@ -126,6 +135,7 @@ def save_learning(text: str, source: str, classification: str = "YELLOW", contex
                 "created_at": now_iso(),
                 "trust_status": trust_status,
                 "confidence": confidence,
+                "candidate_only": candidate_only,
                 "project_id": context.project_id if context else "",
                 "project": context.project_slug if context else "",
                 "repo": context.project_slug if context else "",

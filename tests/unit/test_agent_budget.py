@@ -209,13 +209,25 @@ def test_concurrent_worker_reservations_are_capped_and_scoped(tmp_path: Path, mo
         "independent_block": True,
         "prompt": "Implement an independent measurable block.",
     }
-    initialize(event)
+    state = initialize(event)
+    assert state is not None
+    spawn_arguments = dict(state["routing"]["spawn_arguments"])
 
-    def reserve() -> bool:
-        return reserve_worker_spawn(event)[0]
+    def reserve(index: int) -> bool:
+        return reserve_worker_spawn(
+            {
+                **event,
+                "tool_name": "spawn_agent",
+                "tool_input": {
+                    **spawn_arguments,
+                    "invocation_id": f"worker-{index}",
+                    "message": f"Implement independent bounded block {index}.",
+                },
+            }
+        )[0]
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda _item: reserve(), range(4)))
+        results = list(pool.map(reserve, range(4)))
 
     assert sum(results) == MAX_TASK_JOBS
     state = read_state(event)

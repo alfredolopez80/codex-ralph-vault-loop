@@ -68,7 +68,7 @@ def project_checkpoint_args() -> list[str]:
     ]
 
 
-def test_stop_handoff_includes_checkpoint_for_short_final_message(tmp_path: Path) -> None:
+def test_stop_handoff_includes_only_checkpoint_metadata(tmp_path: Path) -> None:
     update = run_checkpoint(
         tmp_path,
         "--update",
@@ -91,20 +91,23 @@ def test_stop_handoff_includes_checkpoint_for_short_final_message(tmp_path: Path
     assert result.returncode == 0, result.stderr
     text = latest_handoff(tmp_path)
     assert "## Rolling Checkpoint" in text
-    assert "Objective: Implement Phase 5 enriched Stop handoff." in text
-    assert "Next action: Run hook chain validation." in text
-    assert "## Final Assistant Message" in text
-    assert "Done." in text
+    assert "checkpoint_id=" in text
+    assert "validation=partial" in text
+    assert "Implement Phase 5 enriched Stop handoff." not in text
+    assert "Run hook chain validation." not in text
+    assert "## Final Assistant Message" not in text
+    assert "Done." not in text
     assert "Next:" in text
-    assert "Run hook chain validation." in text
+    assert "Re-read current project state and verify pending work." in text
 
 
-def test_stop_handoff_falls_back_without_checkpoint(tmp_path: Path) -> None:
+def test_stop_handoff_without_checkpoint_keeps_only_structured_marker(tmp_path: Path) -> None:
     result = run_stop_hook(tmp_path, {"last_assistant_message": "Plain handoff still works."})
 
     assert result.returncode == 0, result.stderr
     text = latest_handoff(tmp_path)
-    assert "Plain handoff still works." in text
+    assert "task: observed" in text
+    assert "Plain handoff still works." not in text
     assert "## Rolling Checkpoint" not in text
 
 
@@ -132,6 +135,7 @@ def test_stop_handoff_compacts_oversized_checkpoint_and_final_message(tmp_path: 
     text = latest_handoff(tmp_path)
     assert "## Rolling Checkpoint" in text
     assert "message1199" not in text
+    assert "message1" not in text
     assert "verified699" not in text
     assert len(text) <= 9_500
 
@@ -172,7 +176,8 @@ def test_stop_handoff_omits_red_checkpoint_without_leaking(tmp_path: Path) -> No
 
     assert result.returncode == 0, result.stderr
     text = latest_handoff(tmp_path)
-    assert "Safe final message." in text
+    assert "Safe final message." not in text
+    assert "task: observed" in text
     assert "## Rolling Checkpoint" not in text
     assert secret_text not in text
     assert "abc123" not in text
