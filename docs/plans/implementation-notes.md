@@ -1,5 +1,23 @@
 # Implementation Notes Workflow
 
+> Public surface: `scripts/plans/progress.py`. The HTML notes and schema-v2
+> index described below are compatibility evidence and explicit derived views,
+> not the canonical write path for new progress operations.
+
+Use the deterministic CLI for new work:
+
+```bash
+python3 scripts/plans/progress.py start --plan .ralph/plans/example.md
+python3 scripts/plans/progress.py record --plan .ralph/plans/example.md --kind decision --summary "Bounded state is canonical"
+python3 scripts/plans/progress.py phase --plan .ralph/plans/example.md --phase validation --next "Run focused tests"
+python3 scripts/plans/progress.py validate --plan .ralph/plans/example.md --gate unit --result pass
+python3 scripts/plans/progress.py status --plan .ralph/plans/example.md --format json
+```
+
+Use `export --output` or `rebuild-legacy` only when a human explicitly needs a
+legacy HTML/index artifact. Run `migrate-legacy --dry-run` before any separately
+authorized import; the apply step preserves all legacy source files.
+
 Use implementation notes when a plan has been approved and the user asks Codex to implement it. The notes capture timestamped decisions made during implementation without turning hooks into the author of those decisions.
 
 ## Location

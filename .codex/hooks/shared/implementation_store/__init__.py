@@ -4,7 +4,7 @@ This package is deliberately unreferenced by lifecycle dispatchers until the
 later integration phase.  Importing it has no filesystem side effects.
 """
 
-from .io import CorruptRecordError, StoreIOError, WriteMetadata
+from .io import CorruptRecordError, StoreIOError, WriteMetadata, publish_bytes
 from .paths import (
     PlanPaths,
     StorePathError,
@@ -59,6 +59,7 @@ __all__ = [
     "ensure_store_layout",
     "event_record_hash",
     "new_state",
+    "publish_bytes",
     "resolve_primary_checkout_root",
     "resolve_store_paths",
     "state_semantic_hash",

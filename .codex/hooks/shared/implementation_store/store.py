@@ -20,11 +20,20 @@ from .io import (
     append_jsonl,
     locked_file,
     publish_json,
+    publish_bytes,
     quarantine_file,
     read_json,
     read_jsonl,
 )
-from .paths import PlanPaths, StorePaths, ensure_directory_chain, ensure_store_layout
+from .paths import (
+    PlanPaths,
+    StorePathError,
+    StorePaths,
+    directory_stat,
+    ensure_directory_chain,
+    ensure_store_layout,
+    _reject_symlink_components,
+)
 from .schema import (
     EVENT_HARD_LIMIT_BYTES,
     MATERIAL_EVENT_KINDS,
@@ -468,6 +477,32 @@ class ImplementationStore:
             metadata = publish_json(plan.state, state, hard_limit=8 * 1024)
         return StoreResult(True, state.get("last_operation_id", ""), metadata=metadata, state=state, reason="replayed journal")
 
+    def publish_derived_view(self, output: Path | str, content: str, *, hard_limit: int = 256 * 1024) -> WriteMetadata:
+        """Persist an explicitly requested derived view through the store I/O boundary.
+
+        Canonical state and journal records remain the only business writes.  This
+        helper is reserved for explicit export/rebuild commands and refuses paths
+        outside the canonical checkout or unsafe filesystem aliases.
+        """
+
+        target = Path(output).expanduser()
+        if not target.is_absolute():
+            target = self.paths.primary_root / target
+        target = target.absolute()
+        try:
+            target.relative_to(self.paths.primary_root)
+        except ValueError as exc:
+            raise StorePathError("derived view path escapes the canonical checkout") from exc
+        if target == self.paths.primary_root:
+            raise StorePathError("derived view path must name a file")
+        _reject_symlink_components(target.parent, allow_missing=True)
+        if target.exists() and target.is_symlink():
+            raise StorePathError("derived view path cannot be a symlink")
+        if target.exists() and target.stat().st_nlink != 1:
+            raise StorePathError("derived view path cannot be hard-linked")
+        _ensure_derived_parent(target.parent, self.paths.primary_root)
+        return publish_bytes(target, content.encode("utf-8"), hard_limit=hard_limit)
+
     # ----- internal helpers --------------------------------------------------------
 
     def _provenance_for_store(self, provenance: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -910,6 +945,26 @@ def _operation_id(value: str | None) -> str:
     if value:
         return validate_operation_id(value)
     return "op-" + uuid.uuid4().hex
+
+
+def _ensure_derived_parent(path: Path, primary_root: Path) -> None:
+    """Create derived-view parents without changing the checkout mode."""
+
+    _reject_symlink_components(path, allow_missing=True)
+    missing: list[Path] = []
+    current = path
+    while current != primary_root and not current.exists():
+        missing.append(current)
+        current = current.parent
+    try:
+        current.relative_to(primary_root)
+    except ValueError as exc:
+        raise StorePathError("derived view parent escapes the canonical checkout") from exc
+    directory_stat(current)
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700)
+        directory_stat(directory)
+        directory.chmod(0o700)
 
 
 def _now() -> str:

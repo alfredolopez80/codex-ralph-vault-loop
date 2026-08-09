@@ -232,6 +232,58 @@ def publish_json(path: Path, payload: Mapping[str, Any], *, hard_limit: int) -> 
     )
 
 
+def publish_bytes(path: Path, encoded: bytes, *, hard_limit: int) -> WriteMetadata:
+    """Atomically publish a bounded derived artifact through the store boundary."""
+
+    if len(encoded) > hard_limit:
+        raise StoreIOError(f"derived artifact exceeds hard limit of {hard_limit} UTF-8 bytes")
+    _safe_directory(path.parent)
+    existing: bytes | None = None
+    mode = 0o600
+    if path.exists():
+        info = regular_file_stat(path)
+        if info.st_size > hard_limit:
+            raise StoreIOError(f"existing derived artifact exceeds hard limit of {hard_limit} bytes")
+        # Legacy compatibility views historically used repository-default
+        # permissions. The target was already proven regular/non-aliased;
+        # compare its bounded bytes without applying canonical store-read
+        # privacy checks to the immutable source view.
+        existing = path.read_bytes()
+        mode = _private_mode(info.st_mode)
+        if existing == encoded:
+            return WriteMetadata()
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(fd, mode)
+        _write_all(fd, encoded)
+        os.fsync(fd)
+        os.close(fd)
+        _reject_symlink_components(path, allow_missing=True)
+        if path.exists():
+            regular_file_stat(path)
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    except (OSError, StoreIOError) as exc:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise StoreIOError(f"atomic derived-artifact publication failed for {path.name}") from exc
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return WriteMetadata(
+        changed=True,
+        bytes_written=len(encoded),
+        files_written=(path.name,),
+        replacements=1,
+        fsync_publications=1,
+    )
+
+
 def quarantine_file(path: Path, *, reason: str = "invalid") -> Path:
     """Move malformed current-schema bytes to an evidence-preserving sibling."""
 

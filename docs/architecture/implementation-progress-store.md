@@ -1,8 +1,33 @@
 # Canonical implementation-progress store
 
-This document describes the Phase 3 store core. The package is deliberately
-not connected to lifecycle hooks yet; legacy HTML/index readers and writers are
-unchanged until the later compatibility and migration phases.
+This document describes the canonical store and its Phase 4 public CLI. The
+package is deliberately not connected to lifecycle hooks yet; legacy
+HTML/index readers and writers remain compatibility evidence until a later
+writer-switch phase.
+
+## Public CLI
+
+All ordinary progress operations use one deterministic entrypoint:
+
+```text
+python3 scripts/plans/progress.py start --plan <path>
+python3 scripts/plans/progress.py record --plan <path> --kind decision --summary <text>
+python3 scripts/plans/progress.py phase --plan <path> --phase validation --next <text>
+python3 scripts/plans/progress.py validate --plan <path> --gate unit --result pass
+python3 scripts/plans/progress.py status --plan <path> --format json
+python3 scripts/plans/progress.py context --plan <path> --profile luna
+python3 scripts/plans/progress.py export --plan <path> --format markdown
+python3 scripts/plans/progress.py verify --plan <path>
+```
+
+Mutations accept `--operation-id` for retry-safe identity. `--json` and
+`--format json` return one bounded machine-readable result; text diagnostics
+use stable typed error codes and never echo raw input. `context` is read-only
+and profile-bounded (`luna=512`, `terra=192`, `sol/unknown=96` UTF-8 bytes).
+Exports are derived views: stdout is the default, `--output` is the explicit
+persistence boundary, and every render reports source and output digests.
+`migrate-legacy --dry-run` inventories only; `--apply` is the one-time import
+boundary. `rebuild-legacy` is likewise explicit and never runs from hooks.
 
 ## Write boundary and layout
 
@@ -128,6 +153,7 @@ It contains no event history and is rewritten only for plan discovery or a
 status/ownership transition. Ordinary phase, decision, validation, or event
 updates do not publish it.
 
-Markdown and HTML views are intentionally absent from the canonical layout.
-They will be explicit derived exports in a later phase and are never written by
-this core.
+Markdown and HTML views remain intentionally absent from the canonical layout.
+Phase 4 exposes them only through explicit `progress.py export` or
+`rebuild-legacy` requests; they are never written by ordinary prompt, tool, or
+Stop hooks.
