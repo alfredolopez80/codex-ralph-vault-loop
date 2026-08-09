@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 from .paths import ralph_home
+from .persistence_metrics import WriteResult
 
 DEFAULT_JSONL_MAX_BYTES = 2 * 1024 * 1024
 
@@ -49,11 +50,11 @@ def _path_has_symlink(path: Path) -> bool:
     return False
 
 
-def append_cost_event(event: dict[str, Any]) -> bool:
+def append_cost_event(event: dict[str, Any]) -> WriteResult:
     """Append one cost record under a single bounded cross-project lock."""
     root = ralph_home()
     if _path_has_symlink(root):
-        return False
+        return WriteResult.unknown()
     cost = root / "cost"
     path = cost / "tool-ledger.jsonl"
     lock_path = cost / ".tool-ledger.lock"
@@ -80,9 +81,9 @@ def append_cost_event(event: dict[str, Any]) -> bool:
                 os.close(output)
             if fcntl is not None:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        return True
+        return WriteResult(changed=True, bytes_written=len(encoded), files_written=(path.name,), appends=1)
     except (OSError, TypeError, ValueError):
-        return False
+        return WriteResult.unknown()
 
 
 __all__ = ["append_cost_event", "jsonl_max_bytes", "rotate_jsonl"]

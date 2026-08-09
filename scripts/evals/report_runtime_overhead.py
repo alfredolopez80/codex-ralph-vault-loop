@@ -89,6 +89,8 @@ def group_report(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     durations = [number / 1_000_000 for record in records if (number := _number(record.get("monotonic_duration_ns"))) is not None]
     def total(field: str) -> int:
         return sum(int(_number(record.get(field)) or 0) for record in records)
+    persistence_values = [_number(record.get("persistence_bytes")) for record in records]
+    persistence_unknown = sum(value is None for value in persistence_values)
     return {
         "count": len(records),
         "runtime_p50_ms": round(percentile(durations, 50), 3) if durations else None,
@@ -97,7 +99,12 @@ def group_report(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "child_process_count": total("child_process_count"),
         "output_bytes": total("output_bytes"),
         "estimated_context_units": total("estimated_context_units"),
-        "persistence_bytes": total("persistence_bytes"),
+        # A partial total is misleading when one writer did not expose a
+        # bounded result.  Keep the metric explicitly unknown instead of
+        # converting unavailable cost to zero.
+        "persistence_bytes": None if persistence_unknown else int(sum(value or 0 for value in persistence_values)),
+        "persistence_bytes_known": persistence_unknown == 0,
+        "persistence_unknown_count": persistence_unknown,
         "continuation_count": total("continuation_count"),
         "advisor_count": total("advisor_count"),
     }
@@ -213,7 +220,7 @@ def markdown_report(report: Mapping[str, Any]) -> str:
     ]
     for group in report.get("groups", []):
         lines.append(
-            f"| {group['profile']} | {group['model_family']} | {group['event']} | {group['scenario']} | {group['count']} | {group['runtime_p50_ms']} | {group['runtime_p95_ms']} | {group['estimated_context_units']} | {group['persistence_bytes']} |"
+            f"| {group['profile']} | {group['model_family']} | {group['event']} | {group['scenario']} | {group['count']} | {group['runtime_p50_ms']} | {group['runtime_p95_ms']} | {group['estimated_context_units']} | {group['persistence_bytes'] if group.get('persistence_bytes_known', False) else 'unknown'} |"
         )
     lines.extend(["", "## Limitations", ""])
     lines.extend(f"- {item}" for item in report.get("limitations", []))

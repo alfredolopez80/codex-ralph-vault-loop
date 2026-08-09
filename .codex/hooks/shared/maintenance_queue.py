@@ -21,6 +21,7 @@ from typing import Iterator, Mapping
 
 from .active_context import ActiveContext, active_context_from_payload
 from .paths import now_iso, ralph_home
+from .persistence_metrics import WriteResult
 
 try:
     import fcntl
@@ -46,6 +47,19 @@ class EnqueueResult:
     job_id: str
     reason: str
     path: Path | None = None
+    write_result: WriteResult = WriteResult()
+
+    @property
+    def changed(self) -> bool:
+        return self.write_result.changed
+
+    @property
+    def bytes_written(self) -> int | None:
+        return self.write_result.bytes_written
+
+    @property
+    def files_written(self) -> tuple[str, ...]:
+        return self.write_result.files_written
 
 
 @dataclass(frozen=True)
@@ -191,18 +205,26 @@ def instance_lock() -> Iterator[bool]:
         yield locked
 
 
-def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
+def _atomic_json(path: Path, payload: Mapping[str, object]) -> WriteResult:
     path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2) + "\n").encode("utf-8")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2) + "\n")
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
         with contextlib.suppress(OSError):
             path.chmod(0o600)
+        return WriteResult(
+            changed=True,
+            bytes_written=len(encoded),
+            files_written=(path.name,),
+            replacements=1,
+            fsync_publications=1,
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()
@@ -270,7 +292,12 @@ def _trim_jobs(raw_jobs: object, now: float) -> list[dict[str, object]]:
 def _source_generation(context: ActiveContext, payload: Mapping[str, object] | None) -> str:
     """Return a hash of metadata/statistics only; never hash or store raw content."""
     payload = payload or {}
-    explicit = payload.get("memory_generation") or payload.get("memoryGeneration") or payload.get("source_generation")
+    explicit = (
+        payload.get("memory_generation")
+        or payload.get("memoryGeneration")
+        or payload.get("source_generation")
+        or payload.get("generation")
+    )
     if isinstance(explicit, str) and explicit.strip():
         return hashlib.sha256(explicit.strip()[:256].encode("utf-8")).hexdigest()[:24]
     root = ralph_home() / "projects" / _safe_identifier(context.project_id)
@@ -339,11 +366,11 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
     job = _descriptor(context, reason_code=reason_code, payload=payload)
     lock_path = path.with_suffix(path.suffix + ".lock")
     if not _safe_runtime(path) or not _safe_runtime(lock_path):
-        return EnqueueResult(False, False, str(job["job_id"]), "unsafe_runtime", None)
+        return EnqueueResult(False, False, str(job["job_id"]), "unsafe_runtime", None, WriteResult())
     try:
         with _locked(lock_path) as locked:
             if not locked:
-                return EnqueueResult(False, False, str(job["job_id"]), "lock_unavailable", path)
+                return EnqueueResult(False, False, str(job["job_id"]), "lock_unavailable", path, WriteResult())
             state = _load(path)
             now = _epoch()
             jobs = _trim_jobs(state.get("jobs"), now)
@@ -352,7 +379,7 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
             if existing is not None:
                 status = str(existing.get("status") or "pending")
                 if status in {"pending", "leased", "retryable", "completed", "dead_lettered"}:
-                    return EnqueueResult(False, True, job_id, f"already_{status}", path)
+                    return EnqueueResult(False, True, job_id, f"already_{status}", path, WriteResult())
             # A handoff can update file metadata on every Stop.  Debounce
             # those equivalent observations before creating another job.
             recent_cutoff = now - debounce_seconds()
@@ -367,12 +394,12 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
                     and str(item.get("policy_version")) == str(job.get("policy_version"))
                     and _timestamp(item.get("created_epoch")) >= recent_cutoff
                 ):
-                    return EnqueueResult(False, True, str(item.get("job_id") or job_id), "debounced", path)
+                    return EnqueueResult(False, True, str(item.get("job_id") or job_id), "debounced", path, WriteResult())
             jobs.append(job)
-            _atomic_json(path, {"schema_version": SCHEMA_VERSION, "updated_at": now_iso(), "jobs": _trim_jobs(jobs, now)})
-            return EnqueueResult(True, False, job_id, "enqueued", path)
+            write_result = _atomic_json(path, {"schema_version": SCHEMA_VERSION, "updated_at": now_iso(), "jobs": _trim_jobs(jobs, now)})
+            return EnqueueResult(True, False, job_id, "enqueued", path, write_result)
     except (OSError, TypeError, ValueError):
-        return EnqueueResult(False, False, str(job["job_id"]), "queue_write_failed", path)
+        return EnqueueResult(False, False, str(job["job_id"]), "queue_write_failed", path, WriteResult.unknown())
 
 
 def enqueue_for_payload(payload: Mapping[str, object], *, reason_code: str) -> EnqueueResult:
@@ -380,7 +407,7 @@ def enqueue_for_payload(payload: Mapping[str, object], *, reason_code: str) -> E
         context = active_context_from_payload(dict(payload))
         return enqueue_maintenance(context, reason_code=reason_code, payload=payload)
     except Exception:
-        return EnqueueResult(False, False, "", "context_failed", None)
+        return EnqueueResult(False, False, "", "context_failed", None, WriteResult.unknown())
 
 
 def _job_from_dict(raw: Mapping[str, object]) -> MaintenanceJob | None:

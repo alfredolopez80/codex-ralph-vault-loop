@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 from .paths import ralph_home
+from .persistence_metrics import WriteResult
 
 PROJECT_ID_RE = re.compile(r"^p-[a-f0-9]{16}$")
 DEFAULT_MAX_BYTES = 4 * 1024 * 1024
@@ -81,14 +82,14 @@ def _rotate(path: Path, *, max_bytes: int, max_files: int) -> None:
         os.replace(path, path.with_name(f"{path.name}.1"))
 
 
-def append_normalized(project_id: str, event: Mapping[str, object], *, max_event_bytes: int) -> bool:
+def append_normalized(project_id: str, event: Mapping[str, object], *, max_event_bytes: int) -> WriteResult:
     path = event_path(project_id)
     if path is None or fcntl is None:
-        return False
+        return WriteResult.unknown()
     lock_path = path.with_name(f".{path.name}.lock")
     try:
         if lock_path.is_symlink() or path.is_symlink():
-            return False
+            return WriteResult.unknown()
         flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(lock_path, flags, 0o600)
         with os.fdopen(fd, "a+", encoding="utf-8") as lock:
@@ -97,7 +98,7 @@ def append_normalized(project_id: str, event: Mapping[str, object], *, max_event
             _rotate(path, max_bytes=max_bytes, max_files=max_files)
             encoded = (json.dumps(dict(event), ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
             if len(encoded) > max_event_bytes:
-                return False
+                return WriteResult.unknown()
             output = os.open(
                 path,
                 os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
@@ -108,10 +109,15 @@ def append_normalized(project_id: str, event: Mapping[str, object], *, max_event
             finally:
                 os.close(output)
             path.chmod(0o600)
+            # Rotate immediately after a publication so the active file never
+            # grows beyond the configured bound.  A single rotated file may
+            # contain the boundary-crossing record, but the hot active path
+            # remains bounded for the next reader.
+            _rotate(path, max_bytes=max_bytes, max_files=max_files)
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        return True
+        return WriteResult(changed=True, bytes_written=len(encoded), files_written=(path.name,), appends=1)
     except (OSError, TypeError, ValueError):
-        return False
+        return WriteResult.unknown()
 
 
 __all__ = ["append_normalized", "event_path"]

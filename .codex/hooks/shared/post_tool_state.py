@@ -15,6 +15,7 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
@@ -26,12 +27,28 @@ except ImportError:  # pragma: no cover - POSIX is the supported runtime.
 
 from .active_context import ActiveContext
 from .paths import ralph_home
+from .persistence_metrics import WriteResult
 from .post_tool_ledger import jsonl_max_bytes, rotate_jsonl
 
 STATE_VERSION = 1
 DEFAULT_TTL_SECONDS = 60 * 60
 DEFAULT_MAX_ENTRIES = 2_048
 SAFE_PROJECT_ID_RE = re.compile(r"^p-[a-f0-9]{16}$")
+
+
+@dataclass
+class DedupeClaimResult:
+    """One PostTool dedupe claim plus its eventual state publication."""
+
+    duplicate: bool
+    key: str | None
+    write_result: WriteResult = WriteResult()
+
+    def __iter__(self):
+        # Preserve the historical two-value unpacking contract for callers
+        # outside the consolidated dispatcher.
+        yield self.duplicate
+        yield self.key
 
 
 def _now_iso() -> str:
@@ -198,42 +215,50 @@ def _load_state(path: Path) -> dict[str, Any]:
         return {"schema_version": STATE_VERSION, "entries": []}
 
 
-def _atomic_write(path: Path, data: dict[str, Any]) -> None:
+def _atomic_write(path: Path, data: dict[str, Any]) -> WriteResult:
     if path.is_symlink():
         raise OSError("state file is a symlink")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
         os.fchmod(fd, 0o600)
+        encoded = (json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n")
+            handle.write(encoded.decode("utf-8"))
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        return WriteResult(
+            changed=True,
+            bytes_written=len(encoded),
+            files_written=(path.name,),
+            replacements=1,
+            fsync_publications=1,
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()
 
 
 @contextmanager
-def dedupe_claim(context: ActiveContext, payload: dict[str, Any]) -> Iterator[tuple[bool, str | None]]:
+def dedupe_claim(context: ActiveContext, payload: dict[str, Any]) -> Iterator[DedupeClaimResult]:
     """Serialize one tool-use claim and commit it after component execution."""
     root = state_root(context)
     key = dedupe_key(context, payload)
     if root is None or key is None or fcntl is None:
-        yield False, key
+        yield DedupeClaimResult(False, key)
         return
 
     state_path = _safe_path(root, "dedupe.json")
     lock_path = _safe_path(root, "dedupe.lock")
     if state_path is None or lock_path is None:
-        yield False, key
+        yield DedupeClaimResult(False, key)
         return
 
     try:
         with lock_path.open("a+", encoding="utf-8") as lock:
             if lock_path.is_symlink():
-                yield False, key
+                yield DedupeClaimResult(False, key)
                 return
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             state = _load_state(state_path)
@@ -250,14 +275,15 @@ def dedupe_claim(context: ActiveContext, payload: dict[str, Any]) -> Iterator[tu
                 if isinstance(item_key, str) and len(item_key) == 64 and now - seen_at <= _ttl_seconds():
                     entries[item_key] = seen_at
             duplicate = key in entries
+            claim = DedupeClaimResult(duplicate, key)
             try:
-                yield duplicate, key
+                yield claim
                 if not duplicate:
                     entries[key] = now
                 if not duplicate:
                     ordered = sorted(entries.items(), key=lambda pair: pair[1], reverse=True)[: _max_entries()]
                     try:
-                        _atomic_write(
+                        claim.write_result = _atomic_write(
                             state_path,
                             {
                                 "schema_version": STATE_VERSION,
@@ -266,42 +292,43 @@ def dedupe_claim(context: ActiveContext, payload: dict[str, Any]) -> Iterator[tu
                             },
                         )
                     except (OSError, ValueError, TypeError):
-                        pass
+                        claim.write_result = WriteResult.unknown()
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     except (OSError, ValueError, TypeError):
         # Operational dedupe state is advisory. A write/permission failure
         # must not stop the executor or turn a successful tool result into a
         # hook failure.
-        yield False, key
+        yield DedupeClaimResult(False, key, WriteResult.unknown())
 
 
-def append_metric(context: ActiveContext, event: dict[str, Any]) -> bool:
+def append_metric(context: ActiveContext, event: dict[str, Any]) -> WriteResult:
     root = state_root(context)
     if root is None or fcntl is None:
-        return False
+        return WriteResult.unknown()
     path = _safe_path(root, "metrics.jsonl")
     lock_path = _safe_path(root, "metrics.lock")
     if path is None or lock_path is None:
-        return False
+        return WriteResult.unknown()
     payload = {"schema_version": STATE_VERSION, "created_at": _now_iso(), **event}
     try:
         with lock_path.open("a+", encoding="utf-8") as lock:
             if lock_path.is_symlink() or path.is_symlink():
-                return False
+                return WriteResult.unknown()
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             rotate_jsonl(path, jsonl_max_bytes("RALPH_POST_TOOL_METRICS_MAX_BYTES"))
+            encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
             fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
             try:
-                os.write(fd, (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8"))
+                os.write(fd, encoded)
             finally:
                 os.close(fd)
             with contextlib.suppress(OSError):
                 path.chmod(0o600)
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        return True
+        return WriteResult(changed=True, bytes_written=len(encoded), files_written=(path.name,), appends=1)
     except (OSError, TypeError, ValueError):
-        return False
+        return WriteResult.unknown()
 
 
 def directory_bytes(root: Path | None, *, max_entries: int = 512) -> int:

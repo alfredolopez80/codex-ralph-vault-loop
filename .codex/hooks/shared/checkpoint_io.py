@@ -55,6 +55,10 @@ class CheckpointWriteResult:
     bytes_written: int = 0
     files_written: tuple[str, ...] = ()
     archived: bool = False
+    replacements: int = 0
+    appends: int = 0
+    fsync_publications: int = 0
+    known: bool = True
 
     def __bool__(self) -> bool:
         return self.changed
@@ -183,6 +187,10 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
                 "changed": False,
                 "bytes_written": 0,
                 "files_written": [],
+                "replacements": 0,
+                "appends": 0,
+                "fsync_publications": 0,
+                "persistence_bytes_known": True,
                 "findings": safety["findings"],
             }
 
@@ -200,6 +208,10 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
                 "bytes_written": 0,
                 "files_written": [],
                 "archived": False,
+                "replacements": 0,
+                "appends": 0,
+                "fsync_publications": 0,
+                "persistence_bytes_known": True,
                 "checkpoint": current,
                 "markdown": rendered,
                 "semantic_fingerprint": fingerprint,
@@ -217,6 +229,10 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
             "bytes_written": write_result.bytes_written,
             "files_written": list(write_result.files_written),
             "archived": write_result.archived,
+            "replacements": write_result.replacements,
+            "appends": write_result.appends,
+            "fsync_publications": write_result.fsync_publications,
+            "persistence_bytes_known": write_result.known,
             "checkpoint": merged,
             "markdown": rendered,
             "semantic_fingerprint": fingerprint,
@@ -262,6 +278,9 @@ def write_checkpoint(
         bytes_written=bytes_written,
         files_written=tuple(files),
         archived=archived,
+        replacements=len(files) - 1,
+        appends=1,
+        fsync_publications=2 + int(archived),
     )
 
 

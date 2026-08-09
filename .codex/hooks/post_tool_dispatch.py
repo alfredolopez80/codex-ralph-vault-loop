@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from shared.active_context import active_context_from_payload, project_runtime_root
+from shared.active_context import active_context_from_payload
 from shared.file_line_candidates import candidate_paths
 from file_line_guard import evaluate as file_line_evaluate
 from shared.paths import ralph_home, read_hook_input, write_json
@@ -26,6 +26,9 @@ from post_tool_checkpoint import run as checkpoint_run
 from post_tool_cost_ledger import record as cost_record
 from post_tool_extract_memory import raw_learning_candidate, run as memory_run
 from shared.post_tool_ledger import append_cost_event
+from shared.persistence_metrics import WriteAccumulator, WriteResult
+# Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
+# dispatcher never calls it; production byte attribution comes from writers.
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
 from shared.redaction import is_red, safe_preview
 from shared.runtime_observability import record_event
@@ -194,6 +197,28 @@ def _runtime_safe() -> bool:
     return not configured.is_symlink()
 
 
+def _result_from_mapping(value: object) -> WriteResult:
+    """Convert a checkpoint-style result without retaining payload content."""
+    if not isinstance(value, dict):
+        return WriteResult.unknown()
+    bytes_written = value.get("bytes_written")
+    files = value.get("files_written")
+    if bytes_written is None or value.get("persistence_bytes_known", bytes_written is not None) is False:
+        return WriteResult.unknown(changed=bool(value.get("changed")))
+    try:
+        file_names = tuple(str(item) for item in files) if isinstance(files, (list, tuple)) else ()
+        return WriteResult(
+            changed=bool(value.get("changed")),
+            bytes_written=max(0, int(bytes_written)),
+            files_written=file_names,
+            replacements=max(0, int(value.get("replacements", 0) or 0)),
+            appends=max(0, int(value.get("appends", 0) or 0)),
+            fsync_publications=max(0, int(value.get("fsync_publications", 0) or 0)),
+        )
+    except (TypeError, ValueError):
+        return WriteResult.unknown(changed=bool(value.get("changed")))
+
+
 def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     if not payload or not isinstance(payload, dict):
         return None
@@ -205,8 +230,7 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     stage = result_stage(payload)
     pending_stream = stage == "partial"
     persistence_allowed = _runtime_safe()
-    persistence_root = project_runtime_root(context)
-    before = directory_bytes(persistence_root)
+    accounting = WriteAccumulator()
     components: list[str] = []
     errors: list[str] = []
     response: dict[str, Any] | None = None
@@ -224,7 +248,8 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     if persistence_allowed and not pending_stream:
         considered.append("post_tool_cost_ledger")
 
-    with dedupe_claim(context, payload) as (duplicate, _key):
+    with dedupe_claim(context, payload) as claim:
+        duplicate = claim.duplicate
         if duplicate:
             components = ["dedupe"]
         elif pending_stream:
@@ -244,34 +269,42 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
                         response = shaping
                     elif shaping is None:
                         components.append("shaping_ripple")
+                        # A report-only shaping warning may have appended a
+                        # local record, but that compatibility writer does
+                        # not expose bounded metrics yet.
+                        accounting.add(None)
                 except Exception:
                     errors.append("shaping_ripple")
             if response is None and persistence_allowed and _should_memory(payload, tool):
                 components.append("post_tool_extract_memory")
                 try:
-                    memory_run(payload, context)
+                    accounting.add(memory_run(payload, context))
                 except Exception:
                     errors.append("post_tool_extract_memory")
             if response is None and persistence_allowed and _should_checkpoint(tool):
                 components.append("post_tool_checkpoint")
                 try:
-                    checkpoint_run(payload, context)
+                    accounting.add(_result_from_mapping(checkpoint_run(payload, context)))
                 except Exception:
                     errors.append("post_tool_checkpoint")
             if response is None and persistence_allowed and _should_advisor(payload, tool):
                 components.append("sol_advisor_observer")
                 try:
                     advisor_run(payload)
+                    # The advisor compatibility writer has no bounded result
+                    # boundary; leave the aggregate explicitly unknown.
+                    accounting.add(None)
                 except Exception:
                     errors.append("sol_advisor_observer")
             if persistence_allowed:
                 components.append("post_tool_cost_ledger")
                 try:
-                    append_cost_event(cost_record(payload))
+                    accounting.add(append_cost_event(cost_record(payload)))
                 except Exception:
                     errors.append("post_tool_cost_ledger")
 
-        after = directory_bytes(persistence_root)
+        accounting.add(claim.write_result)
+        persistence_metrics = accounting.as_dict()
         append_metric(
             context,
             {
@@ -287,7 +320,12 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "runtime_ms": round((time.perf_counter_ns() - started) / 1_000_000, 3),
                 "child_process_count": 0,
                 "output_bytes": _response_bytes(response),
-                "persisted_bytes_delta": max(0, after - before),
+                "persisted_bytes_delta": persistence_metrics["persistence_bytes"],
+                "persistence_bytes_known": persistence_metrics["persistence_bytes_known"],
+                "persistence_files_written": persistence_metrics["files_written"],
+                "persistence_replacements": persistence_metrics["replacements"],
+                "persistence_appends": persistence_metrics["appends"],
+                "fsync_publications": persistence_metrics["fsync_publications"],
             },
         )
         record_event(
@@ -305,7 +343,12 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
             skipped_reason=errors or (["duplicate"] if duplicate else []),
             success=tool.success,
             output_bytes=_response_bytes(response),
-            persistence_bytes=max(0, after - before),
+            persistence_bytes=persistence_metrics["persistence_bytes"],
+            persistence_bytes_known=persistence_metrics["persistence_bytes_known"],
+            persistence_files_written=persistence_metrics["files_written"],
+            persistence_replacements=persistence_metrics["replacements"],
+            persistence_appends=persistence_metrics["appends"],
+            fsync_publications=persistence_metrics["fsync_publications"],
             duplicate_suppressed=duplicate,
             block_reason_code=(response or {}).get("reason_code") if response else [],
             scenario=payload.get("scenario"),

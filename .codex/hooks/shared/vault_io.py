@@ -7,6 +7,7 @@ from pathlib import Path
 from .active_context import ActiveContext, ensure_project_runtime
 from .handoff_compaction import DEFAULT_HANDOFF_MAX_WORDS, compact_handoff_summary
 from .paths import append_jsonl, ensure_runtime, now_iso
+from .persistence_metrics import WriteResult
 from .redaction import is_red, redact_text
 
 
@@ -77,16 +78,16 @@ def learning_trust_status(context: ActiveContext | None) -> str:
     return "provisional"
 
 
-def save_learning(
+def save_learning_with_result(
     text: str,
     source: str,
     classification: str = "YELLOW",
     context: ActiveContext | None = None,
     *,
     candidate_only: bool = False,
-) -> Path | None:
+) -> tuple[Path | None, WriteResult]:
     if not text.strip() or classification == "RED" or is_red(text):
-        return None
+        return None, WriteResult()
     root = runtime_root(context)
     clean = redact_text(text.strip())
     directory = root / "ledgers" / "candidates" if candidate_only else root / "ledgers"
@@ -95,9 +96,9 @@ def save_learning(
     created = not path.exists()
     trust_status = "provisional" if candidate_only else learning_trust_status(context)
     confidence = "0.80" if trust_status == "trusted" else "0.40"
+    result = WriteResult()
     if not path.exists():
-        path.write_text(
-            "\n".join(
+        content = "\n".join(
                 [
                     "---",
                     f'created_at: "{now_iso()}"',
@@ -123,11 +124,11 @@ def save_learning(
                     clean,
                     "",
                 ]
-            ),
-            encoding="utf-8",
-        )
+            )
+        path.write_text(content, encoding="utf-8")
+        result = WriteResult(changed=True, bytes_written=len(content.encode("utf-8")), files_written=(path.name,), replacements=1)
     if created:
-        append_jsonl(
+        event_result = append_jsonl(
             root / "ledgers" / "learning-events.jsonl",
             {
                 "source": source,
@@ -144,12 +145,47 @@ def save_learning(
                 "session_id": context.session_id if context else "",
             },
         )
+        if event_result.bytes_written is None:
+            result = WriteResult.unknown(changed=True)
+        else:
+            result = WriteResult(
+                changed=True,
+                bytes_written=(result.bytes_written or 0) + event_result.bytes_written,
+                files_written=(path.name, "learning-events.jsonl"),
+                replacements=result.replacements,
+                appends=event_result.appends,
+                fsync_publications=result.fsync_publications + event_result.fsync_publications,
+            )
+    return path, result
+
+
+def save_learning(
+    text: str,
+    source: str,
+    classification: str = "YELLOW",
+    context: ActiveContext | None = None,
+    *,
+    candidate_only: bool = False,
+) -> Path | None:
+    """Compatibility wrapper retaining the historical Path return value."""
+    path, _result = save_learning_with_result(
+        text,
+        source,
+        classification=classification,
+        context=context,
+        candidate_only=candidate_only,
+    )
     return path
 
 
-def write_handoff(summary: str, status: str = "stop", next_step: str = "", context: ActiveContext | None = None) -> Path | None:
+def write_handoff_with_result(
+    summary: str,
+    status: str = "stop",
+    next_step: str = "",
+    context: ActiveContext | None = None,
+) -> tuple[Path | None, WriteResult]:
     if not summary.strip() or is_red(summary) or is_red(next_step):
-        return None
+        return None, WriteResult()
     root = runtime_root(context)
     try:
         clean = redact_text(compact_handoff_summary(summary.strip(), next_step=next_step, max_words=handoff_max_words()))
@@ -189,4 +225,16 @@ def write_handoff(summary: str, status: str = "stop", next_step: str = "", conte
     path.write_text(content, encoding="utf-8")
     archive = root / "handoffs" / f"{now_iso().replace(':', '').replace('+', 'Z')}.md"
     archive.write_text(content, encoding="utf-8")
+    encoded_size = len(content.encode("utf-8"))
+    return path, WriteResult(
+        changed=True,
+        bytes_written=encoded_size * 2,
+        files_written=(path.name, archive.name),
+        replacements=2,
+    )
+
+
+def write_handoff(summary: str, status: str = "stop", next_step: str = "", context: ActiveContext | None = None) -> Path | None:
+    """Compatibility wrapper retaining the historical Path return value."""
+    path, _result = write_handoff_with_result(summary, status=status, next_step=next_step, context=context)
     return path

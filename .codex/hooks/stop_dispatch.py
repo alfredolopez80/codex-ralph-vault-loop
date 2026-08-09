@@ -2,15 +2,29 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from typing import Any, Mapping
 
 from shared.continuation_budget import Reservation, reserve
-from shared.objective_gates import GateFinding, collect_hard_findings, phrase_report_codes, route_report_codes
-from shared.stop_persistence import mark_promotion_pending, persist_event, persist_handoff
+from shared.objective_gates import (
+    GateFinding,
+    _implementation_notes_candidate,
+    collect_hard_findings,
+    collect_implementation_notes_finding,
+    phrase_report_codes,
+    route_report_codes,
+)
+from shared.persistence_metrics import WriteAccumulator, WriteResult
+from shared.stop_persistence import (
+    mark_promotion_pending,
+    persist_event,
+    persist_handoff,
+    terminal_business_claim,
+    terminal_business_fingerprint,
+)
 from shared.stop_scope import StopScope, evidence_fingerprint, scope_from_payload
-from shared.paths import ralph_home
 from shared.post_tool_state import directory_bytes
 from shared.runtime_observability import record_event
 
@@ -56,12 +70,25 @@ def _block_response(reason: str) -> str:
     return json.dumps({"decision": "block", "reason": reason}, ensure_ascii=True)
 
 
-def _record_reports(scope: StopScope, codes: list[str], runtime_ms: float) -> None:
+def _record_reports(scope: StopScope, codes: list[str], runtime_ms: float) -> WriteResult:
     if codes:
-        persist_event(scope, event="report_only", reason_codes=codes, runtime_ms=runtime_ms)
+        return persist_event(scope, event="report_only", reason_codes=codes, runtime_ms=runtime_ms)
+    return WriteResult()
 
 
-def _record_stop(
+def _reservation_result(reservation: Reservation | None) -> WriteResult:
+    if reservation is None:
+        return WriteResult()
+    return WriteResult(
+        changed=reservation.changed,
+        bytes_written=reservation.bytes_written,
+        files_written=reservation.files_written,
+        replacements=reservation.replacements,
+        fsync_publications=reservation.fsync_publications,
+    )
+
+
+def _record_observation(
     scope: StopScope,
     payload: Mapping[str, object],
     *,
@@ -69,20 +96,21 @@ def _record_stop(
     reservation: Reservation | None,
     runtime_ms: float,
     output_bytes: int,
-    persistence_bytes: int = 0,
+    persistence: WriteAccumulator,
+    duplicate: bool,
     started_ns: int | None = None,
-) -> None:
+) -> WriteResult:
     codes = [finding.code for finding in findings]
     count = reservation.count if reservation is not None else 0
-    persist_event(
-        scope,
-        event="continuation" if reservation and reservation.allowed else "allow",
-        reason_codes=codes,
-        runtime_ms=runtime_ms,
-        continuation_count=count,
-        output_bytes=output_bytes,
-    )
-    record_event(
+    metrics = persistence.as_dict()
+    executed = ["hard_gates"]
+    if not duplicate:
+        executed.extend(["handoff", "continuation_budget"])
+    else:
+        # The continuation state was read/evaluated above, but no business
+        # writer ran for an identical terminal retry.
+        executed.append("continuation_budget")
+    return record_event(
         scope.context,
         payload,
         event="stop",
@@ -91,15 +119,21 @@ def _record_stop(
         process_count=1,
         child_process_count=0,
         components_considered=["hard_gates", "quality_evidence", "handoff", "continuation_budget"],
-        components_executed=["hard_gates", "handoff", "continuation_budget"],
+        components_executed=executed,
         components_skipped=["phrase_scan", "route_warning", "heavy_promotion"],
         skipped_reason=["report_only", "deferred"],
-        persistence_bytes=persistence_bytes,
+        persistence_bytes=metrics["persistence_bytes"],
+        persistence_bytes_known=metrics["persistence_bytes_known"],
+        persistence_files_written=metrics["files_written"],
+        persistence_replacements=metrics["replacements"],
+        persistence_appends=metrics["appends"],
+        fsync_publications=metrics["fsync_publications"],
         block_reason_code=codes,
         continuation_count=count,
         success=not findings,
         scenario=payload.get("scenario") or ("stop_objective_failure" if findings else "stop_allow"),
         maintenance_deferred=True,
+        duplicate_suppressed=duplicate,
     )
 
 
@@ -120,74 +154,84 @@ def main() -> int:
         sys.stderr.write("stop_dispatch context resolution failed; allowing Stop.\n")
         return 0
 
-    before_persistence = directory_bytes(ralph_home())
-    findings, gate_reports = collect_hard_findings(payload, scope)
+    findings, gate_reports = collect_hard_findings(payload, scope, persist_index=False)
     report_codes = list(gate_reports.reports)
     report_codes.extend(route_report_codes(payload))
     report_codes.extend(phrase_report_codes(payload))
     if gate_reports.corrupt_states:
         report_codes.append("corrupt_state_recovered")
-    runtime_ms = (time.perf_counter_ns() - started) / 1_000_000
-    persist_handoff(payload, scope.context, scope)
-    mark_promotion_pending(scope, payload)
-    _record_reports(scope, report_codes, runtime_ms)
-
-    if not findings:
-        _record_stop(
-            scope,
-            payload,
-            findings=[],
-            reservation=None,
-            runtime_ms=runtime_ms,
-            output_bytes=0,
-            persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
-            started_ns=started,
-        )
-        return 0
-
     fingerprint = _evidence_fingerprint(payload, findings)
     critical = any(finding.critical for finding in findings)
-    reservation = reserve(scope, evidence_fingerprint=fingerprint, critical=critical)
-    if reservation.storage_error:
+    reservation = reserve(scope, evidence_fingerprint=fingerprint, critical=critical) if findings else None
+    if reservation is not None and reservation.storage_error:
         sys.stderr.write("stop_dispatch continuation state unavailable; hard evidence reported locally and Stop allowed.\n")
-        _record_reports(scope, [*report_codes, "continuation_state_unavailable"], runtime_ms)
-        _record_stop(
-            scope,
-            payload,
-            findings=findings,
-            reservation=reservation,
-            runtime_ms=runtime_ms,
-            output_bytes=0,
-            persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
-            started_ns=started,
-        )
-        return 0
-    if not reservation.allowed:
-        _record_reports(scope, [*report_codes, "continuation_budget_exhausted"], runtime_ms)
-        _record_stop(
-            scope,
-            payload,
-            findings=findings,
-            reservation=reservation,
-            runtime_ms=runtime_ms,
-            output_bytes=0,
-            persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
-            started_ns=started,
-        )
-        return 0
+        report_codes.append("continuation_state_unavailable")
+    elif reservation is not None and not reservation.allowed:
+        report_codes.append("continuation_budget_exhausted")
 
-    output = _block_response(_short_reason(findings))
-    _record_stop(
-        scope,
+    runtime_ms = (time.perf_counter_ns() - started) / 1_000_000
+    output = _block_response(_short_reason(findings)) if reservation is not None and reservation.allowed else ""
+    business_fingerprint = terminal_business_fingerprint(
         payload,
-        findings=findings,
-        reservation=reservation,
-        runtime_ms=runtime_ms,
-        output_bytes=len(output.encode("utf-8")),
-        persistence_bytes=max(0, directory_bytes(ralph_home()) - before_persistence),
-        started_ns=started,
+        scope,
+        findings,
+        gate_reports=gate_reports.reports,
     )
-    sys.stdout.write(output)
+    accounting = WriteAccumulator()
+    accounting.add(_reservation_result(reservation))
+    with terminal_business_claim(scope, business_fingerprint) as business:
+        if not business.duplicate:
+            # Validation is still performed on every Stop above.  Only the
+            # index publication is deferred until this operation is known to
+            # be materially new, keeping duplicate retries read-only.
+            plan_hint = _implementation_notes_candidate(payload, scope)
+            if plan_hint:
+                try:
+                    # All hard gates were already evaluated above.  The
+                    # compatibility evaluator is called alone here so a
+                    # material Stop may publish its index without repeating
+                    # unrelated gate reads or safety decisions.
+                    collect_implementation_notes_finding(payload, scope, persist_index=True)
+                    # The legacy index writer does not expose bounded metrics;
+                    # keep accounting explicitly unknown when it is eligible.
+                    accounting.add(None)
+                except Exception:
+                    accounting.add(None)
+            accounting.add(persist_handoff(payload, scope.context, scope))
+            accounting.add(mark_promotion_pending(scope, payload))
+            accounting.add(_record_reports(scope, report_codes, runtime_ms))
+            accounting.add(
+                persist_event(
+                    scope,
+                    event="continuation" if reservation is not None and reservation.allowed else "allow",
+                    reason_codes=[finding.code for finding in findings],
+                    runtime_ms=runtime_ms,
+                    continuation_count=reservation.count if reservation is not None else 0,
+                    output_bytes=len(output.encode("utf-8")),
+                    persisted_bytes=accounting.bytes_written,
+                )
+            )
+            business.commit()
+
+    accounting.add(business.write_result)
+    stable_mode = os.environ.get("RALPH_RUNTIME_OBSERVABILITY_MODE", "stable").strip().lower() != "benchmark"
+    observe = (not stable_mode) or (not business.duplicate) or bool(findings) or bool(
+        reservation is not None and reservation.storage_error
+    )
+    if observe:
+        _record_observation(
+            scope,
+            payload,
+            findings=findings,
+            reservation=reservation,
+            runtime_ms=runtime_ms,
+            output_bytes=len(output.encode("utf-8")),
+            persistence=accounting,
+            duplicate=business.duplicate,
+            started_ns=started,
+        )
+    if output:
+        sys.stdout.write(output)
     return 0
 
 

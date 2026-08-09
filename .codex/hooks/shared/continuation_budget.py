@@ -11,6 +11,7 @@ from typing import Any
 
 from .active_context import project_runtime_root
 from .paths import ralph_home
+from .persistence_metrics import WriteResult
 from .stop_scope import SCHEMA_VERSION, StopScope, state_ttl_seconds
 
 try:
@@ -31,6 +32,11 @@ class Reservation:
     evidence_fingerprint: str
     state_corrupt: bool = False
     storage_error: bool = False
+    changed: bool = False
+    bytes_written: int | None = 0
+    files_written: tuple[str, ...] = ()
+    replacements: int = 0
+    fsync_publications: int = 0
 
 
 def _now() -> float:
@@ -106,8 +112,9 @@ def _locked(path: Path):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+def _atomic_json(path: Path, payload: dict[str, Any]) -> WriteResult:
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    encoded = text.encode("utf-8")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
@@ -116,6 +123,13 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        return WriteResult(
+            changed=True,
+            bytes_written=len(encoded),
+            files_written=(path.name,),
+            replacements=1,
+            fsync_publications=1,
+        )
     finally:
         with suppress(FileNotFoundError):
             temporary.unlink()
@@ -171,7 +185,7 @@ def _reserve_at(
             previous_fp = str(current.get("evidence_fingerprint", "")) if isinstance(current, dict) else ""
             allowed = count == 0 or (count == 1 and critical and evidence_fingerprint and evidence_fingerprint != previous_fp)
             next_count = count + 1 if allowed else count
-            entries[scope.scope_key] = {
+            desired_entry = {
                 "schema_version": SCHEMA_VERSION,
                 "reason_code": "objective_gate",
                 "evidence_fingerprint": evidence_fingerprint,
@@ -183,8 +197,34 @@ def _reserve_at(
                 "branch": scope.context.branch,
                 "sha": scope.context.sha,
             }
-            _atomic_json(path, {"schema_version": STATE_SCHEMA_VERSION, "updated_at": now, "entries": entries})
-            return Reservation(allowed, next_count, not allowed, evidence_fingerprint, corrupt)
+            current_semantic = {
+                key: value
+                for key, value in (current or {}).items()
+                if key not in {"timestamp"}
+            }
+            desired_semantic = {
+                key: value
+                for key, value in desired_entry.items()
+                if key not in {"timestamp"}
+            }
+            trimmed_changed = entries != dict(state.get("entries", {}))
+            state_changed = corrupt or trimmed_changed or current_semantic != desired_semantic
+            write_result = WriteResult()
+            if state_changed:
+                entries[scope.scope_key] = desired_entry
+                write_result = _atomic_json(path, {"schema_version": STATE_SCHEMA_VERSION, "updated_at": now, "entries": entries})
+            return Reservation(
+                allowed,
+                next_count,
+                not allowed,
+                evidence_fingerprint,
+                corrupt,
+                changed=state_changed,
+                bytes_written=write_result.bytes_written,
+                files_written=write_result.files_written,
+                replacements=write_result.replacements,
+                fsync_publications=write_result.fsync_publications,
+            )
     except (OSError, ValueError, TypeError):
         return None
 
@@ -217,26 +257,27 @@ def reserve(scope: StopScope, *, evidence_fingerprint: str, critical: bool) -> R
     return Reservation(False, 0, False, evidence_fingerprint, storage_error=True)
 
 
-def append_event(scope: StopScope, event: dict[str, Any], *, name: str = "stop-events.jsonl") -> bool:
+def append_event(scope: StopScope, event: dict[str, Any], *, name: str = "stop-events.jsonl") -> WriteResult:
     path = events_path(scope, name)
     lock = path.with_suffix(path.suffix + ".lock")
     if not _runtime_safe(ralph_home()) or not _runtime_safe(path.parent) or not _runtime_safe(path) or not _runtime_safe(lock):
-        return False
+        return WriteResult.unknown()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with suppress(OSError):
             path.parent.chmod(0o700)
         with _locked(lock):
             if path.is_symlink():
-                return False
+                return WriteResult.unknown()
             flags = os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
             fd = os.open(path, flags, 0o600)
+            encoded = (json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
             try:
-                os.write(fd, (json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8"))
+                os.write(fd, encoded)
             finally:
                 os.close(fd)
             with suppress(OSError):
                 path.chmod(0o600)
-        return True
+        return WriteResult(changed=True, bytes_written=len(encoded), files_written=(path.name,), appends=1)
     except (OSError, TypeError, ValueError):
-        return False
+        return WriteResult.unknown()

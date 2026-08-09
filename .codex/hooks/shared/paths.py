@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .persistence_metrics import WriteResult
+
 DEFAULT_RALPH_HOME = Path("~/.ralph-codex").expanduser()
 
 
@@ -55,7 +57,18 @@ def write_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=True))
 
 
-def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
+def append_jsonl(path: Path, payload: dict[str, Any]) -> WriteResult:
+    """Append one bounded JSON record and report its exact encoded size.
+
+    Existing callers intentionally ignore the return value.  Returning a
+    content-free result lets hot-path dispatchers account for writes without a
+    recursive runtime scan while preserving the historical fail-open shape.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(encoded.decode("utf-8"))
+        return WriteResult(changed=True, bytes_written=len(encoded), files_written=(path.name,), appends=1)
+    except (OSError, TypeError, ValueError):
+        return WriteResult.unknown()

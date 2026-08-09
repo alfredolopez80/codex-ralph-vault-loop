@@ -19,6 +19,7 @@ from .active_context import ActiveContext
 from .cost_policy import estimate_context_units, measured_output, source_scope
 from .runtime_profile import MODEL_SOURCES, profile_from_payload
 from .runtime_event_store import append_normalized, event_path
+from .persistence_metrics import WriteResult
 
 
 SCHEMA_VERSION = 1
@@ -77,6 +78,16 @@ def _bounded_int(value: object, *, maximum: int = 2**31 - 1) -> int:
         return max(0, min(int(value), maximum))
     except (TypeError, ValueError):
         return 0
+
+
+def _optional_bounded_int(value: object, *, maximum: int = 2**31 - 1) -> int | None:
+    """Bound a measured value while preserving an unavailable measurement."""
+    if value is None:
+        return None
+    try:
+        return max(0, min(int(value), maximum))
+    except (TypeError, ValueError):
+        return None
 
 
 def _bounded_bool(value: object) -> bool | None:
@@ -217,7 +228,14 @@ def normalize_event(event: Mapping[str, object]) -> dict[str, Any] | None:
         "child_process_count": _bounded_int(event.get("child_process_count"), maximum=128),
         "output_bytes": output_bytes,
         "estimated_context_units": _bounded_int(context_units, maximum=MAX_EVENT_BYTES),
-        "persistence_bytes": _bounded_int(event.get("persistence_bytes"), maximum=32 * 1024 * 1024),
+        "persistence_bytes": _optional_bounded_int(event.get("persistence_bytes"), maximum=32 * 1024 * 1024),
+        "persistence_bytes_known": bool(
+            event.get("persistence_bytes_known", event.get("persistence_bytes") is not None)
+        ),
+        "persistence_files_written": _bounded_int(event.get("persistence_files_written"), maximum=256),
+        "persistence_replacements": _bounded_int(event.get("persistence_replacements"), maximum=256),
+        "persistence_appends": _bounded_int(event.get("persistence_appends"), maximum=256),
+        "fsync_publications": _bounded_int(event.get("fsync_publications"), maximum=256),
         "block_reason_code": _codes(event.get("block_reason_code"), prefix="block", limit=8),
         "continuation_count": _bounded_int(event.get("continuation_count"), maximum=32),
         "advisor_count": _bounded_int(event.get("advisor_count"), maximum=32),
@@ -286,11 +304,11 @@ def build_event(
     return normalize_event(event_payload)
 
 
-def append_event(context: ActiveContext | None, event: Mapping[str, object]) -> bool:
+def append_event(context: ActiveContext | None, event: Mapping[str, object]) -> WriteResult:
     """Append one event atomically; all local runtime errors fail open."""
     normalized = normalize_event(event)
     if normalized is None:
-        return False
+        return WriteResult.unknown()
     return append_normalized(_project_id(context, normalized), normalized, max_event_bytes=MAX_EVENT_BYTES)
 
 
@@ -303,7 +321,7 @@ def record_event(
     started_ns: int | None = None,
     duration_ns: int | None = None,
     **metrics: object,
-) -> bool:
+) -> WriteResult:
     normalized = build_event(
         context=context,
         payload=payload,

@@ -147,7 +147,7 @@ def markdown_plan_link_is_in_scope(plan_value: str, roots: Any) -> bool:
     return True
 
 
-def evaluate(payload: dict[str, Any]) -> dict[str, str] | None:
+def evaluate(payload: dict[str, Any], *, persist_index: bool = True) -> dict[str, str] | None:
     if payload.get("stop_hook_active"):
         return None
 
@@ -191,17 +191,18 @@ def evaluate(payload: dict[str, Any]) -> dict[str, str] | None:
         if not notes_has_non_initial_entry(notes_path):
             return {"decision": "block", "reason": "Implementation notes exist but do not contain any decision entries beyond the initial template."}
         git_meta = current_git_metadata(roots.active_worktree_root)
-        upsert_plan_entry(
-            primary_root=roots.primary_repo_root,
-            plan_path=plan_path,
-            notes_path=notes_path,
-            status="implemented",
-            active_root=roots.active_worktree_root,
-            commit=git_meta["commit"],
-            branch=git_meta["branch"],
-            session_id=_payload_session_id(payload),
-            event="implemented",
-        )
+        if persist_index:
+            upsert_plan_entry(
+                primary_root=roots.primary_repo_root,
+                plan_path=plan_path,
+                notes_path=notes_path,
+                status="implemented",
+                active_root=roots.active_worktree_root,
+                commit=git_meta["commit"],
+                branch=git_meta["branch"],
+                session_id=_payload_session_id(payload),
+                event="implemented",
+            )
         return None
     except GitMetadataError:
         # Git metadata lookup is operational context, not proof that the
