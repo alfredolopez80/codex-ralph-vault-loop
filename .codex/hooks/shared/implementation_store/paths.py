@@ -31,6 +31,8 @@ class StorePaths:
     manifest_lock: Path
     unplanned_events: Path
     plans_root: Path
+    context_ledger: Path
+    context_ledger_lock: Path
 
     def for_plan(self, plan_id: str) -> "PlanPaths":
         components = validate_plan_id(plan_id)
@@ -112,6 +114,8 @@ def resolve_store_paths(
         manifest_lock=root / "manifest.lock",
         unplanned_events=root / "unplanned-events.jsonl",
         plans_root=root / "plans",
+        context_ledger=root / "context-emissions.jsonl",
+        context_ledger_lock=root / "context-emissions.lock",
     )
 
 

@@ -56,6 +56,16 @@ from shared.implementation_store.schema import (  # noqa: E402
     canonical_json,
     digest,
 )
+from progress_context import (  # noqa: E402
+    ContextError,
+    ContextRequest,
+    SourceResolution,
+    derive_context_epoch,
+    emit_context,
+    legacy_fallback,
+    resolve_context_source,
+    select_new_state_source,
+)
 
 
 CLI_VERSION = 1
@@ -661,9 +671,53 @@ def _cmd_status(args: argparse.Namespace) -> int:
 def _cmd_context(args: argparse.Namespace) -> int:
     if args.profile not in VALID_PROFILES:
         raise CliFailure("invalid_profile", "context profile is unsupported", 2)
-    store, _paths, ref = _store_for_plan(args.plan)
-    state, events = _state_and_events(store, ref)
-    capsule = _context_capsule(ref, state, events, args.profile)
+    store, paths, ref = _store_for_plan(args.plan)
+    workspace_instance_id = _safe_identifier(
+        args.workspace_instance_id,
+        "ws-" + hashlib.sha256(str(Path.cwd().resolve()).encode("utf-8")).hexdigest()[:16],
+    )
+    project_id = _safe_identifier(
+        args.project_id,
+        "repo-" + hashlib.sha256(str(paths.primary_root).encode("utf-8")).hexdigest()[:24],
+    )
+    session_id = _safe_identifier(
+        args.session_id or os.environ.get("CODEX_SESSION_ID") or os.environ.get("RALPH_SESSION_ID"),
+        "unknown",
+    )
+    context_epoch = args.context_epoch or derive_context_epoch(None, args.event, session_id)
+    try:
+        new_resolution = select_new_state_source(
+            store,
+            plan_id=ref.plan_id,
+            workspace_instance_id=workspace_instance_id,
+        )
+    except (FutureSchemaError, CorruptRecordError, IntegrityError) as exc:
+        new_resolution = SourceResolution(None, "state_invalid")
+        state_error = exc
+    else:
+        state_error = None
+
+    resolution = resolve_context_source(
+        new_resolution=new_resolution,
+        legacy_loader=lambda: legacy_fallback(plan_id=ref.plan_id, notes_path=ref.notes_path),
+        recovery_boundary=args.event in {"startup", "new-session", "resume", "compact", "explicit", "external"},
+    )
+    if resolution.source is None:
+        if state_error is not None:
+            raise CliFailure("integrity_error", "implementation progress integrity verification failed", 5) from state_error
+        raise CliFailure("plan_not_registered", "plan is not registered", 6)
+    request = ContextRequest(
+        profile=args.profile,
+        verified=not args.unverified and args.profile != "unknown",
+        project_id=project_id,
+        workspace_instance_id=workspace_instance_id,
+        session_id=session_id,
+        context_epoch=context_epoch,
+        event=args.event,
+        external_writer=args.external_writer,
+        same_session_write=args.same_session_write,
+    )
+    decision = emit_context(resolution.source, request, ledger=store)
     payload = {
         "schema_version": CLI_VERSION,
         "ok": True,
@@ -671,16 +725,31 @@ def _cmd_context(args: argparse.Namespace) -> int:
         "plan": ref.plan_rel,
         "plan_id": ref.plan_id,
         "profile": args.profile,
-        "budget_bytes": PROFILE_LIMITS[args.profile],
-        "capsule": capsule,
-        "source_digest": _digest_source(state, events),
-        "output_digest": _digest_bytes(capsule.encode("utf-8")),
+        "event": args.event,
+        "context_epoch": context_epoch,
+        "session_id": session_id,
+        "source": decision.source,
+        "selection_reason": resolution.reason,
+        "fallback_used": resolution.fallback_used,
+        "emitted": decision.emitted,
+        "capsule_kind": decision.capsule_kind,
+        "reason": decision.reason,
+        "ledger_hit": decision.ledger_hit,
+        "progress_generation": decision.progress_generation,
+        "budget_bytes": PROFILE_LIMITS[args.profile] if args.profile in PROFILE_LIMITS else 96,
+        "capsule": decision.capsule,
+        "word_count": len(decision.capsule.split()),
+        "source_digest": decision.source_digest,
+        "output_digest": decision.output_digest,
     }
     if args.json or args.output_format == "json":
         print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     else:
-        print(capsule)
-        print(f"SOURCE_DIGEST={payload['source_digest']} OUTPUT_DIGEST={payload['output_digest']}")
+        if decision.capsule:
+            print(decision.capsule)
+        else:
+            print(f"CONTEXT_NOOP reason={decision.reason} plan_id={ref.plan_id}")
+        print(f"SOURCE_DIGEST={payload['source_digest']} OUTPUT_DIGEST={payload['output_digest']} EMITTED={str(decision.emitted).lower()}")
     return 0
 
 
@@ -1031,6 +1100,19 @@ def build_parser() -> argparse.ArgumentParser:
     context = sub.add_parser("context", help="Render a profile-bounded recovery capsule.")
     context.add_argument("--plan", required=True)
     context.add_argument("--profile", required=True, choices=sorted(VALID_PROFILES))
+    context.add_argument(
+        "--event",
+        choices=("ordinary", "startup", "new-session", "resume", "compact", "clear", "reset", "explicit", "external"),
+        default="explicit",
+        help="Lifecycle boundary that controls recovery emission; explicit is the CLI default.",
+    )
+    context.add_argument("--session-id", default="")
+    context.add_argument("--workspace-instance-id", default="")
+    context.add_argument("--project-id", default="")
+    context.add_argument("--context-epoch", default="")
+    context.add_argument("--unverified", action="store_true", help="Use the conservative unverified-model budget.")
+    context.add_argument("--external-writer", action="store_true", help="The current snapshot was written by another session.")
+    context.add_argument("--same-session-write", action="store_true", help="The current session wrote the snapshot; suppress recovery.")
     _add_json_flags(context)
     context.set_defaults(handler=_cmd_context)
 
@@ -1077,6 +1159,8 @@ def _error_from_exception(exc: BaseException) -> CliFailure:
         return CliFailure("store_io", "implementation progress storage failed", 7)
     if isinstance(exc, SchemaError):
         return CliFailure("schema_error", "input does not satisfy the bounded progress schema", 2)
+    if isinstance(exc, ContextError):
+        return CliFailure("context_error", "progress recovery context is invalid or exceeds its bound", 8)
     if isinstance(exc, StoreError):
         message = "plan is not registered" if "not registered" in str(exc) else "implementation progress operation failed"
         return CliFailure("plan_not_registered" if message == "plan is not registered" else "store_error", message, 6 if message == "plan is not registered" else 7)

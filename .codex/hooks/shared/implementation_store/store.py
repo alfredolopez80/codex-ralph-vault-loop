@@ -35,6 +35,7 @@ from .paths import (
     _reject_symlink_components,
 )
 from .schema import (
+    CONTEXT_LEDGER_HARD_LIMIT_BYTES,
     EVENT_HARD_LIMIT_BYTES,
     MATERIAL_EVENT_KINDS,
     MANIFEST_HARD_LIMIT_BYTES,
@@ -47,9 +48,11 @@ from .schema import (
     new_state,
     state_semantic_hash,
     validate_event,
+    validate_context_ledger_record,
     validate_manifest,
     validate_operation_id,
     validate_state,
+    context_ledger_key,
 )
 from .schema import canonical_json
 
@@ -83,6 +86,19 @@ class StoreResult:
     @property
     def files_written(self) -> tuple[str, ...]:
         return self.metadata.files_written
+
+
+@dataclass(frozen=True)
+class ContextEmissionResult:
+    """Result of a content-free context ledger claim."""
+
+    emitted: bool
+    metadata: WriteMetadata = WriteMetadata()
+    reason: str = ""
+
+    @property
+    def changed(self) -> bool:
+        return self.emitted
 
 
 class ImplementationStore:
@@ -124,6 +140,59 @@ class ImplementationStore:
         self._validate_sequence_and_hashes(result.records, plan_id=None)
         self._validate_event_ownership(result.records)
         return result.records
+
+    def read_context_ledger(self) -> tuple[dict[str, Any], ...]:
+        """Read the emission ledger without creating or changing anything."""
+
+        result = read_jsonl(
+            self.paths.context_ledger,
+            validate_context_ledger_record,
+            label="context-emissions.jsonl",
+        )
+        if result.partial_final_line:
+            raise IntegrityError("context emission ledger has an incomplete final line")
+        seen: set[tuple[str, str, str, str, str, int, str]] = set()
+        for record in result.records:
+            key = context_ledger_key(record)
+            if key in seen:
+                raise IntegrityError("context emission ledger contains a duplicate key")
+            seen.add(key)
+        return result.records
+
+    def claim_context_emission(self, record: Mapping[str, Any]) -> ContextEmissionResult:
+        """Claim one ledger key, writing only when the caller will emit it.
+
+        The caller must construct and validate a non-empty capsule before this
+        method is called. A duplicate claim is read-only.
+        """
+
+        normalized = validate_context_ledger_record(record)
+        key = context_ledger_key(normalized)
+        # A hit must remain genuinely read-only.  Check an existing ledger
+        # before creating a lock/layout entry; the locked recheck below closes
+        # the writer race for misses.
+        if self.paths.context_ledger.exists():
+            for existing in self.read_context_ledger():
+                if context_ledger_key(existing) == key:
+                    return ContextEmissionResult(False, reason="ledger hit")
+        ensure_store_layout(self.paths)
+        with locked_file(self.paths.context_ledger_lock):
+            result = read_jsonl(
+                self.paths.context_ledger,
+                validate_context_ledger_record,
+                label="context-emissions.jsonl",
+            )
+            if result.partial_final_line:
+                raise IntegrityError("context emission ledger has an incomplete final line")
+            for existing in result.records:
+                if context_ledger_key(existing) == key:
+                    return ContextEmissionResult(False, reason="ledger hit")
+            metadata = append_jsonl(
+                self.paths.context_ledger,
+                normalized,
+                hard_limit=CONTEXT_LEDGER_HARD_LIMIT_BYTES,
+            )
+        return ContextEmissionResult(True, metadata=metadata, reason="emitted")
 
     # ----- plan lifecycle ----------------------------------------------------------
 

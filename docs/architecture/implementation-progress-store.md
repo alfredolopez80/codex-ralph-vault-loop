@@ -1,9 +1,9 @@
 # Canonical implementation-progress store
 
-This document describes the canonical store and its Phase 4 public CLI. The
-package is deliberately not connected to lifecycle hooks yet; legacy
-HTML/index readers and writers remain compatibility evidence until a later
-writer-switch phase.
+This document describes the canonical store, its public CLI, and the Phase 5
+recovery-only context engine. The package is deliberately not connected to
+lifecycle hooks yet; legacy HTML/index readers and writers remain compatibility
+evidence until a later writer-switch phase.
 
 ## Public CLI
 
@@ -15,7 +15,7 @@ python3 scripts/plans/progress.py record --plan <path> --kind decision --summary
 python3 scripts/plans/progress.py phase --plan <path> --phase validation --next <text>
 python3 scripts/plans/progress.py validate --plan <path> --gate unit --result pass
 python3 scripts/plans/progress.py status --plan <path> --format json
-python3 scripts/plans/progress.py context --plan <path> --profile luna
+python3 scripts/plans/progress.py context --plan <path> --profile luna --event explicit
 python3 scripts/plans/progress.py export --plan <path> --format markdown
 python3 scripts/plans/progress.py verify --plan <path>
 ```
@@ -24,6 +24,9 @@ Mutations accept `--operation-id` for retry-safe identity. `--json` and
 `--format json` return one bounded machine-readable result; text diagnostics
 use stable typed error codes and never echo raw input. `context` is read-only
 and profile-bounded (`luna=512`, `terra=192`, `sol/unknown=96` UTF-8 bytes).
+Its default `explicit` event renders one expanded request; lifecycle callers
+can pass `ordinary`, `startup`, `resume`, `compact`, `clear`, `reset`, or
+`external` with an explicit session and epoch.
 Exports are derived views: stdout is the default, `--output` is the explicit
 persistence boundary, and every render reports source and output digests.
 `migrate-legacy --dry-run` inventories only; `--apply` is the one-time import
@@ -39,6 +42,8 @@ repository and returns only this exact boundary:
 ├── manifest.json
 ├── manifest.lock
 ├── unplanned-events.jsonl
+├── context-emissions.jsonl
+├── context-emissions.lock
 └── plans/<plan-id>/
     ├── state.json
     ├── events.jsonl
@@ -157,3 +162,35 @@ Markdown and HTML views remain intentionally absent from the canonical layout.
 Phase 4 exposes them only through explicit `progress.py export` or
 `rebuild-legacy` requests; they are never written by ordinary prompt, tool, or
 Stop hooks.
+
+## Recovery-only context and context epochs
+
+`scripts/plans/progress_context.py` is a pure renderer and decision engine. It
+is not registered with a hook in this phase and it never calls a model,
+network, MCP, advisor, or worker. Source selection is strict:
+
+1. one valid current-schema `state.json` for the requested plan, or one
+   matching active plan from the manifest for automatic selection;
+2. one bounded legacy implementation-notes HTML parse at a recovery boundary;
+3. ambiguity or an invalid source produces no automatic selection.
+
+The legacy parser reads and parses at most one HTML source per fallback
+operation. It is a recovery bridge, not the normal progress path. Complete
+JSON/JSONL/HTML/index/view artifacts are never injected automatically.
+
+The shared `context-emissions.jsonl` ledger contains only the deduplication key:
+`project_id`, `workspace_instance_id`, `session_id`, `context_epoch`, `plan_id`,
+`progress_generation`, and `capsule_kind`, plus a deterministic emission ID.
+It never stores capsule text, summaries, paths, or raw hashes. A ledger hit is
+read-only; the store writes one line only after the engine has produced a
+non-empty capsule.
+
+Epochs are caller-visible lifecycle boundaries. `startup`/new session,
+`resume`/process boundary, `compact`, `clear`/reset, and explicit reset each
+receive a distinct deterministic epoch. Ordinary continuation does not create
+an epoch or emit context. A new session with one active plan emits a full Luna
+capsule once; an external generation change emits one delta; compaction emits
+one full capsule even when the generation is unchanged; an explicit progress
+request emits a bounded expanded capsule. Current user instructions and
+repository files remain authoritative in every verified Luna capsule. No
+absolute paths, historical narrative, or raw hashes are rendered.

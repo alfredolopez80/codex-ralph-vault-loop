@@ -16,6 +16,7 @@ from .paths import (
 )
 from .schema import (
     CURRENT_SCHEMA_VERSION,
+    CONTEXT_LEDGER_HARD_LIMIT_BYTES,
     STATE_HARD_LIMIT_BYTES,
     STATE_PATCH_KEYS,
     STATE_TARGET_BYTES,
@@ -29,19 +30,23 @@ from .schema import (
     state_semantic_hash,
     state_size_band,
     validate_event,
+    validate_context_ledger_record,
+    context_ledger_key,
     validate_manifest,
     validate_operation_id,
     validate_state,
 )
-from .store import IdempotencyError, ImplementationStore, IntegrityError, StoreError, StoreResult
+from .store import ContextEmissionResult, IdempotencyError, ImplementationStore, IntegrityError, StoreError, StoreResult
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
+    "CONTEXT_LEDGER_HARD_LIMIT_BYTES",
     "STATE_HARD_LIMIT_BYTES",
     "STATE_PATCH_KEYS",
     "STATE_TARGET_BYTES",
     "STATE_WARNING_BYTES",
     "CorruptRecordError",
+    "ContextEmissionResult",
     "FutureSchemaError",
     "IdempotencyError",
     "ImplementationStore",
@@ -65,6 +70,8 @@ __all__ = [
     "state_semantic_hash",
     "state_size_band",
     "validate_event",
+    "validate_context_ledger_record",
+    "context_ledger_key",
     "validate_manifest",
     "validate_operation_id",
     "validate_plan_id",

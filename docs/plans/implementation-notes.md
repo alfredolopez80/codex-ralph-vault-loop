@@ -88,17 +88,25 @@ The lifecycle is:
 
 ## Bounded Recovery Context
 
-The HTML notes remain durable human history and are never injected wholesale
-into prompt context. `scripts/plans/read-implementation-context.py` selects one
-matching approved active plan from explicit state, the current session, or the
-current workspace instance index, then renders only the objective and the latest
-material decisions, deviations, open questions, and validation findings.
+The public recovery surface is now the pure, unregistered engine behind
+`scripts/plans/progress.py context`. A valid current-schema `state.json` for one
+matching plan is primary. A single bounded HTML notes parse is permitted only
+as a recovery fallback; ambiguity produces no automatic selection. The engine
+renders only stable labels for status, phase, latest decision, next action,
+validation, and bounded blockers/questions. It never injects a complete
+JSON/JSONL/HTML/index/view artifact, absolute path, historical narrative, or
+raw hash, and it states that current user instructions and repository files
+remain authoritative.
 
-The rendered recovery context is capped at 2,000 characters, 250 words, and an
-estimated 500 context units. Wakeup and continuation inject it only once per
-session and content hash. Their trace records selected entry hashes and the
-budget figures, never the rendered note content. This preserves implementation
-history as a recovery aid without turning it into repeated full-session context.
+The shared content-free ledger is keyed by project, workspace instance,
+session, context epoch, plan, generation, and capsule kind. A hit is read-only;
+one ledger line is appended only after a non-empty capsule is actually emitted.
+Ordinary continuation is zero, a new session gets one full capsule, resume and
+external generation changes can get one delta, compact gets one full capsule
+for its new epoch, and an explicit `context` request gets one expanded capsule.
+The former `read-implementation-context.py` output remains compatibility
+evidence and is not the normal path. Hook registration is intentionally
+deferred to the next phase.
 
 ## What To Record
 

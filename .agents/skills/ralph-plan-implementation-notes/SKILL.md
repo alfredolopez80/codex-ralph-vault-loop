@@ -19,6 +19,15 @@ The CLI makes no model, network, MCP, advisor, or worker calls. JSON output is
 available with `--json` or `--format json`, errors use stable codes, and views
 are persisted only at an explicit output/rebuild boundary.
 
+`progress.py context` is the public recovery surface. Its pure renderer uses a
+valid new `state.json` first, a single bounded legacy HTML parse only at a
+recovery boundary, and no automatic selection when active plans are ambiguous.
+Use `--event ordinary|startup|resume|compact|clear|reset|external|explicit`,
+an explicit `--session-id`, and `--context-epoch` when exercising lifecycle
+semantics. The content-free emission ledger is written only for a real
+non-empty capsule; hits are read-only. The renderer is deliberately not
+registered in hooks in the current phase.
+
 Use this skill when a user approves a plan and requests implementation, or
 when a finalization gate references implementation notes. The canonical copy
 belongs under the primary repository root `.ralph/plans/`; a secondary
@@ -51,6 +60,7 @@ store and must not be invoked by new hooks.
 - Append and index: `scripts/plans/append-implementation-note.py` and
   `scripts/plans/update-implementation-index.py`.
 - Finalization gate: `.codex/hooks/implementation_notes_guard.py`.
+- Recovery engine: `scripts/plans/progress_context.py`.
 
 ## Required validation
 

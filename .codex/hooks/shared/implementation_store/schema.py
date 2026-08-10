@@ -18,12 +18,14 @@ STATE_HARD_LIMIT_BYTES = 8 * 1024
 MANIFEST_HARD_LIMIT_BYTES = 8 * 1024
 EVENT_HARD_LIMIT_BYTES = 4 * 1024
 UNPLANNED_EVENT_HARD_LIMIT_BYTES = 4 * 1024
+CONTEXT_LEDGER_HARD_LIMIT_BYTES = 2 * 1024
 
 VALID_STATUSES = frozenset({"planned", "active", "completed", "blocked", "superseded", "reopened"})
 VALID_CLASSIFICATIONS = frozenset({"GREEN", "YELLOW"})
 VALID_VALIDATION = frozenset({"not_run", "pending", "partial", "pass", "fail", "blocked"})
 VALID_MODEL_FAMILIES = frozenset({"luna", "terra", "sol", "unknown"})
 VALID_MODEL_SOURCES = frozenset({"payload", "environment", "repository-default", "unknown"})
+VALID_CAPSULE_KINDS = frozenset({"full", "delta", "expanded"})
 MATERIAL_EVENT_KINDS = frozenset(
     {
         "started",
@@ -102,6 +104,66 @@ def state_size_band(size: int) -> str:
 
 def validate_operation_id(value: str) -> str:
     return _identifier(value, "operation_id")
+
+
+def validate_context_ledger_record(record: Mapping[str, Any], *, hard_limit: int = CONTEXT_LEDGER_HARD_LIMIT_BYTES) -> dict[str, Any]:
+    """Validate one content-free exactly-once context emission record."""
+
+    obj = _object(record, "context ledger record")
+    _schema_version(obj, "context ledger record")
+    _unknown_keys(
+        obj,
+        {
+            "schema_version",
+            "project_id",
+            "workspace_instance_id",
+            "session_id",
+            "context_epoch",
+            "plan_id",
+            "progress_generation",
+            "capsule_kind",
+            "emission_id",
+        },
+        "context ledger record",
+    )
+    project_id = _identifier(obj.get("project_id", ""), "context ledger project_id")
+    workspace_instance_id = _identifier(obj.get("workspace_instance_id", ""), "context ledger workspace_instance_id")
+    session_id = _identifier(obj.get("session_id", ""), "context ledger session_id")
+    context_epoch = _identifier(obj.get("context_epoch", ""), "context ledger context_epoch")
+    plan_id = _plan_id(obj.get("plan_id"))
+    progress_generation = _integer(obj.get("progress_generation", 0), "context ledger progress_generation", minimum=0)
+    capsule_kind = _enum(obj.get("capsule_kind", ""), VALID_CAPSULE_KINDS, "context ledger capsule_kind")
+    emission_id = _identifier(obj.get("emission_id", ""), "context ledger emission_id")
+    normalized = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "project_id": project_id,
+        "workspace_instance_id": workspace_instance_id,
+        "session_id": session_id,
+        "context_epoch": context_epoch,
+        "plan_id": plan_id,
+        "progress_generation": progress_generation,
+        "capsule_kind": capsule_kind,
+        "emission_id": emission_id,
+    }
+    _reject_red(normalized, "context ledger record")
+    if encoded_size(normalized) + 1 > hard_limit:
+        raise SchemaError(f"context ledger record exceeds hard limit of {hard_limit} UTF-8 bytes")
+    return normalized
+
+
+def context_ledger_key(record: Mapping[str, Any]) -> tuple[str, str, str, str, str, int, str]:
+    """Return the stable deduplication key; no capsule content is included."""
+
+    normalized = validate_context_ledger_record(record)
+    return (
+        normalized["project_id"],
+        normalized["workspace_instance_id"],
+        normalized["session_id"],
+        normalized["context_epoch"],
+        normalized["plan_id"],
+        normalized["progress_generation"],
+        normalized["capsule_kind"],
+    )
 
 
 def digest(value: Any) -> str:

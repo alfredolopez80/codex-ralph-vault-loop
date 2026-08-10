@@ -259,6 +259,32 @@ def test_same_operation_id_is_idempotent_and_different_payload_blocks(tmp_path: 
     assert len(store.read_events("idem")) == 2
 
 
+def test_context_ledger_claim_is_content_free_and_read_only_on_hit(tmp_path: Path) -> None:
+    _primary, store = make_store(tmp_path)
+    store.register_plan("ledger", now="2026-08-10T00:00:00+00:00")
+    record = {
+        "schema_version": 1,
+        "project_id": "project-test",
+        "workspace_instance_id": "ws-test",
+        "session_id": "session-test",
+        "context_epoch": "startup-1",
+        "plan_id": "ledger",
+        "progress_generation": 1,
+        "capsule_kind": "full",
+        "emission_id": "ctx-deterministic-1",
+    }
+    first = store.claim_context_emission(record)
+    assert first.emitted
+    ledger = store.paths.context_ledger
+    before = (ledger.read_bytes(), ledger.stat().st_mtime_ns)
+    retry = store.claim_context_emission(record)
+    assert not retry.emitted and retry.reason == "ledger hit"
+    assert (ledger.read_bytes(), ledger.stat().st_mtime_ns) == before
+    persisted = store.read_context_ledger()
+    assert len(persisted) == 1
+    assert set(persisted[0]) == set(record)
+
+
 def test_hash_chain_and_unplanned_commit_are_bounded(tmp_path: Path) -> None:
     _primary, store = make_store(tmp_path)
     store.register_plan("chain", now="2026-08-10T00:00:00+00:00")
