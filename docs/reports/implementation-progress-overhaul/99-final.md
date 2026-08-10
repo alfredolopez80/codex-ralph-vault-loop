@@ -12,12 +12,12 @@ Verdict: **RELEASE_CANDIDATE_PASS (local hardening, pending remote CI)**
 
 ## Base and head SHAs
 
-| Item                              | SHA                                                   |
-| --------------------------------- | ----------------------------------------------------- |
-| `origin/main`                     | `92255e7d28a3bc84a005951957c953301ba40d7d`            |
-| merge base                        | `92255e7d28a3bc84a005951957c953301ba40d7d`            |
-| implementation hardening head     | `79aebb1` (`fix: close PR review integrity findings`) |
-| branch relation at hardening head | 17 commits ahead of `origin/main`                     |
+| Item                              | SHA                                                         |
+| --------------------------------- | ----------------------------------------------------------- |
+| `origin/main`                     | `92255e7d28a3bc84a005951957c953301ba40d7d`                  |
+| merge base                        | `92255e7d28a3bc84a005951957c953301ba40d7d`                  |
+| implementation hardening head     | `9e19744` (`fix: give task boundaries unique cache epochs`) |
+| branch relation at hardening head | 18 commits ahead of `origin/main`                           |
 
 The report and PR draft are the final documentation artifacts for that
 implementation head. The documentation commit that records them is listed in
@@ -58,8 +58,9 @@ writes, recursive scans, and cache-hit writes.
 
 The validated Codex review threads were closed as follows:
 
-- repeated task boundaries discard the prior content-free claim before route
-  reinitialization;
+- repeated task boundaries receive a unique content-free cache epoch before
+  route reinitialization, so concurrent or identical boundaries cannot share a
+  claim;
 - active and reopened plans are discoverable through validation and Stop, while
   completion requires a non-empty canonical all-pass validation map;
 - registration preflights manifest capacity under plan+manifest locks and
@@ -190,7 +191,7 @@ tests/unit/test_task_signature.py
 
 | Gate                                                                      | Result                                                                                      |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests -q`             | **PASS — 1139 passed, 5 subtests, 182.48 s**                                                |
+| `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests -q`             | **PASS — 1140 passed, 5 subtests, 172.10 s**                                                |
 | `bash .codex/tests/run-hook-tests.sh`                                     | **PASS — ALL_HOOK_TESTS_PASS**                                                              |
 | `bash scripts/validate-ralph-memory-flow.sh`                              | **PASS — 30 memory unit, 2 integration, 6 write-safety; ruff/mypy unavailable and skipped** |
 | `python3 scripts/gates/run-gates.py --minimal`                            | **PASS — failed 0, passed 1, skipped 2**                                                    |
@@ -198,7 +199,7 @@ tests/unit/test_task_signature.py
 | `bash scripts/setup/doctor-global.sh`                                     | **PASS — warnings 0**                                                                       |
 | `git diff --check`                                                        | **PASS**                                                                                    |
 | Python compilation of changed runtime modules                             | **PASS**                                                                                    |
-| Focused hardening suite                                                   | **PASS — 133 passed**                                                                       |
+| Focused hardening suite                                                   | **PASS — 134 passed**                                                                       |
 | Focused migration/store/context/routing/no-op/concurrency/installed suite | **PASS — 155 passed**                                                                       |
 
 Global smoke/doctor intentionally observed the existing installed source

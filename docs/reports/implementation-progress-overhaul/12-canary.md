@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Source HEAD: `79aebb1` (`fix: close PR review integrity findings`)
+Source HEAD: `9e19744` (`fix: give task boundaries unique cache epochs`)
 
 Branch: `codex/implementation-progress-overhaul`
 Executor fixture: `gpt-5.6-luna/max`
@@ -196,7 +196,7 @@ already open; this validation does not create another PR.
 ## Release-candidate hardening rerun
 
 The independent hardening pass was validated from local `HEAD`
-`79aebb1` against base
+`9e19744` against base
 `92255e7d28a3bc84a005951957c953301ba40d7d`, before the final release commit.
 It reran the 20 deterministic scenarios with the same `gpt-5.6-luna/max`
 fixture and added bounded auxiliary-file, partial-tail, future-schema, and

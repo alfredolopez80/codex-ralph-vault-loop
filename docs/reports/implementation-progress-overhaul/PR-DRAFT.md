@@ -17,8 +17,8 @@ truthful persistence metrics.
 
 ## Review closure
 
-- Repeated task-boundary signatures discard the prior content-free claim before
-  routing reinitialization.
+- Repeated task-boundary signatures receive a unique content-free cache epoch
+  before routing reinitialization, including identical concurrent boundaries.
 - `active` and `reopened` plans remain discoverable through validation and Stop
   completion; completion requires a non-empty canonical all-pass validation map.
 - Registration preflights the bounded manifest while holding the plan and
@@ -37,17 +37,17 @@ truthful persistence metrics.
 | Item                            | Value                                                                |
 | ------------------------------- | -------------------------------------------------------------------- |
 | Base / merge base               | `92255e7d28a3bc84a005951957c953301ba40d7d`                           |
-| Implementation hardening commit | `79aebb1`                                                            |
+| Implementation hardening commit | `9e19744`                                                            |
 | Branch                          | `codex/implementation-progress-overhaul`                             |
 | Worktree                        | `/Users/alfredolopez/Documents/GitHub/codex-ralph-progress-overhaul` |
 | Executor                        | `gpt-5.6-luna/max` only                                              |
 
 ## Validation
 
-- Full suite: `1139 passed, 5 subtests passed`.
+- Full suite: `1140 passed, 5 subtests passed`.
 - Focused migration/store/context/model-provenance/routing/no-op/concurrency/
   installed-dispatcher suites: `155 passed`.
-- Review-hardening focused suite: `133 passed`.
+- Review-hardening focused suite: `134 passed`.
 - Hook shell suite: `ALL_HOOK_TESTS_PASS`.
 - Ralph memory-flow validation: `PASS` (30 memory unit, 2 integration, 6
   write-safety; ruff/mypy unavailable and explicitly skipped).
