@@ -126,7 +126,24 @@ def test_small_baseline_is_complete_private_and_provider_local(monkeypatch) -> N
     assert "fsync-relevant publications" in rendered
     assert "mtime changes" in rendered
     assert "Scan ms" in rendered
-    assert "+104 bytes over target" in rendered
+    # The baseline is intentionally a cross-platform observation: scheduler,
+    # Python, and filesystem behavior may move a measured capsule above or
+    # below the target.  Keep the report-shape assertion stable and verify the
+    # target-delta formatter separately with fixed synthetic measurements.
+    assert "| Luna recovery capsule |" in rendered
+    synthetic_rows = module._target_rows(
+        {
+            "cases": [
+                {"name": "first_continuation", "progress_output_bytes": {"p50": 616}},
+                {"name": "changed_notes_hash", "progress_output_bytes": {"p50": 256}},
+                {"name": "ordinary_prompt", "progress_output_bytes": {"p50": 0}},
+                {"name": "repeated_unchanged_continuation", "progress_output_bytes": {"p50": 0}},
+            ],
+            "provider_accounting": {"actual_external_model_calls": 0, "actual_advisor_calls": 0, "actual_worker_calls": 0},
+        }
+    )
+    recovery_row = next(row for row in synthetic_rows if row[0] == "Luna recovery capsule")
+    assert recovery_row[3] == "+104 bytes over target"
     assert module.PROMPT_SENTINEL not in rendered
     assert module.NOTE_SENTINEL not in rendered
     assert str(Path.home()) not in rendered
