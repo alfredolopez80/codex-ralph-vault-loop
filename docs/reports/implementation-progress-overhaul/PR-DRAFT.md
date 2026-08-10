@@ -2,18 +2,20 @@
 
 ## Title
 
-`fix: harden implementation progress release candidate`
+`fix: make global Codex hook rollout parse-safe`
 
 ## Summary
 
-This draft closes the validated Codex review findings against the
-implementation-progress overhaul. The canonical JSON/JSONL store remains the
-single bounded source of truth; legacy HTML/index/consolidated views are
-explicit migration/rollback outputs. The hardening covers repeated task
-boundaries, reopened-plan lifecycle discovery, manifest ordering/capacity,
-canonical validation evidence, rollback restoration/source collisions, RED
-tool-label accounting, terminal-claim recency, direct validation runners, and
-truthful persistence metrics.
+This follow-up makes the merged implementation-progress overhaul safe to
+install globally with the current Codex runtime. The canonical JSON/JSONL store
+remains the single bounded source of truth; legacy HTML/index/consolidated
+views are explicit migration/rollback outputs. In addition to the merged
+hardening, this PR fixes the global hook budget serializer so Codex receives
+integer `u64`-compatible values and rejects invalid numeric configuration
+before publication.
+
+The installer and smoke path now enforce the same numeric contract, with
+regression coverage for both generated configuration and invalid float values.
 
 ## Review closure
 
@@ -34,28 +36,33 @@ truthful persistence metrics.
 
 ## Exact candidate
 
-| Item                            | Value                                                                |
-| ------------------------------- | -------------------------------------------------------------------- |
-| Base / merge base               | `92255e7d28a3bc84a005951957c953301ba40d7d`                           |
-| Implementation hardening commit | `9e19744`                                                            |
-| Branch                          | `codex/implementation-progress-overhaul`                             |
-| Worktree                        | `/Users/alfredolopez/Documents/GitHub/codex-ralph-progress-overhaul` |
-| Executor                        | `gpt-5.6-luna/max` only                                              |
+| Item              | Value                                                                |
+| ----------------- | -------------------------------------------------------------------- |
+| Base / merge base | `bc60308ac04164ace84cfcba35df3efd1bb79446`                           |
+| Fix commit        | `5346da911282517b2618403d911bf49d69cdb092`                           |
+| Branch            | `codex/global-rollout-schema-fix`                                    |
+| Worktree          | `/Users/alfredolopez/Documents/GitHub/codex-ralph-progress-overhaul` |
+| Executor          | `gpt-5.6-luna/max` only                                              |
 
 ## Validation
 
-- Full suite: `1140 passed, 5 subtests passed`.
-- Focused migration/store/context/model-provenance/routing/no-op/concurrency/
-  installed-dispatcher suites: `155 passed`.
-- Review-hardening focused suite: `134 passed`.
+- Full suite: `1143 passed, 5 subtests passed`.
+- Hook/config focused suite: `88 passed`; budget/config regression suite:
+  `16 passed`.
 - Hook shell suite: `ALL_HOOK_TESTS_PASS`.
 - Ralph memory-flow validation: `PASS` (30 memory unit, 2 integration, 6
   write-safety; ruff/mypy unavailable and explicitly skipped).
 - Minimal gates: `failed=0, passed=1, skipped=2`.
-- Global smoke/doctor: `PASS`, warnings `0`; both observed the pre-existing
-  stable source marker in `codex-ralph-vault-loop`, and no global files were
-  changed.
+- Isolated global install in a temporary `HOME`: `GLOBAL_INSTALL_DONE`.
+- Isolated smoke: `GLOBAL_HOOKS_SMOKE_PASS`.
+- Isolated doctor: `GLOBAL_DOCTOR_PASS warnings=1`; the only warning was the
+  intentionally absent temporary global `config.toml`.
+- Isolated real Codex session passed hook-config parsing and reached the API;
+  it stopped with `401 Unauthorized` because the temporary HOME had no
+  credentials. No real global config or MCP settings were loaded.
 - `git diff --check` and Python compilation: `PASS`.
+- Hook cost benchmark: `hook_cost_score=7079.227`,
+  `hook_total_p50_ms=4219.227`, `hook_output_context_units=1430`.
 - Local Luna/Max canary: `20/20 PASS`; feature/recovery p95 `0.066/0.068 ms`;
   model/worker/advisor/MCP/network calls `0/0/0/0/0`.
 - Store transaction benchmark (20 samples): material p50/p95
@@ -89,10 +96,13 @@ found; optional `--usage` remains operator-supplied and `verified=false`.
 - Whole-dispatcher comparison is schema-incompatible and scheduler-sensitive.
 - Hash chains provide ordering/integrity evidence, not signatures against a
   local writer who can rewrite every byte.
-- Global installed source remains the separate vault-loop checkout; this branch
-  was not globally installed or switched on.
+- The real global installation remains rolled back until this branch is merged
+  into `origin/main`; the pre-existing global `hooks.json` still contains the
+  old floating-point budget values and is intentionally not modified by this
+  PR branch.
 - Real-user-data migration, recovery-mode migration, hook cutover, merge, and
   deployment require a separate explicit approval.
 
-This is a prepared draft for review. Push is authorized and will be performed
-after the local docs update; no PR approval or merge is implied.
+This is the prepared body for the follow-up PR. Push and PR creation are
+authorized for this branch; approval, merge, and the guarded global rollout are
+separate subsequent boundaries.
