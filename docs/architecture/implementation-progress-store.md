@@ -31,8 +31,12 @@ and profile-bounded (`luna=512`, `terra=192`, `sol/unknown=96` UTF-8 bytes).
 Its default `explicit` event renders one expanded request; lifecycle callers
 can pass `ordinary`, `startup`, `resume`, `compact`, `clear`, `reset`, or
 `external` with an explicit session and epoch.
-Exports are derived views: stdout is the default, `--output` is the explicit
-persistence boundary, and every render reports source and output digests.
+Exports are derived views: stdout is the default, and `--output` is an explicit
+persistence boundary restricted to
+`.local-notes/ralph/implementation/exports/` under the canonical checkout.
+The CLI never treats an arbitrary in-repository path as a derived-view target;
+this prevents an export from replacing `.git` metadata, source files, or the
+canonical state/journal. Every render reports source and output digests.
 `migrate-legacy --dry-run` inventories every approved plan, nested/worktree
 source, index row, derived view, conflict, alias, checksum, schema, reduction,
 and warning without creating the new store. `--apply` is the separately
@@ -50,7 +54,10 @@ default apply; `--recovery-mode` is an explicit exceptional boundary.
 dry-run/stdout reporting with source/output digests. `--apply` replaces only
 validated legacy HTML/index/consolidated targets under the canonical manifest
 lock, preserves the current legacy pair until validation succeeds, and never
-deletes or rewrites the new journal/state.
+deletes or rewrites the new journal/state. With `--plan`, only that plan's
+per-plan HTML view is selected; global indexes and consolidated views are
+always rendered from every canonical plan so a selective rollback cannot drop
+unselected history.
 
 ## Write boundary and layout
 
@@ -181,7 +188,10 @@ updates do not publish it.
 Markdown and HTML views remain intentionally absent from the canonical layout.
 Phase 4 exposes them only through explicit `progress.py export` or
 `rebuild-legacy` requests; they are never written by ordinary prompt, tool, or
-Stop hooks.
+Stop hooks. The Stop terminal-business dedupe marker is reader-first:
+malformed or future-schema marker bytes make the business claim unavailable and
+remain in place for explicit recovery rather than being silently replaced by
+an empty ledger.
 
 ## Recovery-only context and context epochs
 

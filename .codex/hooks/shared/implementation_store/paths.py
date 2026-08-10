@@ -273,7 +273,8 @@ def ensure_directory_chain(path: Path, *, mode: int = 0o700) -> None:
     _reject_symlink_components(current)
     if current.exists():
         directory_stat(current)
-        os.chmod(current, mode)
+        if current == path:
+            os.chmod(current, mode)
     for directory in reversed(missing):
         directory.mkdir(mode=mode)
         _reject_symlink_components(directory)

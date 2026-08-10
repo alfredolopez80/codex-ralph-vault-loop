@@ -148,10 +148,12 @@ def _load_business(path: Path) -> dict[str, dict[str, str]]:
             if isinstance(fingerprint, str) and len(fingerprint) == 64:
                 result[key[:128]] = {"fingerprint": fingerprint}
         return result
-    except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         # A claim is a read boundary.  Malformed evidence stays in place for
-        # explicit recovery; Stop must not silently quarantine or rename it.
-        return {}
+        # explicit recovery; raising here makes the lock-held caller mark the
+        # marker unavailable instead of treating it as an empty ledger and
+        # atomically overwriting the forensic bytes on the next Stop.
+        raise ValueError("terminal business marker is malformed") from exc
 
 
 def _write_business(path: Path, entries: Mapping[str, Mapping[str, str]]) -> WriteResult:

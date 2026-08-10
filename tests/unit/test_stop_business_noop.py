@@ -147,6 +147,20 @@ def test_commit_or_generation_change_is_distinct_and_enqueues_once_per_generatio
     assert len(json.loads(queue.read_text(encoding="utf-8"))["jobs"]) == 2
 
 
+def test_malformed_terminal_marker_is_preserved_for_explicit_recovery(tmp_path: Path) -> None:
+    event = stop_payload(tmp_path)
+    first = run_stop(tmp_path, event)
+    assert first.returncode == 0 and first.stdout == ""
+    marker = next((tmp_path / "ralph").rglob("terminal-business.json"))
+    marker.write_bytes(b"not-json")
+    before = marker.read_bytes()
+
+    second = run_stop(tmp_path, event)
+
+    assert second.returncode == 0 and second.stdout == ""
+    assert marker.read_bytes() == before
+
+
 def test_changed_validation_result_is_a_distinct_business_operation(tmp_path: Path) -> None:
     first_payload = stop_payload(tmp_path, validation_status="pass")
     assert run_stop(tmp_path, first_payload).returncode == 0

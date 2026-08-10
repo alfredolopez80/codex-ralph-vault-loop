@@ -54,9 +54,18 @@ def test_snapshot_delta_distinguishes_append_replacement_and_mtime(tmp_path: Pat
     assert delta.bytes_delta == len("two\n".encode())
 
 
-def test_small_baseline_is_complete_private_and_provider_local() -> None:
+def test_small_baseline_is_complete_private_and_provider_local(monkeypatch) -> None:
     module = load_baseline()
     current_head = module._run_git(module.ROOT, ["rev-parse", "HEAD"])
+
+    real_run_git = module._run_git
+
+    def run_git_without_origin_main(cwd, args, **kwargs):
+        if args == ["rev-parse", "origin/main"]:
+            raise AssertionError("base override must not require origin/main")
+        return real_run_git(cwd, args, **kwargs)
+
+    monkeypatch.setattr(module, "_run_git", run_git_without_origin_main)
     report = module.run_baseline(sample_count=1, repeats=1, base_sha_override=current_head)
     expected = {
         "ordinary_prompt",
@@ -80,6 +89,7 @@ def test_small_baseline_is_complete_private_and_provider_local() -> None:
     cases = {case["name"] for case in report["cases"]}
     assert cases == expected
     assert report["base_sha"] == current_head
+    assert report["origin_main"] == "unknown (base_sha_override)"
     provider = report["provider_accounting"]
     assert provider["actual_external_model_calls"] == 0
     assert provider["actual_advisor_calls"] == 0

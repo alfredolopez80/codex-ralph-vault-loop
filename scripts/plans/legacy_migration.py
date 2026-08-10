@@ -1859,7 +1859,8 @@ def _render_consolidated_markdown(plans: list[tuple[str, Mapping[str, Any], tupl
 
 
 def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, plan_id: str | None = None) -> dict[str, Any]:
-    plans = _all_new_plans(store)
+    all_plans = _all_new_plans(store)
+    plans = all_plans
     if plan_id:
         selected_id = plan_id
         if selected_id.startswith(".ralph/plans/"):
@@ -1873,13 +1874,17 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
     for plan_id, state, events in plans:
         views.append((store.paths.primary_root / ".ralph" / "plans" / f"{plan_id}{LEGACY_NOTE_SUFFIX}", _render_legacy_html(plan_id, state, events)))
     unplanned = store.read_unplanned_events()
-    index = _legacy_index_all(plans, store.paths.primary_root, unplanned)
+    # A selective rollback limits the per-plan note that is staged, but global
+    # indexes and consolidated views describe the complete canonical store.
+    # Rendering those artifacts from ``plans`` would silently delete every
+    # unselected plan from the compatibility surface.
+    index = _legacy_index_all(all_plans, store.paths.primary_root, unplanned)
     views.extend(
         [
             (store.paths.primary_root / ".ralph" / "plans" / INDEX_JSON_NAME, json.dumps(index, ensure_ascii=True, indent=2, sort_keys=True) + "\n"),
             (store.paths.primary_root / ".ralph" / "plans" / INDEX_MD_NAME, _render_index_markdown(index)),
-            (store.paths.primary_root / ".ralph" / "plans" / CONSOLIDATED_HTML_NAME, _render_consolidated_html(plans)),
-            (store.paths.primary_root / ".ralph" / "plans" / CONSOLIDATED_MD_NAME, _render_consolidated_markdown(plans)),
+            (store.paths.primary_root / ".ralph" / "plans" / CONSOLIDATED_HTML_NAME, _render_consolidated_html(all_plans)),
+            (store.paths.primary_root / ".ralph" / "plans" / CONSOLIDATED_MD_NAME, _render_consolidated_markdown(all_plans)),
         ]
     )
     for _target, content in views:
@@ -1887,7 +1892,7 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
             raise MigrationError("rollback_limit", "legacy rollback view exceeds the bounded publication limit")
     source_digest = digest(
         {
-            "plans": [{"plan_id": plan_id, "state": state, "events": list(events)} for plan_id, state, events in plans],
+            "plans": [{"plan_id": plan_id, "state": state, "events": list(events)} for plan_id, state, events in all_plans],
             "unplanned": list(unplanned),
         }
     )
@@ -1930,7 +1935,7 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
                 for target, _expected_digest, stage in staged:
                     content = view_content[target]
                     try:
-                        store.publish_derived_view(
+                        store.publish_compatibility_view(
                             target.relative_to(store.paths.primary_root),
                             content,
                             hard_limit=MAX_DERIVED_VIEW_BYTES,

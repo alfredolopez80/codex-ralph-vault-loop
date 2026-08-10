@@ -410,3 +410,26 @@ def test_partial_apply_can_resume_and_rollback_export_is_deterministic(tmp_path:
     }
     assert journal_after == journal_before
     assert rebuild_legacy_views(store, plan_id="resume/demo")["output_digest"] == dry["output_digest"]
+
+
+def test_selective_rollback_preserves_global_views_for_unselected_plans(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    first = _plan(root, "selective/one")
+    second = _plan(root, "selective/two")
+    _notes(root, first, operations=(("op-one", "decision", "completed"),))
+    _notes(root, second, operations=(("op-two", "decision", "completed"),))
+    paths, context = _context(root)
+    assert apply_migration(context)["imported_plans"] == 2
+
+    store = ImplementationStore(paths)
+    rebuilt = rebuild_legacy_views(store, apply=True, plan_id="selective/one")
+
+    assert rebuilt["applied"] is True
+    index = json.loads((root / ".ralph" / "plans" / "implementation-index.json").read_text(encoding="utf-8"))
+    assert {row["plan"] for row in index["plans"]} == {
+        ".ralph/plans/selective/one.md",
+        ".ralph/plans/selective/two.md",
+    }
+    consolidated = (root / ".ralph" / "plans" / "implementation-notes-consolidated.md").read_text(encoding="utf-8")
+    assert "## selective/one" in consolidated
+    assert "## selective/two" in consolidated

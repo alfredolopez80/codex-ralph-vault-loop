@@ -141,7 +141,7 @@ def test_every_public_command_and_output_contract(tmp_path: Path) -> None:
         assert payload["output_digest"].startswith("sha256:")
         assert payload["content"]
 
-    output = root / "derived" / "progress.md"
+    output = root / ".local-notes" / "ralph" / "implementation" / "exports" / "progress.md"
     persisted = run_cli(
         root,
         "export",
@@ -277,6 +277,27 @@ def test_export_rejects_output_outside_canonical_checkout(tmp_path: Path) -> Non
     assert result.returncode == 8
     assert json_result(result)["error"]["code"] == "export_output"
     assert not outside.exists()
+
+
+def test_export_rejects_existing_checkout_files_as_output_targets(tmp_path: Path) -> None:
+    root, plan = repo(tmp_path)
+    start(root, plan)
+    target = root / ".git" / "config"
+    before = target.read_bytes()
+    result = run_cli(
+        root,
+        "export",
+        "--plan",
+        str(plan),
+        "--format",
+        "markdown",
+        "--output",
+        str(target),
+        "--json",
+    )
+    assert result.returncode == 8
+    assert json_result(result)["error"]["code"] == "export_output"
+    assert target.read_bytes() == before
 
 
 def test_legacy_create_wrapper_has_explicit_compatibility_surface(tmp_path: Path) -> None:

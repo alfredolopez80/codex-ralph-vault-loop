@@ -74,6 +74,17 @@ def test_empty_reads_are_side_effect_free(tmp_path: Path) -> None:
     assert not (primary / STORE_RELATIVE).exists()
 
 
+def test_layout_does_not_change_primary_checkout_permissions(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path)
+    primary.chmod(0o755)
+    paths = resolve_store_paths(primary_root=primary)
+
+    ensure_store_layout(paths)
+
+    assert stat.S_IMODE(primary.stat().st_mode) == 0o755
+    assert stat.S_IMODE(paths.root.stat().st_mode) == 0o700
+
+
 def test_resolver_targets_primary_from_linked_worktree(tmp_path: Path) -> None:
     primary = make_repo(tmp_path)
     linked = tmp_path / "linked" / "different-name"

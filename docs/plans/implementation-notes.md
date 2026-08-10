@@ -15,8 +15,11 @@ python3 scripts/plans/progress.py status --plan .ralph/plans/example.md --format
 ```
 
 Use `export --output` or `rebuild-legacy --apply` only when a human explicitly
-needs a legacy HTML/index artifact. `rebuild-legacy` is dry-run by default and
-reports deterministic source/output digests. Run `migrate-legacy --dry-run`
+needs a legacy HTML/index artifact. Export `--output` targets must remain under
+the canonical `.local-notes/ralph/implementation/exports/` directory; paths
+such as `.git/config`, source files, and canonical store files are rejected.
+`rebuild-legacy` is dry-run by default and reports deterministic source/output
+digests. Run `migrate-legacy --dry-run`
 before any separately authorized import; the apply step preserves every
 legacy source byte and mtime and writes only the canonical new store.
 
@@ -240,7 +243,9 @@ partial final line is never silently truncated.
 exclusive no-follow files, validates the staged bytes and source digest, then
 publishes the legacy pair atomically under the manifest lock. It never deletes
 or rewrites the canonical journal/state, and a failed validation leaves both
-the legacy source and new store unchanged. Both commands report bounded
+the legacy source and new store unchanged. A `--plan` rollback limits only the
+selected per-plan HTML output; global indexes and consolidated views are rebuilt
+from all canonical plans. Both commands report bounded
 digests, counts, and typed conflicts rather than raw note bodies.
 
 The public CLI and hook bridge are local-only. They do not invoke Terra, Sol,

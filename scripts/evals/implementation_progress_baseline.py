@@ -908,9 +908,12 @@ def run_baseline(
         raise ValueError("sample_count and repeats must be positive")
     captured_at = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
     current_head = _run_git(ROOT, ["rev-parse", "HEAD"])
-    origin_main = _run_git(ROOT, ["rev-parse", "origin/main"])
-    if base_sha_override is None and current_head != origin_main:
-        raise RuntimeError(f"baseline requires HEAD == origin/main, got {current_head} != {origin_main}")
+    if base_sha_override is None:
+        origin_main = _run_git(ROOT, ["rev-parse", "origin/main"])
+        if current_head != origin_main:
+            raise RuntimeError(f"baseline requires HEAD == origin/main, got {current_head} != {origin_main}")
+    else:
+        origin_main = "unknown (base_sha_override)"
     base_sha = base_sha_override or current_head
 
     cases: list[dict[str, object]] = []

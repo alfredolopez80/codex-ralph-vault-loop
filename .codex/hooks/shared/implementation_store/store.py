@@ -647,28 +647,52 @@ class ImplementationStore:
         return StoreResult(True, state.get("last_operation_id", ""), metadata=metadata, state=state, reason="replayed journal")
 
     def publish_derived_view(self, output: Path | str, content: str, *, hard_limit: int = 256 * 1024) -> WriteMetadata:
-        """Persist an explicitly requested derived view through the store I/O boundary.
+        """Persist an export only below the canonical derived-view directory."""
 
-        Canonical state and journal records remain the only business writes.  This
-        helper is reserved for explicit export/rebuild commands and refuses paths
-        outside the canonical checkout or unsafe filesystem aliases.
-        """
+        return self._publish_scoped_view(
+            output,
+            self.paths.root / "exports",
+            content,
+            hard_limit=hard_limit,
+            label="derived view",
+        )
 
+    def publish_compatibility_view(self, output: Path | str, content: str, *, hard_limit: int = 256 * 1024) -> WriteMetadata:
+        """Persist a rollback compatibility view below the legacy plans directory."""
+
+        return self._publish_scoped_view(
+            output,
+            self.paths.primary_root / ".ralph" / "plans",
+            content,
+            hard_limit=hard_limit,
+            label="compatibility view",
+        )
+
+    def _publish_scoped_view(
+        self,
+        output: Path | str,
+        allowed_root: Path,
+        content: str,
+        *,
+        hard_limit: int,
+        label: str,
+    ) -> WriteMetadata:
         target = Path(output).expanduser()
         if not target.is_absolute():
             target = self.paths.primary_root / target
         target = target.absolute()
+        allowed_root = allowed_root.absolute()
         try:
-            target.relative_to(self.paths.primary_root)
+            target.relative_to(allowed_root)
         except ValueError as exc:
-            raise StorePathError("derived view path escapes the canonical checkout") from exc
-        if target == self.paths.primary_root:
-            raise StorePathError("derived view path must name a file")
+            raise StorePathError(f"{label} path is outside its canonical output directory") from exc
+        if target == allowed_root:
+            raise StorePathError(f"{label} path must name a file")
         _reject_symlink_components(target.parent, allow_missing=True)
         if target.exists() and target.is_symlink():
-            raise StorePathError("derived view path cannot be a symlink")
+            raise StorePathError(f"{label} path cannot be a symlink")
         if target.exists() and target.stat().st_nlink != 1:
-            raise StorePathError("derived view path cannot be hard-linked")
+            raise StorePathError(f"{label} path cannot be hard-linked")
         _ensure_derived_parent(target.parent, self.paths.primary_root)
         return publish_bytes(target, content.encode("utf-8"), hard_limit=hard_limit)
 
