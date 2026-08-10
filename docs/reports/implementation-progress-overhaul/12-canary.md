@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Source HEAD: `533fe5d0742ccaa26eb6a1f5e72a90a2389a2acc`
+Source HEAD: `79aebb1` (`fix: close PR review integrity findings`)
 
 Branch: `codex/implementation-progress-overhaul`
 Executor fixture: `gpt-5.6-luna/max`
@@ -151,7 +151,7 @@ existing local `ceil(UTF-8 bytes / 4)` proxy, not tokens or credits.
 | Safety/quality regression                 |                                                           0 |       0 | PASS                 |
 
 The existing dispatcher matrix was also run under isolated HOME with schema 2:
-30 cases, p50/p95 aggregate `4,033.669/4,033.669 ms`, 5,718 output bytes,
+30 cases, p50/p95 aggregate `4,755.718/4,755.718 ms`, 5,718 output bytes,
 1,430 estimated context units, 6 known child processes, 3 cache hits, and 0
 advisors. These are local process measurements; they do not measure provider
 latency, credits, account limits, or subscription usage.
@@ -189,35 +189,36 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest \
   tests/unit/test_implementation_index.py -q
 ```
 
-Results: canary `PASS`; focused regression suite `114 passed`; Python compile
-`PASS`; no global installation, push, PR, or real-user migration.
+Results: canary `PASS`; focused regression suite `155 passed`; Python compile
+`PASS`; no global installation or real-user migration. The existing PR was
+already open; this validation does not create another PR.
 
 ## Release-candidate hardening rerun
 
 The independent hardening pass was validated from local `HEAD`
-`40226c5afdc307b728618fd5a76883a9ea12543d` against base
+`79aebb1` against base
 `92255e7d28a3bc84a005951957c953301ba40d7d`, before the final release commit.
 It reran the 20 deterministic scenarios with the same `gpt-5.6-luna/max`
 fixture and added bounded auxiliary-file, partial-tail, future-schema, and
 payload-approval checks. The canary remained `PASS` with zero model calls,
 workers, advisors, MCP calls, and network calls.
 
-| Measurement                        |                                     Candidate result | Verdict                  |
-| ---------------------------------- | ---------------------------------------------------: | ------------------------ |
-| Canary scenarios                   |                                                20/20 | PASS                     |
-| Feature fast-path p95              |                                             0.065 ms | PASS (<=5 ms)            |
-| Recovery-path p95                  |                                             0.066 ms | PASS (<=20 ms)           |
-| Luna recovery / delta maximum      |                                        242 B / 238 B | PASS (<=512 B / <=256 B) |
-| Ordinary / unchanged prompt bytes  |                                            0 B / 0 B | PASS                     |
-| Material publication               |                             1 append + 1 replacement | PASS                     |
-| Concurrent journal sequences       |                             1, 2, 3; hashes verified | PASS                     |
-| Migration apply / rerun            |                       6 events / 0 duplicate imports | PASS                     |
-| Rollback source/output digest      |                          equal; new journal retained | PASS                     |
-| Store transaction p50 (20 samples) |                  18.533 ms material; 16.574 ms retry | PASS (local)             |
-| Store transaction p95 (20 samples) |                  26.570 ms material; 25.234 ms retry | OBSERVATION              |
-| Store transaction provider calls   |                                                    0 | PASS                     |
-| Hook benchmark (5 + 1 warmup)      | p50 5279.106 ms; p95 5562.592 ms; 1430 context units | OBSERVATION              |
-| Schema-aware Phase 0 comparison    |                 unknown/incompatible (schema 1 vs 2) | UNKNOWN, preserved       |
+| Measurement                        |                        Candidate result | Verdict                  |
+| ---------------------------------- | --------------------------------------: | ------------------------ |
+| Canary scenarios                   |                                   20/20 | PASS                     |
+| Feature fast-path p95              |                                0.066 ms | PASS (<=5 ms)            |
+| Recovery-path p95                  |                                0.068 ms | PASS (<=20 ms)           |
+| Luna recovery / delta maximum      |                           242 B / 238 B | PASS (<=512 B / <=256 B) |
+| Ordinary / unchanged prompt bytes  |                               0 B / 0 B | PASS                     |
+| Material publication               |                1 append + 1 replacement | PASS                     |
+| Concurrent journal sequences       |                1, 2, 3; hashes verified | PASS                     |
+| Migration apply / rerun            |          6 events / 0 duplicate imports | PASS                     |
+| Rollback source/output digest      |             equal; new journal retained | PASS                     |
+| Store transaction p50 (20 samples) |     14.883 ms material; 13.516 ms retry | PASS (local)             |
+| Store transaction p95 (20 samples) |     22.858 ms material; 21.400 ms retry | OBSERVATION              |
+| Store transaction provider calls   |                                       0 | PASS                     |
+| Hook benchmark (isolated matrix)   | p50/p95 4755.718 ms; 1430 context units | OBSERVATION              |
+| Schema-aware Phase 0 comparison    |    unknown/incompatible (schema 1 vs 2) | UNKNOWN, preserved       |
 
 The hook benchmark is scheduler/process sensitive and remains a local
 observation; it does not measure provider latency, account limits, credits, or
