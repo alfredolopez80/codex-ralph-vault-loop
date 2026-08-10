@@ -8,7 +8,7 @@ Worktree: `/Users/alfredolopez/Documents/GitHub/codex-ralph-progress-overhaul`
 
 Executor constraint: `gpt-5.6-luna/max` only
 
-Verdict: **RELEASE_CANDIDATE_PASS (local hardening, pending remote CI)**
+Verdict: **RELEASE_CANDIDATE_PASS (local hardening and remote CI green)**
 
 ## Base and head SHAs
 
@@ -18,11 +18,12 @@ Verdict: **RELEASE_CANDIDATE_PASS (local hardening, pending remote CI)**
 | merge base                        | `92255e7d28a3bc84a005951957c953301ba40d7d`                  |
 | implementation hardening head     | `9e19744` (`fix: give task boundaries unique cache epochs`) |
 | branch relation at hardening head | 18 commits ahead of `origin/main`                           |
+| final published head              | `8dff84a` (`docs: record final task-boundary hardening`)    |
 
-The report and PR draft are the final documentation artifacts for that
-implementation head. The documentation commit that records them is listed in
-the final Git handoff after it is created; the implementation SHA above is the
-exact tree reviewed by the hardening and validation matrix.
+The report and PR draft are the final documentation artifacts for this
+implementation head. The implementation SHA above is the exact code tree
+reviewed by the hardening matrix; the published head records the documentation
+that binds the remote CI result to that tree.
 
 ## Architecture before and after
 
@@ -201,6 +202,7 @@ tests/unit/test_task_signature.py
 | Python compilation of changed runtime modules                             | **PASS**                                                                                    |
 | Focused hardening suite                                                   | **PASS — 134 passed**                                                                       |
 | Focused migration/store/context/routing/no-op/concurrency/installed suite | **PASS — 155 passed**                                                                       |
+| Remote PR checks at `8dff84a`                                             | **PASS — test, CodeQL, Python, JS/TS, Actions**                                             |
 
 Global smoke/doctor intentionally observed the existing installed source
 marker at `/Users/alfredolopez/Documents/GitHub/codex-ralph-vault-loop`.
