@@ -37,7 +37,7 @@ from shared.implementation_store import (
     StorePathError,
     StoreResult,
 )
-from shared.implementation_store.io import locked_file
+from shared.implementation_store.io import StoreIOError, locked_file, publish_bytes
 from shared.implementation_store.paths import StorePaths, _reject_symlink_components, ensure_store_layout, validate_plan_id
 from shared.implementation_store.schema import (
     canonical_json,
@@ -223,6 +223,45 @@ class MigrationContext:
 
 def _digest_bytes(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _snapshot_rollback_target(target: Path) -> tuple[bytes, int] | None:
+    """Capture one bounded legacy target before a multi-file publication."""
+    try:
+        _reject_symlink_components(target.parent, allow_missing=True)
+        info = target.lstat()
+    except FileNotFoundError:
+        return None
+    except (OSError, StorePathError) as exc:
+        raise MigrationError("rollback_target_alias", "legacy rollback target cannot be inspected") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise MigrationError("rollback_target_alias", "legacy rollback target is an unsafe alias")
+    try:
+        raw, final = _read_bounded_file(target, max_bytes=MAX_DERIVED_VIEW_BYTES)
+    except (OSError, StorePathError, MigrationError) as exc:
+        raise MigrationError("rollback_target_alias", "legacy rollback target cannot be snapshotted") from exc
+    return raw, stat.S_IMODE(final.st_mode)
+
+
+def _restore_rollback_target(target: Path, snapshot: tuple[bytes, int] | None) -> None:
+    """Restore one target after a failed batch publication."""
+    _reject_symlink_components(target.parent, allow_missing=True)
+    if snapshot is None:
+        try:
+            info = target.lstat()
+        except FileNotFoundError:
+            return
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("rollback target changed to an unsafe alias")
+        target.unlink()
+    else:
+        publish_bytes(target, snapshot[0], hard_limit=MAX_DERIVED_VIEW_BYTES)
+        os.chmod(target, snapshot[1])
+    directory_fd = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _read_bounded_file(
@@ -1887,6 +1926,23 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
             (store.paths.primary_root / ".ralph" / "plans" / CONSOLIDATED_MD_NAME, _render_consolidated_markdown(all_plans)),
         ]
     )
+    canonical_sources = {
+        (store.paths.primary_root / ".ralph" / "plans" / f"{plan_id}.md").absolute()
+        for plan_id, _state, _events in all_plans
+    }
+    canonical_sources.update(
+        {
+            (store.paths.primary_root / str(state.get("plan_path"))).absolute()
+            for _plan_id, state, _events in all_plans
+            if str(state.get("plan_path") or "").strip()
+        }
+    )
+    for target, _content in views:
+        if target.absolute() in canonical_sources:
+            raise MigrationError(
+                "rollback_source_overlap",
+                "legacy rollback output overlaps a registered canonical plan source",
+            )
     for _target, content in views:
         if len(content.encode("utf-8")) > MAX_DERIVED_VIEW_BYTES:
             raise MigrationError("rollback_limit", "legacy rollback view exceeds the bounded publication limit")
@@ -1932,16 +1988,30 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
         output_digest = digest({str(target.relative_to(store.paths.primary_root)): digest_value for target, digest_value, _stage in staged})
         if apply:
             with locked_file(store.paths.manifest_lock):
-                for target, _expected_digest, stage in staged:
-                    content = view_content[target]
-                    try:
+                snapshots = [(target, _snapshot_rollback_target(target)) for target, _expected_digest, _stage in staged]
+                applied: list[Path] = []
+                try:
+                    for target, _expected_digest, _stage in staged:
+                        applied.append(target)
                         store.publish_compatibility_view(
                             target.relative_to(store.paths.primary_root),
-                            content,
+                            view_content[target],
                             hard_limit=MAX_DERIVED_VIEW_BYTES,
                         )
-                    except (StorePathError, OSError, ValueError) as exc:
-                        raise MigrationError("rollback_target_alias", "legacy rollback target is unsafe") from exc
+                except (StorePathError, StoreIOError, OSError, ValueError) as exc:
+                    try:
+                        snapshot_by_target = dict(snapshots)
+                        for target in reversed(applied):
+                            _restore_rollback_target(target, snapshot_by_target[target])
+                    except (OSError, StorePathError, StoreIOError, ValueError) as restore_exc:
+                        raise MigrationError(
+                            "rollback_restore_failed",
+                            "legacy rollback failed and could not restore all prior views",
+                        ) from restore_exc
+                    raise MigrationError(
+                        "rollback_publish_failed",
+                        "legacy rollback publication failed; prior views were restored",
+                    ) from exc
         return {
             "schema_version": 1,
             "command": "rebuild-legacy",

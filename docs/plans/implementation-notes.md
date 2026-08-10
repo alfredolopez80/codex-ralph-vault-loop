@@ -39,6 +39,14 @@ python3 scripts/plans/progress.py rebuild-legacy --format json
 python3 scripts/plans/progress.py rebuild-legacy --apply --format json
 ```
 
+`rebuild-legacy --apply` validates every staged view before publication,
+snapshots every existing target under the manifest lock, and restores all
+already-published targets if a later replacement fails. It rejects any output
+that overlaps a registered canonical plan source, including fixed-name index
+collisions. A selective `--plan` rebuild limits only its per-plan view; global
+indexes and consolidated views are rendered from the complete canonical plan
+set.
+
 The importer parses each selected HTML source at most once, maps its initial
 template to `started`, retains bounded material fields and provenance, merges
 compatible index operations without duplication, imports loose commits into
@@ -241,12 +249,20 @@ partial final line is never silently truncated.
 
 `rebuild-legacy` stages each derived output in a private directory with
 exclusive no-follow files, validates the staged bytes and source digest, then
-publishes the legacy pair atomically under the manifest lock. It never deletes
-or rewrites the canonical journal/state, and a failed validation leaves both
-the legacy source and new store unchanged. A `--plan` rollback limits only the
-selected per-plan HTML output; global indexes and consolidated views are rebuilt
-from all canonical plans. Both commands report bounded
-digests, counts, and typed conflicts rather than raw note bodies.
+publishes the legacy set under the manifest lock with bounded snapshots and
+failure restoration. It never deletes or rewrites the canonical journal/state,
+and a failed validation or publication leaves the previous legacy set
+unchanged. A `--plan` rollback limits only the selected per-plan HTML output;
+global indexes and consolidated views are rebuilt from all canonical plans.
+Both commands report bounded digests, counts, and typed conflicts rather than
+raw note bodies.
+
+The terminal Stop marker is reader-first and retains malformed or future
+schema bytes for explicit recovery. Valid entries carry a monotonic claim
+sequence so the 256-entry retention window keeps the newest claims rather than
+the lexicographically largest scope keys. Canonical completion requires a
+non-empty all-pass validation map; Stop payload flags cannot replace journal
+evidence.
 
 The public CLI and hook bridge are local-only. They do not invoke Terra, Sol,
 advisors, workers, MCPs, network calls, or hidden view writers. A future schema

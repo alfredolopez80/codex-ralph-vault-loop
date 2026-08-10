@@ -13,6 +13,7 @@ if str(HOOKS) not in sys.path:
 from shared.active_context import active_context_from_payload  # noqa: E402
 from shared.checkpoint_io import update_checkpoint  # noqa: E402
 from shared.implementation_store import ImplementationStore, resolve_store_paths  # noqa: E402
+from shared.progress_hook import cheap_lookup  # noqa: E402
 from shared.progress_runtime import (  # noqa: E402
     complete_progress,
     progress_checkpoint_reference,
@@ -86,6 +87,53 @@ def test_validation_transition_is_semantic_and_failing_to_passing_changes_once(t
     passing_again = validation_transition(_payload(root, tool_use_id="tool-use-4"), context)
     assert passing_again.changed is True
     assert store.read_state("progress")["validation"] == {"tests": "pass"}
+
+
+def test_reopened_plan_remains_discoverable_for_runtime_hooks(tmp_path: Path) -> None:
+    root, store = _fixture(tmp_path)
+    store.record_event("progress", kind="reopened", operation_id="reopen-progress", summary="resume work")
+    context = active_context_from_payload({"cwd": str(root), "session_id": "progress-session"}, resolve_git=False)
+
+    lookup = cheap_lookup(context, {"primary_repo_root": str(root)})
+
+    assert lookup.available
+    assert lookup.identity is not None
+    assert lookup.identity.status == "reopened"
+    transition = validation_transition(_payload(root), context)
+    assert transition.changed is True
+    assert store.read_state("progress")["validation"] == {"tests": "pass"}
+
+    completed = complete_progress(
+        {
+            **_payload(root),
+            "hook_event_name": "Stop",
+            "progress_plan_id": "progress",
+            "progress_complete": True,
+        },
+        context,
+    )
+    assert completed.changed is True
+    assert store.read_state("progress")["status"] == "completed"
+
+
+def test_completion_requires_canonical_validation_event(tmp_path: Path) -> None:
+    root, store = _fixture(tmp_path)
+    context = active_context_from_payload({"cwd": str(root), "session_id": "progress-session", "branch": "main"}, resolve_git=False)
+    store.record_event("progress", kind="decision", operation_id="material-decision", summary="material evidence")
+    payload = {
+        **_payload(root),
+        "hook_event_name": "Stop",
+        "progress_plan_id": "progress",
+        "progress_complete": True,
+        "validation_status": "pass",
+        "tests_passed": True,
+    }
+
+    result = complete_progress(payload, context)
+
+    assert result.changed is False
+    assert result.error_code == "progress_validation_incomplete"
+    assert store.read_state("progress")["status"] == "active"
 
 
 def test_planned_checkpoint_contains_only_progress_reference(tmp_path: Path, monkeypatch) -> None:

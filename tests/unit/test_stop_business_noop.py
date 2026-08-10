@@ -18,6 +18,8 @@ import post_tool_dispatch
 import stop_dispatch
 from shared.persistence_metrics import WriteAccumulator
 from shared.runtime_observability import normalize_event
+from shared.stop_persistence import terminal_business_claim
+from shared.stop_scope import scope_from_payload
 
 
 def env_for(tmp_path: Path, *, mode: str = "stable") -> dict[str, str]:
@@ -159,6 +161,34 @@ def test_malformed_terminal_marker_is_preserved_for_explicit_recovery(tmp_path: 
 
     assert second.returncode == 0 and second.stdout == ""
     assert marker.read_bytes() == before
+
+
+def test_terminal_claim_retention_keeps_new_scope_even_when_key_sorts_low(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
+    base = stop_payload(tmp_path)
+
+    def claim_scope(task: str) -> str:
+        scope = scope_from_payload({**base, "task_signature": task})
+        with terminal_business_claim(scope, f"{len(task):064x}") as claim:
+            assert claim.available and not claim.duplicate
+            claim.commit()
+        return scope.scope_key
+
+    existing_keys = {claim_scope(f"retained-{index}") for index in range(256)}
+    marker = next((tmp_path / "ralph").rglob("terminal-business.json"))
+    current_keys = set(json.loads(marker.read_text(encoding="utf-8"))["entries"])
+    assert current_keys == existing_keys
+    minimum = min(current_keys)
+    candidate = next(
+        f"retained-candidate-{index}"
+        for index in range(10_000)
+        if scope_from_payload({**base, "task_signature": f"retained-candidate-{index}"}).scope_key < minimum
+    )
+    candidate_key = claim_scope(candidate)
+
+    entries = json.loads(marker.read_text(encoding="utf-8"))["entries"]
+    assert candidate_key in entries
+    assert len(entries) == 256
 
 
 def test_changed_validation_result_is_a_distinct_business_operation(tmp_path: Path) -> None:

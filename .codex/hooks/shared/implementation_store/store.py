@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -279,7 +280,14 @@ class ImplementationStore:
         )
         ensure_store_layout(self.paths)
         ensure_directory_chain(plan.root, mode=0o700)
-        with locked_file(plan.state_lock):
+        # Keep the per-plan and manifest locks together for registration.  The
+        # manifest capacity check must happen before the first journal/state
+        # publication, otherwise a bounded manifest failure leaves an
+        # undiscoverable canonical plan behind.
+        with ExitStack() as locks:
+            locks.enter_context(locked_file(plan.state_lock))
+            locks.enter_context(locked_file(self.paths.manifest_lock))
+            manifest_current = self._read_manifest_locked()
             current = self._load_state_for_write(plan)
             events_result = self._read_plan_events(plan, reject_partial=True)
             events = events_result.records
@@ -317,7 +325,11 @@ class ImplementationStore:
                     )
                     self._assert_same_operation(existing, candidate_event=expected, operation=operation)
                     metadata = publish_json(plan.state, current, hard_limit=8 * 1024) if recovery_needed else WriteMetadata()
-                    manifest, manifest_meta = self._publish_manifest_pointer(current, force=False)
+                    manifest, manifest_meta = self._publish_manifest_pointer_locked(
+                        current,
+                        force=False,
+                        current_manifest=manifest_current,
+                    )
                     return StoreResult(False, operation, existing["event_id"], metadata=metadata.plus(manifest_meta), reason="idempotent retry", state=current, manifest=manifest)
                 # Registration is a discovery transition; an existing plan is
                 # not silently reset or overwritten.
@@ -346,6 +358,10 @@ class ImplementationStore:
                 ),
                 provenance=provenance,
             )
+            next_state = self._state_after_event(state, event, timestamp=timestamp)
+            # Validate the exact post-registration pointer while the manifest
+            # lock is held, before any durable journal/state bytes are written.
+            self._manifest_candidate(manifest_current, next_state, force=True)
             metadata = append_jsonl(
                 plan.events,
                 event,
@@ -354,11 +370,15 @@ class ImplementationStore:
                 max_records=PLAN_JOURNAL_MAX_RECORDS,
                 existing_records=len(events),
             )
-            state = self._state_after_event(state, event, timestamp=timestamp)
+            state = next_state
             metadata = metadata.plus(publish_json(plan.state, state, hard_limit=8 * 1024))
-        manifest, manifest_meta = self._publish_manifest_pointer(state, force=True)
-        metadata = metadata.plus(manifest_meta)
-        return StoreResult(True, operation, event["event_id"], metadata, state, manifest)
+            manifest, manifest_meta = self._publish_manifest_pointer_locked(
+                state,
+                force=True,
+                current_manifest=manifest_current,
+            )
+            metadata = metadata.plus(manifest_meta)
+            return StoreResult(True, operation, event["event_id"], metadata, state, manifest)
 
     def record_event(
         self,
@@ -519,11 +539,16 @@ class ImplementationStore:
             candidate = self._state_after_event(candidate, event, timestamp=timestamp)
             metadata = metadata.plus(publish_json(plan.state, candidate, hard_limit=8 * 1024))
             status_changed = candidate.get("status") != state.get("status")
-        manifest = self.read_manifest()
-        manifest_meta = WriteMetadata()
-        if status_changed:
-            manifest, manifest_meta = self._publish_manifest_pointer(candidate, force=False)
-            metadata = metadata.plus(manifest_meta)
+            manifest = None
+            manifest_meta = WriteMetadata()
+            if status_changed:
+                # Publish the discovery pointer before releasing the state
+                # lock.  A newer state transition therefore cannot be followed
+                # by an older manifest publication from this writer.
+                manifest, manifest_meta = self._publish_manifest_pointer(candidate, force=False)
+        if manifest is None:
+            manifest = self.read_manifest()
+        metadata = metadata.plus(manifest_meta)
         return StoreResult(True, operation, event["event_id"], metadata, candidate, manifest)
 
     def update_state(
@@ -814,62 +839,94 @@ class ImplementationStore:
                 quarantine_file(plan.state, reason="malformed current schema")
             return None
 
+    def _read_manifest_locked(self) -> dict[str, Any]:
+        """Read the manifest while its caller owns ``manifest_lock``."""
+        try:
+            current = read_json(
+                self.paths.manifest,
+                validate_manifest,
+                label="manifest",
+                hard_limit=MANIFEST_HARD_LIMIT_BYTES,
+            )
+        except CorruptRecordError:
+            if self.paths.manifest.exists():
+                quarantine_file(self.paths.manifest, reason="malformed current schema")
+            current = None
+        return current or {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "canonical_repo_identity": _repo_identity(self.paths.primary_root),
+            "generation": 0,
+            "plans": [],
+        }
+
+    def _manifest_candidate(
+        self,
+        current: Mapping[str, Any],
+        state: Mapping[str, Any],
+        *,
+        force: bool,
+    ) -> tuple[dict[str, Any], bool]:
+        pointer = {
+            "plan_id": state["plan_id"],
+            "plan_path": state.get("plan_path", ""),
+            "state_path": str((self.paths.root / "plans" / state["plan_id"] / "state.json").relative_to(self.paths.primary_root)),
+            "status": state["status"],
+            "branch": state.get("git", {}).get("branch", ""),
+            "workspace_instance_id": state.get("git", {}).get("workspace_instance_id", ""),
+            "semantic_hash": state.get("semantic_hash", ""),
+            "last_event_sequence": state.get("last_event_sequence", 0),
+        }
+        plans = list(current.get("plans", []))
+        found = next((index for index, item in enumerate(plans) if item.get("plan_id") == pointer["plan_id"]), None)
+        if found is None:
+            plans.append(pointer)
+            changed = True
+        else:
+            existing = plans[found]
+            # A stale writer may reach the manifest after a newer state has
+            # already been published.  Never let its lower sequence move the
+            # discovery pointer backwards.
+            try:
+                existing_sequence = int(existing.get("last_event_sequence", 0) or 0)
+                pointer_sequence = int(pointer.get("last_event_sequence", 0) or 0)
+            except (TypeError, ValueError):
+                existing_sequence = pointer_sequence = 0
+            if existing_sequence > pointer_sequence:
+                return validate_manifest(current), False
+            # The manifest intentionally tracks discovery/status pointers, not
+            # every phase, validation, or event transition.
+            if existing.get("status") != pointer["status"] or force and existing != pointer:
+                plans[found] = pointer
+                changed = True
+            else:
+                changed = False
+        candidate = validate_manifest(
+            {
+                **current,
+                "generation": current.get("generation", 0) + (1 if changed else 0),
+                "plans": plans,
+            }
+        )
+        return candidate, changed
+
+    def _publish_manifest_pointer_locked(
+        self,
+        state: Mapping[str, Any],
+        *,
+        force: bool,
+        current_manifest: Mapping[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], WriteMetadata]:
+        current = dict(current_manifest) if current_manifest is not None else self._read_manifest_locked()
+        candidate, changed = self._manifest_candidate(current, state, force=force)
+        if not changed:
+            return candidate, WriteMetadata()
+        metadata = publish_json(self.paths.manifest, candidate, hard_limit=MANIFEST_HARD_LIMIT_BYTES)
+        return candidate, metadata
+
     def _publish_manifest_pointer(self, state: Mapping[str, Any], *, force: bool) -> tuple[dict[str, Any], WriteMetadata]:
         ensure_store_layout(self.paths)
         with locked_file(self.paths.manifest_lock):
-            current = None
-            try:
-                current = read_json(
-                    self.paths.manifest,
-                    validate_manifest,
-                    label="manifest",
-                    hard_limit=MANIFEST_HARD_LIMIT_BYTES,
-                )
-            except CorruptRecordError:
-                if self.paths.manifest.exists():
-                    quarantine_file(self.paths.manifest, reason="malformed current schema")
-            if current is None:
-                current = {
-                    "schema_version": CURRENT_SCHEMA_VERSION,
-                    "canonical_repo_identity": _repo_identity(self.paths.primary_root),
-                    "generation": 0,
-                    "plans": [],
-                }
-            pointer = {
-                "plan_id": state["plan_id"],
-                "plan_path": state.get("plan_path", ""),
-                "state_path": str((self.paths.root / "plans" / state["plan_id"] / "state.json").relative_to(self.paths.primary_root)),
-                "status": state["status"],
-                "branch": state.get("git", {}).get("branch", ""),
-                "workspace_instance_id": state.get("git", {}).get("workspace_instance_id", ""),
-                "semantic_hash": state.get("semantic_hash", ""),
-                "last_event_sequence": state.get("last_event_sequence", 0),
-            }
-            plans = list(current.get("plans", []))
-            found = next((index for index, item in enumerate(plans) if item.get("plan_id") == pointer["plan_id"]), None)
-            if found is None:
-                plans.append(pointer)
-                changed = True
-            else:
-                existing = plans[found]
-                # The manifest intentionally tracks discovery/status pointers,
-                # not every phase, validation, or event transition.
-                if existing.get("status") != pointer["status"] or force and existing != pointer:
-                    plans[found] = pointer
-                    changed = True
-                else:
-                    changed = False
-            candidate = validate_manifest(
-                {
-                    **current,
-                    "generation": current.get("generation", 0) + (1 if changed else 0),
-                    "plans": plans,
-                }
-            )
-            if not changed:
-                return candidate, WriteMetadata()
-            metadata = publish_json(self.paths.manifest, candidate, hard_limit=MANIFEST_HARD_LIMIT_BYTES)
-            return candidate, metadata
+            return self._publish_manifest_pointer_locked(state, force=force)
 
     def _build_event(
         self,

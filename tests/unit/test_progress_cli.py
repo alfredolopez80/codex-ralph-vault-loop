@@ -171,6 +171,17 @@ def test_every_public_command_and_output_contract(tmp_path: Path) -> None:
     applied_payload = json_result(applied_export)
     assert applied_payload["persisted"] is True
     assert Path(str(applied_payload["output"])).is_file()
+    applied_text = run_cli(
+        root,
+        "export",
+        "--plan",
+        str(plan),
+        "--format",
+        "markdown",
+        "--apply",
+    )
+    assert applied_text.returncode == 0, applied_text.stderr
+    assert "PERSISTED=true" in applied_text.stdout
 
     verify = run_cli(root, "verify", "--plan", str(plan), "--format", "json")
     assert verify.returncode == 0, verify.stderr

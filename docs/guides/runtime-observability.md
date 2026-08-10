@@ -21,6 +21,11 @@ Only enumerated codes are persisted. Prompt text, assistant text, tool bodies,
 memory bodies, transcripts, sensitive paths, and private values are rejected by
 the writer. Bad input lines are quarantined as line number plus digest, never
 copied verbatim.
+Tool labels in the cost ledger use the same sensitive-content redactor and a
+bounded preview before they are classified or persisted; a caller cannot turn
+`tool_name` into a raw-body or credential side channel. RED checkpoint
+rejection events retain truthful bounded append/replacement/fsync metrics while
+the rejected body remains local to the classifier.
 
 The default file is below the configured `RALPH_HOME` runtime value:
 
@@ -65,6 +70,8 @@ An optional CSV/JSON export may be passed with `--usage`. It is supplied by the
 user, accepts only unambiguous ISO timestamps, and is reported separately as
 `user_supplied_usage` with `verified=false`. It is never scraped, authenticated,
 or joined to events by ambiguous timestamps.
+No provider or account usage is inferred from these local ledgers; absence of
+an operator-supplied export is reported as unknown rather than zero.
 
 ## Instrumentation boundary
 

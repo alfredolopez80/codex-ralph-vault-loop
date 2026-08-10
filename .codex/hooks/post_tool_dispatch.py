@@ -237,7 +237,11 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     errors: list[str] = []
     response: dict[str, Any] | None = None
     considered: list[str] = []
-    structured_gate = structured_validation(payload) if persistence_allowed and not pending_stream and tool.test_like else None
+    # The structured gate detector owns recognition of direct lint/typecheck
+    # runners (ruff, mypy, tsc, and friends).  Do not gate that call behind the
+    # broader heuristic classifier: a recognized validation command may not
+    # contain the generic "test"/"build"/"lint" marker.
+    structured_gate = structured_validation(payload) if persistence_allowed and not pending_stream else None
     if not pending_stream and _should_file_line(tool):
         considered.append("file_line_guard")
     if not pending_stream and _should_shaping(payload, tool, persistence_allowed):

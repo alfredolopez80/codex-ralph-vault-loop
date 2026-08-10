@@ -269,6 +269,18 @@ def test_semantically_unchanged_checkpoint_is_a_physical_noop(tmp_path: Path) ->
     assert after == before
 
 
+def test_red_checkpoint_reports_persisted_rejection_event_metrics(tmp_path: Path) -> None:
+    marker = "api_" + "key" + "=fixture-secret"
+
+    result = update_checkpoint({"source": "manual", "objective": marker}, root=tmp_path)
+
+    assert result["status"] == "skipped_red"
+    assert result["changed"] is True
+    assert result["bytes_written"] > 0
+    assert result["appends"] == 1
+    assert result["persistence_bytes_known"] is True
+
+
 def test_unchanged_checkpoint_does_not_recreate_derived_markdown(tmp_path: Path) -> None:
     update = {"source": "manual", "objective": "Derived view checkpoint.", "next_action": "Keep latest JSON authoritative."}
     assert update_checkpoint(update, root=tmp_path)["changed"] is True

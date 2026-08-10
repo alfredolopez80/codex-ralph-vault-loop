@@ -815,7 +815,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         _emit_json(payload)
     else:
         print(content, end="" if content.endswith("\n") else "\n")
-        print(f"SOURCE_DIGEST={source_digest} OUTPUT_DIGEST={output_digest} PERSISTED={str(bool(args.output)).lower()}")
+        print(f"SOURCE_DIGEST={source_digest} OUTPUT_DIGEST={output_digest} PERSISTED={str(bool(output_path)).lower()}")
     return 0
 
 

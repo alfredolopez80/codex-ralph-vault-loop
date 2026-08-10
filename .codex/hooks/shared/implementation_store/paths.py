@@ -232,8 +232,13 @@ def _git_identity(root: Path) -> tuple[Path, Path, Path]:
     top = Path(_run_git(root, "rev-parse", "--show-toplevel")).absolute()
     git_dir_raw = _run_git(root, "rev-parse", "--git-dir")
     common_raw = _run_git(root, "rev-parse", "--git-common-dir")
-    git_dir = (top / git_dir_raw).absolute() if not os.path.isabs(git_dir_raw) else Path(git_dir_raw).absolute()
-    common_dir = (top / common_raw).absolute() if not os.path.isabs(common_raw) else Path(common_raw).absolute()
+    # Git emits relative --git-dir/--git-common-dir paths relative to the
+    # directory used for the rev-parse invocation, not necessarily the
+    # repository top-level.  A hook may run from a nested subdirectory, so
+    # anchor those paths to ``root`` (the actual invocation cwd).
+    invocation_root = root.absolute()
+    git_dir = (invocation_root / git_dir_raw).absolute() if not os.path.isabs(git_dir_raw) else Path(git_dir_raw).absolute()
+    common_dir = (invocation_root / common_raw).absolute() if not os.path.isabs(common_raw) else Path(common_raw).absolute()
     if not top.exists() or not git_dir.exists() or not common_dir.exists():
         raise StorePathError("Git repository metadata is incomplete")
     return top, git_dir, common_dir

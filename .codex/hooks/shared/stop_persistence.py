@@ -130,7 +130,7 @@ def _safe_runtime_bytes(path: Path, *, max_bytes: int, require_private: bool = T
         os.close(fd)
 
 
-def _load_business(path: Path) -> dict[str, dict[str, str]]:
+def _load_business(path: Path) -> dict[str, dict[str, str | int]]:
     if not path.exists():
         return {}
     try:
@@ -140,13 +140,23 @@ def _load_business(path: Path) -> dict[str, dict[str, str]]:
         entries = value.get("entries")
         if not isinstance(entries, dict):
             raise ValueError("invalid terminal business entries")
-        result: dict[str, dict[str, str]] = {}
+        if len(entries) > TERMINAL_BUSINESS_MAX_ENTRIES * 2:
+            raise ValueError("terminal business entries exceed their bounded recovery limit")
+        result: dict[str, dict[str, str | int]] = {}
+        legacy_sequence = 0
         for key, entry in entries.items():
             if not isinstance(key, str) or not isinstance(entry, dict):
                 continue
             fingerprint = entry.get("fingerprint")
             if isinstance(fingerprint, str) and len(fingerprint) == 64:
-                result[key[:128]] = {"fingerprint": fingerprint}
+                sequence = entry.get("sequence")
+                if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+                    # Version-1 markers did not carry recency.  Preserve their
+                    # file order as a bounded migration baseline; every new
+                    # claim below receives an explicit monotonic sequence.
+                    sequence = legacy_sequence
+                legacy_sequence = max(legacy_sequence + 1, sequence + 1)
+                result[key[:128]] = {"fingerprint": fingerprint, "sequence": sequence}
         return result
     except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         # A claim is a read boundary.  Malformed evidence stays in place for
@@ -156,10 +166,17 @@ def _load_business(path: Path) -> dict[str, dict[str, str]]:
         raise ValueError("terminal business marker is malformed") from exc
 
 
-def _write_business(path: Path, entries: Mapping[str, Mapping[str, str]]) -> WriteResult:
+def _write_business(path: Path, entries: Mapping[str, Mapping[str, str | int]]) -> WriteResult:
+    ordered = sorted(
+        entries.items(),
+        key=lambda item: (
+            int(item[1].get("sequence", 0) or 0),
+            item[0],
+        ),
+    )[-TERMINAL_BUSINESS_MAX_ENTRIES:]
     payload = {
         "schema_version": TERMINAL_BUSINESS_SCHEMA_VERSION,
-        "entries": {key: dict(entries[key]) for key in sorted(entries)[-TERMINAL_BUSINESS_MAX_ENTRIES:]},
+        "entries": {key: dict(value) for key, value in ordered},
     }
     encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2) + "\n").encode("utf-8")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -232,7 +249,11 @@ def terminal_business_claim(scope: StopScope, fingerprint: str):
     try:
         yield claim
         if claim._commit_requested:
-            entries[scope.scope_key] = {"fingerprint": fingerprint}
+            next_sequence = max(
+                (int(entry.get("sequence", 0) or 0) for entry in entries.values()),
+                default=-1,
+            ) + 1
+            entries[scope.scope_key] = {"fingerprint": fingerprint, "sequence": next_sequence}
             try:
                 claim.write_result = _write_business(marker, entries)
             except (OSError, TypeError, ValueError):

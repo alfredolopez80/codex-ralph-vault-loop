@@ -63,6 +63,7 @@ _COMPLETION_KEYS = (
     "verifiedDone",
     "completed",
 )
+_DISCOVERABLE_PROGRESS_STATUSES = frozenset({"active", "reopened"})
 
 
 @dataclass(frozen=True)
@@ -318,7 +319,7 @@ def validation_transition(
     gate, status = parsed
     try:
         state = store.read_state(lookup.identity.plan_id)
-        if state is None or state.get("status") != "active":
+        if state is None or state.get("status") not in _DISCOVERABLE_PROGRESS_STATUSES:
             return ValidationTransition(gate=gate, status=status, reason="plan_not_active")
         validation = dict(state.get("validation") or {})
         previous_status = validation.get(gate, "")
@@ -484,10 +485,10 @@ def _validation_ready(state: Mapping[str, object], payload: Mapping[str, object]
     validation = state.get("validation")
     if isinstance(validation, Mapping) and validation:
         return all(str(value).lower() == "pass" for value in validation.values())
-    explicit = payload.get("validation_status") or payload.get("validationStatus")
-    if isinstance(explicit, str) and explicit.lower() == "pass":
-        return True
-    return any(payload.get(key) is True for key in ("tests_passed", "build_passed", "lint_passed", "validation_passed"))
+    # Stop payload fields are advisory and forgeable.  Once a canonical state
+    # exists, completion requires at least one validated store transition; an
+    # empty map cannot be upgraded by validation_status/tests_passed metadata.
+    return False
 
 
 def _terminal_fingerprint(state: Mapping[str, object], context: ActiveContext) -> str:
@@ -546,7 +547,7 @@ def complete_progress(
         # later material progress. The store performs the locked recheck before
         # publication.
         state = store.read_state(lookup.identity.plan_id)
-        if state is None or state.get("status") != "active":
+        if state is None or state.get("status") not in _DISCOVERABLE_PROGRESS_STATUSES:
             return CompletionTransition(in_scope=True, reason="plan_not_active")
         if state.get("origin") != "implementation-progress" or state.get("intent") != "progress-maintenance":
             return CompletionTransition(in_scope=True, error_code="progress_provenance_invalid", error_reason="active progress provenance could not be verified", reason="provenance_invalid")

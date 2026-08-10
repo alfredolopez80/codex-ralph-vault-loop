@@ -53,11 +53,13 @@ default apply; `--recovery-mode` is an explicit exceptional boundary.
 `rebuild-legacy` is a deterministic rollback exporter. Its default is staged
 dry-run/stdout reporting with source/output digests. `--apply` replaces only
 validated legacy HTML/index/consolidated targets under the canonical manifest
-lock, preserves the current legacy pair until validation succeeds, and never
-deletes or rewrites the new journal/state. With `--plan`, only that plan's
-per-plan HTML view is selected; global indexes and consolidated views are
-always rendered from every canonical plan so a selective rollback cannot drop
-unselected history.
+lock, snapshots every existing target, and restores the prior set if any
+publication fails. Preflight rejects a target that aliases a registered
+canonical plan source (including a plan whose identifier would collide with a
+fixed legacy index name). It never deletes or rewrites the new journal/state.
+With `--plan`, only that plan's per-plan HTML view is selected; global indexes
+and consolidated views are always rendered from every canonical plan so a
+selective rollback cannot drop unselected history.
 
 ## Write boundary and layout
 
@@ -94,6 +96,13 @@ Reads are side-effect free. A malformed current-schema file is not silently
 discarded: an explicit write/recovery boundary may quarantine it under a
 digest-named sibling before rebuilding from trusted evidence. A future schema
 raises a hard error and is never quarantined, downgraded, or overwritten.
+
+Registration holds the plan and manifest locks together and preflights the
+exact next manifest before appending the first journal byte. A full manifest
+or over-limit pointer therefore rejects registration without leaving an
+orphaned state/events pair. Concurrent status publication compares event
+sequences while holding the manifest lock, so an older writer cannot move
+discovery backwards.
 
 ## State snapshot
 
@@ -191,7 +200,10 @@ Phase 4 exposes them only through explicit `progress.py export` or
 Stop hooks. The Stop terminal-business dedupe marker is reader-first:
 malformed or future-schema marker bytes make the business claim unavailable and
 remain in place for explicit recovery rather than being silently replaced by
-an empty ledger.
+an empty ledger. Entries carry a bounded monotonic claim sequence, so
+retention follows claim recency instead of scope-key sort order. Repeated task
+boundary prompts discard the content-free boundary claim before routing is
+reinitialized, so identical boundary text cannot inherit a previous task.
 
 ## Recovery-only context and context epochs
 
@@ -252,7 +264,9 @@ dispatcher contract, so compatibility entrypoints cannot duplicate output.
 ## PostToolUse, Stop, and checkpoint integration (Prompt 10)
 
 `PostToolUse` first recognizes a structured outcome from a test, build, lint, or
-typecheck tool. It then performs the narrow active-state lookup and asks the
+typecheck tool. Direct runners such as `python -m mypy`, `uv run ruff`, and
+`npx tsc` are recognized by the structured detector itself; the generic tool
+classifier cannot suppress that gate. It then performs the narrow active-state lookup and asks the
 canonical store to publish `validation_changed` only when the validation map's
 semantic value changes. A repeated successful run is a read-only no-op; a
 failure-to-pass transition produces one event and state replacement. Ordinary
@@ -262,7 +276,7 @@ append, replacement, and fsync metrics flow into the existing PostToolUse
 observability accumulator.
 
 The `Stop` adapter is opt-in per payload completion signal. It cheaply checks
-for one matching active state, then reads the bounded state/journal needed to
+for one matching active or reopened state, then reads the bounded state/journal needed to
 verify plan identity and approval, canonical repository ownership, progress
 provenance, material events, validation gates, branch/commit/workspace, and
 schema integrity. A genuine completion publishes one `completed` event and one
@@ -270,6 +284,11 @@ state replacement. A terminal retry is a semantic no-op. Corrupt/future state,
 identity mismatch, missing material evidence, or incomplete validation becomes
 a bounded progress finding under the existing empty-allow / one-JSON-block
 Stop contract; completion is never inferred from an invalid source.
+
+Completion requires a non-empty canonical validation map whose gates all pass;
+Stop payload fields such as `validation_status` or `tests_passed` are advisory
+and cannot forge completion. A reopened plan remains eligible for validation
+and completion after its explicit lifecycle event.
 
 When approved planned work updates the normal checkpoint, it carries only
 `plan_id`, `generation`, and `semantic_hash`. The checkpoint contains no second
@@ -317,3 +336,6 @@ cryptographic attestation, and progress maintenance has zero worker/advisor/
 MCP budget. Legacy HTML/index/consolidated views are explicit CLI or migration/
 rollback outputs only; no prompt, tool, session, or Stop path creates them
 implicitly.
+Cost-ledger tool labels pass through the bounded sensitive-content redactor
+before persistence, and RED checkpoint rejection events expose their actual
+bounded append metrics without storing the rejected body.

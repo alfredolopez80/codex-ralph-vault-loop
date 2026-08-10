@@ -95,6 +95,20 @@ def test_resolver_targets_primary_from_linked_worktree(tmp_path: Path) -> None:
     assert paths.root == primary / STORE_RELATIVE
 
 
+def test_resolver_handles_active_subdirectory_git_metadata(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path)
+    linked = tmp_path / "linked" / "nested-worktree"
+    linked.parent.mkdir(parents=True)
+    git(primary, "worktree", "add", "--detach", str(linked), "HEAD")
+    nested = linked / "src" / "package"
+    nested.mkdir(parents=True)
+
+    paths = resolve_store_paths(active_root=nested)
+
+    assert paths.primary_root == primary
+    assert paths.root == primary / STORE_RELATIVE
+
+
 def test_resolver_rejects_primary_from_different_repository(tmp_path: Path) -> None:
     primary = make_repo(tmp_path / "first")
     unrelated = make_repo(tmp_path / "second")
@@ -127,6 +141,37 @@ def test_manifest_changes_only_for_discovery_or_status_transition(tmp_path: Path
     assert completed.changed
     assert manifest.read_bytes() != before[0]
     assert store.read_manifest()["plans"][0]["status"] == "completed"
+
+
+def test_stale_manifest_publication_cannot_regress_sequence(tmp_path: Path) -> None:
+    _primary, store = make_store(tmp_path)
+    store.register_plan("ordered", status="active", now="2026-08-10T00:00:00+00:00")
+    stale = dict(store.read_state("ordered"))
+    store.record_event("ordered", kind="blocker_opened", operation_id="op-block", summary="blocked")
+
+    store._publish_manifest_pointer(stale, force=True)  # noqa: SLF001 - stale-writer regression.
+
+    pointer = store.read_manifest()["plans"][0]
+    assert pointer["last_event_sequence"] == 2
+    assert pointer["status"] == "blocked"
+
+
+def test_manifest_capacity_is_rejected_before_registration_bytes(tmp_path: Path) -> None:
+    _primary, store = make_store(tmp_path)
+    failed_plan = ""
+    for index in range(128):
+        plan_id = f"capacity-{index}"
+        try:
+            store.register_plan(plan_id, operation_id=f"start-{index}")
+        except SchemaError:
+            failed_plan = plan_id
+            break
+
+    assert failed_plan
+    failed = store.plan_paths(failed_plan)
+    assert not failed.events.exists()
+    assert not failed.state.exists()
+    assert failed_plan not in {item["plan_id"] for item in store.read_manifest()["plans"]}
 
 
 def test_material_update_can_clear_phase_and_records_provenance(tmp_path: Path) -> None:

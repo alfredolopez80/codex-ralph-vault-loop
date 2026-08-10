@@ -85,6 +85,17 @@ def test_progress_maintenance_cannot_trigger_post_tool_advisor() -> None:
     assert post_tool_dispatch._should_advisor(ordinary, post_tool_dispatch.classify_tool(ordinary)) is True
 
 
+def test_red_tool_name_is_not_persisted_in_cost_ledger(tmp_path: Path) -> None:
+    marker = "fixture-secret-tool-name"
+    data = payload(tmp_path, tool="token=" + marker)
+
+    result = run_dispatch(tmp_path, data)
+
+    assert result.returncode == 0
+    runtime_text = "".join(path.read_text(encoding="utf-8") for path in runtime_files(tmp_path))
+    assert marker not in runtime_text
+
+
 def test_read_only_call_records_compact_telemetry_without_checkpoint(tmp_path: Path) -> None:
     result = run_dispatch(tmp_path, payload(tmp_path, tool="exec_command", tool_input={"cmd": "git status --short"}))
     assert result.returncode == 0

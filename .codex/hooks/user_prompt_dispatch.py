@@ -176,6 +176,12 @@ def run(payload: dict[str, Any]) -> str:
         progress_generation=progress_identity.generation if progress_identity else 0,
         context_epoch=signature_epoch,
     )
+    if boundary:
+        # A task boundary is a lifecycle reset, even when the user repeats the
+        # exact same text in one session.  Remove the prior content-free claim
+        # before claiming the new boundary so initialize() cannot be skipped by
+        # a cache hit and inherit the previous task's routing state.
+        discard(context, signature)
     # Routing state is intentionally deferred until after this claim.  Payload
     # routing metadata is cheap and stable enough for the claim fingerprint.
     current_route = _cheap_route(payload)

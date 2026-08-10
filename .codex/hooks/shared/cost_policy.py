@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from .redaction import safe_preview
+
 MAX_MEASURED_OUTPUT_CHARS = 12_000
 OUTPUT_FIELDS = ("output", "stdout", "stderr", "result", "message")
 
@@ -60,7 +62,11 @@ def source_scope() -> str:
 
 def tool_name(payload: dict) -> str:
     value = payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "unknown"
-    return str(value)
+    # Tool names are observable labels, not trusted identifiers.  A malformed
+    # caller can put credentials or raw body text in the field, so apply the
+    # same bounded RED redaction used by other runtime ledgers before routing
+    # or persisting it.
+    return safe_preview(value, 120)
 
 
 def route_family(tool: str) -> str:

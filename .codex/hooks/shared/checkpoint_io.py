@@ -195,7 +195,7 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
         merged = merge_checkpoint(baseline, update, context)
         safety = classify_payload(merged)
         if safety["classification"] == "RED":
-            append_jsonl(
+            red_result = append_jsonl(
                 paths["events"],
                 {
                     "created_at": now_iso(),
@@ -206,13 +206,13 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
             )
             return {
                 "status": "skipped_red",
-                "changed": False,
-                "bytes_written": 0,
-                "files_written": [],
-                "replacements": 0,
-                "appends": 0,
-                "fsync_publications": 0,
-                "persistence_bytes_known": True,
+                "changed": red_result.changed,
+                "bytes_written": red_result.bytes_written,
+                "files_written": list(red_result.files_written),
+                "replacements": red_result.replacements,
+                "appends": red_result.appends,
+                "fsync_publications": red_result.fsync_publications,
+                "persistence_bytes_known": red_result.known,
                 "findings": safety["findings"],
             }
 

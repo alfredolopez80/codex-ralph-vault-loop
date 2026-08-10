@@ -433,3 +433,54 @@ def test_selective_rollback_preserves_global_views_for_unselected_plans(tmp_path
     consolidated = (root / ".ralph" / "plans" / "implementation-notes-consolidated.md").read_text(encoding="utf-8")
     assert "## selective/one" in consolidated
     assert "## selective/two" in consolidated
+
+
+def test_rollback_failure_restores_all_legacy_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _repo(tmp_path)
+    first = _plan(root, "atomic/one")
+    second = _plan(root, "atomic/two")
+    _notes(root, first, operations=(("op-one", "decision", "completed"),))
+    _notes(root, second, operations=(("op-two", "decision", "completed"),))
+    paths, context = _context(root)
+    assert apply_migration(context)["imported_plans"] == 2
+    store = ImplementationStore(paths)
+    assert rebuild_legacy_views(store, apply=True)["applied"] is True
+    store.record_event("atomic/one", kind="decision", operation_id="op-new", summary="new generation")
+    dry = rebuild_legacy_views(store)
+    targets = [root / output for output in dry["outputs"]]
+    before = {target: target.read_bytes() for target in targets}
+    original = store.publish_compatibility_view
+    calls = 0
+
+    def fail_second(output, content, *, hard_limit):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected publication failure")
+        return original(output, content, hard_limit=hard_limit)
+
+    monkeypatch.setattr(store, "publish_compatibility_view", fail_second)
+    with pytest.raises(MigrationError, match="prior views were restored") as error:
+        rebuild_legacy_views(store, apply=True)
+    assert error.value.code == "rollback_publish_failed"
+    assert {target: target.read_bytes() for target in targets} == before
+
+
+def test_rollback_rejects_output_collision_with_canonical_plan_source(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    plan = _plan(root, "implementation-index")
+    paths = resolve_store_paths(primary_root=root)
+    store = ImplementationStore(paths)
+    store.register_plan(
+        "implementation-index",
+        plan_path=".ralph/plans/implementation-index.md",
+        status="active",
+        operation_id="start-collision",
+    )
+    source = plan.read_bytes()
+
+    with pytest.raises(MigrationError, match="overlaps") as error:
+        rebuild_legacy_views(store, apply=True)
+
+    assert error.value.code == "rollback_source_overlap"
+    assert plan.read_bytes() == source

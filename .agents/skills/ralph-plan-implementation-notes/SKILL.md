@@ -74,8 +74,21 @@ identical retries are no-ops, while changed material payloads conflict. Hash
 chains provide local integrity evidence but are not signatures. Approval is
 read from the canonical plan document, not a payload boolean. Automatic plan
 selection is limited to the active repository's main checkout and one
-unambiguous active plan; ambiguous, foreign, symlinked, hardlinked, or
-cross-worktree sources are rejected.
+unambiguous active or reopened plan; ambiguous, foreign, symlinked, hardlinked,
+or cross-worktree sources are rejected. Completion requires a non-empty
+canonical all-pass validation map; Stop payload flags cannot substitute for
+journal evidence. Direct lint/typecheck runners are recognized by the
+structured validation detector even when the generic tool classifier does not
+label them as test-like.
+
+`export --output` is accepted only below the canonical derived exports
+directory. `rebuild-legacy --apply` stages and validates all outputs, rejects
+fixed-name collisions with canonical plan sources, snapshots existing targets,
+and restores already-published targets if a replacement fails. A selective
+rollback keeps global indexes/consolidated views complete for unselected plans.
+The registration path preflights manifest capacity while holding the plan and
+manifest locks, and stale manifest candidates cannot regress the event
+sequence.
 
 The progress-maintenance path is permanently local for this contract: it has
 zero Terra/Sol/advisor/worker/MCP allowance. Model fields are content-free
@@ -83,7 +96,12 @@ platform provenance labels and do not attest to an executor. Legacy HTML,
 Markdown, index, and consolidated views are explicit `export`, migration, or
 rollback outputs only; hooks and Stop never publish them implicitly. The
 bounded report/observability readers reject raw bodies and cap files, records,
-groups, quarantine lines, and serialized output.
+groups, quarantine lines, and serialized output. Cost-ledger tool labels are
+redacted and bounded before persistence, while RED checkpoint rejection events
+retain truthful bounded write metrics without retaining the rejected body. The
+Stop terminal marker keeps claim recency explicitly rather than trimming by
+scope-key order, and repeated task boundaries invalidate their prior
+content-free cache claim before lifecycle reinitialization.
 
 ## References
 

@@ -79,6 +79,7 @@ _EXPLICIT_PROGRESS_RE = re.compile(
     re.IGNORECASE,
 )
 _PROFILE_NAMES = frozenset({"luna", "terra", "sol", "unknown"})
+_DISCOVERABLE_STATUSES = frozenset({"active", "reopened"})
 
 
 @dataclass(frozen=True)
@@ -235,7 +236,7 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
             pointer
             for pointer in pointers
             if isinstance(pointer, Mapping)
-            and pointer.get("status") == "active"
+            and pointer.get("status") in _DISCOVERABLE_STATUSES
             and _workspace_matches(pointer, expected_workspace)
         ]
     identities: list[ProgressIdentity] = []
@@ -253,7 +254,7 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         except Exception:
             invalid_state = True
             continue
-        if not state or state.get("status") != "active":
+        if not state or state.get("status") not in _DISCOVERABLE_STATUSES:
             continue
         identities.append(
             ProgressIdentity(
