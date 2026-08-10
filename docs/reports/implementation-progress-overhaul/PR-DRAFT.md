@@ -37,6 +37,7 @@ not observable, and the installed global source remains a separate checkout.
 
 ## Approval boundary
 
-Approval is required before any global install/switch, real-user-data migration,
-recovery-mode migration, push, PR opening, merge, or deployment. This draft is
-not an opened PR.
+This PR is intentionally draft and is not approved for merge. Approval remains
+required before any global install/switch, real-user-data migration,
+recovery-mode migration, merge, or deployment. Push and PR creation were
+explicitly authorized for this review preview.
