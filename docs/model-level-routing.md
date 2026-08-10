@@ -26,6 +26,34 @@ intent, impact class, sensitivity, bounded overrides, proven capabilities, and
 remaining budget. It returns an inspectable recommendation without filesystem,
 hook, clock, or configuration I/O.
 
+### Implementation-progress cost policy
+
+Progress bookkeeping uses a separate internal contract:
+`origin=implementation-progress` and `intent=progress-maintenance`. The exact
+pair is handled before ordinary complexity routing and always produces the
+following decision, for complexity 1 through 10:
+
+| Origin/intent                                  | Route  | Spawn   | Worker budget | Advisor budget | Reason                                     |
+| ---------------------------------------------- | ------ | ------- | ------------: | -------------: | ------------------------------------------ |
+| implementation-progress / progress-maintenance | `none` | `false` |           `0` |            `0` | `local-deterministic-progress-maintenance` |
+
+This exclusion is exact and narrow. A substantive architecture, migration,
+security, debugging, or implementation task without that pair keeps the normal
+repository routing below. A progress origin with a substantive intent is also
+normal work; an ordinary origin with the progress intent is not promoted to
+the maintenance lane.
+
+Model provenance is recorded independently from the safety template using
+`model_family` (`luna`, `terra`, `sol`, or `unknown`), `model_source`
+(`payload`, `environment`, `repository-default`, or `unknown`), and
+`model_verified`. Payload and explicit environment values can verify a known
+family. A repository-default Luna remains unverified because a per-turn model
+selector may override it. Progress output therefore uses these verified-only
+limits: Luna recovery/delta/expanded `512/256/1,024` UTF-8 bytes; Terra
+automatic progress `192` bytes; Sol or unknown/unverified `96` bytes or a
+pointer; advisor allowance is always zero. No model selector is mutated by
+these fields or by this routing branch.
+
 | Aristotle result        | Current executor | New-subagent recommendation                                     |
 | ----------------------- | ---------------- | --------------------------------------------------------------- |
 | 1-3 routine or low-risk | Luna / Max       | None by default                                                 |

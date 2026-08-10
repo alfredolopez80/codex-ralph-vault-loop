@@ -13,6 +13,7 @@ def routing_context(state: dict[str, object]) -> str:
         "policy_version",
         "raw_complexity",
         "effective_complexity",
+        "origin",
         "intent",
         "sensitivity",
         "configured_executor_model",
@@ -24,6 +25,8 @@ def routing_context(state: dict[str, object]) -> str:
         "spawn_required",
         "reason_code",
         "budget_remaining",
+        "worker_budget",
+        "advisor_budget",
     )
     aliases = {"raw_complexity": "raw", "effective_complexity": "effective"}
     if routing.get("subagent_route") == "none":

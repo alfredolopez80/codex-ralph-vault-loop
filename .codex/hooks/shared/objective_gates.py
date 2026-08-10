@@ -273,11 +273,16 @@ def collect_file_line_finding(payload: Mapping[str, object]) -> GateFinding | No
     return _finding("file_line_violation", "File-line hard gate failed; split the oversized file before stopping.", priority=5, critical=True)
 
 
-def collect_implementation_notes_finding(payload: Mapping[str, object], scope: StopScope) -> GateFinding | None:
+def collect_implementation_notes_finding(
+    payload: Mapping[str, object],
+    scope: StopScope,
+    *,
+    persist_index: bool = True,
+) -> GateFinding | None:
     if not _implementation_notes_candidate(payload, scope):
         return None
     try:
-        response = evaluate_implementation_notes(dict(payload))
+        response = evaluate_implementation_notes(dict(payload), persist_index=persist_index)
     except (GitMetadataError, ImplementationNotesError):
         return None
     if not response:
@@ -285,12 +290,17 @@ def collect_implementation_notes_finding(payload: Mapping[str, object], scope: S
     return _finding("implementation_notes_missing", "Required implementation notes are missing or invalid; complete them before stopping.", priority=8, critical=True)
 
 
-def collect_hard_findings(payload: Mapping[str, object], scope: StopScope) -> tuple[list[GateFinding], GateReports]:
+def collect_hard_findings(
+    payload: Mapping[str, object],
+    scope: StopScope,
+    *,
+    persist_index: bool = True,
+) -> tuple[list[GateFinding], GateReports]:
     findings: list[GateFinding] = []
     file_line = collect_file_line_finding(payload)
     if file_line:
         findings.append(file_line)
-    notes = collect_implementation_notes_finding(payload, scope)
+    notes = collect_implementation_notes_finding(payload, scope, persist_index=persist_index)
     if notes:
         findings.append(notes)
     findings.extend(collect_payload_findings(payload, scope))

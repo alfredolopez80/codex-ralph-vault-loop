@@ -255,7 +255,9 @@ def _block(output: str, event: str) -> bool:
 def run_sample(config: Mapping[str, object], root: Path, scenario: str, profile: str, identity: str) -> Sample:
     temporary_root = Path(tempfile.gettempdir()).resolve()
     with tempfile.TemporaryDirectory(prefix="ralph-hook-scenario-", dir=temporary_root) as temporary:
-        case_root = Path(temporary)
+        # Runtime writers reject symlink ancestors.  Resolve the OS temporary
+        # directory for deterministic fixtures without weakening that refusal.
+        case_root = Path(temporary).resolve()
         workspace = case_root / "workspace"
         (workspace / "src").mkdir(parents=True)
         (workspace / "notes.md").write_text("old\n", encoding="utf-8")
@@ -267,6 +269,7 @@ def run_sample(config: Mapping[str, object], root: Path, scenario: str, profile:
         steps = scenario_steps(scenario, profile, workspace, identity)
         configured = sum(configured_counts.get(event, 0) for event in {step.event for step in steps})
         matched = executed = output_bytes = blocks = continuations = 0
+        prompt_outputs: list[tuple[str, str, bool]] = []
         roles: list[str] = []
         started = time.perf_counter_ns()
         for step in steps:
@@ -291,10 +294,23 @@ def run_sample(config: Mapping[str, object], root: Path, scenario: str, profile:
                 blocked = _block(completed.stdout, step.event)
                 blocks += int(blocked)
                 continuations += int(blocked and step.event == "Stop")
+                if step.event == "UserPromptSubmit":
+                    prompt_outputs.append((str(step.payload.get("prompt") or ""), completed.stdout, blocked))
         elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
         events = _runtime_events(runtime_root, scenario)
         child_count = sum(int(event.get("child_process_count", 0)) for event in events) if events else None
-        cache_hits = sum(1 for event in events if event.get("cache_hit") is True)
+        # Cache hits are intentionally not persisted by the production hook.
+        # Infer repeated identical prompt hits from the bounded benchmark
+        # sequence instead of requiring a telemetry write on the hot path.
+        cache_hits = sum(
+            1
+            for index, (prompt, output, blocked) in enumerate(prompt_outputs)
+            if prompt
+            and not blocked
+            and not output.strip()
+            and any(previous_prompt == prompt for previous_prompt, _previous_output, _previous_blocked in prompt_outputs[:index])
+        )
+        cache_hits += sum(1 for event in events if event.get("cache_hit") is True)
         advisor_count = sum(int(event.get("advisor_count", 0)) for event in events)
         def event_codes(field: str) -> tuple[str, ...]:
             values = [

@@ -14,7 +14,7 @@ import time
 from typing import Any, Mapping
 
 from .redaction import is_red
-from .runtime_profile import classify_model
+from .runtime_profile import classify_model, is_progress_maintenance
 
 
 SCHEMA_VERSION = 1
@@ -176,12 +176,16 @@ def budget_decision(
     independent: bool = False,
     critical_review: bool = False,
     failure_fingerprints: tuple[str, ...] = (),
+    origin: str = "",
+    intent: str = "",
 ) -> BudgetDecision:
     """Evaluate a spawn request with fail-closed optional delegation."""
 
     state = normalize_ledger(ledger)
     normalized_kind = _bounded_text(kind, 32).lower()
     sensitivity = _bounded_text(sensitivity, 16).upper() or "GREEN"
+    if is_progress_maintenance(origin, intent):
+        return BudgetDecision(False, "local-deterministic-progress-maintenance", 0, 0)
     if sensitivity == "RED":
         return BudgetDecision(False, "red-local-only", 0, 0)
     if _ints(depth) >= MAX_DEPTH:

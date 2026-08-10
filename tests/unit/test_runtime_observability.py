@@ -62,9 +62,13 @@ def test_schema_is_versioned_and_content_free(tmp_path: Path) -> None:
     event = _event(tmp_path)
     assert event["schema_version"] == SCHEMA_VERSION
     assert event["schema_name"] == SCHEMA_NAME
+    assert event["model_family"] == "luna"
+    assert event["model_source"] == "payload"
+    assert event["model_verified"] is True
     assert set(EVENTS) == {"session_start", "user_prompt", "pre_tool", "post_tool", "stop", "subagent", "maintenance"}
     assert event["subscription_usage_measured"] is False
     assert "session-a" not in json.dumps(event)
+    assert normalize_event({**event, "model_source": "private-selector"})["model_source"] == "unknown"
     assert normalize_event({**event, "prompt": "private text"}) is None
     assert normalize_event({**event, "tool_response": "private result"}) is None
 

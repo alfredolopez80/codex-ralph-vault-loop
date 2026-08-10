@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import html
 import json
@@ -44,6 +45,7 @@ CATEGORY_HEADING_IDS = {
 }
 CATEGORY_ORDER = ("decision", "deviation", "tradeoff", "open-question", "validation", "summary")
 SENSITIVE_NAME_RE = re.compile(r"(?i)(^\.env(?:\.|$)|secret|token|credential|wallet|keystore|cookies?|id_rsa|id_ed25519|\.pem$|\.key$)")
+MAX_HOOK_STATE_BYTES = 64 * 1024
 
 
 class ImplementationNotesError(RuntimeError):
@@ -82,6 +84,11 @@ class NotesHTMLParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.has_main = False
         self.has_csp = False
+        # Metadata cards live outside entry articles.  Keeping them on the
+        # same parser lets migration capture source provenance without a
+        # second HTML parse (the migration contract permits one parse per
+        # legacy source).
+        self.document_fields: dict[str, str] = {}
         self.section_stack: list[str] = []
         self.section_counts: dict[str, int] = {}
         self.anchor_sections: dict[str, str] = {}
@@ -112,7 +119,7 @@ class NotesHTMLParser(HTMLParser):
                     fields={},
                 )
                 self.pending_dt = ""
-        if self.current_entry is not None and tag in {"dt", "dd"}:
+        if tag in {"dt", "dd"} and (self.current_entry is not None or self.pending_dt or tag == "dt"):
             self.current_field_tag = tag
             self.current_field_text = []
 
@@ -122,7 +129,19 @@ class NotesHTMLParser(HTMLParser):
             if tag == "dt":
                 self.pending_dt = text
             elif tag == "dd" and self.pending_dt:
-                self.current_entry.fields[self.pending_dt] = text
+                if self.current_entry is not None:
+                    self.current_entry.fields[self.pending_dt] = text
+                else:
+                    self.document_fields[self.pending_dt] = text
+                self.pending_dt = ""
+            self.current_field_tag = ""
+            self.current_field_text = []
+        elif self.current_entry is None and tag == self.current_field_tag:
+            text = " ".join("".join(self.current_field_text).split())
+            if tag == "dt":
+                self.pending_dt = text
+            elif tag == "dd" and self.pending_dt:
+                self.document_fields[self.pending_dt] = text
                 self.pending_dt = ""
             self.current_field_tag = ""
             self.current_field_text = []
@@ -134,7 +153,7 @@ class NotesHTMLParser(HTMLParser):
             self.section_stack.pop()
 
     def handle_data(self, data: str) -> None:
-        if self.current_entry is not None and self.current_field_tag:
+        if self.current_field_tag:
             self.current_field_text.append(data)
 
     def handle_comment(self, data: str) -> None:
@@ -176,7 +195,9 @@ def write_implementation_plan_state(roots: Roots, session_id: str, plan_path: Pa
     if safe_session_id(session_id) == "unknown":
         return
     path = implementation_plan_state_path(roots.active_worktree_root, session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _safe_state_directory(path.parent, allow_missing=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _safe_state_directory(path.parent)
     payload = {
         "session_id": safe_session_id(session_id),
         "plan_path": str(plan_path),
@@ -188,22 +209,114 @@ def write_implementation_plan_state(roots: Roots, session_id: str, plan_path: Pa
         "workspace_instance_id": hashlib.sha256(str(roots.active_worktree_root.resolve()).encode("utf-8")).hexdigest()[:16],
         "updated_at": now_local(),
     }
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _atomic_state_json(path, payload)
 
 
 def read_implementation_plan_state(active_root: Path, session_id: str) -> dict[str, str]:
     path = implementation_plan_state_path(active_root, session_id)
-    if not path.exists():
+    if not path.is_file() or path.is_symlink():
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        raw = _read_bounded_state(path)
+        if raw is None:
+            return {}
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
     if not isinstance(data, dict):
         return {}
     if safe_session_id(str(data.get("session_id") or "")) != safe_session_id(session_id):
         return {}
     return {str(key): str(value) for key, value in data.items() if isinstance(value, str)}
+
+
+def _safe_state_directory(path: Path, *, allow_missing: bool = False) -> None:
+    absolute = path.absolute()
+    current = Path(absolute.parts[0])
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            if allow_missing:
+                continue
+            raise OSError(f"hook state path component does not exist: {current}")
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise OSError(f"hook state path component is unsafe: {current}")
+
+
+def _safe_state_file(path: Path, *, allow_missing: bool = False) -> os.stat_result | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise OSError("hook state target is not a regular non-aliased file")
+    return info
+
+
+def _read_bounded_state(path: Path) -> bytes | None:
+    before = _safe_state_file(path)
+    if before is None or before.st_size > MAX_HOOK_STATE_BYTES:
+        return None
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino) or opened.st_nlink != 1 or opened.st_size > MAX_HOOK_STATE_BYTES:
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, MAX_HOOK_STATE_BYTES - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_HOOK_STATE_BYTES:
+                return None
+        final = os.fstat(fd)
+        if (final.st_dev, final.st_ino) != (opened.st_dev, opened.st_ino) or final.st_nlink != 1 or final.st_size != total:
+            return None
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _atomic_state_json(path: Path, payload: dict[str, object]) -> None:
+    encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if len(encoded) > MAX_HOOK_STATE_BYTES:
+        raise OSError("hook state exceeds its bounded size")
+    _safe_state_directory(path.parent)
+    previous = _safe_state_file(path, allow_missing=True)
+    mode = stat.S_IMODE(previous.st_mode) if previous is not None else 0o600
+    temporary = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as handle:
+            temporary = handle.name
+            os.fchmod(handle.fileno(), mode & 0o777 or 0o600)
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _safe_state_directory(path.parent)
+        current = _safe_state_file(path, allow_missing=True)
+        if previous is None:
+            if current is not None:
+                raise OSError("hook state target appeared during publication")
+        elif current is None or (current.st_dev, current.st_ino) != (previous.st_dev, previous.st_ino):
+            raise OSError("hook state target changed during publication")
+        os.replace(temporary, path)
+        temporary = ""
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary:
+            with contextlib.suppress(OSError):
+                Path(temporary).unlink()
 
 
 def run_git(root: Path, *args: str) -> str:
@@ -401,10 +514,10 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return False
 
 
-def parse_plan_metadata(plan_path: Path) -> PlanMetadata:
+def parse_plan_metadata_text(text: str) -> PlanMetadata:
     values: dict[str, str] = {}
     in_fence = False
-    for line in plan_path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_fence = not in_fence
@@ -428,6 +541,10 @@ def parse_plan_metadata(plan_path: Path) -> PlanMetadata:
         implementation_notes_status=values.get("implementation_notes_status", ""),
         plan_approval_status=values.get("plan_approval_status", ""),
     )
+
+
+def parse_plan_metadata(plan_path: Path) -> PlanMetadata:
+    return parse_plan_metadata_text(plan_path.read_text(encoding="utf-8"))
 
 
 def is_plan_approved(metadata: PlanMetadata, explicit_approved: bool = False) -> bool:

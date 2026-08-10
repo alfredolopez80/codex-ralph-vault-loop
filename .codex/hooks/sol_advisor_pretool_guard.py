@@ -14,6 +14,7 @@ from shared.sol_advisor import (
     read_state,
 )
 from shared.runtime_observability import record_event
+from shared.runtime_profile import PROGRESS_REASON_CODE, is_progress_maintenance
 
 
 def _native_spawn(payload: dict) -> bool:
@@ -21,13 +22,40 @@ def _native_spawn(payload: dict) -> bool:
     return value.strip().lower().replace("-", "_").rsplit(".", 1)[-1] in {"spawn_agent", "spawnagent"}
 
 
+def _field(payload: dict, *keys: str) -> object:
+    for source in (payload, payload.get("tool_input"), payload.get("toolInput"), payload.get("input")):
+        if not isinstance(source, dict):
+            continue
+        for key in keys:
+            value = source.get(key)
+            if value is not None and value != "":
+                return value
+    return None
+
+
 def _advisor_main(payload: dict | None = None) -> int:
     try:
         payload = payload if payload is not None else read_hook_input()
         if not _native_spawn(payload):
             return 0
+        if is_progress_maintenance(
+            _field(payload, "origin", "task_origin", "taskOrigin"),
+            _field(payload, "intent", "task_type", "taskType"),
+        ):
+            write_json({"decision": "block", "reason": PROGRESS_REASON_CODE})
+            return 0
         state = read_state(payload)
         routing = state.get("routing")
+        if is_progress_maintenance(
+            _field(payload, "origin", "task_origin", "taskOrigin")
+            or state.get("origin")
+            or (routing.get("origin") if isinstance(routing, dict) else None),
+            _field(payload, "intent", "task_type", "taskType")
+            or state.get("intent")
+            or (routing.get("intent") if isinstance(routing, dict) else None),
+        ):
+            write_json({"decision": "block", "reason": PROGRESS_REASON_CODE})
+            return 0
         if (
             is_sol_advisor(payload)
             and state.get("advisor_completed")

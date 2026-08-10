@@ -184,12 +184,39 @@ def test_continuation_injects_changed_notes_once_per_session(tmp_path: Path) -> 
 
 def test_wakeup_injects_active_implementation_context_once(tmp_path: Path) -> None:
     _primary, active, _plan, env = fixture_repo(tmp_path)
-    command = [sys.executable, str(WAKEUP), "--project", "sample-project", "--project-id", "project-id", "--workspace-root", str(active)]
+    command = [
+        sys.executable,
+        str(WAKEUP),
+        "--project",
+        "sample-project",
+        "--project-id",
+        "project-id",
+        "--workspace-root",
+        str(active),
+        "--implementation-context",
+    ]
     first = run(command, ROOT, env)
     second = run(command, ROOT, env)
     assert first.returncode == second.returncode == 0
     assert "## Active Implementation Context" in first.stdout
     assert "## Active Implementation Context" not in second.stdout
+
+
+def test_wakeup_keeps_legacy_implementation_context_off_without_explicit_flag(tmp_path: Path) -> None:
+    _primary, active, _plan, env = fixture_repo(tmp_path)
+    command = [
+        sys.executable,
+        str(WAKEUP),
+        "--project",
+        "sample-project",
+        "--project-id",
+        "project-id",
+        "--workspace-root",
+        str(active),
+    ]
+    result = run(command, ROOT, env)
+    assert result.returncode == 0, result.stderr
+    assert "## Active Implementation Context" not in result.stdout
 
 
 def test_automatic_recovery_matches_explicit_lookup_without_wrong_plan_selection(tmp_path: Path) -> None:

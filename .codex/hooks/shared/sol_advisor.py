@@ -505,6 +505,8 @@ def reserve_worker_spawn(payload: dict[str, Any]) -> tuple[bool, str]:
             independent=bool(state.get("independent_block", False)),
             critical_review=bool(state.get("critical_review", False)),
             failure_fingerprints=tuple(str(value) for value in state.get("failure_fingerprints", [])),
+            origin=str(state.get("origin") or routing.get("origin") or ""),
+            intent=str(state.get("intent") or routing.get("intent") or ""),
         )
         if not decision.allowed:
             return False, decision.reason
@@ -729,6 +731,10 @@ def _routing_decision(
     state: dict[str, Any], payload: dict[str, Any], prompt: str, *, explicit_request: bool
 ) -> dict[str, Any]:
     raw_complexity = max(1, min(10, int(state.get("complexity", 1) or 1)))
+    origin = _bounded_text(
+        _payload_value(payload, "origin", "task_origin", "taskOrigin") or state.get("origin"),
+        limit=64,
+    )
     intent = _infer_intent(prompt, payload)
     if intent == "routine" and str(state.get("intent", "routine")) != "routine":
         # A short continuation such as "status update" must not erase the
@@ -802,6 +808,7 @@ def _routing_decision(
         RoutingRequest(
             raw_complexity=raw_complexity,
             intent=intent,
+            origin=origin,
             impact_class=impact_class,
             sensitivity=sensitivity,
             # A repository config is authoritative when present.  In a
@@ -842,6 +849,7 @@ def _routing_decision(
         "policy_version": decision.policy_version,
         "raw_complexity": decision.raw_complexity,
         "effective_complexity": decision.effective_complexity,
+        "origin": decision.origin,
         "intent": decision.intent,
         "impact_class": decision.impact_class,
         "sensitivity": decision.sensitivity,
@@ -870,6 +878,8 @@ def _routing_decision(
         "max_task_jobs": decision.max_task_jobs,
         "max_task_advisors": decision.max_task_advisors,
         "packet_budget_bytes": decision.packet_budget_bytes,
+        "worker_budget": decision.worker_budget,
+        "advisor_budget": decision.advisor_budget,
     }
     # The resolver has only repository/global lanes; retain the loader's
     # explicit fallback label so the hook can distinguish a real repo config
@@ -891,6 +901,7 @@ def _refresh_routing(state: dict[str, Any], payload: dict[str, Any], prompt: str
     spawn_eligible = route in {"terra-implementation", "sol-advisor", "sol-active-analysis"}
     state["final_review_eligible"] = bool(review_eligible)
     state["consultation_eligible"] = bool(spawn_eligible and routing.get("spawn_required"))
+    state["origin"] = routing.get("origin", "")
     state["intent"] = routing.get("intent", "routine")
     state["sensitivity"] = routing.get("sensitivity", "GREEN")
     return routing
@@ -1103,6 +1114,8 @@ def ensure_state_shape(state: dict[str, Any], payload: dict[str, Any]) -> dict[s
         state[key] = budget[key]
     for override_key in ("task_subagent_override", "session_subagent_override"):
         state[override_key] = _override_record(state.get(override_key))
+    state.setdefault("origin", "")
+    state["origin"] = _bounded_text(state.get("origin"), limit=64)
     state.setdefault("intent", "routine")
     state.setdefault("sensitivity", "GREEN")
     state["budget_remaining"] = max(0, state["consultation_budget"] - state["consultation_count"])

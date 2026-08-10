@@ -8,8 +8,9 @@ from shared.active_context import ActiveContext, active_context_from_payload
 from shared.checkpoint_io import CheckpointError, classify_payload, load_latest
 from shared.learning import extract_validated_learning, payload_indicates_failure
 from shared.paths import read_hook_input
+from shared.persistence_metrics import WriteResult
 from shared.redaction import is_red
-from shared.vault_io import save_learning, write_handoff
+from shared.vault_io import save_learning_with_result, write_handoff_with_result
 
 MEMORY_TRACE_KEYS = ("selected_memory_ids", "memory_rejected", "recall_status", "fallback_used")
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
@@ -58,16 +59,16 @@ def memory_trace_for_handoff(payload: dict) -> str:
     return "## Memory Trace\n\n" + "\n".join(f"- {line}" for line in lines)
 
 
-def run(payload: dict, *, context: ActiveContext | None = None) -> bool:
+def run(payload: dict, *, context: ActiveContext | None = None) -> WriteResult:
     try:
         context = context or active_context_from_payload(payload, resolve_git=False)
         if payload.get("stop_hook_active"):
-            return False
+            return WriteResult()
         message = payload.get("last_assistant_message") or payload.get("lastAssistantMessage") or ""
         if not isinstance(message, str) or not message.strip():
-            return False
+            return WriteResult()
         if is_red(message):
-            return False
+            return WriteResult()
         checkpoint_section = checkpoint_for_handoff(context)
         memory_trace = memory_trace_for_handoff(payload)
         marker = (
@@ -77,7 +78,7 @@ def run(payload: dict, *, context: ActiveContext | None = None) -> bool:
         )
         sections = [section for section in (marker, checkpoint_section, memory_trace) if section]
         summary = "\n\n".join(sections)
-        write_handoff(
+        _path, result = write_handoff_with_result(
             summary,
             status="stop-hook",
             next_step="Re-read current project state and verify pending work.",
@@ -88,10 +89,28 @@ def run(payload: dict, *, context: ActiveContext | None = None) -> bool:
             if learning:
                 # Preserve the bounded validated candidate for deferred human-
                 # review maintenance, but keep it out of normal recall.
-                save_learning(learning, source="Stop", classification="YELLOW", context=context, candidate_only=True)
-        return True
+                _candidate, learning_result = save_learning_with_result(
+                    learning,
+                    source="Stop",
+                    classification="YELLOW",
+                    context=context,
+                    candidate_only=True,
+                )
+                if learning_result.changed:
+                    result = WriteResult(
+                        changed=True,
+                        bytes_written=(result.bytes_written or 0) + (learning_result.bytes_written or 0)
+                        if result.bytes_written is not None and learning_result.bytes_written is not None
+                        else None,
+                        files_written=tuple(result.files_written) + tuple(learning_result.files_written),
+                        replacements=result.replacements + learning_result.replacements,
+                        appends=result.appends + learning_result.appends,
+                        fsync_publications=result.fsync_publications + learning_result.fsync_publications,
+                        known=result.known and learning_result.known,
+                    )
+        return result
     except Exception:
-        return False
+        return WriteResult.unknown()
 
 
 def main() -> int:

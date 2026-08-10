@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 import time
 from typing import Any, Mapping
@@ -14,7 +15,7 @@ from shared.active_context import ActiveContext, active_context_from_payload
 from shared.context_budget import classify_prompt
 from shared.context_delta import CacheClaim, claim, discard, finalize
 from shared.prompt_context_components import (
-    checkpoint_identity,
+    checkpoint_stat_identity,
     classification_context,
     complexity_for_prompt,
     compose_context,
@@ -26,6 +27,12 @@ from shared.prompt_context_components import (
 from shared.redaction import is_red
 from shared.runtime_observability import record_event
 from shared.runtime_profile import profile_from_payload
+from shared.progress_hook import (
+    cheap_lookup,
+    emit_lookup,
+    progress_event_for_prompt,
+    request_for,
+)
 from shared.sol_advisor import executor_context, initialize, is_task_boundary, read_state
 from shared.task_signature import signature_from_prompt
 from sol_advisor_prompt_state import routing_context
@@ -38,7 +45,27 @@ def _prompt(payload: Mapping[str, object]) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _cheap_route(payload: Mapping[str, object]) -> str:
+    for key in ("route", "subagent_route", "route_name"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:96]
+    for key in ("routing", "routing_decision", "routingDecision"):
+        nested = payload.get(key)
+        if isinstance(nested, Mapping):
+            for nested_key in ("route", "decision", "route_name", "subagent_route"):
+                value = nested.get(nested_key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()[:96]
+    return ""
+
+
 def _continuity_context(prompt: str, context: ActiveContext) -> str:
+    # The canonical progress capsule is owned by SessionStart.  This legacy
+    # path remains available only for migration tests and explicit callers;
+    # it is never mixed into the normal prompt composition.
+    if os.environ.get("RALPH_LEGACY_CONTEXT_COMPAT", "").strip().lower() not in {"1", "true", "yes"}:
+        return ""
     if not is_continuation(prompt):
         maybe_update_objective(prompt, context)
         return ""
@@ -68,8 +95,12 @@ def _record(
     success: bool,
     skipped: list[str] | None = None,
 ) -> None:
+    # A cache hit/in-flight claim is a physical no-op for the prompt path.
+    # Runtime observability is deliberately miss-only here so the fast path
+    # cannot turn its accounting into a durable write.
+    if cache.status in {"hit", "inflight"}:
+        return
     try:
-        repeated = cache.status in {"hit", "inflight"}
         record_event(
             context,
             payload,
@@ -77,9 +108,9 @@ def _record(
             dispatcher="user_prompt_dispatch",
             duration_ns=time.perf_counter_ns() - started,
             process_count=1,
-            child_process_count=0 if repeated else 2,
+            child_process_count=2,
             components_considered=["context_guard", "classification", "task_signature", "recall", "routing", "delta"],
-            components_executed=[] if repeated else ["classification", "recall", "routing", "delta"],
+            components_executed=["classification", "recall", "routing", "delta"],
             components_skipped=skipped or [],
             skipped_reason=[cache.invalidation_reason] if cache.invalidation_reason else [],
             output_bytes=len(output.encode("utf-8")),
@@ -98,9 +129,11 @@ def run(payload: dict[str, Any]) -> str:
     prompt = _prompt(payload)
     if not prompt.strip():
         return ""
+    finding = classify_prompt(prompt)
+    # Safety classification is intentionally first.  No model, store, notes,
+    # or routing state is consulted before a RED/block decision is made.
     context = active_context_from_payload(payload, resolve_git=False)
     profile = profile_from_payload(payload)
-    finding = classify_prompt(prompt)
     if finding is not None:
         if is_red(prompt):
             with contextlib.suppress(Exception):
@@ -122,24 +155,34 @@ def run(payload: dict[str, Any]) -> str:
         )
         return output
 
-    continuity = _continuity_context(prompt, context)
     sensitivity = prompt_sensitivity(prompt, payload)
     generation = memory_generation(context, payload)
-    checkpoint = checkpoint_identity(context)
+    # Only a file-stat marker is consulted before the cache claim.  The
+    # checkpoint body and progress journal are miss-only reads.
+    checkpoint = checkpoint_stat_identity(context)
+    progress = cheap_lookup(context, payload)
+    progress_event = progress_event_for_prompt(prompt, payload)
+    progress_request = request_for(profile, context, payload, event=progress_event)
+    progress_identity = progress.identity
+    boundary = is_task_boundary(payload, prompt)
+    # Every explicit boundary is a new lifecycle epoch.  A nonce prevents two
+    # concurrent or repeated boundaries with identical text from sharing one
+    # cache claim before initialize() can reset task-scoped routing state.
+    boundary_epoch = f":boundary:{time.time_ns()}" if boundary else ""
+    signature_epoch = progress_request.context_epoch + boundary_epoch
     signature = signature_from_prompt(
         prompt,
         context=context,
         profile=profile,
         sensitivity=sensitivity,
         checkpoint_identity=checkpoint,
+        progress_plan_id=progress_identity.plan_id if progress_identity else "",
+        progress_generation=progress_identity.generation if progress_identity else 0,
+        context_epoch=signature_epoch,
     )
-    if is_task_boundary(payload, prompt):
-        # A structured task boundary must reset lifecycle state even when the
-        # user repeats the same text.  The cache stores no generation counter,
-        # so removing this exact content-free entry is the deterministic miss.
-        discard(context, signature)
-    existing_state = read_state(payload)
-    current_route = route_from_state(existing_state)
+    # Routing state is intentionally deferred until after this claim.  Payload
+    # routing metadata is cheap and stable enough for the claim fingerprint.
+    current_route = _cheap_route(payload)
     cache = claim(
         context,
         signature,
@@ -163,6 +206,7 @@ def run(payload: dict[str, Any]) -> str:
         return ""
 
     try:
+        continuity = _continuity_context(prompt, context)
         complexity = complexity_for_prompt(prompt)
         enriched = {
             **payload,
@@ -179,7 +223,17 @@ def run(payload: dict[str, Any]) -> str:
         ).strip()
         # Stable decision metadata must survive a long recall/task card.  It is
         # therefore composed before the variable-length intake segment.
-        segments = [continuity, classification_context(complexity), route_context, intake]
+        progress_context = ""
+        if progress_event == "explicit":
+            try:
+                progress_decision = emit_lookup(progress, progress_request, recovery_boundary=True)
+                progress_context = progress_decision.capsule if progress_decision.emitted else ""
+            except Exception:
+                progress_context = ""
+        # Safety/classification and stable routing precede optional progress
+        # recovery and recall.  The legacy rolling checkpoint is not included
+        # unless the explicit compatibility switch above is enabled.
+        segments = [classification_context(complexity), route_context, progress_context, continuity, intake]
         if profile.allow_prompt_improvement:
             segments.append(ADDITIONAL_CONTEXT)
         additional_context = compose_context(segments, profile)
@@ -201,7 +255,7 @@ def run(payload: dict[str, Any]) -> str:
                 signature,
                 selected_memory_ids=selected_memory_ids,
                 memory_generation=generation,
-                route=route,
+                route=current_route,
                 profile=profile.name,
                 clarification_state=clarification,
                 checkpoint_hash=checkpoint,
@@ -234,7 +288,11 @@ def run(payload: dict[str, Any]) -> str:
 
 def main() -> int:
     try:
-        raw = sys.stdin.read()
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        value = stream.read(4 * 1024 * 1024 + 1)
+        raw = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+        if len(raw.encode("utf-8")) > 4 * 1024 * 1024:
+            return 0
         value = json.loads(raw) if raw.strip() else {}
         payload = value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):

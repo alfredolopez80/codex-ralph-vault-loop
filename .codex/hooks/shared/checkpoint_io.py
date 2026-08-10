@@ -3,20 +3,22 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import tempfile
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 try:
     import fcntl
 except ImportError:  # pragma: no cover - non-POSIX compatibility.
     fcntl = None  # type: ignore[assignment]
 
-from .active_context import ActiveContext, ensure_project_runtime, project_metadata
-from .paths import append_jsonl, now_iso, ralph_home
+from .active_context import ActiveContext, ensure_project_runtime, project_metadata, project_runtime_root
+from .paths import _is_allowed_system_alias, append_jsonl, now_iso, ralph_home
 from .redaction import redact_text, sensitivity_report
 
 CHECKPOINT_VERSION = 1
@@ -29,15 +31,47 @@ VALID_VALIDATION_STATUSES = {"not_run", "partial", "pass", "fail"}
 VALID_SOURCES = {"UserPromptSubmit", "PostToolUse", "Stop", "manual"}
 SESSION_START_ACTIVE_TTL_HOURS = 24
 SESSION_START_INACTIVE_TTL_HOURS = 12
+MAX_CHECKPOINT_BYTES = 256 * 1024
+OBSERVATIONAL_CHECKPOINT_FIELDS = frozenset({"updated_at", "content_hash"})
+MATERIAL_CHECKPOINT_FIELDS = (
+    "status",
+    "classification",
+    "current_phase",
+    "objective",
+    "next_action",
+    "validation_status",
+    "blockers",
+    "risk_flags",
+)
 
 
 class CheckpointError(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class CheckpointWriteResult:
+    """Content-free publication metadata for one checkpoint update."""
+
+    changed: bool = False
+    bytes_written: int = 0
+    files_written: tuple[str, ...] = ()
+    archived: bool = False
+    replacements: int = 0
+    appends: int = 0
+    fsync_publications: int = 0
+    known: bool = True
+
+    def __bool__(self) -> bool:
+        return self.changed
+
+
 def checkpoint_root(root: Path | None = None, context: ActiveContext | None = None) -> Path:
     if context is not None:
-        return ensure_project_runtime(context, root) / CHECKPOINT_DIR
+        # Reads (including Stop fingerprinting) must not create project
+        # metadata or view directories.  Writers call ensure_checkpoint_runtime
+        # explicitly before entering the mutation boundary.
+        return project_runtime_root(context, root) / CHECKPOINT_DIR
     return (root or ralph_home()) / CHECKPOINT_DIR
 
 
@@ -55,8 +89,14 @@ def checkpoint_paths(root: Path | None = None, context: ActiveContext | None = N
 
 def ensure_checkpoint_runtime(root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Path]:
     paths = checkpoint_paths(root, context)
+    _safe_checkpoint_path(paths["base"], allow_missing=True)
     paths["base"].mkdir(parents=True, exist_ok=True)
+    _safe_checkpoint_path(paths["base"])
+    paths["base"].chmod(0o700)
+    _safe_checkpoint_path(paths["archive"], allow_missing=True)
     paths["archive"].mkdir(parents=True, exist_ok=True)
+    _safe_checkpoint_path(paths["archive"])
+    paths["archive"].chmod(0o700)
     return paths
 
 
@@ -69,8 +109,8 @@ def load_latest(root: Path | None = None, context: ActiveContext | None = None) 
 
 def read_checkpoint_json(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        payload = json.loads(_read_checkpoint_bytes(path).decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise CheckpointError(f"latest checkpoint is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise CheckpointError("latest checkpoint must be a JSON object")
@@ -88,7 +128,9 @@ def compact_error(value: str, limit: int = 240) -> str:
 
 def quarantine_invalid_latest(paths: dict[str, Path], error: CheckpointError) -> None:
     source = paths["latest_json"]
-    if not source.exists():
+    try:
+        _safe_checkpoint_path(source)
+    except OSError:
         return
     target = paths["base"] / f"latest.invalid.{timestamp_for_filename()}.json"
     try:
@@ -117,8 +159,16 @@ def load_latest_for_update(paths: dict[str, Path], root: Path | None = None, con
 @contextmanager
 def checkpoint_lock(paths: dict[str, Path]):
     lock_path = paths["base"] / "latest.lock"
+    _safe_checkpoint_path(lock_path.parent, allow_missing=True)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a", encoding="utf-8") as handle:
+    _safe_checkpoint_path(lock_path, allow_missing=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        os.close(fd)
+        raise OSError("checkpoint lock is not a private regular file")
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "a+", encoding="utf-8") as handle:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -138,12 +188,14 @@ def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = N
 
 def update_checkpoint(update: dict[str, Any], root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any]:
     paths = ensure_checkpoint_runtime(root, context)
+    progress_ref_only = bool(update.get("progress_ref_only"))
     with checkpoint_lock(paths):
-        current = load_latest_for_update(paths, root, context) or default_checkpoint(context)
-        merged = merge_checkpoint(current, update, context)
+        current = load_latest_for_update(paths, root, context)
+        baseline = current or default_checkpoint(context)
+        merged = merge_checkpoint(baseline, update, context)
         safety = classify_payload(merged)
         if safety["classification"] == "RED":
-            append_jsonl(
+            red_result = append_jsonl(
                 paths["events"],
                 {
                     "created_at": now_iso(),
@@ -152,50 +204,210 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
                     "source": merged.get("source", "manual"),
                 },
             )
-            return {"status": "skipped_red", "findings": safety["findings"]}
+            return {
+                "status": "skipped_red",
+                "changed": red_result.changed,
+                "bytes_written": red_result.bytes_written,
+                "files_written": list(red_result.files_written),
+                "replacements": red_result.replacements,
+                "appends": red_result.appends,
+                "fsync_publications": red_result.fsync_publications,
+                "persistence_bytes_known": red_result.known,
+                "findings": safety["findings"],
+            }
 
         merged["classification"] = str(safety["classification"])
         rendered = render_checkpoint(merged)
         merged["content_hash"] = content_hash(rendered)
-        write_checkpoint(paths, merged, rendered)
-        return {"status": "ok", "checkpoint": merged, "markdown": rendered}
+        fingerprint = semantic_fingerprint(merged)
+        if current is not None and semantic_fingerprint(current) == fingerprint:
+            # Timestamps and the derived content hash are observational.  A
+            # repeated semantic update must not publish any checkpoint file or
+            # append an event.
+            return {
+                "status": "unchanged",
+                "changed": False,
+                "bytes_written": 0,
+                "files_written": [],
+                "archived": False,
+                "replacements": 0,
+                "appends": 0,
+                "fsync_publications": 0,
+                "persistence_bytes_known": True,
+                "checkpoint": current,
+                "markdown": rendered,
+                "semantic_fingerprint": fingerprint,
+            }
+
+        write_result = write_checkpoint(
+            paths,
+            merged,
+            rendered,
+            archive=(not progress_ref_only) and (current is None or material_checkpoint_transition(current, merged)),
+        )
+        return {
+            "status": "ok",
+            "changed": write_result.changed,
+            "bytes_written": write_result.bytes_written,
+            "files_written": list(write_result.files_written),
+            "archived": write_result.archived,
+            "replacements": write_result.replacements,
+            "appends": write_result.appends,
+            "fsync_publications": write_result.fsync_publications,
+            "persistence_bytes_known": write_result.known,
+            "checkpoint": merged,
+            "markdown": rendered,
+            "semantic_fingerprint": fingerprint,
+        }
 
 
-def write_checkpoint(paths: dict[str, Path], checkpoint: dict[str, Any], rendered: str) -> None:
+def write_checkpoint(
+    paths: dict[str, Path],
+    checkpoint: dict[str, Any],
+    rendered: str,
+    *,
+    archive: bool = True,
+) -> CheckpointWriteResult:
     json_text = json.dumps(checkpoint, indent=2, sort_keys=True) + "\n"
     atomic_write_text(paths["latest_json"], json_text)
     atomic_write_text(paths["latest_md"], rendered)
-    timestamp = str(checkpoint["updated_at"]).replace(":", "").replace("+", "Z")
-    atomic_write_text(paths["archive"] / f"{timestamp}.json", json_text)
-    append_jsonl(
-        paths["events"],
-        {
-            "created_at": checkpoint["updated_at"],
-            "event": "updated",
-            "content_hash": checkpoint["content_hash"],
-            "classification": checkpoint["classification"],
-            "source": checkpoint.get("source", "manual"),
-            "status": checkpoint.get("status", "active"),
-            "project_id": checkpoint.get("project_id", ""),
-            "project": checkpoint.get("project", ""),
-            "session_id": checkpoint.get("session_id", ""),
-        },
+    files = ["latest.json", "latest.md"]
+    bytes_written = len(json_text.encode("utf-8")) + len(rendered.encode("utf-8"))
+    archived = False
+    if archive:
+        timestamp = str(checkpoint["updated_at"]).replace(":", "").replace("+", "Z")
+        archive_name = f"{timestamp}-{str(checkpoint.get('content_hash') or '')[:12]}.json"
+        atomic_write_text(paths["archive"] / archive_name, json_text)
+        files.append(f"archive/{archive_name}")
+        bytes_written += len(json_text.encode("utf-8"))
+        archived = True
+    event = {
+        "created_at": checkpoint["updated_at"],
+        "event": "updated",
+        "content_hash": checkpoint["content_hash"],
+        "classification": checkpoint["classification"],
+        "source": checkpoint.get("source", "manual"),
+        "status": checkpoint.get("status", "active"),
+        "project_id": checkpoint.get("project_id", ""),
+        "project": checkpoint.get("project", ""),
+        "session_id": checkpoint.get("session_id", ""),
+    }
+    append_jsonl(paths["events"], event)
+    event_text = json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n"
+    bytes_written += len(event_text.encode("utf-8"))
+    files.append("events.jsonl")
+    return CheckpointWriteResult(
+        changed=True,
+        bytes_written=bytes_written,
+        files_written=tuple(files),
+        archived=archived,
+        replacements=len(files) - 1,
+        appends=1,
+        fsync_publications=2 + int(archived),
     )
 
 
 def atomic_write_text(path: Path, text: str) -> None:
+    encoded = text.encode("utf-8")
+    if len(encoded) > MAX_CHECKPOINT_BYTES:
+        raise CheckpointError("checkpoint publication exceeds its bounded size")
     path.parent.mkdir(parents=True, exist_ok=True)
+    _safe_checkpoint_path(path, allow_missing=True)
+    try:
+        previous = path.lstat()
+    except FileNotFoundError:
+        previous = None
+    if previous is not None and (stat.S_ISLNK(previous.st_mode) or not stat.S_ISREG(previous.st_mode) or previous.st_nlink != 1):
+        raise OSError("checkpoint target is not a private regular file")
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        _safe_checkpoint_path(path, allow_missing=True)
+        try:
+            current = path.lstat()
+        except FileNotFoundError:
+            current = None
+        if previous is None:
+            if current is not None:
+                raise OSError("checkpoint target appeared during publication")
+        elif current is None or (current.st_dev, current.st_ino) != (previous.st_dev, previous.st_ino):
+            raise OSError("checkpoint target changed during publication")
         os.replace(tmp_path, path)
+        _safe_checkpoint_path(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         with suppress(FileNotFoundError):
             tmp_path.unlink()
+
+
+def _safe_checkpoint_path(path: Path, *, allow_missing: bool = False) -> None:
+    """Reject aliases and hardlinked files before checkpoint I/O."""
+
+    absolute = path.absolute()
+    current = Path(absolute.parts[0])
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            if allow_missing:
+                continue
+            raise OSError(f"checkpoint path does not exist: {current}")
+        if stat.S_ISLNK(info.st_mode) and not _is_allowed_system_alias(current):
+            raise OSError(f"checkpoint path contains a symlink: {current}")
+        if _is_allowed_system_alias(current):
+            continue
+        if current == absolute:
+            if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+                raise OSError(f"checkpoint target is hardlinked: {current}")
+        elif not stat.S_ISDIR(info.st_mode):
+            raise OSError(f"checkpoint path component is not a directory: {current}")
+
+
+def _read_checkpoint_bytes(path: Path) -> bytes:
+    _safe_checkpoint_path(path)
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_CHECKPOINT_BYTES:
+        raise OSError("checkpoint target is not a bounded regular file")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > MAX_CHECKPOINT_BYTES
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            raise OSError("checkpoint target changed during open")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, MAX_CHECKPOINT_BYTES - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_CHECKPOINT_BYTES:
+                raise OSError("checkpoint exceeds its read limit")
+        final = os.fstat(fd)
+        if (
+            final.st_dev != opened.st_dev
+            or final.st_ino != opened.st_ino
+            or final.st_nlink != 1
+            or final.st_size != total
+        ):
+            raise OSError("checkpoint changed during read")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:
@@ -229,6 +441,7 @@ def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:
         "validation_status": "not_run",
         "source": "manual",
         "content_hash": "",
+        "progress_ref": None,
     }
 
 
@@ -243,6 +456,57 @@ def git_value(*args: str) -> str:
 
 
 def merge_checkpoint(current: dict[str, Any], update: dict[str, Any], context: ActiveContext | None = None) -> dict[str, Any]:
+    progress_ref = update.get("progress_ref")
+    if update.get("progress_ref_only") and isinstance(progress_ref, Mapping):
+        # Planned work has one canonical narrative: the implementation store.
+        # Keep only a content-free pointer in the rolling checkpoint so the
+        # checkpoint cannot become a second objective/phase/validation log.
+        merged = default_checkpoint(context)
+        identity_fields = (
+            "session_id",
+            "cwd",
+            "workspace_root",
+            "git_root",
+            "project",
+            "project_slug",
+            "project_id",
+            "workspace_instance_id",
+            "remote_url_hash",
+            "source_root",
+            "git_branch",
+            "git_sha",
+        )
+        for field in identity_fields:
+            if current.get(field) not in (None, "", []):
+                merged[field] = current[field]
+        try:
+            plan_id = compact_text(str(progress_ref.get("plan_id", "")), 180)
+            generation = int(progress_ref.get("generation", 0))
+            semantic_hash = compact_text(str(progress_ref.get("semantic_hash", "")), 80)
+        except (TypeError, ValueError):
+            raise CheckpointError("progress reference is malformed")
+        if not plan_id or generation < 0 or not semantic_hash.startswith("sha256:"):
+            raise CheckpointError("progress reference is malformed")
+        merged["status"] = "active"
+        merged["classification"] = "GREEN"
+        merged["source"] = "PostToolUse"
+        merged["progress_ref"] = {
+            "plan_id": plan_id,
+            "generation": generation,
+            "semantic_hash": semantic_hash,
+        }
+        merged["objective"] = ""
+        merged["current_phase"] = ""
+        merged["last_verified_state"] = ""
+        merged["next_action"] = ""
+        merged["active_files"] = []
+        merged["commands_run"] = []
+        merged["blockers"] = []
+        merged["risk_flags"] = []
+        merged["validation_status"] = "not_run"
+        merged["content_hash"] = ""
+        validate_checkpoint(merged)
+        return merged
     merged = {**default_checkpoint(context), **current}
     merged["version"] = CHECKPOINT_VERSION
     merged["updated_at"] = now_iso()
@@ -304,6 +568,34 @@ def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
     for field in ("active_files", "commands_run", "blockers", "risk_flags"):
         if not isinstance(checkpoint.get(field), list):
             raise CheckpointError(f"{field} must be a list")
+
+
+def _semantic_payload(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the checkpoint fields that describe durable task state."""
+
+    return {
+        str(key): value
+        for key, value in checkpoint.items()
+        if str(key) not in OBSERVATIONAL_CHECKPOINT_FIELDS
+    }
+
+
+def semantic_fingerprint(checkpoint: Mapping[str, Any]) -> str:
+    """Hash checkpoint meaning without observational publication fields."""
+
+    encoded = json.dumps(_semantic_payload(checkpoint), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def material_checkpoint_transition(current: Mapping[str, Any], candidate: Mapping[str, Any]) -> bool:
+    """Identify boundaries worth retaining in the rolling archive.
+
+    Command/file observations still update ``latest.json`` and its event, but
+    they do not grow the archive unless task status, phase, validation, safety,
+    or the explicit objective/action state changes.
+    """
+
+    return any(current.get(field) != candidate.get(field) for field in MATERIAL_CHECKPOINT_FIELDS)
 
 
 def classify_payload(checkpoint: dict[str, Any]) -> dict[str, Any]:
@@ -429,13 +721,13 @@ def merge_commands(current: object, update: object) -> list[dict[str, str]]:
     for item in incoming:
         if not isinstance(item, dict):
             continue
-        values.append(
-            {
-                "command": compact_text(str(item.get("command", "")), 180),
-                "result": compact_text(str(item.get("result", "unknown")), 20),
-                "summary": compact_text(str(item.get("summary", "")), 220),
-            }
-        )
+        normalized = {
+            "command": compact_text(str(item.get("command", "")), 180),
+            "result": compact_text(str(item.get("result", "unknown")), 20),
+            "summary": compact_text(str(item.get("summary", "")), 220),
+        }
+        if normalized not in values:
+            values.append(normalized)
     return values[-MAX_COMMANDS:]
 
 

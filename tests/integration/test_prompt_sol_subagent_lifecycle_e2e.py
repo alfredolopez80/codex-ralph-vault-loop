@@ -217,6 +217,40 @@ def test_natural_language_task_boundary_resets_prior_route(tmp_path: Path) -> No
     assert fresh_decision["spawn_required"] is False
 
 
+def test_repeated_task_boundary_does_not_reuse_content_cache(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-repeated-task-boundary"
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    boundary = prompt_payload(session_id, "New task: summarize the README in three bullets.")
+    run_configured_event("UserPromptSubmit", boundary, env)
+    # Reintroduce a high-impact route between identical boundaries.  If the
+    # second boundary were a cache hit, initialize() would be skipped and the
+    # route would remain the inherited advisor state.
+    run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
+    run_configured_event("UserPromptSubmit", boundary, env)
+
+    _state, decision = routing_state(env, session_id)
+    assert decision["subagent_route"] == "none"
+    assert decision["spawn_required"] is False
+
+
+def test_explicit_task_boundaries_use_distinct_cache_epochs(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-explicit-task-boundary"
+    boundary = {
+        **prompt_payload(session_id, "Keep this wording identical across fresh tasks."),
+        "new_task": True,
+    }
+
+    run_configured_event("UserPromptSubmit", boundary, env)
+    cache_path = next(Path(env["RALPH_HOME"]).rglob("prompt-context/cache.json"))
+    first = json.loads(cache_path.read_text(encoding="utf-8"))
+    run_configured_event("UserPromptSubmit", boundary, env)
+    second = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    assert set(first["entries"]) != set(second["entries"])
+
+
 def test_stale_advisor_stop_cannot_complete_a_new_task_state(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     session_id = "sol-stale-stop"

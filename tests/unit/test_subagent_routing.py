@@ -22,6 +22,11 @@ from shared.subagent_routing import (
     SubagentOverride,
     resolve_subagent_routing,
 )
+from shared.runtime_profile import (
+    IMPLEMENTATION_PROGRESS_ORIGIN,
+    PROGRESS_MAINTENANCE_INTENT,
+    PROGRESS_REASON_CODE,
+)
 import subagent_routing_pretool_guard as routing_guard
 
 REPOSITORY_DEFAULT = ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT)
@@ -75,6 +80,67 @@ def test_complexity_seven_and_eight_keep_routine_work_local() -> None:
     assert seven.subagent_route == eight.subagent_route == "none"
     assert seven.reason_code == eight.reason_code == "direct-7-8"
     assert seven.spawn_required is eight.spawn_required is False
+
+
+@pytest.mark.parametrize("complexity", range(1, 11))
+def test_progress_maintenance_is_always_local_and_zero_budget(complexity: int) -> None:
+    decision = resolve(
+        raw_complexity=complexity,
+        origin=IMPLEMENTATION_PROGRESS_ORIGIN,
+        intent=PROGRESS_MAINTENANCE_INTENT,
+        independent_block=True,
+        critical_review=True,
+        task_override=SubagentOverride(model=SOL_MODEL, route="sol-advisor"),
+        budget=RoutingBudget(remaining=2, explicit_class="small"),
+        capabilities=RoutingCapabilities(active_analysis=True),
+        bounded_scope=True,
+        local_verification_available=True,
+        hard_gates_pass=True,
+    )
+
+    assert decision.origin == IMPLEMENTATION_PROGRESS_ORIGIN
+    assert decision.intent == PROGRESS_MAINTENANCE_INTENT
+    assert decision.subagent_route == "none"
+    assert decision.subagent_model is None
+    assert decision.spawn_required is False
+    assert dict(decision.spawn_arguments) == {}
+    assert decision.worker_budget == 0
+    assert decision.advisor_budget == 0
+    assert decision.budget_remaining == 0
+    assert decision.reason_code == PROGRESS_REASON_CODE
+    assert decision.configured_executor_model == LUNA_MODEL
+    assert decision.configured_executor_effort == LUNA_DEFAULT_EFFORT
+
+
+def test_progress_exclusion_is_narrow_and_engineering_routing_is_unchanged() -> None:
+    worker = resolve(
+        raw_complexity=4,
+        intent="implementation",
+        independent_block=True,
+        origin="user-task",
+    )
+    advisor = resolve(raw_complexity=9, intent="architecture", origin="user-task")
+    architecture_with_progress_origin = resolve(
+        raw_complexity=9,
+        intent="architecture",
+        origin=IMPLEMENTATION_PROGRESS_ORIGIN,
+    )
+    progress_intent_without_origin = resolve(
+        raw_complexity=9,
+        intent=PROGRESS_MAINTENANCE_INTENT,
+        origin="user-task",
+    )
+
+    assert worker.subagent_route == "terra-implementation"
+    assert worker.subagent_model == TERRA_MODEL
+    assert advisor.subagent_route == "sol-advisor"
+    assert advisor.subagent_model == SOL_MODEL
+    assert architecture_with_progress_origin.subagent_route == "sol-advisor"
+    assert progress_intent_without_origin.subagent_route == "none"
+    assert progress_intent_without_origin.reason_code == "intent-does-not-qualify-for-automatic-subagent"
+    for decision in (worker, advisor, architecture_with_progress_origin):
+        assert decision.configured_executor_model == LUNA_MODEL
+        assert decision.configured_executor_effort == LUNA_DEFAULT_EFFORT
 
 
 def test_material_low_score_promotes_effective_band_without_automatic_delegation() -> None:
@@ -351,3 +417,28 @@ def test_native_spawn_guard_fails_closed_when_validation_raises(monkeypatch: pyt
 
     assert routing_guard.main() == 0
     assert output == [{"decision": "block", "reason": "Subagent routing validation failed; the spawn was blocked for safety."}]
+
+
+@pytest.mark.parametrize("model", [TERRA_MODEL, SOL_MODEL])
+def test_native_spawn_guard_blocks_progress_contract_for_every_model(
+    monkeypatch: pytest.MonkeyPatch, model: str
+) -> None:
+    output: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        routing_guard,
+        "read_hook_input",
+        lambda: {
+            "tool_name": "collaboration.spawn_agent",
+            "origin": "implementation-progress",
+            "intent": "progress-maintenance",
+            "model": model,
+            "task_name": "sol_advisor" if model == SOL_MODEL else "terra_implementation",
+            "reasoning_effort": "max" if model == SOL_MODEL else "high",
+            "fork_turns": "none",
+        },
+    )
+    monkeypatch.setattr(routing_guard, "read_state", lambda _payload: {})
+    monkeypatch.setattr(routing_guard, "write_json", output.append)
+
+    assert routing_guard.main() == 0
+    assert output == [{"decision": "block", "reason": "local-deterministic-progress-maintenance"}]

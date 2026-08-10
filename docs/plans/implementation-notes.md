@@ -1,5 +1,61 @@
 # Implementation Notes Workflow
 
+> Public surface: `scripts/plans/progress.py`. The HTML notes and schema-v2
+> index described below are compatibility evidence and explicit derived views,
+> not the canonical write path for new progress operations.
+
+Use the deterministic CLI for new work:
+
+```bash
+python3 scripts/plans/progress.py start --plan .ralph/plans/example.md
+python3 scripts/plans/progress.py record --plan .ralph/plans/example.md --kind decision --summary "Bounded state is canonical"
+python3 scripts/plans/progress.py phase --plan .ralph/plans/example.md --phase validation --next "Run focused tests"
+python3 scripts/plans/progress.py validate --plan .ralph/plans/example.md --gate unit --result pass
+python3 scripts/plans/progress.py status --plan .ralph/plans/example.md --format json
+```
+
+Use `export --output` or `rebuild-legacy --apply` only when a human explicitly
+needs a legacy HTML/index artifact. Export `--output` targets must remain under
+the canonical `.local-notes/ralph/implementation/exports/` directory; paths
+such as `.git/config`, source files, and canonical store files are rejected.
+`rebuild-legacy` is dry-run by default and reports deterministic source/output
+digests. Run `migrate-legacy --dry-run`
+before any separately authorized import; the apply step preserves every
+legacy source byte and mtime and writes only the canonical new store.
+
+The migration is a project-local, feature-flagged maintenance command. It
+discovers approved plans and all nested/worktree HTML copies, schema-v2 index
+plans/events/loose commits, Markdown/consolidated views, aliases, conflicts,
+checksums, schema versions, missing plans, orphan views, expected event counts,
+and state-size reductions. It blocks unresolved evidence by default. An
+explicit `--recovery-mode` is required to proceed past a reported conflict;
+normal hooks never invoke it, and this phase does not import real local data.
+
+```bash
+python3 scripts/plans/progress.py migrate-legacy --dry-run --format json
+python3 scripts/plans/progress.py migrate-legacy --apply --format json
+python3 scripts/plans/progress.py migrate-legacy --apply --recovery-mode --format json
+python3 scripts/plans/progress.py rebuild-legacy --format json
+python3 scripts/plans/progress.py rebuild-legacy --apply --format json
+```
+
+`rebuild-legacy --apply` validates every staged view before publication,
+snapshots every existing target under the manifest lock, and restores all
+already-published targets if a later replacement fails. It rejects any output
+that overlaps a registered canonical plan source, including fixed-name index
+collisions. A selective `--plan` rebuild limits only its per-plan view; global
+indexes and consolidated views are rendered from the complete canonical plan
+set.
+
+The importer parses each selected HTML source at most once, maps its initial
+template to `started`, retains bounded material fields and provenance, merges
+compatible index operations without duplication, imports loose commits into
+`unplanned-events.jsonl`, reduces events into `state.json`, publishes the
+manifest, and verifies hashes, ordering, operation IDs, status, branch,
+commit, session, worktree identity, and latest material fields. The rollback
+exporter stages all compatible HTML/index/consolidated views, validates their
+digests before replacement, and never deletes the new journal/state.
+
 Use implementation notes when a plan has been approved and the user asks Codex to implement it. The notes capture timestamped decisions made during implementation without turning hooks into the author of those decisions.
 
 ## Location
@@ -70,17 +126,25 @@ The lifecycle is:
 
 ## Bounded Recovery Context
 
-The HTML notes remain durable human history and are never injected wholesale
-into prompt context. `scripts/plans/read-implementation-context.py` selects one
-matching approved active plan from explicit state, the current session, or the
-current workspace instance index, then renders only the objective and the latest
-material decisions, deviations, open questions, and validation findings.
+The public recovery surface is now the pure, unregistered engine behind
+`scripts/plans/progress.py context`. A valid current-schema `state.json` for one
+matching plan is primary. A single bounded HTML notes parse is permitted only
+as a recovery fallback; ambiguity produces no automatic selection. The engine
+renders only stable labels for status, phase, latest decision, next action,
+validation, and bounded blockers/questions. It never injects a complete
+JSON/JSONL/HTML/index/view artifact, absolute path, historical narrative, or
+raw hash, and it states that current user instructions and repository files
+remain authoritative.
 
-The rendered recovery context is capped at 2,000 characters, 250 words, and an
-estimated 500 context units. Wakeup and continuation inject it only once per
-session and content hash. Their trace records selected entry hashes and the
-budget figures, never the rendered note content. This preserves implementation
-history as a recovery aid without turning it into repeated full-session context.
+The shared content-free ledger is keyed by project, workspace instance,
+session, context epoch, plan, generation, and capsule kind. A hit is read-only;
+one ledger line is appended only after a non-empty capsule is actually emitted.
+Ordinary continuation is zero, a new session gets one full capsule, resume and
+external generation changes can get one delta, compact gets one full capsule
+for its new epoch, and an explicit `context` request gets one expanded capsule.
+The former `read-implementation-context.py` output remains compatibility
+evidence and is not the normal path. Hook registration is intentionally
+deferred to the next phase.
 
 ## What To Record
 
@@ -169,3 +233,38 @@ If review work is delegated to subagents, subagents may return inventories,
 conflicts, and candidate corrections only. Codex main owns the apply step and is
 the only actor that may mutate the canonical index or consolidated views. This
 prevents concurrent workers from racing on the same append-only artifacts.
+
+## Migration and rollback safety boundary
+
+The migration and rollback commands are maintenance surfaces, not lifecycle
+hooks. Before `migrate-legacy --apply`, the command takes the maintenance lock,
+rechecks every bounded source snapshot (device/inode, size, and digest), and
+only then publishes the canonical store. It scans a bounded plan tree without
+following symlink directories, rejects symlink and hardlink artifacts, caps
+files/bytes/records, and blocks divergent copies, duplicate operation IDs,
+checksum failures, corrupt schemas, future schemas, missing plans, and orphan
+views unless `--recovery-mode` is explicitly supplied. A crash after an event
+append but before the state replacement is recovered by verified replay; a
+partial final line is never silently truncated.
+
+`rebuild-legacy` stages each derived output in a private directory with
+exclusive no-follow files, validates the staged bytes and source digest, then
+publishes the legacy set under the manifest lock with bounded snapshots and
+failure restoration. It never deletes or rewrites the canonical journal/state,
+and a failed validation or publication leaves the previous legacy set
+unchanged. A `--plan` rollback limits only the selected per-plan HTML output;
+global indexes and consolidated views are rebuilt from all canonical plans.
+Both commands report bounded digests, counts, and typed conflicts rather than
+raw note bodies.
+
+The terminal Stop marker is reader-first and retains malformed or future
+schema bytes for explicit recovery. Valid entries carry a monotonic claim
+sequence so the 256-entry retention window keeps the newest claims rather than
+the lexicographically largest scope keys. Canonical completion requires a
+non-empty all-pass validation map; Stop payload flags cannot replace journal
+evidence.
+
+The public CLI and hook bridge are local-only. They do not invoke Terra, Sol,
+advisors, workers, MCPs, network calls, or hidden view writers. A future schema
+is surfaced as a blocking result and cannot be downgraded by `status`,
+`context`, Stop, migration, or rollback.

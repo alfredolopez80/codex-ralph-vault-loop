@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 from json import dumps
+import re
 from types import MappingProxyType
 from typing import Mapping
 
@@ -20,7 +21,11 @@ from .agent_budget import (
     MAX_TASK_JOBS,
     MAX_THREADS,
 )
-from .runtime_profile import classify_model
+from .runtime_profile import (
+    PROGRESS_REASON_CODE,
+    classify_model,
+    is_progress_maintenance,
+)
 
 POLICY_VERSION = "subagent-routing-v2"
 LUNA_MODEL = "gpt-5.6-luna"
@@ -109,6 +114,7 @@ class RoutingRequest:
     independent_block_count: int = 0
     critical_review: bool = False
     failure_fingerprints: tuple[str, ...] = ()
+    origin: str = ""
 
 
 @dataclass(frozen=True)
@@ -144,11 +150,15 @@ class RoutingDecision:
     max_task_jobs: int
     max_task_advisors: int
     packet_budget_bytes: int
+    worker_budget: int
+    advisor_budget: int
+    origin: str = ""
 
 
 def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
     """Resolve a bounded subagent recommendation without mutating request state."""
     raw = _complexity(request.raw_complexity)
+    origin = _origin(request.origin)
     intent = _intent(request.intent)
     impact = _impact(request.impact_class)
     sensitivity = request.sensitivity.strip().upper()
@@ -158,6 +168,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
     override, scope, requested, expiry, override_error, override_rejections = _selected_override(request)
 
     executor_family = classify_model(executor.model)
+    progress_maintenance = is_progress_maintenance(origin, intent)
     route, model, mode, effort, reason = _base_route(
         raw,
         effective,
@@ -169,7 +180,27 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         failure_fingerprints=request.failure_fingerprints,
     )
     effective_override: Mapping[str, object] = _frozen_map()
-    if override is not None and override_error is None:
+    if progress_maintenance:
+        # This exact origin/intent pair is emitted only by local
+        # implementation-progress bookkeeping. It is never a model task,
+        # regardless of complexity, overrides, executor, or RED-adjacent
+        # payload fields. RED still keeps its existing local-only reason.
+        route, model, mode, effort = "none", None, "none", None
+        reason = "red-local-only" if sensitivity == "RED" else PROGRESS_REASON_CODE
+        active_ok, active_reason = False, reason
+        override_error = PROGRESS_REASON_CODE if requested else None
+        override_rejections = (
+            _record_override_rejection(
+                override_rejections,
+                scope=scope,
+                requested=requested,
+                expiry=expiry,
+                reason=PROGRESS_REASON_CODE,
+            )
+            if requested
+            else _frozen_map()
+        )
+    elif override is not None and override_error is None:
         routed = _apply_override(
             override,
             effective=effective,
@@ -192,7 +223,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
                 {"model": model, "reasoning_effort": effort, "route": route}
             )
 
-    if sensitivity == "RED":
+    if sensitivity == "RED" and not progress_maintenance:
         route, model, mode, effort, reason = "none", None, "none", None, "red-local-only"
         effective_override = _frozen_map()
         if requested:
@@ -226,7 +257,10 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         effective_override = _frozen_map()
         override_error = override_error or "sol-self-supervision-suppressed"
 
-    if route != "none" and not request.capabilities.spawn_model_effort:
+    if progress_maintenance:
+        spawn_required, spawn_arguments = False, _frozen_map()
+        worker_budget, advisor_budget, budget_remaining = 0, 0, 0
+    elif route != "none" and not request.capabilities.spawn_model_effort:
         route, model, mode, effort = "none", None, "none", None
         reason = "platform-spawn-model-effort-unavailable"
         effective_override = _frozen_map()
@@ -240,15 +274,21 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
                 reason=override_error,
             )
         spawn_required, spawn_arguments = False, _frozen_map()
+        worker_budget, advisor_budget = 0, 0
+        budget_remaining = max(0, request.budget.remaining)
     else:
         spawn_required = route != "none" and (route == "terra-implementation" or request.budget.remaining > 0)
         if route != "none" and request.budget.remaining <= 0:
             reason = "budget-exhausted"
         spawn_arguments = _frozen_map(_spawn_arguments(route, model, effort))
+        worker_budget = MAX_TASK_JOBS if route == "terra-implementation" and spawn_required else 0
+        advisor_budget = MAX_TASK_ADVISORS if route in {"sol-advisor", "sol-active-analysis"} and spawn_required else 0
+        budget_remaining = max(0, request.budget.remaining)
 
     fingerprint = _fingerprint(
         raw=raw,
         effective=effective,
+        origin=origin,
         intent=intent,
         impact=impact,
         sensitivity=sensitivity,
@@ -270,6 +310,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         independent_block_count=request.independent_block_count,
         critical_review=request.critical_review,
         failure_fingerprints=tuple(request.failure_fingerprints),
+        progress_maintenance=progress_maintenance,
         # Consultation availability and explanatory status are live
         # lifecycle facts, not part of the decision identity. The pre-tool
         # guard rechecks the current budget immediately before a Sol spawn,
@@ -280,6 +321,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         policy_version=POLICY_VERSION,
         raw_complexity=raw,
         effective_complexity=effective,
+        origin=origin,
         intent=intent,
         impact_class=impact,
         sensitivity=sensitivity,
@@ -300,7 +342,7 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         override_rejection_reason=override_error,
         override_rejections=_frozen_map(override_rejections),
         override_expiry=expiry,
-        budget_remaining=max(0, request.budget.remaining),
+        budget_remaining=budget_remaining,
         decision_fingerprint=fingerprint,
         reason_code=reason,
         max_threads=MAX_THREADS,
@@ -308,6 +350,8 @@ def resolve_subagent_routing(request: RoutingRequest) -> RoutingDecision:
         max_task_jobs=MAX_TASK_JOBS,
         max_task_advisors=MAX_TASK_ADVISORS,
         packet_budget_bytes=MAX_PACKET_BYTES,
+        worker_budget=worker_budget,
+        advisor_budget=advisor_budget,
     )
 
 
@@ -321,6 +365,15 @@ def _intent(value: str) -> str:
     normalized = value.strip().lower().replace("_", "-")
     aliases = {"read-only": "routine", "review": "high-impact-review", "implementation-support": "implementation"}
     return aliases.get(normalized, normalized or "routine")
+
+
+def _origin(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip().lower().replace("_", "-")
+    if not normalized or not re.fullmatch(r"[a-z0-9][a-z0-9._:-]{0,63}", normalized):
+        return ""
+    return normalized
 
 
 def _impact(value: str) -> str:

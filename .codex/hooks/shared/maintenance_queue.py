@@ -12,6 +12,7 @@ import contextlib
 import hashlib
 import json
 import os
+import stat
 import tempfile
 import time
 from contextlib import contextmanager
@@ -21,6 +22,7 @@ from typing import Iterator, Mapping
 
 from .active_context import ActiveContext, active_context_from_payload
 from .paths import now_iso, ralph_home
+from .persistence_metrics import WriteResult
 
 try:
     import fcntl
@@ -37,6 +39,7 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_LEASE_SECONDS = 30
 MAX_EVENT_BYTES = 128 * 1024
 MAX_EVENT_LINES = 512
+MAX_QUEUE_BYTES = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,19 @@ class EnqueueResult:
     job_id: str
     reason: str
     path: Path | None = None
+    write_result: WriteResult = WriteResult()
+
+    @property
+    def changed(self) -> bool:
+        return self.write_result.changed
+
+    @property
+    def bytes_written(self) -> int | None:
+        return self.write_result.bytes_written
+
+    @property
+    def files_written(self) -> tuple[str, ...]:
+        return self.write_result.files_written
 
 
 @dataclass(frozen=True)
@@ -168,9 +184,14 @@ def _locked(path: Path) -> Iterator[bool]:
             yield False
             return
         _ensure_private_dirs(path)
-        handle = path.open("a+", encoding="utf-8")
-        with contextlib.suppress(OSError):
-            path.chmod(0o600)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(fd)
+            yield False
+            return
+        os.fchmod(fd, 0o600)
+        handle = os.fdopen(fd, "a+", encoding="utf-8")
     except (OSError, ValueError):
         yield False
         return
@@ -191,18 +212,35 @@ def instance_lock() -> Iterator[bool]:
         yield locked
 
 
-def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
+def _atomic_json(path: Path, payload: Mapping[str, object]) -> WriteResult:
     path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    if len(encoded) > MAX_QUEUE_BYTES:
+        raise OSError("maintenance queue exceeds its bounded limit")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2) + "\n")
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        _safe_file(path, allow_missing=True)
         os.replace(temporary, path)
+        _safe_file(path)
         with contextlib.suppress(OSError):
             path.chmod(0o600)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        return WriteResult(
+            changed=True,
+            bytes_written=len(encoded),
+            files_written=(path.name,),
+            replacements=1,
+            fsync_publications=1,
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()
@@ -224,14 +262,61 @@ def _load(path: Path) -> dict[str, object]:
     if not path.exists():
         return _empty_state()
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw = _read_bounded(path, MAX_QUEUE_BYTES)
+        if raw is None:
+            raise ValueError("maintenance queue exceeds its bounded limit")
+        value = json.loads(raw.decode("utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
         _quarantine(path)
         return _empty_state()
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION or not isinstance(value.get("jobs"), list):
         _quarantine(path)
         return _empty_state()
     return value
+
+
+def _safe_file(path: Path, *, allow_missing: bool = False) -> os.stat_result | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise OSError("maintenance queue target is not a regular non-aliased file")
+    return info
+
+
+def _read_bounded(path: Path, max_bytes: int) -> bytes | None:
+    before = _safe_file(path)
+    if before is None or before.st_size > max_bytes:
+        return None
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > max_bytes
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                return None
+        final = os.fstat(fd)
+        if final.st_dev != opened.st_dev or final.st_ino != opened.st_ino or final.st_nlink != 1 or final.st_size != total:
+            return None
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def _timestamp(value: object) -> float:
@@ -246,7 +331,7 @@ def _trim_jobs(raw_jobs: object, now: float) -> list[dict[str, object]]:
         return []
     jobs: list[dict[str, object]] = []
     ttl = queue_ttl_seconds()
-    for raw in raw_jobs:
+    for raw in raw_jobs[: max_entries() * 2]:
         if not isinstance(raw, dict):
             continue
         created = _timestamp(raw.get("created_epoch"))
@@ -270,7 +355,12 @@ def _trim_jobs(raw_jobs: object, now: float) -> list[dict[str, object]]:
 def _source_generation(context: ActiveContext, payload: Mapping[str, object] | None) -> str:
     """Return a hash of metadata/statistics only; never hash or store raw content."""
     payload = payload or {}
-    explicit = payload.get("memory_generation") or payload.get("memoryGeneration") or payload.get("source_generation")
+    explicit = (
+        payload.get("memory_generation")
+        or payload.get("memoryGeneration")
+        or payload.get("source_generation")
+        or payload.get("generation")
+    )
     if isinstance(explicit, str) and explicit.strip():
         return hashlib.sha256(explicit.strip()[:256].encode("utf-8")).hexdigest()[:24]
     root = ralph_home() / "projects" / _safe_identifier(context.project_id)
@@ -339,11 +429,11 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
     job = _descriptor(context, reason_code=reason_code, payload=payload)
     lock_path = path.with_suffix(path.suffix + ".lock")
     if not _safe_runtime(path) or not _safe_runtime(lock_path):
-        return EnqueueResult(False, False, str(job["job_id"]), "unsafe_runtime", None)
+        return EnqueueResult(False, False, str(job["job_id"]), "unsafe_runtime", None, WriteResult())
     try:
         with _locked(lock_path) as locked:
             if not locked:
-                return EnqueueResult(False, False, str(job["job_id"]), "lock_unavailable", path)
+                return EnqueueResult(False, False, str(job["job_id"]), "lock_unavailable", path, WriteResult())
             state = _load(path)
             now = _epoch()
             jobs = _trim_jobs(state.get("jobs"), now)
@@ -352,7 +442,7 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
             if existing is not None:
                 status = str(existing.get("status") or "pending")
                 if status in {"pending", "leased", "retryable", "completed", "dead_lettered"}:
-                    return EnqueueResult(False, True, job_id, f"already_{status}", path)
+                    return EnqueueResult(False, True, job_id, f"already_{status}", path, WriteResult())
             # A handoff can update file metadata on every Stop.  Debounce
             # those equivalent observations before creating another job.
             recent_cutoff = now - debounce_seconds()
@@ -367,12 +457,12 @@ def enqueue_maintenance(context: ActiveContext, *, reason_code: str = "interacti
                     and str(item.get("policy_version")) == str(job.get("policy_version"))
                     and _timestamp(item.get("created_epoch")) >= recent_cutoff
                 ):
-                    return EnqueueResult(False, True, str(item.get("job_id") or job_id), "debounced", path)
+                    return EnqueueResult(False, True, str(item.get("job_id") or job_id), "debounced", path, WriteResult())
             jobs.append(job)
-            _atomic_json(path, {"schema_version": SCHEMA_VERSION, "updated_at": now_iso(), "jobs": _trim_jobs(jobs, now)})
-            return EnqueueResult(True, False, job_id, "enqueued", path)
+            write_result = _atomic_json(path, {"schema_version": SCHEMA_VERSION, "updated_at": now_iso(), "jobs": _trim_jobs(jobs, now)})
+            return EnqueueResult(True, False, job_id, "enqueued", path, write_result)
     except (OSError, TypeError, ValueError):
-        return EnqueueResult(False, False, str(job["job_id"]), "queue_write_failed", path)
+        return EnqueueResult(False, False, str(job["job_id"]), "queue_write_failed", path, WriteResult.unknown())
 
 
 def enqueue_for_payload(payload: Mapping[str, object], *, reason_code: str) -> EnqueueResult:
@@ -380,7 +470,7 @@ def enqueue_for_payload(payload: Mapping[str, object], *, reason_code: str) -> E
         context = active_context_from_payload(dict(payload))
         return enqueue_maintenance(context, reason_code=reason_code, payload=payload)
     except Exception:
-        return EnqueueResult(False, False, "", "context_failed", None)
+        return EnqueueResult(False, False, "", "context_failed", None, WriteResult.unknown())
 
 
 def _job_from_dict(raw: Mapping[str, object]) -> MaintenanceJob | None:
@@ -532,8 +622,24 @@ def append_runner_event(*, project_id: str, event: str, job_id: str = "", runtim
             if not locked:
                 return False
             path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
+            encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
+            if len(encoded) > MAX_EVENT_BYTES:
+                return False
+            _safe_file(path, allow_missing=True)
+            fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size + len(encoded) > MAX_EVENT_BYTES:
+                    return False
+                view = memoryview(encoded)
+                while view:
+                    written = os.write(fd, view)
+                    if written <= 0:
+                        return False
+                    view = view[written:]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
             with contextlib.suppress(OSError):
                 path.chmod(0o600)
             _rotate_events(path)
@@ -542,15 +648,48 @@ def append_runner_event(*, project_id: str, event: str, job_id: str = "", runtim
         return False
 
 
+def _atomic_bytes(path: Path, encoded: bytes, *, max_bytes: int) -> None:
+    if len(encoded) > max_bytes:
+        raise OSError("maintenance event output exceeds its bounded limit")
+    _safe_file(path, allow_missing=True)
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(fd, 0o600)
+        view = memoryview(encoded)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short maintenance event write")
+            view = view[written:]
+        os.fsync(fd)
+        os.close(fd)
+        _safe_file(path, allow_missing=True)
+        os.replace(temporary, path)
+        _safe_file(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
+
+
 def _rotate_events(path: Path) -> None:
     try:
-        if path.stat().st_size <= MAX_EVENT_BYTES:
-            lines = path.read_text(encoding="utf-8").splitlines()
+        raw = _read_bounded(path, MAX_EVENT_BYTES)
+        if raw is None:
+            return
+        if len(raw) <= MAX_EVENT_BYTES:
+            lines = raw.decode("utf-8", errors="replace").splitlines()
             if len(lines) <= MAX_EVENT_LINES:
                 return
-        lines = path.read_text(encoding="utf-8").splitlines()[-MAX_EVENT_LINES:]
+        lines = raw.decode("utf-8", errors="replace").splitlines()[-MAX_EVENT_LINES:]
         _atomic_json(path.with_suffix(".rotation.json"), {"schema_version": SCHEMA_VERSION, "events": lines})
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        compact = ("\n".join(lines) + "\n").encode("utf-8")
+        _atomic_bytes(path, compact, max_bytes=MAX_EVENT_BYTES)
         path.with_suffix(".rotation.json").unlink(missing_ok=True)
     except OSError:
         return
@@ -559,6 +698,6 @@ def _rotate_events(path: Path) -> None:
 def queued_project_ids() -> list[str]:
     root = ralph_home() / "projects"
     try:
-        return sorted({path.parent.parent.name for path in root.glob("*/maintenance/queue.json") if path.is_file() and _safe_runtime(path)})
+        return sorted({path.parent.parent.name for path in list(root.glob("*/maintenance/queue.json"))[:4096] if path.is_file() and _safe_runtime(path)})
     except OSError:
         return []
