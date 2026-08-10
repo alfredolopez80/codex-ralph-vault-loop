@@ -90,6 +90,7 @@ class ProgressIdentity:
     plan_path: str
     reason: str
     source: str = "state"
+    semantic_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -198,6 +199,7 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
             and _workspace_matches(pointer, expected_workspace)
         ]
     identities: list[ProgressIdentity] = []
+    invalid_state = False
     for pointer in candidates:
         plan_id = str(pointer.get("plan_id") or "")
         if not plan_id:
@@ -205,6 +207,7 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         try:
             state = store.read_state_identity(plan_id)
         except Exception:
+            invalid_state = True
             continue
         if not state or state.get("status") != "active":
             continue
@@ -216,6 +219,7 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
                 writer_session_id=str(state.get("writer_session_id") or ""),
                 plan_path=str(pointer.get("plan_path") or state.get("plan_path") or ""),
                 reason="explicit_state" if explicit_plan else "single_active_state",
+                semantic_hash=str(state.get("semantic_hash") or ""),
             )
         )
     if len(identities) == 1:
@@ -223,6 +227,8 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         return ProgressLookup(store, identity, SourceResolution(None, identity.reason))
     if len(identities) > 1:
         return ProgressLookup(store, None, SourceResolution(None, "ambiguous_active_state"))
+    if invalid_state:
+        return ProgressLookup(store, None, SourceResolution(None, "state_invalid"))
     if _legacy_enabled() and len(candidates) == 1:
         pointer = candidates[0]
         plan_id = str(pointer.get("plan_id") or "")

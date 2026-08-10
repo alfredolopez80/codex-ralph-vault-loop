@@ -8,6 +8,7 @@ from shared.autoresearch_observer import safe_observe_post_tool_payload
 from shared.checkpoint_io import update_checkpoint
 from shared.context_budget import text_is_toxic
 from shared.paths import append_jsonl, now_iso, read_hook_input
+from shared.progress_runtime import progress_checkpoint_reference
 from shared.redaction import is_red, safe_preview
 from shared.tool_result import success_from_payload
 
@@ -19,7 +20,16 @@ GIT_MARKERS = ("git ", "git-")
 def run(payload: dict[str, Any], context: ActiveContext | None = None) -> dict[str, Any] | None:
     context = context or active_context_from_payload(payload)
     safe_observe_post_tool_payload(payload, context)
-    update = checkpoint_update_from_payload(payload)
+    progress_ref = progress_checkpoint_reference(payload, context)
+    update = (
+        {
+            "source": "PostToolUse",
+            "progress_ref": progress_ref,
+            "progress_ref_only": True,
+        }
+        if progress_ref is not None
+        else checkpoint_update_from_payload(payload)
+    )
     if not update:
         return None
     result = update_checkpoint(update, context=context)

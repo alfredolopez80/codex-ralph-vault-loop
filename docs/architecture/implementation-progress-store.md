@@ -1,11 +1,12 @@
 # Canonical implementation-progress store
 
-This document describes the canonical store, its public CLI, and the
-recovery-only context engine. The engine is consumed by the consolidated
-`UserPromptSubmit` and `SessionStart` dispatchers in the current integration
-phase; remaining lifecycle writers and real-data migration are still deferred.
-Legacy HTML/index readers and writers remain compatibility evidence behind
-explicit boundaries.
+This document describes the canonical store, its public CLI, the recovery-only
+context engine, and the remaining hook lifecycle adapter. The engine is
+consumed by the consolidated `UserPromptSubmit` and `SessionStart` dispatchers;
+`PostToolUse` and `Stop` now integrate only structured validation and explicit
+completion transitions. Real-data migration and hook registration changes are
+still deferred. Legacy HTML/index readers and writers remain compatibility
+evidence behind explicit boundaries.
 
 ## Public CLI
 
@@ -220,3 +221,37 @@ fast path resolves only explicit/local checkout paths and reads files directly;
 it does not run Git, wakeup, dream maintenance, or an HTML parser for a valid
 new-store source. Project/global registration remains the single consolidated
 dispatcher contract, so compatibility entrypoints cannot duplicate output.
+
+## PostToolUse, Stop, and checkpoint integration (Prompt 10)
+
+`PostToolUse` first recognizes a structured outcome from a test, build, lint, or
+typecheck tool. It then performs the narrow active-state lookup and asks the
+canonical store to publish `validation_changed` only when the validation map's
+semantic value changes. A repeated successful run is a read-only no-op; a
+failure-to-pass transition produces one event and state replacement. Ordinary
+reads/writes, partial/streaming results, RED output, ambiguous plans, and
+missing new-store state never write progress. Writer-reported byte, file,
+append, replacement, and fsync metrics flow into the existing PostToolUse
+observability accumulator.
+
+The `Stop` adapter is opt-in per payload completion signal. It cheaply checks
+for one matching active state, then reads the bounded state/journal needed to
+verify plan identity and approval, canonical repository ownership, progress
+provenance, material events, validation gates, branch/commit/workspace, and
+schema integrity. A genuine completion publishes one `completed` event and one
+state replacement. A terminal retry is a semantic no-op. Corrupt/future state,
+identity mismatch, missing material evidence, or incomplete validation becomes
+a bounded progress finding under the existing empty-allow / one-JSON-block
+Stop contract; completion is never inferred from an invalid source.
+
+When approved planned work updates the normal checkpoint, it carries only
+`plan_id`, `generation`, and `semantic_hash`. The checkpoint contains no second
+objective, phase, decision, blocker, validation, or next-action narrative, and
+the progress adapter never publishes Markdown/HTML/consolidated views or
+archive snapshots. Unplanned PostToolUse payloads retain their existing generic
+checkpoint behavior.
+
+Normal `scripts/memory/wakeup.py` flow no longer renders implementation notes.
+The legacy reader can still be invoked with `--implementation-context` (or
+`RALPH_LEGACY_CONTEXT_COMPAT=1`) for bounded migration diagnostics only. No
+automatic legacy wakeup path or real-data migration is active in this phase.

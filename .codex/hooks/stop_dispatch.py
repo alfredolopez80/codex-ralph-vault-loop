@@ -17,6 +17,7 @@ from shared.objective_gates import (
     route_report_codes,
 )
 from shared.persistence_metrics import WriteAccumulator, WriteResult
+from shared.progress_runtime import complete_progress
 from shared.stop_persistence import (
     mark_promotion_pending,
     persist_event,
@@ -155,6 +156,18 @@ def main() -> int:
         return 0
 
     findings, gate_reports = collect_hard_findings(payload, scope, persist_index=False)
+    progress = complete_progress(payload, scope.context)
+    if progress.error_code:
+        findings.append(
+            GateFinding(
+                progress.error_code,
+                progress.error_reason,
+                priority=7,
+                critical=True,
+                source="progress",
+                fingerprint=progress.error_code,
+            )
+        )
     report_codes = list(gate_reports.reports)
     report_codes.extend(route_report_codes(payload))
     report_codes.extend(phrase_report_codes(payload))
@@ -178,6 +191,7 @@ def main() -> int:
         gate_reports=gate_reports.reports,
     )
     accounting = WriteAccumulator()
+    accounting.add(progress.result)
     accounting.add(_reservation_result(reservation))
     with terminal_business_claim(scope, business_fingerprint) as business:
         if not business.duplicate:

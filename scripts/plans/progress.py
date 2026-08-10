@@ -604,6 +604,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
         objective=args.objective or "",
         phase=args.phase or "",
         next_action=args.next_action or "",
+        status="active",
     )
     return _apply_result("start", ref, result, json_mode=args.json or args.output_format == "json", store=store)
 

@@ -46,7 +46,13 @@ from shared.paths import append_jsonl, now_iso
 from shared.redaction import is_red, redact_text
 
 
-def build_context(project_id: str = "", workspace_root: str = "", project: str = "") -> str:
+def build_context(
+    project_id: str = "",
+    workspace_root: str = "",
+    project: str = "",
+    *,
+    include_implementation_context: bool = False,
+) -> str:
     root = ensure_runtime(project_runtime_root(project_id) if project_id else None)
     global_root = ensure_runtime(ralph_home()) if project_id else root
     active_context = wakeup_active_context(project_id=project_id, workspace_root=workspace_root, project=project)
@@ -55,7 +61,7 @@ def build_context(project_id: str = "", workspace_root: str = "", project: str =
         layer_root = global_root if project_id and layer in {"L0", "L1"} else root
         text = read_text(layer_root / "layers" / filename, limit_chars=2_500).strip()
         sections.extend([f"## {layer}", text or "No content.", ""])
-        if layer == "L2":
+        if layer == "L2" and include_implementation_context:
             implementation_context = render_implementation_for_wakeup(root, workspace_root, project_id)
             if implementation_context:
                 sections.extend([implementation_context, ""])
@@ -319,8 +325,22 @@ def main() -> int:
     parser.add_argument("--project", default=os.environ.get("VAULT_PROJECT", ""))
     parser.add_argument("--project-id", default=os.environ.get("RALPH_MEMORY_PROJECT_ID", ""))
     parser.add_argument("--workspace-root", default=os.environ.get("RALPH_WORKSPACE_ROOT", ""))
+    parser.add_argument(
+        "--implementation-context",
+        action="store_true",
+        help="Explicit compatibility diagnostic: render legacy implementation context once.",
+    )
     args = parser.parse_args()
-    print(build_context(project_id=args.project_id, workspace_root=args.workspace_root, project=args.project), end="")
+    compat = args.implementation_context or os.environ.get("RALPH_LEGACY_CONTEXT_COMPAT", "").strip().lower() in {"1", "true", "yes"}
+    print(
+        build_context(
+            project_id=args.project_id,
+            workspace_root=args.workspace_root,
+            project=args.project,
+            include_implementation_context=compat,
+        ),
+        end="",
+    )
     return 0
 
 

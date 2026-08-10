@@ -1,8 +1,8 @@
 """High-level operations for the canonical implementation-progress store.
 
-The class is intentionally not imported by any lifecycle hook in this phase.
-It is a small trusted boundary that later hook work can compose without
-reintroducing legacy HTML/index writes.
+The lifecycle adapter imports this small trusted boundary directly. Hooks may
+compose it only through bounded semantic operations; legacy HTML/index writes
+remain outside the runtime path.
 """
 
 from __future__ import annotations

@@ -167,6 +167,7 @@ def clear_checkpoint(root: Path | None = None, context: ActiveContext | None = N
 
 def update_checkpoint(update: dict[str, Any], root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Any]:
     paths = ensure_checkpoint_runtime(root, context)
+    progress_ref_only = bool(update.get("progress_ref_only"))
     with checkpoint_lock(paths):
         current = load_latest_for_update(paths, root, context)
         baseline = current or default_checkpoint(context)
@@ -221,7 +222,7 @@ def update_checkpoint(update: dict[str, Any], root: Path | None = None, context:
             paths,
             merged,
             rendered,
-            archive=current is None or material_checkpoint_transition(current, merged),
+            archive=(not progress_ref_only) and (current is None or material_checkpoint_transition(current, merged)),
         )
         return {
             "status": "ok",
@@ -330,6 +331,7 @@ def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:
         "validation_status": "not_run",
         "source": "manual",
         "content_hash": "",
+        "progress_ref": None,
     }
 
 
@@ -344,6 +346,57 @@ def git_value(*args: str) -> str:
 
 
 def merge_checkpoint(current: dict[str, Any], update: dict[str, Any], context: ActiveContext | None = None) -> dict[str, Any]:
+    progress_ref = update.get("progress_ref")
+    if update.get("progress_ref_only") and isinstance(progress_ref, Mapping):
+        # Planned work has one canonical narrative: the implementation store.
+        # Keep only a content-free pointer in the rolling checkpoint so the
+        # checkpoint cannot become a second objective/phase/validation log.
+        merged = default_checkpoint(context)
+        identity_fields = (
+            "session_id",
+            "cwd",
+            "workspace_root",
+            "git_root",
+            "project",
+            "project_slug",
+            "project_id",
+            "workspace_instance_id",
+            "remote_url_hash",
+            "source_root",
+            "git_branch",
+            "git_sha",
+        )
+        for field in identity_fields:
+            if current.get(field) not in (None, "", []):
+                merged[field] = current[field]
+        try:
+            plan_id = compact_text(str(progress_ref.get("plan_id", "")), 180)
+            generation = int(progress_ref.get("generation", 0))
+            semantic_hash = compact_text(str(progress_ref.get("semantic_hash", "")), 80)
+        except (TypeError, ValueError):
+            raise CheckpointError("progress reference is malformed")
+        if not plan_id or generation < 0 or not semantic_hash.startswith("sha256:"):
+            raise CheckpointError("progress reference is malformed")
+        merged["status"] = "active"
+        merged["classification"] = "GREEN"
+        merged["source"] = "PostToolUse"
+        merged["progress_ref"] = {
+            "plan_id": plan_id,
+            "generation": generation,
+            "semantic_hash": semantic_hash,
+        }
+        merged["objective"] = ""
+        merged["current_phase"] = ""
+        merged["last_verified_state"] = ""
+        merged["next_action"] = ""
+        merged["active_files"] = []
+        merged["commands_run"] = []
+        merged["blockers"] = []
+        merged["risk_flags"] = []
+        merged["validation_status"] = "not_run"
+        merged["content_hash"] = ""
+        validate_checkpoint(merged)
+        return merged
     merged = {**default_checkpoint(context), **current}
     merged["version"] = CHECKPOINT_VERSION
     merged["updated_at"] = now_iso()

@@ -42,6 +42,11 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
 - `.codex/hooks/stop_dispatch.py` (the only configured Stop handler)
   - Reads the payload once and aggregates objective file, validation, notes, and
     scoped pending-state evidence.
+  - For an explicitly completed approved progress plan, validates canonical
+    ownership, provenance, material journal evidence, validation gates, and
+    current Git/workspace identity before publishing exactly one `completed`
+    event and state replacement. A corrupt or future progress snapshot becomes
+    a bounded block finding; it is never treated as completion.
   - Phrase scans, route markers, advisor eligibility, and stale or foreign state
     are report-only. Only current objective evidence can produce a continuation.
   - Reserves a continuation atomically under the project Ralph runtime. One
@@ -67,6 +72,22 @@ and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
   - Treats hooks as guardrails only. It never writes implementation decisions.
   - Keeps RED-sensitive sessions local by skipping validation when the final
     assistant message classifies as RED.
+
+- Canonical progress lifecycle adapter (`PostToolUse` / `Stop` / checkpoint)
+  - Structured test, build, lint, and typecheck outcomes update the canonical
+    progress state only when the semantic validation value changes. Ordinary
+    reads/writes and repeated unchanged outcomes do not journal progress.
+  - The writer's byte/file/fsync metrics are forwarded to hook observability;
+    no progress Markdown, HTML, consolidated view, or archive is produced by a
+    lifecycle hook.
+  - An approved planned checkpoint carries only `plan_id`, `generation`, and
+    `semantic_hash`. Its objective, phase, decisions, validation narrative, and
+    next action remain exclusively in the progress store. Unplanned work keeps
+    the generic checkpoint shape.
+  - `scripts/memory/wakeup.py` no longer renders legacy implementation context
+    in normal flow. `--implementation-context` or
+    `RALPH_LEGACY_CONTEXT_COMPAT=1` is an explicit bounded diagnostic bridge
+    during reader-first migration.
 
 ## Context Budget Guard
 
@@ -130,15 +151,15 @@ writes. Set
 
 ## Hook Timing And Responsibility
 
-| Timing                   | Hook event / surface                                                       | Responsibility                                                                                                                                                                      | Validation evidence                                                                                                                                                                                                                                                                                                            |
-| ------------------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session start            | `SessionStart` / `session_start_wakeup.py` -> `session_start_dispatch.py`  | Use the new store as the primary recovery surface: one startup capsule, epoch-aware resume/compact dedupe, silent clear, and local-file fast path with no wakeup/dream/parser work. | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_session_start_dispatch.py tests/unit/test_progress_hook_integration.py tests/integration/test_session_start_sources_integration.py -q`.                                                                                                                    |
-| Before prompt context    | `UserPromptSubmit` / `user_prompt_dispatch.py` plus the consolidated chain | Classify safety first, claim the prompt cache before progress/history rendering, compose stable routing before optional recall, and keep legacy continuity compatibility-only.      | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_user_prompt_dispatch.py tests/unit/test_progress_hook_integration.py tests/integration/test_continuity_prompt.py tests/integration/test_effective_hook_chain.py tests/integration/test_hook_config_lockstep.py -q`; `bash .codex/tests/run-hook-tests.sh`. |
-| Before command execution | `PreToolUse` / `pre_tool_guard.py`                                         | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations. | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                                                                                                                                                                   |
-| After command execution  | `PostToolUse` / `post_tool_dispatch.py`                                    | Classify once, deduplicate once, run only relevant components, and capture bounded observer metrics.                                                                                | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_post_tool_dispatch.py tests/integration/test_hooks_basic.py -q`.                                                                                                                                                                                           |
-| Thread finalization      | `Stop` / `stop_dispatch.py`                                                | Aggregate scoped objective gates, preserve safe handoff, enqueue deferred maintenance, record report-only observations, and cap continuations.                                      | `bash .codex/tests/run-hook-tests.sh`; Stop dispatcher and maintenance-queue tests.                                                                                                                                                                                                                                            |
-| Compact lifecycle        | `PreCompact` / `PostCompact`                                               | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                              | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                                                                                                                                                                |
-| Weekly validation        | Codex App automation                                                       | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                 | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                                                                                                                                                                      |
+| Timing                   | Hook event / surface                                                       | Responsibility                                                                                                                                                                                                                   | Validation evidence                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session start            | `SessionStart` / `session_start_wakeup.py` -> `session_start_dispatch.py`  | Use the new store as the primary recovery surface: one startup capsule, epoch-aware resume/compact dedupe, silent clear, and local-file fast path with no wakeup/dream/parser work.                                              | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_session_start_dispatch.py tests/unit/test_progress_hook_integration.py tests/integration/test_session_start_sources_integration.py -q`.                                                                                                                    |
+| Before prompt context    | `UserPromptSubmit` / `user_prompt_dispatch.py` plus the consolidated chain | Classify safety first, claim the prompt cache before progress/history rendering, compose stable routing before optional recall, and keep legacy continuity compatibility-only.                                                   | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_user_prompt_dispatch.py tests/unit/test_progress_hook_integration.py tests/integration/test_continuity_prompt.py tests/integration/test_effective_hook_chain.py tests/integration/test_hook_config_lockstep.py -q`; `bash .codex/tests/run-hook-tests.sh`. |
+| Before command execution | `PreToolUse` / `pre_tool_guard.py`                                         | Enforce SFW and RED boundaries; require explicit Kubernetes context; verify minikube destination; evaluate scripts independently of location; gate complete or non-local mutations.                                              | `bash .codex/tests/run-hook-tests.sh`; focused nested-envelope and cloud-command gate tests.                                                                                                                                                                                                                                   |
+| After command execution  | `PostToolUse` / `post_tool_dispatch.py`                                    | Classify once, deduplicate once, apply only structured validation transitions for one matching active plan, preserve the existing line/shaping/memory/advisor/safety policies, and capture bounded writer metrics.               | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit/test_progress_runtime_integration.py tests/integration/test_progress_installed_dispatcher_e2e.py tests/unit/test_post_tool_dispatch.py tests/integration/test_hooks_basic.py -q`.                                                                               |
+| Thread finalization      | `Stop` / `stop_dispatch.py`                                                | Aggregate scoped objective gates, verify explicit progress completion against canonical state and current identity, preserve safe handoff, enqueue deferred maintenance, record report-only observations, and cap continuations. | `bash .codex/tests/run-hook-tests.sh`; Stop dispatcher and progress completion tests.                                                                                                                                                                                                                                          |
+| Compact lifecycle        | `PreCompact` / `PostCompact`                                               | Deferred; no productivity pattern may assume compact hook enforcement.                                                                                                                                                           | Documented deferral until install/doctor/smoke coverage exists.                                                                                                                                                                                                                                                                |
+| Weekly validation        | Codex App automation                                                       | Friday 10:00 AM report-only AutoResearch validation; no global-flow mutation without user approval.                                                                                                                              | Automation report, dirty-state before/after, and deterministic AutoResearch eval outputs.                                                                                                                                                                                                                                      |
 
 ## Effective Registration And Cost Attribution
 
@@ -272,3 +293,19 @@ python3 scripts/memory/run-pending-maintenance.py --all --json
 The worker is singleton-locked, idempotent, TTL-bounded, and keeps its
 sanitized status output away from the model. Ambiguous inbox candidates remain
 human-review items; enqueueing never claims that maintenance has completed.
+
+## Canonical progress runtime boundary (Prompt 10)
+
+The implementation-progress store is the sole business writer for structured
+progress state. `PostToolUse` recognizes only explicit structured outcomes and
+uses the store's semantic no-op contract; it does not append ordinary tool
+activity or publish derived views. `Stop` is a narrow completion verifier and
+does not replace the existing objective, file-line, notes, handoff, safety, or
+continuation policies. The rolling checkpoint is a content-free reference for
+approved planned work, while unplanned tasks retain the existing generic
+checkpoint compatibility behavior.
+
+Legacy implementation notes and wakeup rendering remain migration evidence, not
+an automatic recovery path. The legacy wakeup renderer is available only behind
+the explicit compatibility flag described above. No real data migration or hook
+registration switch is implied by this phase.

@@ -27,6 +27,8 @@ from post_tool_cost_ledger import record as cost_record
 from post_tool_extract_memory import raw_learning_candidate, run as memory_run
 from shared.post_tool_ledger import append_cost_event
 from shared.persistence_metrics import WriteAccumulator, WriteResult
+from shared.progress_hook import cheap_lookup
+from shared.progress_runtime import structured_validation, validation_transition
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
@@ -235,6 +237,7 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     errors: list[str] = []
     response: dict[str, Any] | None = None
     considered: list[str] = []
+    structured_gate = structured_validation(payload) if persistence_allowed and not pending_stream and tool.test_like else None
     if not pending_stream and _should_file_line(tool):
         considered.append("file_line_guard")
     if not pending_stream and _should_shaping(payload, tool, persistence_allowed):
@@ -243,6 +246,8 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
         considered.append("post_tool_extract_memory")
     if not pending_stream and _should_checkpoint(tool):
         considered.append("post_tool_checkpoint")
+    if structured_gate is not None:
+        considered.append("progress_validation")
     if not pending_stream and _should_advisor(payload, tool):
         considered.append("sol_advisor_observer")
     if persistence_allowed and not pending_stream:
@@ -255,6 +260,18 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
         elif pending_stream:
             components = ["stream_pending"]
         else:
+            if structured_gate is not None:
+                try:
+                    progress_lookup = cheap_lookup(context, payload)
+                    transition = validation_transition(payload, context, progress_lookup)
+                    if transition.gate:
+                        components.append("progress_validation")
+                        accounting.add(transition.result)
+                except Exception:
+                    # Progress is a narrow derivative of a structured result;
+                    # an unavailable progress store must not alter the
+                    # existing file-line, shaping, memory, or safety paths.
+                    errors.append("progress_validation")
             if _should_file_line(tool):
                 components.append("file_line_guard")
                 try:
