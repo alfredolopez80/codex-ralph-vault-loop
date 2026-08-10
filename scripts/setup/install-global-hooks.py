@@ -102,6 +102,25 @@ def hook_config() -> dict:
     return {"hooks": groups}
 
 
+def validate_codex_hook_config(config: dict) -> None:
+    """Reject hook budgets that Codex cannot deserialize as unsigned integers."""
+    for event, groups in config.get("hooks", {}).items():
+        for group in groups:
+            for hook in group.get("hooks", []):
+                timeout = hook.get("timeout")
+                if type(timeout) is not int or timeout <= 0:
+                    raise SystemExit(
+                        "GLOBAL_HOOKS_REFUSED_INVALID_CONFIG "
+                        f"event={event} field=timeout expected=positive-integer"
+                    )
+                context_limit = hook.get("additionalContextLimit")
+                if context_limit is not None and (type(context_limit) is not int or context_limit < 0):
+                    raise SystemExit(
+                        "GLOBAL_HOOKS_REFUSED_INVALID_CONFIG "
+                        f"event={event} field=additionalContextLimit expected=unsigned-integer"
+                    )
+
+
 def is_codex_worktree(path: Path) -> bool:
     try:
         resolved = path.resolve()
@@ -255,6 +274,7 @@ def main() -> int:
             return 0
 
     data = hook_config()
+    validate_codex_hook_config(data)
     if args.dry_run:
         print(f"GLOBAL_HOOKS_DRY_RUN copy {REPO / '.codex' / 'hooks'} -> {GLOBAL_HOOK_DIR}")
         print(f"GLOBAL_HOOKS_DRY_RUN write {GLOBAL_HOOK_DIR / '.ralph-repo-root'}")

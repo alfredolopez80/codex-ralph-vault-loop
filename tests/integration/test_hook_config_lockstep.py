@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -7,6 +8,8 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "setup" / "install-global-hooks.py"
@@ -87,6 +90,14 @@ def generated_global_config(home: Path) -> dict:
     json_start = result.stdout.find("{")
     assert json_start >= 0, result.stdout
     return json.loads(result.stdout[json_start:])
+
+
+def load_installer_module():
+    spec = importlib.util.spec_from_file_location("install_global_hooks_under_test", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_configured_hook(
@@ -181,6 +192,38 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
 
     stop = [name for name, _timeout in hook_pairs(local, "Stop")]
     assert stop == ["stop_dispatch"]
+
+
+def test_hook_configs_use_codex_integer_budget_fields(tmp_path: Path) -> None:
+    local = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    generated = generated_global_config(tmp_path)
+
+    for label, config in (("project", local), ("generated-global", generated)):
+        for event, groups in config["hooks"].items():
+            for group in groups:
+                for hook in group["hooks"]:
+                    assert type(hook["timeout"]) is int, f"{label} {event} timeout"
+                    assert hook["timeout"] > 0
+                    if "additionalContextLimit" in hook:
+                        assert type(hook["additionalContextLimit"]) is int, (
+                            f"{label} {event} additionalContextLimit"
+                        )
+                        assert hook["additionalContextLimit"] >= 0
+
+
+def test_installer_rejects_non_integer_budget_fields() -> None:
+    installer = load_installer_module()
+    config = installer.hook_config()
+    session_hook = config["hooks"]["SessionStart"][0]["hooks"][0]
+
+    session_hook["timeout"] = 45.0
+    with pytest.raises(SystemExit, match="field=timeout"):
+        installer.validate_codex_hook_config(config)
+
+    session_hook["timeout"] = 45
+    session_hook["additionalContextLimit"] = 800.0
+    with pytest.raises(SystemExit, match="field=additionalContextLimit"):
+        installer.validate_codex_hook_config(config)
 
 
 def test_temp_global_install_carries_deferred_maintenance_sources(tmp_path: Path) -> None:

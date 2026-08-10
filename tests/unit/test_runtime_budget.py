@@ -33,6 +33,28 @@ def test_context_limits_are_positive_and_bounded() -> None:
     assert all(0 < context_limit_for(event) <= 800 for event in context_capable_events())
 
 
+def test_runtime_budgets_are_codex_integer_values() -> None:
+    pairs = [
+        ("SessionStart", "session_start_dispatch"),
+        ("UserPromptSubmit", "user_prompt_dispatch"),
+        ("UserPromptSubmit", "user_prompt_capture"),
+        ("PreToolUse", "pre_tool_dispatch"),
+        ("PostToolUse", "post_tool_dispatch"),
+        ("SubagentStart", "sol_advisor_subagent_context"),
+        ("SubagentStop", "sol_advisor_subagent_stop"),
+        ("Stop", "stop_dispatch"),
+    ]
+    for event, role in pairs:
+        timeout = external_timeout_for(event, role)
+        assert type(timeout) is int
+        assert timeout > 0
+
+    for role in ("user_prompt_capture", "user_prompt_dispatch"):
+        child = child_timeout_for("UserPromptSubmit", role)
+        assert type(child) is int
+        assert child > 0
+
+
 @pytest.mark.parametrize("event", ["PreToolUse", "PostToolUse", "SubagentStop", "Stop"])
 def test_context_limits_reject_unsupported_events(event: str) -> None:
     with pytest.raises(ValueError):

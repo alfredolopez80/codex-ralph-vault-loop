@@ -5,6 +5,11 @@ use the official Codex event schema, write local state under `.codex/state/`,
 and avoid Claude-only concepts such as `matcher` on `UserPromptSubmit` and
 `Stop`.
 
+The global installer preserves Codex's numeric schema: every hook `timeout` and
+`additionalContextLimit` is serialized as a JSON integer (never a floating-point
+number or boolean). The installer and global smoke check reject invalid numeric
+types before a global configuration is published.
+
 ## Hooks
 
 - `.codex/hooks/universal-prompt-classifier.sh`

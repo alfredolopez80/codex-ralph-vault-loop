@@ -120,6 +120,24 @@ def hook_commands(config: dict, event: str) -> list[str]:
     return commands
 
 
+def validate_codex_hook_schema(config: dict) -> None:
+    """Catch schema-invalid numeric fields before executing any hook."""
+    for event, groups in config.get("hooks", {}).items():
+        for group in groups:
+            for hook in group.get("hooks", []):
+                timeout = hook.get("timeout")
+                if type(timeout) is not int or timeout <= 0:
+                    raise RuntimeError(
+                        f"{event} timeout must be a positive integer, got {type(timeout).__name__}"
+                    )
+                context_limit = hook.get("additionalContextLimit")
+                if context_limit is not None and (type(context_limit) is not int or context_limit < 0):
+                    raise RuntimeError(
+                        f"{event} additionalContextLimit must be an unsigned integer, "
+                        f"got {type(context_limit).__name__}"
+                    )
+
+
 def init_git(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init"], cwd=path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -141,6 +159,7 @@ def main() -> int:
         print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {GLOBAL_HOOKS_JSON}", file=sys.stderr)
         return 1
     config = json.loads(GLOBAL_HOOKS_JSON.read_text(encoding="utf-8"))
+    validate_codex_hook_schema(config)
     required = {
         "SessionStart": ["session_start_dispatch"],
         "UserPromptSubmit": ["user_prompt_dispatch"],
