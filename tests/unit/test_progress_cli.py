@@ -180,7 +180,11 @@ def test_every_public_command_and_output_contract(tmp_path: Path) -> None:
     assert dry_run.returncode == 0, dry_run.stderr
     assert json_result(dry_run)["command"] == "migrate-legacy"
 
-    rebuilt = run_cli(root, "rebuild-legacy", "--plan", str(plan), "--format", "json")
+    preview = run_cli(root, "rebuild-legacy", "--plan", str(plan), "--format", "json")
+    assert preview.returncode == 0, preview.stderr
+    assert json_result(preview)["applied"] is False
+    assert not (root / ".ralph" / "plans" / "demo-implementation-notes.html").exists()
+    rebuilt = run_cli(root, "rebuild-legacy", "--plan", str(plan), "--apply", "--format", "json")
     assert rebuilt.returncode == 0, rebuilt.stderr
     assert (root / ".ralph" / "plans" / "demo-implementation-notes.html").is_file()
     assert (root / ".ralph" / "plans" / "implementation-index.json").is_file()
@@ -384,7 +388,7 @@ def test_apply_migration_imports_legacy_notes_without_deleting_sources(tmp_path:
     assert payload["imported_events"] >= 1
     assert notes.read_bytes() == before
 
-    rebuilt = run_cli(root, "rebuild-legacy", "--plan", str(plan), "--format", "json")
+    rebuilt = run_cli(root, "rebuild-legacy", "--plan", str(plan), "--apply", "--format", "json")
     assert rebuilt.returncode == 0, rebuilt.stderr
 
 

@@ -82,6 +82,11 @@ class NotesHTMLParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.has_main = False
         self.has_csp = False
+        # Metadata cards live outside entry articles.  Keeping them on the
+        # same parser lets migration capture source provenance without a
+        # second HTML parse (the migration contract permits one parse per
+        # legacy source).
+        self.document_fields: dict[str, str] = {}
         self.section_stack: list[str] = []
         self.section_counts: dict[str, int] = {}
         self.anchor_sections: dict[str, str] = {}
@@ -112,7 +117,7 @@ class NotesHTMLParser(HTMLParser):
                     fields={},
                 )
                 self.pending_dt = ""
-        if self.current_entry is not None and tag in {"dt", "dd"}:
+        if tag in {"dt", "dd"} and (self.current_entry is not None or self.pending_dt or tag == "dt"):
             self.current_field_tag = tag
             self.current_field_text = []
 
@@ -122,7 +127,19 @@ class NotesHTMLParser(HTMLParser):
             if tag == "dt":
                 self.pending_dt = text
             elif tag == "dd" and self.pending_dt:
-                self.current_entry.fields[self.pending_dt] = text
+                if self.current_entry is not None:
+                    self.current_entry.fields[self.pending_dt] = text
+                else:
+                    self.document_fields[self.pending_dt] = text
+                self.pending_dt = ""
+            self.current_field_tag = ""
+            self.current_field_text = []
+        elif self.current_entry is None and tag == self.current_field_tag:
+            text = " ".join("".join(self.current_field_text).split())
+            if tag == "dt":
+                self.pending_dt = text
+            elif tag == "dd" and self.pending_dt:
+                self.document_fields[self.pending_dt] = text
                 self.pending_dt = ""
             self.current_field_tag = ""
             self.current_field_text = []
@@ -134,7 +151,7 @@ class NotesHTMLParser(HTMLParser):
             self.section_stack.pop()
 
     def handle_data(self, data: str) -> None:
-        if self.current_entry is not None and self.current_field_tag:
+        if self.current_field_tag:
             self.current_field_text.append(data)
 
     def handle_comment(self, data: str) -> None:

@@ -14,9 +14,36 @@ python3 scripts/plans/progress.py validate --plan .ralph/plans/example.md --gate
 python3 scripts/plans/progress.py status --plan .ralph/plans/example.md --format json
 ```
 
-Use `export --output` or `rebuild-legacy` only when a human explicitly needs a
-legacy HTML/index artifact. Run `migrate-legacy --dry-run` before any separately
-authorized import; the apply step preserves all legacy source files.
+Use `export --output` or `rebuild-legacy --apply` only when a human explicitly
+needs a legacy HTML/index artifact. `rebuild-legacy` is dry-run by default and
+reports deterministic source/output digests. Run `migrate-legacy --dry-run`
+before any separately authorized import; the apply step preserves every
+legacy source byte and mtime and writes only the canonical new store.
+
+The migration is a project-local, feature-flagged maintenance command. It
+discovers approved plans and all nested/worktree HTML copies, schema-v2 index
+plans/events/loose commits, Markdown/consolidated views, aliases, conflicts,
+checksums, schema versions, missing plans, orphan views, expected event counts,
+and state-size reductions. It blocks unresolved evidence by default. An
+explicit `--recovery-mode` is required to proceed past a reported conflict;
+normal hooks never invoke it, and this phase does not import real local data.
+
+```bash
+python3 scripts/plans/progress.py migrate-legacy --dry-run --format json
+python3 scripts/plans/progress.py migrate-legacy --apply --format json
+python3 scripts/plans/progress.py migrate-legacy --apply --recovery-mode --format json
+python3 scripts/plans/progress.py rebuild-legacy --format json
+python3 scripts/plans/progress.py rebuild-legacy --apply --format json
+```
+
+The importer parses each selected HTML source at most once, maps its initial
+template to `started`, retains bounded material fields and provenance, merges
+compatible index operations without duplication, imports loose commits into
+`unplanned-events.jsonl`, reduces events into `state.json`, publishes the
+manifest, and verifies hashes, ordering, operation IDs, status, branch,
+commit, session, worktree identity, and latest material fields. The rollback
+exporter stages all compatible HTML/index/consolidated views, validates their
+digests before replacement, and never deletes the new journal/state.
 
 Use implementation notes when a plan has been approved and the user asks Codex to implement it. The notes capture timestamped decisions made during implementation without turning hooks into the author of those decisions.
 

@@ -231,6 +231,10 @@ class ImplementationStore:
         phase: str = "",
         next_action: str = "",
         status: str = "planned",
+        summary: str = "Plan registered",
+        reason: str = "",
+        references: list[str] | None = None,
+        evidence_codes: list[str] | None = None,
     ) -> StoreResult:
         plan = self.plan_paths(plan_id)
         operation = _operation_id(operation_id)
@@ -269,12 +273,22 @@ class ImplementationStore:
                         initial_state,
                         operation_id=operation,
                         kind="started",
-                        summary="Plan registered",
+                        summary=summary,
+                        reason=reason,
+                        next_action=next_action,
+                        references=references,
+                        evidence_codes=evidence_codes,
                         timestamp=timestamp,
                         sequence=existing["sequence"],
                         previous_event_hash=existing["previous_event_hash"],
                         state_patch=_material_state_patch({}, initial_state, include_all=True),
-                        operation_payload=_registration_operation_payload(initial_state),
+                        operation_payload=_registration_operation_payload(
+                            initial_state,
+                            summary=summary,
+                            reason=reason,
+                            references=references,
+                            evidence_codes=evidence_codes,
+                        ),
                     )
                     self._assert_same_operation(existing, candidate_event=expected, operation=operation)
                     metadata = publish_json(plan.state, current, hard_limit=8 * 1024) if recovery_needed else WriteMetadata()
@@ -289,12 +303,22 @@ class ImplementationStore:
                 state,
                 operation_id=operation,
                 kind="started",
-                summary="Plan registered",
+                summary=summary,
+                reason=reason,
+                next_action=next_action,
+                references=references,
+                evidence_codes=evidence_codes,
                 timestamp=timestamp,
                 sequence=1,
                 previous_event_hash="",
                 state_patch=_material_state_patch({}, state, include_all=True),
-                operation_payload=_registration_operation_payload(state),
+                operation_payload=_registration_operation_payload(
+                    state,
+                    summary=summary,
+                    reason=reason,
+                    references=references,
+                    evidence_codes=evidence_codes,
+                ),
                 provenance=provenance,
             )
             metadata = append_jsonl(plan.events, event, hard_limit=EVENT_HARD_LIMIT_BYTES)
@@ -1125,10 +1149,20 @@ def _event_payload_from_fields(event: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _registration_operation_payload(state: Mapping[str, Any]) -> dict[str, Any]:
+def _registration_operation_payload(
+    state: Mapping[str, Any],
+    *,
+    summary: str = "Plan registered",
+    reason: str = "",
+    references: list[str] | None = None,
+    evidence_codes: list[str] | None = None,
+) -> dict[str, Any]:
     return {
         "kind": "started",
-        "summary": "Plan registered",
+        "summary": summary,
+        "reason": reason,
+        "references": list(references or []),
+        "evidence_codes": list(evidence_codes or []),
         "plan_path": state.get("plan_path", ""),
         "status": state.get("status", "planned"),
         "classification": state.get("classification", "GREEN"),

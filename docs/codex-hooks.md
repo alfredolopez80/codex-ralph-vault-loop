@@ -307,5 +307,7 @@ checkpoint compatibility behavior.
 
 Legacy implementation notes and wakeup rendering remain migration evidence, not
 an automatic recovery path. The legacy wakeup renderer is available only behind
-the explicit compatibility flag described above. No real data migration or hook
-registration switch is implied by this phase.
+the explicit compatibility flag described above. The project-local migration
+and rollback commands are explicit maintenance surfaces and have been tested
+only with deterministic temporary fixtures; no real local data migration or
+hook registration switch is implied by this phase.

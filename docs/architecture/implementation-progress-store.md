@@ -4,9 +4,10 @@ This document describes the canonical store, its public CLI, the recovery-only
 context engine, and the remaining hook lifecycle adapter. The engine is
 consumed by the consolidated `UserPromptSubmit` and `SessionStart` dispatchers;
 `PostToolUse` and `Stop` now integrate only structured validation and explicit
-completion transitions. Real-data migration and hook registration changes are
-still deferred. Legacy HTML/index readers and writers remain compatibility
-evidence behind explicit boundaries.
+completion transitions. The reversible migration and rollback tools are
+project-local maintenance surfaces; real user-data migration and hook
+registration changes remain deferred. Legacy HTML/index readers and writers
+remain compatibility evidence behind explicit boundaries.
 
 ## Public CLI
 
@@ -32,8 +33,24 @@ can pass `ordinary`, `startup`, `resume`, `compact`, `clear`, `reset`, or
 `external` with an explicit session and epoch.
 Exports are derived views: stdout is the default, `--output` is the explicit
 persistence boundary, and every render reports source and output digests.
-`migrate-legacy --dry-run` inventories only; `--apply` is the one-time import
-boundary. `rebuild-legacy` is likewise explicit and never runs from hooks.
+`migrate-legacy --dry-run` inventories every approved plan, nested/worktree
+source, index row, derived view, conflict, alias, checksum, schema, reduction,
+and warning without creating the new store. `--apply` is the separately
+authorized fixture/import boundary and is never called by hooks. It parses
+each selected HTML source once, maps the initial template to `started`, merges
+compatible index operations by operation identity, imports loose commits into
+`unplanned-events.jsonl`, reduces journal events into `state.json`, publishes
+the manifest, and verifies hashes, ordering, counts, material fields, and
+source provenance. The migration takes a canonical maintenance lock plus the
+store's existing per-plan and manifest locks. Divergent copies, aliases, bad
+checksums, corrupt/future indexes, missing plans, and orphan views block the
+default apply; `--recovery-mode` is an explicit exceptional boundary.
+
+`rebuild-legacy` is a deterministic rollback exporter. Its default is staged
+dry-run/stdout reporting with source/output digests. `--apply` replaces only
+validated legacy HTML/index/consolidated targets under the canonical manifest
+lock, preserves the current legacy pair until validation succeeds, and never
+deletes or rewrites the new journal/state.
 
 ## Write boundary and layout
 
@@ -253,5 +270,6 @@ checkpoint behavior.
 
 Normal `scripts/memory/wakeup.py` flow no longer renders implementation notes.
 The legacy reader can still be invoked with `--implementation-context` (or
-`RALPH_LEGACY_CONTEXT_COMPAT=1`) for bounded migration diagnostics only. No
-automatic legacy wakeup path or real-data migration is active in this phase.
+`RALPH_LEGACY_CONTEXT_COMPAT=1`) for bounded migration diagnostics only. The
+new migration has been exercised only against deterministic temporary
+fixtures; no real local `.ralph/plans` data has been imported in this phase.

@@ -66,6 +66,13 @@ from progress_context import (  # noqa: E402
     resolve_context_source,
     select_new_state_source,
 )
+from legacy_migration import (  # noqa: E402
+    MigrationError,
+    apply_migration,
+    build_inventory,
+    inventory_payload,
+    rebuild_legacy_views,
+)
 
 
 CLI_VERSION = 1
@@ -935,9 +942,8 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         paths = resolve_store_paths(active_root=Path.cwd())
     except StorePathError as exc:
         raise CliFailure("store_path", "cannot resolve the canonical implementation store", 6) from exc
-    files = _legacy_files(paths.primary_root)
-    candidates = _legacy_plan_candidates(paths.primary_root, files)
-    inventory = _migration_payload(paths.primary_root, files, candidates)
+    context = build_inventory(paths, active_root=Path.cwd(), recovery_mode=bool(args.recovery_mode))
+    inventory = inventory_payload(context)
     if args.dry_run:
         if args.json or args.output_format == "json":
             print(json.dumps(inventory, ensure_ascii=True, sort_keys=True))
@@ -947,106 +953,38 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                 f"source_digest={inventory['source_digest']}"
             )
         return 0
-
-    store = ImplementationStore(paths)
-    provenance = _provenance(paths)
-    imported_events = 0
-    imported_plans = 0
-    for plan_path, note_path in candidates:
-        rel = plan_path.relative_to(paths.primary_root).as_posix()
-        plan_ref = _resolve_plan(rel, paths)
-        start_operation = "mig-start-" + hashlib.sha256(rel.encode("utf-8")).hexdigest()[:40]
-        try:
-            start_result = store.register_plan(
-                plan_ref.plan_id,
-                plan_path=plan_ref.plan_rel,
-                operation_id=start_operation,
-                provenance=provenance,
-                objective=infer_title(plan_path) if plan_path.exists() else plan_ref.plan_id,
-            )
-            imported_plans += int(start_result.changed)
-        except StoreError as exc:
-            if "already registered" not in str(exc):
-                raise CliFailure("migration_failed", "legacy plan import failed", 8) from exc
-        if note_path is None:
-            continue
-        for entry in _legacy_entries(note_path):
-            summary = _bounded_text(entry.fields.get("Decision", ""), 400)
-            kind = _migration_event_kind(entry.category, entry.fields.get("Status", ""))
-            operation = _migration_operation(entry, note_path, paths.primary_root)
-            update = _record_update_for_kind(
-                {"open_questions": [], "open_blockers": [], "validation": {}}, kind, summary
-            )
-            if kind == "validation_changed":
-                update = {"validation": {"legacy": "pass"}}
-            if kind == "completed":
-                update["status"] = "completed"
-            try:
-                event_result = store.record_event(
-                    plan_ref.plan_id,
-                    kind=kind,
-                    operation_id=operation,
-                    summary=summary,
-                    reason=_bounded_text(entry.fields.get("Reason", ""), 400),
-                    next_action=_bounded_text(entry.fields.get("Impact", ""), 400),
-                    references=[item.strip() for item in entry.fields.get("Related files", "").split(",") if item.strip() and item.strip() != "n/a"],
-                    state_update=update,
-                    now=entry.fields.get("Timestamp", "") or None,
-                    provenance=provenance,
-                )
-            except StoreError as exc:
-                raise CliFailure("migration_failed", "legacy event import failed", 8) from exc
-            imported_events += int(event_result.changed)
-    payload = {
-        **inventory,
-        "mode": "apply",
-        "imported_plans": imported_plans,
-        "imported_events": imported_events,
-        "output_digest": _safe_digest({"plans": imported_plans, "events": imported_events, "source_digest": inventory["source_digest"]}),
-    }
+    try:
+        payload = apply_migration(context, recovery_mode=bool(args.recovery_mode))
+    except MigrationError as exc:
+        report = exc.report or inventory
+        raise CliFailure(exc.code, exc.message, 8) from exc
     if args.json or args.output_format == "json":
         print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     else:
         print(
-            f"MIGRATE_APPLIED files={inventory['file_count']} plans={imported_plans} "
-            f"events={imported_events} source_digest={inventory['source_digest']} output_digest={payload['output_digest']}"
+            f"MIGRATE_APPLIED files={inventory['file_count']} plans={payload['imported_plans']} "
+            f"events={payload['imported_events']} source_digest={inventory['source_digest']} output_digest={payload['output_digest']}"
         )
     return 0
 
 
 def _cmd_rebuild(args: argparse.Namespace) -> int:
-    store, _paths, ref = _store_for_plan(args.plan)
-    state, events = _state_and_events(store, ref)
-    html_content = _legacy_html(ref, state, events)
-    index_json = json.dumps(_legacy_index(ref, state, events), ensure_ascii=True, indent=2, sort_keys=True) + "\n"
-    index_md = _legacy_index_markdown(json.loads(index_json))
-    writes = [
-        (ref.notes_path, html_content),
-        (ref.primary_root / ".ralph" / "plans" / LEGACY_INDEX_JSON, index_json),
-        (ref.primary_root / ".ralph" / "plans" / LEGACY_INDEX_MD, index_md),
-    ]
-    metadata = WriteMetadata()
-    for output, content in writes:
-        metadata = metadata.plus(_write_explicit_view(store, str(output), content))
-    source_digest = _digest_source(state, events)
-    output_digest = _safe_digest({"html": _digest_bytes(html_content.encode()), "index_json": _digest_bytes(index_json.encode()), "index_md": _digest_bytes(index_md.encode())})
-    payload = {
-        "schema_version": CLI_VERSION,
-        "ok": True,
-        "command": "rebuild-legacy",
-        "plan": ref.plan_rel,
-        "plan_id": ref.plan_id,
-        "outputs": [str(path.relative_to(ref.primary_root)) for path, _content in writes],
-        "source_digest": source_digest,
-        "output_digest": output_digest,
-        "metadata": _metadata_payload(metadata),
-    }
+    try:
+        paths = resolve_store_paths(active_root=Path.cwd())
+        store = ImplementationStore(paths)
+        selected_plan = _resolve_plan(args.plan, paths).plan_id if args.plan else None
+        payload = rebuild_legacy_views(store, apply=bool(args.apply), plan_id=selected_plan)
+    except MigrationError as exc:
+        raise CliFailure(exc.code, exc.message, 8) from exc
+    except (StorePathError, StoreError, StoreIOError, IntegrityError, FutureSchemaError, CorruptRecordError) as exc:
+        raise CliFailure("rollback_failed", "legacy rollback export failed", 8) from exc
     if args.json or args.output_format == "json":
         print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     else:
         print(
-            f"REBUILD_LEGACY_PASS plan_id={ref.plan_id} outputs={len(writes)} "
-            f"source_digest={source_digest} output_digest={output_digest}"
+            f"REBUILD_LEGACY_{'APPLIED' if payload.get('applied') else 'DRY_RUN'} "
+            f"plans={len(payload.get('plans', []))} outputs={len(payload.get('outputs', []))} "
+            f"source_digest={payload['source_digest']} output_digest={payload['output_digest']}"
         )
     return 0
 
@@ -1136,10 +1074,12 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--apply", action="store_true")
     migrate.add_argument("--json", action="store_true")
     migrate.add_argument("--format", dest="output_format", choices=("json", "text"), default="text")
+    migrate.add_argument("--recovery-mode", action="store_true", help="Explicitly proceed with selected evidence despite inventory conflicts.")
     migrate.set_defaults(handler=_cmd_migrate, dry_run=False, apply=False)
 
-    rebuild = sub.add_parser("rebuild-legacy", help="Explicitly rebuild compatibility views from new state.")
-    rebuild.add_argument("--plan", required=True)
+    rebuild = sub.add_parser("rebuild-legacy", help="Preview or explicitly rebuild compatibility views from new state.")
+    rebuild.add_argument("--plan", required=False)
+    rebuild.add_argument("--apply", action="store_true", help="Replace legacy views only after staged output validation.")
     _add_json_flags(rebuild)
     rebuild.set_defaults(handler=_cmd_rebuild)
     return parser
@@ -1148,6 +1088,8 @@ def build_parser() -> argparse.ArgumentParser:
 def _error_from_exception(exc: BaseException) -> CliFailure:
     if isinstance(exc, CliFailure):
         return exc
+    if isinstance(exc, MigrationError):
+        return CliFailure(exc.code, exc.message, 8)
     if isinstance(exc, RedContentError):
         return CliFailure("red_content", "input contains RED-sensitive content", 3)
     if isinstance(exc, IdempotencyError):
