@@ -165,7 +165,11 @@ def run(payload: dict[str, Any]) -> str:
     progress_request = request_for(profile, context, payload, event=progress_event)
     progress_identity = progress.identity
     boundary = is_task_boundary(payload, prompt)
-    signature_epoch = progress_request.context_epoch + (":boundary" if boundary else "")
+    # Every explicit boundary is a new lifecycle epoch.  A nonce prevents two
+    # concurrent or repeated boundaries with identical text from sharing one
+    # cache claim before initialize() can reset task-scoped routing state.
+    boundary_epoch = f":boundary:{time.time_ns()}" if boundary else ""
+    signature_epoch = progress_request.context_epoch + boundary_epoch
     signature = signature_from_prompt(
         prompt,
         context=context,
@@ -176,12 +180,6 @@ def run(payload: dict[str, Any]) -> str:
         progress_generation=progress_identity.generation if progress_identity else 0,
         context_epoch=signature_epoch,
     )
-    if boundary:
-        # A task boundary is a lifecycle reset, even when the user repeats the
-        # exact same text in one session.  Remove the prior content-free claim
-        # before claiming the new boundary so initialize() cannot be skipped by
-        # a cache hit and inherit the previous task's routing state.
-        discard(context, signature)
     # Routing state is intentionally deferred until after this claim.  Payload
     # routing metadata is cheap and stable enough for the claim fingerprint.
     current_route = _cheap_route(payload)

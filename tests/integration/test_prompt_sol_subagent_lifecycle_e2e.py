@@ -234,6 +234,23 @@ def test_repeated_task_boundary_does_not_reuse_content_cache(tmp_path: Path) -> 
     assert decision["spawn_required"] is False
 
 
+def test_explicit_task_boundaries_use_distinct_cache_epochs(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "sol-explicit-task-boundary"
+    boundary = {
+        **prompt_payload(session_id, "Keep this wording identical across fresh tasks."),
+        "new_task": True,
+    }
+
+    run_configured_event("UserPromptSubmit", boundary, env)
+    cache_path = next(Path(env["RALPH_HOME"]).rglob("prompt-context/cache.json"))
+    first = json.loads(cache_path.read_text(encoding="utf-8"))
+    run_configured_event("UserPromptSubmit", boundary, env)
+    second = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    assert set(first["entries"]) != set(second["entries"])
+
+
 def test_stale_advisor_stop_cannot_complete_a_new_task_state(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     session_id = "sol-stale-stop"
