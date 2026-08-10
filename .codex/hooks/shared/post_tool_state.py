@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 import time
 from contextlib import contextmanager
@@ -34,6 +35,8 @@ STATE_VERSION = 1
 DEFAULT_TTL_SECONDS = 60 * 60
 DEFAULT_MAX_ENTRIES = 2_048
 SAFE_PROJECT_ID_RE = re.compile(r"^p-[a-f0-9]{16}$")
+MAX_STATE_BYTES = 256 * 1024
+MAX_METRIC_RECORD_BYTES = 256 * 1024
 
 
 @dataclass
@@ -200,7 +203,10 @@ def _safe_path(root: Path, name: str) -> Path | None:
 
 def _load_state(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = _read_bounded(path, MAX_STATE_BYTES)
+        if raw is None:
+            raise ValueError("state exceeds its bounded limit")
+        data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, dict) or data.get("schema_version") != STATE_VERSION:
             raise ValueError("incompatible state")
         entries = data.get("entries")
@@ -227,7 +233,14 @@ def _atomic_write(path: Path, data: dict[str, Any]) -> WriteResult:
             handle.write(encoded.decode("utf-8"))
             handle.flush()
             os.fsync(handle.fileno())
+        _safe_file(path, allow_missing=True)
         os.replace(temporary, path)
+        _safe_file(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
         return WriteResult(
             changed=True,
             bytes_written=len(encoded),
@@ -238,6 +251,50 @@ def _atomic_write(path: Path, data: dict[str, Any]) -> WriteResult:
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()
+
+
+def _safe_file(path: Path, *, allow_missing: bool = False) -> os.stat_result | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise OSError("post-tool state target is not a regular non-aliased file")
+    return info
+
+
+def _read_bounded(path: Path, max_bytes: int) -> bytes | None:
+    before = _safe_file(path)
+    if before is None or before.st_size > max_bytes:
+        return None
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > max_bytes
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                return None
+        final = os.fstat(fd)
+        if final.st_dev != opened.st_dev or final.st_ino != opened.st_ino or final.st_nlink != 1 or final.st_size != total:
+            return None
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 @contextmanager
@@ -256,10 +313,14 @@ def dedupe_claim(context: ActiveContext, payload: dict[str, Any]) -> Iterator[De
         return
 
     try:
-        with lock_path.open("a+", encoding="utf-8") as lock:
-            if lock_path.is_symlink():
-                yield DedupeClaimResult(False, key)
-                return
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(fd)
+            yield DedupeClaimResult(False, key)
+            return
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "a+", encoding="utf-8") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             state = _load_state(state_path)
             now = time.time()
@@ -312,15 +373,31 @@ def append_metric(context: ActiveContext, event: dict[str, Any]) -> WriteResult:
         return WriteResult.unknown()
     payload = {"schema_version": STATE_VERSION, "created_at": _now_iso(), **event}
     try:
-        with lock_path.open("a+", encoding="utf-8") as lock:
-            if lock_path.is_symlink() or path.is_symlink():
-                return WriteResult.unknown()
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        lock_info = os.fstat(lock_fd)
+        if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_nlink != 1:
+            os.close(lock_fd)
+            return WriteResult.unknown()
+        os.fchmod(lock_fd, 0o600)
+        with os.fdopen(lock_fd, "a+", encoding="utf-8") as lock:
+            _safe_file(path, allow_missing=True)
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             rotate_jsonl(path, jsonl_max_bytes("RALPH_POST_TOOL_METRICS_MAX_BYTES"))
             encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
+            if len(encoded) > MAX_METRIC_RECORD_BYTES:
+                return WriteResult.unknown()
             fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
             try:
-                os.write(fd, encoded)
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    return WriteResult.unknown()
+                view = memoryview(encoded)
+                while view:
+                    written = os.write(fd, view)
+                    if written <= 0:
+                        return WriteResult.unknown(changed=True)
+                    view = view[written:]
+                os.fsync(fd)
             finally:
                 os.close(fd)
             with contextlib.suppress(OSError):

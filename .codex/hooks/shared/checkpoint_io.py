@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import tempfile
 from contextlib import contextmanager, suppress
@@ -16,8 +17,8 @@ try:
 except ImportError:  # pragma: no cover - non-POSIX compatibility.
     fcntl = None  # type: ignore[assignment]
 
-from .active_context import ActiveContext, ensure_project_runtime, project_metadata
-from .paths import append_jsonl, now_iso, ralph_home
+from .active_context import ActiveContext, ensure_project_runtime, project_metadata, project_runtime_root
+from .paths import _is_allowed_system_alias, append_jsonl, now_iso, ralph_home
 from .redaction import redact_text, sensitivity_report
 
 CHECKPOINT_VERSION = 1
@@ -30,6 +31,7 @@ VALID_VALIDATION_STATUSES = {"not_run", "partial", "pass", "fail"}
 VALID_SOURCES = {"UserPromptSubmit", "PostToolUse", "Stop", "manual"}
 SESSION_START_ACTIVE_TTL_HOURS = 24
 SESSION_START_INACTIVE_TTL_HOURS = 12
+MAX_CHECKPOINT_BYTES = 256 * 1024
 OBSERVATIONAL_CHECKPOINT_FIELDS = frozenset({"updated_at", "content_hash"})
 MATERIAL_CHECKPOINT_FIELDS = (
     "status",
@@ -66,7 +68,10 @@ class CheckpointWriteResult:
 
 def checkpoint_root(root: Path | None = None, context: ActiveContext | None = None) -> Path:
     if context is not None:
-        return ensure_project_runtime(context, root) / CHECKPOINT_DIR
+        # Reads (including Stop fingerprinting) must not create project
+        # metadata or view directories.  Writers call ensure_checkpoint_runtime
+        # explicitly before entering the mutation boundary.
+        return project_runtime_root(context, root) / CHECKPOINT_DIR
     return (root or ralph_home()) / CHECKPOINT_DIR
 
 
@@ -84,8 +89,14 @@ def checkpoint_paths(root: Path | None = None, context: ActiveContext | None = N
 
 def ensure_checkpoint_runtime(root: Path | None = None, context: ActiveContext | None = None) -> dict[str, Path]:
     paths = checkpoint_paths(root, context)
+    _safe_checkpoint_path(paths["base"], allow_missing=True)
     paths["base"].mkdir(parents=True, exist_ok=True)
+    _safe_checkpoint_path(paths["base"])
+    paths["base"].chmod(0o700)
+    _safe_checkpoint_path(paths["archive"], allow_missing=True)
     paths["archive"].mkdir(parents=True, exist_ok=True)
+    _safe_checkpoint_path(paths["archive"])
+    paths["archive"].chmod(0o700)
     return paths
 
 
@@ -98,8 +109,8 @@ def load_latest(root: Path | None = None, context: ActiveContext | None = None) 
 
 def read_checkpoint_json(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        payload = json.loads(_read_checkpoint_bytes(path).decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise CheckpointError(f"latest checkpoint is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise CheckpointError("latest checkpoint must be a JSON object")
@@ -117,7 +128,9 @@ def compact_error(value: str, limit: int = 240) -> str:
 
 def quarantine_invalid_latest(paths: dict[str, Path], error: CheckpointError) -> None:
     source = paths["latest_json"]
-    if not source.exists():
+    try:
+        _safe_checkpoint_path(source)
+    except OSError:
         return
     target = paths["base"] / f"latest.invalid.{timestamp_for_filename()}.json"
     try:
@@ -146,8 +159,16 @@ def load_latest_for_update(paths: dict[str, Path], root: Path | None = None, con
 @contextmanager
 def checkpoint_lock(paths: dict[str, Path]):
     lock_path = paths["base"] / "latest.lock"
+    _safe_checkpoint_path(lock_path.parent, allow_missing=True)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a", encoding="utf-8") as handle:
+    _safe_checkpoint_path(lock_path, allow_missing=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        os.close(fd)
+        raise OSError("checkpoint lock is not a private regular file")
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "a+", encoding="utf-8") as handle:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -255,8 +276,9 @@ def write_checkpoint(
     archived = False
     if archive:
         timestamp = str(checkpoint["updated_at"]).replace(":", "").replace("+", "Z")
-        atomic_write_text(paths["archive"] / f"{timestamp}.json", json_text)
-        files.append(f"archive/{timestamp}.json")
+        archive_name = f"{timestamp}-{str(checkpoint.get('content_hash') or '')[:12]}.json"
+        atomic_write_text(paths["archive"] / archive_name, json_text)
+        files.append(f"archive/{archive_name}")
         bytes_written += len(json_text.encode("utf-8"))
         archived = True
     event = {
@@ -286,18 +308,106 @@ def write_checkpoint(
 
 
 def atomic_write_text(path: Path, text: str) -> None:
+    encoded = text.encode("utf-8")
+    if len(encoded) > MAX_CHECKPOINT_BYTES:
+        raise CheckpointError("checkpoint publication exceeds its bounded size")
     path.parent.mkdir(parents=True, exist_ok=True)
+    _safe_checkpoint_path(path, allow_missing=True)
+    try:
+        previous = path.lstat()
+    except FileNotFoundError:
+        previous = None
+    if previous is not None and (stat.S_ISLNK(previous.st_mode) or not stat.S_ISREG(previous.st_mode) or previous.st_nlink != 1):
+        raise OSError("checkpoint target is not a private regular file")
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        _safe_checkpoint_path(path, allow_missing=True)
+        try:
+            current = path.lstat()
+        except FileNotFoundError:
+            current = None
+        if previous is None:
+            if current is not None:
+                raise OSError("checkpoint target appeared during publication")
+        elif current is None or (current.st_dev, current.st_ino) != (previous.st_dev, previous.st_ino):
+            raise OSError("checkpoint target changed during publication")
         os.replace(tmp_path, path)
+        _safe_checkpoint_path(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         with suppress(FileNotFoundError):
             tmp_path.unlink()
+
+
+def _safe_checkpoint_path(path: Path, *, allow_missing: bool = False) -> None:
+    """Reject aliases and hardlinked files before checkpoint I/O."""
+
+    absolute = path.absolute()
+    current = Path(absolute.parts[0])
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            if allow_missing:
+                continue
+            raise OSError(f"checkpoint path does not exist: {current}")
+        if stat.S_ISLNK(info.st_mode) and not _is_allowed_system_alias(current):
+            raise OSError(f"checkpoint path contains a symlink: {current}")
+        if _is_allowed_system_alias(current):
+            continue
+        if current == absolute:
+            if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+                raise OSError(f"checkpoint target is hardlinked: {current}")
+        elif not stat.S_ISDIR(info.st_mode):
+            raise OSError(f"checkpoint path component is not a directory: {current}")
+
+
+def _read_checkpoint_bytes(path: Path) -> bytes:
+    _safe_checkpoint_path(path)
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_CHECKPOINT_BYTES:
+        raise OSError("checkpoint target is not a bounded regular file")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > MAX_CHECKPOINT_BYTES
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            raise OSError("checkpoint target changed during open")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, MAX_CHECKPOINT_BYTES - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_CHECKPOINT_BYTES:
+                raise OSError("checkpoint exceeds its read limit")
+        final = os.fstat(fd)
+        if (
+            final.st_dev != opened.st_dev
+            or final.st_ino != opened.st_ino
+            or final.st_nlink != 1
+            or final.st_size != total
+        ):
+            raise OSError("checkpoint changed during read")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def default_checkpoint(context: ActiveContext | None = None) -> dict[str, Any]:

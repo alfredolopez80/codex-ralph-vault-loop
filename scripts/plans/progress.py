@@ -15,6 +15,7 @@ import html
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
@@ -49,7 +50,7 @@ from shared.implementation_store import (  # noqa: E402
     resolve_store_paths,
 )
 from shared.implementation_store.io import WriteMetadata  # noqa: E402
-from shared.implementation_store.paths import PlanPaths, StorePaths  # noqa: E402
+from shared.implementation_store.paths import PlanPaths, StorePaths, _reject_symlink_components, regular_file_stat  # noqa: E402
 from shared.implementation_store.schema import (  # noqa: E402
     MATERIAL_EVENT_KINDS,
     VALID_STATUSES,
@@ -68,6 +69,7 @@ from progress_context import (  # noqa: E402
 )
 from legacy_migration import (  # noqa: E402
     MigrationError,
+    _read_bounded_file,
     apply_migration,
     build_inventory,
     inventory_payload,
@@ -77,10 +79,13 @@ from legacy_migration import (  # noqa: E402
 
 CLI_VERSION = 1
 MAX_TEXT_OUTPUT_BYTES = 16 * 1024
+MAX_JSON_OUTPUT_BYTES = 512 * 1024
+MAX_EXPORT_OUTPUT_BYTES = 256 * 1024
 MAX_STATUS_EVENTS = 32
 MAX_EXPORT_EVENTS = 512
 MAX_MIGRATION_FILES = 2_000
 MAX_MIGRATION_FILE_BYTES = 2 * 1024 * 1024
+MAX_MIGRATION_SCAN_ENTRIES = MAX_MIGRATION_FILES * 4
 VALID_RESULTS = frozenset({"not_run", "pending", "partial", "pass", "fail", "blocked"})
 VALID_PROFILES = frozenset({"luna", "terra", "sol", "unknown"})
 PROFILE_LIMITS = {"luna": 512, "terra": 192, "sol": 96, "unknown": 96}
@@ -117,6 +122,13 @@ class PlanRef:
 
 def _safe_digest(value: Any) -> str:
     return digest(value)
+
+
+def _emit_json(payload: Mapping[str, Any]) -> None:
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True)
+    if len(encoded.encode("utf-8")) > MAX_JSON_OUTPUT_BYTES:
+        raise CliFailure("output_limit", "CLI JSON output exceeds its bounded limit", 8)
+    print(encoded)
 
 
 def _digest_source(state: Mapping[str, Any], events: Iterable[Mapping[str, Any]]) -> str:
@@ -206,7 +218,7 @@ def _resolve_plan(raw: str, paths: StorePaths) -> PlanRef:
         raise CliFailure("invalid_plan_path", "plan path is invalid", 2)
     active = Path.cwd().resolve()
     lexical = candidate if candidate.is_absolute() else active / candidate
-    resolved = lexical.resolve(strict=False)
+    resolved = lexical.absolute()
     try:
         active_rel = resolved.relative_to(active)
     except ValueError:
@@ -220,6 +232,12 @@ def _resolve_plan(raw: str, paths: StorePaths) -> PlanRef:
         raise CliFailure("invalid_plan_path", "plan path is invalid", 2)
     if rel.as_posix().startswith(".local-notes/ralph/implementation"):
         raise CliFailure("invalid_plan_path", "plan path cannot target the canonical store", 2)
+    try:
+        _reject_symlink_components(canonical, allow_missing=True)
+        if canonical.exists():
+            regular_file_stat(canonical)
+    except (OSError, StorePathError, ValueError) as exc:
+        raise CliFailure("invalid_plan_path", "plan path is an unsafe alias", 2) from exc
     plans_root = paths.primary_root / ".ralph" / "plans"
     try:
         plan_rel = canonical.relative_to(plans_root).as_posix()
@@ -592,7 +610,7 @@ def _require_result(value: str) -> str:
 def _apply_result(command: str, ref: PlanRef, result: StoreResult, *, json_mode: bool, store: ImplementationStore | None = None) -> int:
     payload = _result_payload(command, ref, result, store)
     if json_mode:
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         print(
             f"{command.upper()} {'CHANGED' if result.changed else 'NOOP'} "
@@ -670,7 +688,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     state, events = _state_and_events(store, ref)
     payload = _status_payload(ref, state, events)
     if args.json or args.output_format == "json":
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         print(_status_text(payload))
     return 0
@@ -751,7 +769,7 @@ def _cmd_context(args: argparse.Namespace) -> int:
         "output_digest": decision.output_digest,
     }
     if args.json or args.output_format == "json":
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         if decision.capsule:
             print(decision.capsule)
@@ -765,6 +783,11 @@ def _cmd_export(args: argparse.Namespace) -> int:
     store, paths, ref = _store_for_plan(args.plan)
     state, events = _state_and_events(store, ref)
     content = _render_export(args.export_format, ref, state, events)
+    content_bytes = len(content.encode("utf-8"))
+    if content_bytes > MAX_EXPORT_OUTPUT_BYTES:
+        raise CliFailure("output_limit", "derived export exceeds its bounded output limit", 8)
+    if not args.json and content_bytes > MAX_TEXT_OUTPUT_BYTES:
+        raise CliFailure("output_limit", "text export exceeds its bounded stdout limit; use --json or --output", 8)
     source_digest = _digest_source(state, events)
     output_digest = _digest_bytes(content.encode("utf-8"))
     metadata = WriteMetadata()
@@ -789,7 +812,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         "metadata": _metadata_payload(metadata),
     }
     if args.json:
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         print(content, end="" if content.endswith("\n") else "\n")
         print(f"SOURCE_DIGEST={source_digest} OUTPUT_DIGEST={output_digest} PERSISTED={str(bool(args.output)).lower()}")
@@ -811,7 +834,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         "state_semantic_hash": state.get("semantic_hash", ""),
     }
     if args.json or args.output_format == "json":
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         print(
             f"VERIFY_PASS plan_id={ref.plan_id} events={len(events)} "
@@ -833,33 +856,57 @@ def _legacy_files(primary_root: Path) -> tuple[LegacyFile, ...]:
     if not root.exists():
         return ()
     files: list[LegacyFile] = []
-    for path in sorted(root.rglob("*")):
-        if len(files) >= MAX_MIGRATION_FILES:
-            raise CliFailure("legacy_limit", "legacy artifact count exceeds the migration limit", 8)
-        if not path.is_file() or path.is_symlink():
-            continue
-        if any(SENSITIVE_NAME_RE.search(part) for part in path.relative_to(primary_root).parts):
-            raise CliFailure("sensitive_path", "legacy artifact path is not allowed", 3)
-        size = path.stat().st_size
-        if size > MAX_MIGRATION_FILE_BYTES:
-            raise CliFailure("legacy_limit", "legacy artifact exceeds the migration limit", 8)
-        raw = path.read_bytes()
-        name = path.name
-        if name == LEGACY_INDEX_JSON:
-            kind = "index-json"
-        elif name == LEGACY_INDEX_MD:
-            kind = "index-markdown"
-        elif name == "implementation-notes-consolidated.md" or name.endswith("-implementation-notes-consolidated.md"):
-            kind = "consolidated-markdown"
-        elif name == "implementation-notes-consolidated.html" or name.endswith("-implementation-notes-consolidated.html"):
-            kind = "consolidated-html"
-        elif name.endswith(LEGACY_NOTE_SUFFIX):
-            kind = "notes-html"
-        elif path.suffix.lower() in {".md", ".markdown"}:
-            kind = "plan-markdown"
-        else:
-            continue
-        files.append(LegacyFile(path, kind, _digest_bytes(raw), len(raw)))
+    pending = [root]
+    scanned = 0
+    while pending:
+        current = pending.pop()
+        try:
+            entries = sorted(os.scandir(current), key=lambda entry: entry.name)
+        except OSError as exc:
+            raise CliFailure("legacy_error", "legacy artifact directory cannot be scanned", 8) from exc
+        for entry in entries:
+            scanned += 1
+            if scanned > MAX_MIGRATION_SCAN_ENTRIES:
+                raise CliFailure("legacy_limit", "legacy directory traversal exceeds the migration limit", 8)
+            path = Path(entry.path)
+            if entry.is_symlink():
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                pending.append(path)
+                continue
+            if len(files) >= MAX_MIGRATION_FILES:
+                raise CliFailure("legacy_limit", "legacy artifact count exceeds the migration limit", 8)
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise CliFailure("legacy_error", "legacy artifact cannot be inspected", 8) from exc
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                continue
+            if any(SENSITIVE_NAME_RE.search(part) for part in path.relative_to(primary_root).parts):
+                raise CliFailure("sensitive_path", "legacy artifact path is not allowed", 3)
+            name = path.name
+            if name == LEGACY_INDEX_JSON:
+                kind = "index-json"
+            elif name == LEGACY_INDEX_MD:
+                kind = "index-markdown"
+            elif name == "implementation-notes-consolidated.md" or name.endswith("-implementation-notes-consolidated.md"):
+                kind = "consolidated-markdown"
+            elif name == "implementation-notes-consolidated.html" or name.endswith("-implementation-notes-consolidated.html"):
+                kind = "consolidated-html"
+            elif name.endswith(LEGACY_NOTE_SUFFIX):
+                kind = "notes-html"
+            elif path.suffix.lower() in {".md", ".markdown"}:
+                kind = "plan-markdown"
+            else:
+                continue
+            size = int(info.st_size)
+            if size > MAX_MIGRATION_FILE_BYTES:
+                raise CliFailure("legacy_limit", "legacy artifact exceeds the migration limit", 8)
+            try:
+                raw, _ = _read_bounded_file(path, max_bytes=MAX_MIGRATION_FILE_BYTES, expected_inode=(info.st_dev, info.st_ino))
+            except (OSError, MigrationError) as exc:
+                raise CliFailure("legacy_error", "legacy artifact changed during inventory", 8) from exc
+            files.append(LegacyFile(path, kind, _digest_bytes(raw), len(raw)))
     return tuple(files)
 
 
@@ -895,10 +942,11 @@ def _migration_payload(primary: Path, files: tuple[LegacyFile, ...], candidates:
 
 def _legacy_entries(note_path: Path) -> list[Any]:
     try:
-        text = note_path.read_text(encoding="utf-8")
+        raw, _ = _read_bounded_file(note_path, max_bytes=MAX_MIGRATION_FILE_BYTES)
+        text = raw.decode("utf-8")
         ensure_not_red("legacy implementation notes", text)
         return valid_non_initial_entries(text, include_summary=True)
-    except (OSError, UnicodeError, ImplementationNotesError) as exc:
+    except (OSError, UnicodeError, ImplementationNotesError, MigrationError) as exc:
         raise CliFailure("legacy_invalid", "legacy implementation notes are invalid", 8) from exc
 
 
@@ -946,7 +994,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     inventory = inventory_payload(context)
     if args.dry_run:
         if args.json or args.output_format == "json":
-            print(json.dumps(inventory, ensure_ascii=True, sort_keys=True))
+            _emit_json(inventory)
         else:
             print(
                 f"MIGRATE_DRY_RUN files={inventory['file_count']} plans={inventory['plan_count']} "
@@ -959,7 +1007,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         report = exc.report or inventory
         raise CliFailure(exc.code, exc.message, 8) from exc
     if args.json or args.output_format == "json":
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         print(
             f"MIGRATE_APPLIED files={inventory['file_count']} plans={payload['imported_plans']} "
@@ -979,7 +1027,7 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
     except (StorePathError, StoreError, StoreIOError, IntegrityError, FutureSchemaError, CorruptRecordError) as exc:
         raise CliFailure("rollback_failed", "legacy rollback export failed", 8) from exc
     if args.json or args.output_format == "json":
-        print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        _emit_json(payload)
     else:
         print(
             f"REBUILD_LEGACY_{'APPLIED' if payload.get('applied') else 'DRY_RUN'} "
@@ -1130,7 +1178,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "error": {"code": failure.code, "message": failure.message},
         }
         if json_mode:
-            print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+            _emit_json(payload)
         else:
             print(f"ERROR[{failure.code}] {failure.message}", file=sys.stderr)
         return failure.exit_code

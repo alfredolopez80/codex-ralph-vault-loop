@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
@@ -33,6 +35,7 @@ LUNA_FULL_WORDS = 80
 LUNA_DELTA_WORDS = 35
 LUNA_EXPANDED_WORDS = 180
 LEGACY_FALLBACK_MAX_BYTES = 2 * 1024 * 1024
+LEGACY_FALLBACK_MAX_ENTRIES = 512
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$")
 _HASH_RE = re.compile(r"(?i)sha256:[0-9a-f]{8,64}")
 _HEX_HASH_RE = re.compile(r"(?<![A-Za-z0-9])[0-9a-f]{7,64}(?![A-Za-z0-9])", re.IGNORECASE)
@@ -258,14 +261,39 @@ def legacy_fallback(
                 raise ContextError("legacy recovery source must not traverse a symlink")
         except OSError as exc:
             raise ContextError("legacy recovery source cannot be inspected") from exc
-    raw = notes_path.read_bytes()
-    if len(raw) > LEGACY_FALLBACK_MAX_BYTES:
-        raise ContextError("legacy recovery source exceeds its bounded read limit")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(notes_path, flags)
+    except OSError as exc:
+        raise ContextError("legacy recovery source cannot be opened safely") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > LEGACY_FALLBACK_MAX_BYTES:
+            raise ContextError("legacy recovery source exceeds its bounded read limit")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, LEGACY_FALLBACK_MAX_BYTES - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > LEGACY_FALLBACK_MAX_BYTES:
+                raise ContextError("legacy recovery source exceeds its bounded read limit")
+        final = os.fstat(fd)
+        if final.st_dev != info.st_dev or final.st_ino != info.st_ino or final.st_nlink != 1 or final.st_size != total:
+            raise ContextError("legacy recovery source changed during read")
+        raw = b"".join(chunks)
+    finally:
+        os.close(fd)
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ContextError("legacy recovery source is not valid UTF-8") from exc
-    return _legacy_source_from_text(plan_id, text, parse=parser)
+    source = _legacy_source_from_text(plan_id, text, parse=parser)
+    if len(source.events) > LEGACY_FALLBACK_MAX_ENTRIES:
+        raise ContextError("legacy recovery source contains too many entries")
+    return source
 
 
 def resolve_context_source(

@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import stat
 import tempfile
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -92,10 +93,11 @@ def read_state(context: ActiveContext) -> dict[str, Any]:
     if path is None or not path.exists() or path.is_symlink():
         return _empty_state()
     try:
-        if path.stat().st_size > 64 * 1024:
+        raw = _read_bounded(path, 64 * 1024)
+        if raw is None:
             _quarantine(path)
             return _empty_state()
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(raw.decode("utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeError):
         _quarantine(path)
         return _empty_state()
@@ -155,7 +157,14 @@ def write_state(context: ActiveContext, state: dict[str, Any]) -> bool:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
+            _safe_file(path, allow_missing=True)
             os.replace(temporary_path, path)
+            _safe_file(path)
+            directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
             with contextlib.suppress(FileNotFoundError):
                 temporary_path.unlink()
@@ -179,6 +188,12 @@ def state_lock(context: ActiveContext) -> Iterator[bool]:
     try:
         flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(lock, flags, 0o600)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(fd)
+            yield False
+            return
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as handle:
             with contextlib.suppress(OSError):
                 os.chmod(lock, 0o600)
@@ -191,6 +206,50 @@ def state_lock(context: ActiveContext) -> Iterator[bool]:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except OSError:
         yield False
+
+
+def _safe_file(path: Path, *, allow_missing: bool = False) -> os.stat_result | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise OSError("session cache target is not a regular non-aliased file")
+    return info
+
+
+def _read_bounded(path: Path, max_bytes: int) -> bytes | None:
+    before = _safe_file(path)
+    if before is None or before.st_size > max_bytes:
+        return None
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > max_bytes
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                return None
+        final = os.fstat(fd)
+        if final.st_dev != opened.st_dev or final.st_ino != opened.st_ino or final.st_nlink != 1 or final.st_size != total:
+            return None
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def session_entry(state: dict[str, Any], session_id: str) -> dict[str, Any]:

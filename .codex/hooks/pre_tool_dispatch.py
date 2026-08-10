@@ -24,11 +24,27 @@ SPAWN_TOOLS = {"agent", "spawn_agent", "spawnagent"}
 WRITE_TOOLS = {"apply_patch", "edit", "write"}
 PATH_KEYS = ("path", "file_path", "filePath", "target_path", "targetPath", "filename")
 PATCH_PATH_RE = re.compile(r"(?m)^\*\*\* (?:Add|Update|Delete) File: (?P<path>[^\r\n]+)$")
+MAX_COMPONENT_OUTPUT_BYTES = 64 * 1024
+
+
+class _BoundedOutput(io.StringIO):
+    """Keep compatibility component diagnostics from growing without bound."""
+
+    def write(self, value: str) -> int:
+        remaining = MAX_COMPONENT_OUTPUT_BYTES - self.tell()
+        if remaining > 0:
+            super().write(value[:remaining])
+        return len(value)
 
 
 def _parse_input() -> dict[str, Any] | None:
     try:
-        raw = sys.stdin.read()
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        value = stream.read(4 * 1024 * 1024 + 1)
+        raw = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+        if len(raw.encode("utf-8")) > 4 * 1024 * 1024:
+            sys.stderr.write("pre_tool_dispatch input exceeded its bounded limit; action unknown and allowed.\n")
+            return None
         value = json.loads(raw) if raw.strip() else {}
     except (OSError, json.JSONDecodeError):
         sys.stderr.write("pre_tool_dispatch invalid JSON; action unknown and allowed.\n")
@@ -105,7 +121,7 @@ def _workspace_denial(payload: dict[str, Any], tool: str) -> dict[str, str] | No
 def _component(
     component: Callable[[dict[str, Any]], int], payload: dict[str, Any]
 ) -> tuple[dict[str, Any] | None, bool]:
-    output = io.StringIO()
+    output = _BoundedOutput()
     try:
         with redirect_stdout(output):
             component(payload)

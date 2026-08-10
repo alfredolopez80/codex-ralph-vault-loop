@@ -10,14 +10,12 @@ from typing import Any, Mapping
 from shared.continuation_budget import Reservation, reserve
 from shared.objective_gates import (
     GateFinding,
-    _implementation_notes_candidate,
     collect_hard_findings,
-    collect_implementation_notes_finding,
     phrase_report_codes,
     route_report_codes,
 )
 from shared.persistence_metrics import WriteAccumulator, WriteResult
-from shared.progress_runtime import complete_progress
+from shared.progress_runtime import CompletionTransition, complete_progress
 from shared.stop_persistence import (
     mark_promotion_pending,
     persist_event,
@@ -30,11 +28,17 @@ from shared.post_tool_state import directory_bytes
 from shared.runtime_observability import record_event
 
 OUTPUT_LIMIT = 420
+MAX_INPUT_BYTES = 4 * 1024 * 1024
 
 
 def parse_payload() -> dict[str, Any] | None:
     try:
-        raw = sys.stdin.read()
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        value = stream.read(MAX_INPUT_BYTES + 1)
+        raw = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+        if len(raw.encode("utf-8")) > MAX_INPUT_BYTES:
+            sys.stderr.write("stop_dispatch input exceeded its bounded limit; allowing Stop.\n")
+            return None
         if not raw.strip():
             return {}
         value = json.loads(raw)
@@ -156,7 +160,13 @@ def main() -> int:
         return 0
 
     findings, gate_reports = collect_hard_findings(payload, scope, persist_index=False)
-    progress = complete_progress(payload, scope.context)
+    # A progress completion is itself a terminal business mutation.  Do not
+    # publish it when an independent Stop hard gate has already failed; the
+    # blocked Stop must leave the canonical plan active for correction and a
+    # later retry.
+    progress = complete_progress(payload, scope.context) if not findings else None
+    if progress is None:
+        progress = CompletionTransition(reason="stop_hard_gate_failed")
     if progress.error_code:
         findings.append(
             GateFinding(
@@ -195,22 +205,9 @@ def main() -> int:
     accounting.add(_reservation_result(reservation))
     with terminal_business_claim(scope, business_fingerprint) as business:
         if not business.duplicate:
-            # Validation is still performed on every Stop above.  Only the
-            # index publication is deferred until this operation is known to
-            # be materially new, keeping duplicate retries read-only.
-            plan_hint = _implementation_notes_candidate(payload, scope)
-            if plan_hint:
-                try:
-                    # All hard gates were already evaluated above.  The
-                    # compatibility evaluator is called alone here so a
-                    # material Stop may publish its index without repeating
-                    # unrelated gate reads or safety decisions.
-                    collect_implementation_notes_finding(payload, scope, persist_index=True)
-                    # The legacy index writer does not expose bounded metrics;
-                    # keep accounting explicitly unknown when it is eligible.
-                    accounting.add(None)
-                except Exception:
-                    accounting.add(None)
+            # The progress dispatcher never publishes legacy HTML, Markdown,
+            # or implementation-index views.  Those remain explicit CLI or
+            # dedicated implementation-notes-hook boundaries.
             accounting.add(persist_handoff(payload, scope.context, scope))
             accounting.add(mark_promotion_pending(scope, payload))
             accounting.add(_record_reports(scope, report_codes, runtime_ms))

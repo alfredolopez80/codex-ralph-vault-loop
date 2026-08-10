@@ -191,3 +191,35 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest \
 
 Results: canary `PASS`; focused regression suite `114 passed`; Python compile
 `PASS`; no global installation, push, PR, or real-user migration.
+
+## Release-candidate hardening rerun
+
+The independent hardening pass was validated from local `HEAD`
+`40226c5afdc307b728618fd5a76883a9ea12543d` against base
+`92255e7d28a3bc84a005951957c953301ba40d7d`, before the final release commit.
+It reran the 20 deterministic scenarios with the same `gpt-5.6-luna/max`
+fixture and added bounded auxiliary-file, partial-tail, future-schema, and
+payload-approval checks. The canary remained `PASS` with zero model calls,
+workers, advisors, MCP calls, and network calls.
+
+| Measurement                        |                                     Candidate result | Verdict                  |
+| ---------------------------------- | ---------------------------------------------------: | ------------------------ |
+| Canary scenarios                   |                                                20/20 | PASS                     |
+| Feature fast-path p95              |                                             0.065 ms | PASS (<=5 ms)            |
+| Recovery-path p95                  |                                             0.066 ms | PASS (<=20 ms)           |
+| Luna recovery / delta maximum      |                                        242 B / 238 B | PASS (<=512 B / <=256 B) |
+| Ordinary / unchanged prompt bytes  |                                            0 B / 0 B | PASS                     |
+| Material publication               |                             1 append + 1 replacement | PASS                     |
+| Concurrent journal sequences       |                             1, 2, 3; hashes verified | PASS                     |
+| Migration apply / rerun            |                       6 events / 0 duplicate imports | PASS                     |
+| Rollback source/output digest      |                          equal; new journal retained | PASS                     |
+| Store transaction p50 (20 samples) |                  18.533 ms material; 16.574 ms retry | PASS (local)             |
+| Store transaction p95 (20 samples) |                  26.570 ms material; 25.234 ms retry | OBSERVATION              |
+| Store transaction provider calls   |                                                    0 | PASS                     |
+| Hook benchmark (5 + 1 warmup)      | p50 5279.106 ms; p95 5562.592 ms; 1430 context units | OBSERVATION              |
+| Schema-aware Phase 0 comparison    |                 unknown/incompatible (schema 1 vs 2) | UNKNOWN, preserved       |
+
+The hook benchmark is scheduler/process sensitive and remains a local
+observation; it does not measure provider latency, account limits, credits, or
+subscription usage. The schema-incompatible aggregate comparison is not
+normalized into a savings claim.

@@ -36,12 +36,18 @@ from .paths import (
 )
 from .schema import (
     CONTEXT_LEDGER_HARD_LIMIT_BYTES,
+    CONTEXT_LEDGER_MAX_BYTES,
+    CONTEXT_LEDGER_MAX_RECORDS,
     EVENT_HARD_LIMIT_BYTES,
     MATERIAL_EVENT_KINDS,
     MANIFEST_HARD_LIMIT_BYTES,
     SchemaError,
     STATE_PATCH_KEYS,
     UNPLANNED_EVENT_HARD_LIMIT_BYTES,
+    UNPLANNED_JOURNAL_MAX_BYTES,
+    UNPLANNED_JOURNAL_MAX_RECORDS,
+    PLAN_JOURNAL_MAX_BYTES,
+    PLAN_JOURNAL_MAX_RECORDS,
     CURRENT_SCHEMA_VERSION,
     digest,
     event_record_hash,
@@ -113,11 +119,16 @@ class ImplementationStore:
     # ----- side-effect-free reads -------------------------------------------------
 
     def read_manifest(self) -> dict[str, Any] | None:
-        return read_json(self.paths.manifest, validate_manifest, label="manifest")
+        return read_json(self.paths.manifest, validate_manifest, label="manifest", hard_limit=MANIFEST_HARD_LIMIT_BYTES)
 
     def read_state(self, plan_id: str) -> dict[str, Any] | None:
         plan = self.plan_paths(plan_id)
-        state = read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label="state")
+        state = read_json(
+            plan.state,
+            lambda value: validate_state(value, expected_plan_id=plan.plan_id),
+            label="state",
+            hard_limit=8 * 1024,
+        )
         if state is None:
             return None
         events = self._read_plan_events(plan, reject_partial=False).records
@@ -134,7 +145,12 @@ class ImplementationStore:
         """
 
         plan = self.plan_paths(plan_id)
-        state = read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label="state")
+        state = read_json(
+            plan.state,
+            lambda value: validate_state(value, expected_plan_id=plan.plan_id),
+            label="state",
+            hard_limit=8 * 1024,
+        )
         if state is not None:
             self._validate_ownership(state)
         return state
@@ -150,6 +166,8 @@ class ImplementationStore:
             lambda value: validate_event(value, unplanned=True),
             label="unplanned-events.jsonl",
             unplanned=True,
+            total_hard_limit=UNPLANNED_JOURNAL_MAX_BYTES,
+            max_records=UNPLANNED_JOURNAL_MAX_RECORDS,
         )
         self._validate_sequence_and_hashes(result.records, plan_id=None)
         self._validate_event_ownership(result.records)
@@ -162,6 +180,8 @@ class ImplementationStore:
             self.paths.context_ledger,
             validate_context_ledger_record,
             label="context-emissions.jsonl",
+            total_hard_limit=CONTEXT_LEDGER_MAX_BYTES,
+            max_records=CONTEXT_LEDGER_MAX_RECORDS,
         )
         if result.partial_final_line:
             raise IntegrityError("context emission ledger has an incomplete final line")
@@ -195,6 +215,8 @@ class ImplementationStore:
                 self.paths.context_ledger,
                 validate_context_ledger_record,
                 label="context-emissions.jsonl",
+                total_hard_limit=CONTEXT_LEDGER_MAX_BYTES,
+                max_records=CONTEXT_LEDGER_MAX_RECORDS,
             )
             if result.partial_final_line:
                 raise IntegrityError("context emission ledger has an incomplete final line")
@@ -205,6 +227,9 @@ class ImplementationStore:
                 self.paths.context_ledger,
                 normalized,
                 hard_limit=CONTEXT_LEDGER_HARD_LIMIT_BYTES,
+                total_hard_limit=CONTEXT_LEDGER_MAX_BYTES,
+                max_records=CONTEXT_LEDGER_MAX_RECORDS,
+                existing_records=len(result.records),
             )
         return ContextEmissionResult(True, metadata=metadata, reason="emitted")
 
@@ -321,7 +346,14 @@ class ImplementationStore:
                 ),
                 provenance=provenance,
             )
-            metadata = append_jsonl(plan.events, event, hard_limit=EVENT_HARD_LIMIT_BYTES)
+            metadata = append_jsonl(
+                plan.events,
+                event,
+                hard_limit=EVENT_HARD_LIMIT_BYTES,
+                total_hard_limit=PLAN_JOURNAL_MAX_BYTES,
+                max_records=PLAN_JOURNAL_MAX_RECORDS,
+                existing_records=len(events),
+            )
             state = self._state_after_event(state, event, timestamp=timestamp)
             metadata = metadata.plus(publish_json(plan.state, state, hard_limit=8 * 1024))
         manifest, manifest_meta = self._publish_manifest_pointer(state, force=True)
@@ -360,7 +392,12 @@ class ImplementationStore:
             # Future schemas are intentionally not caught here and remain
             # hard-blocked.
             try:
-                read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label=f"state for {plan.plan_id}")
+                read_json(
+                    plan.state,
+                    lambda value: validate_state(value, expected_plan_id=plan.plan_id),
+                    label=f"state for {plan.plan_id}",
+                    hard_limit=8 * 1024,
+                )
             except CorruptRecordError:
                 ensure_store_layout(self.paths)
                 ensure_directory_chain(plan.root, mode=0o700)
@@ -471,7 +508,14 @@ class ImplementationStore:
                 operation_payload=operation_payload,
                 provenance=provenance,
             )
-            metadata = append_jsonl(plan.events, event, hard_limit=EVENT_HARD_LIMIT_BYTES)
+            metadata = append_jsonl(
+                plan.events,
+                event,
+                hard_limit=EVENT_HARD_LIMIT_BYTES,
+                total_hard_limit=PLAN_JOURNAL_MAX_BYTES,
+                max_records=PLAN_JOURNAL_MAX_RECORDS,
+                existing_records=len(events),
+            )
             candidate = self._state_after_event(candidate, event, timestamp=timestamp)
             metadata = metadata.plus(publish_json(plan.state, candidate, hard_limit=8 * 1024))
             status_changed = candidate.get("status") != state.get("status")
@@ -536,6 +580,8 @@ class ImplementationStore:
                 lambda value: validate_event(value, unplanned=True),
                 label="unplanned-events.jsonl",
                 unplanned=True,
+                total_hard_limit=UNPLANNED_JOURNAL_MAX_BYTES,
+                max_records=UNPLANNED_JOURNAL_MAX_RECORDS,
             )
             if events_result.partial_final_line:
                 raise IntegrityError("unplanned journal has an incomplete final line; explicit repair is required")
@@ -566,7 +612,14 @@ class ImplementationStore:
                 previous_event_hash=previous,
                 provenance=provenance,
             )
-            metadata = append_jsonl(self.paths.unplanned_events, event, hard_limit=UNPLANNED_EVENT_HARD_LIMIT_BYTES)
+            metadata = append_jsonl(
+                self.paths.unplanned_events,
+                event,
+                hard_limit=UNPLANNED_EVENT_HARD_LIMIT_BYTES,
+                total_hard_limit=UNPLANNED_JOURNAL_MAX_BYTES,
+                max_records=UNPLANNED_JOURNAL_MAX_RECORDS,
+                existing_records=len(events),
+            )
         return StoreResult(True, operation, event["event_id"], metadata)
 
     # ----- replay/recovery ---------------------------------------------------------
@@ -578,7 +631,7 @@ class ImplementationStore:
         timestamp = now or _now()
         with locked_file(plan.state_lock):
             state = self._load_state_for_write(plan)
-            events_result = self._read_plan_events(plan, reject_partial=False)
+            events_result = self._read_plan_events(plan, reject_partial=True)
             events = events_result.records
             if state is None:
                 if not events:
@@ -709,6 +762,8 @@ class ImplementationStore:
                 plan.events,
                 lambda value: validate_event(value, expected_plan_id=plan.plan_id),
                 label=f"events for {plan.plan_id}",
+                total_hard_limit=PLAN_JOURNAL_MAX_BYTES,
+                max_records=PLAN_JOURNAL_MAX_RECORDS,
             )
         except CorruptRecordError as exc:
             # A malformed journal is an integrity failure, not an absent plan;
@@ -722,7 +777,12 @@ class ImplementationStore:
 
     def _load_state_for_write(self, plan: PlanPaths) -> dict[str, Any] | None:
         try:
-            return read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label=f"state for {plan.plan_id}")
+            return read_json(
+                plan.state,
+                lambda value: validate_state(value, expected_plan_id=plan.plan_id),
+                label=f"state for {plan.plan_id}",
+                hard_limit=8 * 1024,
+            )
         except CorruptRecordError:
             # Mutation is the explicit recovery boundary.  The original bytes
             # are moved to a deterministic sibling before a caller can publish.
@@ -735,7 +795,12 @@ class ImplementationStore:
         with locked_file(self.paths.manifest_lock):
             current = None
             try:
-                current = read_json(self.paths.manifest, validate_manifest, label="manifest")
+                current = read_json(
+                    self.paths.manifest,
+                    validate_manifest,
+                    label="manifest",
+                    hard_limit=MANIFEST_HARD_LIMIT_BYTES,
+                )
             except CorruptRecordError:
                 if self.paths.manifest.exists():
                     quarantine_file(self.paths.manifest, reason="malformed current schema")
@@ -971,6 +1036,8 @@ class ImplementationStore:
             plan.events,
             lambda value: validate_event(value, expected_plan_id=plan.plan_id),
             label=f"events for {plan.plan_id}",
+            total_hard_limit=PLAN_JOURNAL_MAX_BYTES,
+            max_records=PLAN_JOURNAL_MAX_RECORDS,
         )
         return ImplementationStore._operation_event_from_records(result.records, operation)
 

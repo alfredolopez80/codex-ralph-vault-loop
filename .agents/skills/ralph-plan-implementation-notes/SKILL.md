@@ -56,6 +56,35 @@ the append, context-reader, and index scripts retain their old option surface
 only as compatibility entrypoints. They are not lifecycle writers for the new
 store and must not be invoked by new hooks.
 
+## Store and safety contract
+
+The CLI writes only the canonical primary-checkout store under
+`.local-notes/ralph/implementation/`; a linked worktree is never selected as a
+write root. All plan IDs, state snapshots, journals, context-ledger rows,
+exports, diagnostics, and hook responses are size-bounded. Store and runtime
+writers use private modes, no-follow descriptors, regular/non-aliased-file
+checks, complete-write loops, atomic same-directory publication, and directory
+`fsync`. A target that changes between validation and publication is an
+unknown/blocked result, not a success claim.
+
+Mutating replay rejects an incomplete JSONL tail. Current-schema corruption is
+preserved for explicit recovery; a future schema is a hard block and is never
+quarantined, downgraded, or overwritten. Operation IDs are plan-scoped:
+identical retries are no-ops, while changed material payloads conflict. Hash
+chains provide local integrity evidence but are not signatures. Approval is
+read from the canonical plan document, not a payload boolean. Automatic plan
+selection is limited to the active repository's main checkout and one
+unambiguous active plan; ambiguous, foreign, symlinked, hardlinked, or
+cross-worktree sources are rejected.
+
+The progress-maintenance path is permanently local for this contract: it has
+zero Terra/Sol/advisor/worker/MCP allowance. Model fields are content-free
+platform provenance labels and do not attest to an executor. Legacy HTML,
+Markdown, index, and consolidated views are explicit `export`, migration, or
+rollback outputs only; hooks and Stop never publish them implicitly. The
+bounded report/observability readers reject raw bodies and cap files, records,
+groups, quarantine lines, and serialized output.
+
 ## References
 
 - Full workflow: `docs/plans/implementation-notes.md`.

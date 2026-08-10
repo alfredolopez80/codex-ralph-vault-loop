@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
+import stat
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .paths import REPO_ROOT, ralph_home
+from .paths import REPO_ROOT, _is_allowed_system_alias, ralph_home
 
 PROJECT_ID_PREFIX = "p"
 
@@ -182,6 +185,24 @@ def fast_git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
     return git_root, branch, sha[:12]
 
 
+def local_git_identity(path: Path) -> tuple[Path, Path, Path] | None:
+    """Return ``(worktree root, git dir, common dir)`` without spawning Git.
+
+    Lifecycle hooks use this only as an identity check for an already supplied
+    local path.  It deliberately does not discover a different checkout or
+    select a worktree; callers must compare the returned common directory and
+    require the main checkout explicitly.
+    """
+
+    git_root, git_dir = _git_dir_for(path)
+    if git_root is None or git_dir is None or not git_dir.exists():
+        return None
+    try:
+        return git_root.resolve(), git_dir.resolve(), _common_git_dir(git_dir).resolve()
+    except OSError:
+        return None
+
+
 def fast_remote_url(root: Path) -> str:
     """Read only remote.origin.url from local git config, without git CLI."""
     git_root, git_dir = _git_dir_for(root)
@@ -247,23 +268,92 @@ def legacy_runtime_root(root: Path | None = None) -> Path:
 
 def ensure_project_runtime(context: ActiveContext, root: Path | None = None) -> Path:
     base = project_runtime_root(context, root)
+    _reject_runtime_path(base.parent, allow_missing=True)
     for relative in ("layers", "ledgers", "handoffs", "reports", "cost", "checkpoints"):
-        (base / relative).mkdir(parents=True, exist_ok=True)
+        directory = base / relative
+        _reject_runtime_path(directory, allow_missing=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _reject_runtime_path(directory)
+        directory.chmod(0o700)
     metadata_path = base / "project.json"
     metadata = project_metadata_json(context)
-    if metadata_path.is_symlink():
-        raise OSError("refusing symlink project metadata")
     try:
-        unchanged = metadata_path.read_text(encoding="utf-8") == metadata
+        info = metadata_path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("refusing aliased project metadata")
+        if info.st_size > 64 * 1024:
+            raise OSError("project metadata exceeds its bounded size")
+        with metadata_path.open("rb") as handle:
+            unchanged = handle.read(64 * 1024 + 1).decode("utf-8") == metadata
     except FileNotFoundError:
         unchanged = False
-    except OSError:
-        # Preserve the existing write attempt for unreadable or malformed
-        # metadata; the caller's established fail-open boundary handles it.
-        unchanged = False
+    except (OSError, UnicodeDecodeError):
+        raise OSError("project metadata is not safely readable")
     if not unchanged:
-        metadata_path.write_text(metadata, encoding="utf-8")
+        _atomic_runtime_text(metadata_path, metadata, max_bytes=64 * 1024)
     return base
+
+
+def _reject_runtime_path(path: Path, *, allow_missing: bool = False) -> None:
+    absolute = path.absolute()
+    current = Path(absolute.parts[0])
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            if allow_missing:
+                continue
+            raise OSError(f"runtime path component does not exist: {current}")
+        if (stat.S_ISLNK(info.st_mode) and not _is_allowed_system_alias(current)) or (
+            not _is_allowed_system_alias(current) and not stat.S_ISDIR(info.st_mode)
+        ):
+            raise OSError(f"runtime path component is unsafe: {current}")
+
+
+def _atomic_runtime_text(path: Path, text: str, *, max_bytes: int) -> None:
+    encoded = text.encode("utf-8")
+    if len(encoded) > max_bytes:
+        raise OSError("runtime metadata exceeds its bounded size")
+    _reject_runtime_path(path.parent)
+    previous: os.stat_result | None
+    try:
+        previous = path.lstat()
+        if stat.S_ISLNK(previous.st_mode) or not stat.S_ISREG(previous.st_mode) or previous.st_nlink != 1:
+            raise OSError("runtime target is not a regular non-aliased file")
+        mode = stat.S_IMODE(previous.st_mode)
+    except FileNotFoundError:
+        previous = None
+        mode = 0o600
+    temporary = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as handle:
+            temporary = handle.name
+            os.fchmod(handle.fileno(), mode & 0o777 or 0o600)
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _reject_runtime_path(path.parent)
+        try:
+            current = path.lstat()
+        except FileNotFoundError:
+            current = None
+        if previous is not None:
+            if current is None or (current.st_dev, current.st_ino) != (previous.st_dev, previous.st_ino):
+                raise OSError("runtime target changed during publication")
+        elif current is not None:
+            raise OSError("runtime target appeared during publication")
+        os.replace(temporary, path)
+        temporary = ""
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary:
+            with contextlib.suppress(OSError):
+                Path(temporary).unlink()
 
 
 def project_metadata(context: ActiveContext) -> dict[str, str]:

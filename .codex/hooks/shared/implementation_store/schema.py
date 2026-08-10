@@ -19,6 +19,15 @@ MANIFEST_HARD_LIMIT_BYTES = 8 * 1024
 EVENT_HARD_LIMIT_BYTES = 4 * 1024
 UNPLANNED_EVENT_HARD_LIMIT_BYTES = 4 * 1024
 CONTEXT_LEDGER_HARD_LIMIT_BYTES = 2 * 1024
+# The record limits above bound individual values.  These additional limits
+# bound the journals themselves so a long-running session cannot turn a
+# read-only lookup or a CLI digest into an unbounded allocation.
+PLAN_JOURNAL_MAX_BYTES = 8 * 1024 * 1024
+PLAN_JOURNAL_MAX_RECORDS = 4096
+UNPLANNED_JOURNAL_MAX_BYTES = 4 * 1024 * 1024
+UNPLANNED_JOURNAL_MAX_RECORDS = 4096
+CONTEXT_LEDGER_MAX_BYTES = 4 * 1024 * 1024
+CONTEXT_LEDGER_MAX_RECORDS = 4096
 
 VALID_STATUSES = frozenset({"planned", "active", "completed", "blocked", "superseded", "reopened"})
 VALID_CLASSIFICATIONS = frozenset({"GREEN", "YELLOW"})

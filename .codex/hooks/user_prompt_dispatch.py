@@ -284,7 +284,11 @@ def run(payload: dict[str, Any]) -> str:
 
 def main() -> int:
     try:
-        raw = sys.stdin.read()
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        value = stream.read(4 * 1024 * 1024 + 1)
+        raw = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+        if len(raw.encode("utf-8")) > 4 * 1024 * 1024:
+            return 0
         value = json.loads(raw) if raw.strip() else {}
         payload = value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):

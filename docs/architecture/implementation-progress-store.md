@@ -273,3 +273,37 @@ The legacy reader can still be invoked with `--implementation-context` (or
 `RALPH_LEGACY_CONTEXT_COMPAT=1`) for bounded migration diagnostics only. The
 new migration has been exercised only against deterministic temporary
 fixtures; no real local `.ralph/plans` data has been imported in this phase.
+
+## Release-candidate hardening contract
+
+The release candidate applies the same fail-closed rules to the auxiliary
+runtime files that surround the canonical store. JSON/JSONL journals, context
+ledgers, checkpoints, session/context caches, continuation budgets, maintenance
+queues, post-tool ledgers, runtime-observability streams, handoffs, and vault
+learning writes use bounded reads and writes, private `0700`/`0600` modes,
+`O_NOFOLLOW` descriptors, regular-file and link-count checks, complete-write
+loops, and same-directory `fsync` before publication. Atomic replacements
+recheck the target identity immediately before `os.replace`; partial writes are
+reported as unknown rather than claimed as successful. Input streams and hook
+stdout are bounded, and reports cap files, records, groups, quarantine lines,
+and serialized output.
+
+The canonical store rejects a partial journal tail on every mutating replay,
+preserves current-schema corruption for explicit recovery, and raises a typed
+future-schema error without quarantine, downgrade, overwrite, or state
+publication. Operation IDs remain plan-scoped and conflict on a changed
+material payload. Hash chains prove ordering and accidental tampering; they
+are integrity checks, not signatures against a local attacker who can rewrite
+all bytes. Stop treats future schema, corruption, ambiguous selection,
+unapproved plans, and missing material evidence as bounded findings and never
+completes the plan in those cases.
+
+Store selection is restricted to the active Git common directory's main
+checkout (or the active non-Git fixture root). Linked worktrees are read
+contexts, never canonical write targets. Plan approval is read from the
+canonical plan document; payload approval booleans cannot substitute for that
+document. Model provenance is content-free platform evidence, not a
+cryptographic attestation, and progress maintenance has zero worker/advisor/
+MCP budget. Legacy HTML/index/consolidated views are explicit CLI or migration/
+rollback outputs only; no prompt, tool, session, or Stop path creates them
+implicitly.

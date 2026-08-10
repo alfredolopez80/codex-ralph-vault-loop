@@ -12,6 +12,7 @@ import contextlib
 import hashlib
 import json
 import os
+import stat
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -178,16 +179,43 @@ def _scope_matches(metadata: Mapping[str, str], context: ActiveContext) -> bool:
 
 
 def _read_bounded(path: Path) -> str:
-    if not path.exists() or path.is_symlink():
-        return ""
     try:
-        with path.open("rb") as handle:
-            data = handle.read(MAX_READ_BYTES + 1)
+        info = path.lstat()
     except OSError:
         return ""
-    if len(data) > MAX_READ_BYTES:
-        data = data[:MAX_READ_BYTES]
-    return data.decode("utf-8", errors="replace")
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MAX_READ_BYTES:
+        return ""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return ""
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > MAX_READ_BYTES
+            or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino)
+        ):
+            return ""
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, MAX_READ_BYTES - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_READ_BYTES:
+                return ""
+        final = os.fstat(fd)
+        if final.st_dev != opened.st_dev or final.st_ino != opened.st_ino or final.st_nlink != 1 or final.st_size != total:
+            return ""
+        return b"".join(chunks).decode("utf-8", errors="replace")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    finally:
+        os.close(fd)
 
 
 def _handoff_fields(body: str, *, legacy: bool = False) -> tuple[str, dict[str, list[str]]]:

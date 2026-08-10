@@ -228,7 +228,11 @@ def main() -> int:
     if key not in ROLE_COMMANDS:
         return 0
 
-    raw = sys.stdin.read()
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    value = stream.read(4 * 1024 * 1024 + 1)
+    raw = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+    if len(raw.encode("utf-8")) > 4 * 1024 * 1024:
+        return 0
     started = time.perf_counter_ns()
     payload = parse_payload(raw)
     context = active_context_from_payload(payload, resolve_git=False)

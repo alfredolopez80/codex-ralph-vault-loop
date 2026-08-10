@@ -222,3 +222,28 @@ If review work is delegated to subagents, subagents may return inventories,
 conflicts, and candidate corrections only. Codex main owns the apply step and is
 the only actor that may mutate the canonical index or consolidated views. This
 prevents concurrent workers from racing on the same append-only artifacts.
+
+## Migration and rollback safety boundary
+
+The migration and rollback commands are maintenance surfaces, not lifecycle
+hooks. Before `migrate-legacy --apply`, the command takes the maintenance lock,
+rechecks every bounded source snapshot (device/inode, size, and digest), and
+only then publishes the canonical store. It scans a bounded plan tree without
+following symlink directories, rejects symlink and hardlink artifacts, caps
+files/bytes/records, and blocks divergent copies, duplicate operation IDs,
+checksum failures, corrupt schemas, future schemas, missing plans, and orphan
+views unless `--recovery-mode` is explicitly supplied. A crash after an event
+append but before the state replacement is recovered by verified replay; a
+partial final line is never silently truncated.
+
+`rebuild-legacy` stages each derived output in a private directory with
+exclusive no-follow files, validates the staged bytes and source digest, then
+publishes the legacy pair atomically under the manifest lock. It never deletes
+or rewrites the canonical journal/state, and a failed validation leaves both
+the legacy source and new store unchanged. Both commands report bounded
+digests, counts, and typed conflicts rather than raw note bodies.
+
+The public CLI and hook bridge are local-only. They do not invoke Terra, Sol,
+advisors, workers, MCPs, network calls, or hidden view writers. A future schema
+is surfaced as a blocking result and cannot be downgraded by `status`,
+`context`, Stop, migration, or rollback.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -22,6 +23,9 @@ except ImportError:  # pragma: no cover
 
 STATE_SCHEMA_VERSION = 1
 DEFAULT_MAX_ENTRIES = 256
+MAX_STATE_BYTES = 256 * 1024
+MAX_EVENT_RECORD_BYTES = 256 * 1024
+MAX_EVENT_FILE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -100,9 +104,13 @@ def _locked(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with suppress(OSError):
         path.parent.chmod(0o700)
-    with path.open("a+", encoding="utf-8") as handle:
-        with suppress(OSError):
-            path.chmod(0o600)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        os.close(fd)
+        raise OSError("continuation lock is not a private regular file")
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "a+", encoding="utf-8") as handle:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -115,6 +123,8 @@ def _locked(path: Path):
 def _atomic_json(path: Path, payload: dict[str, Any]) -> WriteResult:
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     encoded = text.encode("utf-8")
+    if len(encoded) > MAX_STATE_BYTES:
+        raise OSError("continuation state exceeds its bounded limit")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
@@ -122,7 +132,14 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> WriteResult:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        _safe_file(path, allow_missing=True)
         os.replace(temporary, path)
+        _safe_file(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
         return WriteResult(
             changed=True,
             bytes_written=len(encoded),
@@ -139,7 +156,10 @@ def _load(path: Path) -> tuple[dict[str, Any], bool]:
     if not path.exists():
         return {"schema_version": STATE_SCHEMA_VERSION, "entries": {}}, False
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = _read_bounded(path, MAX_STATE_BYTES)
+        if raw is None:
+            raise ValueError("continuation state exceeds its bounded limit")
+        data = json.loads(raw.decode("utf-8"))
     except (OSError, json.JSONDecodeError):
         invalid = path.with_name(f"{path.stem}.invalid.{int(_now())}.json")
         with suppress(OSError):
@@ -151,6 +171,50 @@ def _load(path: Path) -> tuple[dict[str, Any], bool]:
             os.replace(path, invalid)
         return {"schema_version": STATE_SCHEMA_VERSION, "entries": {}}, True
     return data, False
+
+
+def _safe_file(path: Path, *, allow_missing: bool = False) -> os.stat_result | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise OSError("continuation target is not a regular non-aliased file")
+    return info
+
+
+def _read_bounded(path: Path, max_bytes: int) -> bytes | None:
+    before = _safe_file(path)
+    if before is None or before.st_size > max_bytes:
+        return None
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size > max_bytes
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                return None
+        final = os.fstat(fd)
+        if final.st_dev != opened.st_dev or final.st_ino != opened.st_ino or final.st_nlink != 1 or final.st_size != total:
+            return None
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def _trim(entries: dict[str, Any], now: float) -> dict[str, Any]:
@@ -267,13 +331,23 @@ def append_event(scope: StopScope, event: dict[str, Any], *, name: str = "stop-e
         with suppress(OSError):
             path.parent.chmod(0o700)
         with _locked(lock):
-            if path.is_symlink():
+            encoded = (json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+            if len(encoded) > MAX_EVENT_RECORD_BYTES:
                 return WriteResult.unknown()
+            _safe_file(path, allow_missing=True)
             flags = os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
             fd = os.open(path, flags, 0o600)
-            encoded = (json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
             try:
-                os.write(fd, encoded)
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size + len(encoded) > MAX_EVENT_FILE_BYTES:
+                    return WriteResult.unknown()
+                view = memoryview(encoded)
+                while view:
+                    written = os.write(fd, view)
+                    if written <= 0:
+                        return WriteResult.unknown(changed=True)
+                    view = view[written:]
+                os.fsync(fd)
             finally:
                 os.close(fd)
             with suppress(OSError):

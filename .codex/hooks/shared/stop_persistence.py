@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import stat
 import tempfile
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from .active_context import ActiveContext, project_runtime_root
 from .checkpoint_io import CheckpointError, load_latest, semantic_fingerprint
 from .continuation_budget import append_event
 from .maintenance_queue import enqueue_maintenance
-from .paths import ralph_home
+from .paths import _is_allowed_system_alias, ralph_home
 from .persistence_metrics import WriteAccumulator, WriteResult
 from .stop_scope import StopScope
 
@@ -38,7 +39,7 @@ def _safe_runtime(scope: StopScope) -> bool:
         current = root
         for part in relative.parts:
             current = current / part
-            if current.is_symlink():
+            if current.is_symlink() and not _is_allowed_system_alias(current):
                 return False
         return True
     except OSError:
@@ -90,7 +91,7 @@ def _business_safe(path: Path) -> bool:
         current = root
         for part in relative.parts:
             current = current / part
-            if current.is_symlink():
+            if current.is_symlink() and not _is_allowed_system_alias(current):
                 return False
             if current.is_file() and current.stat().st_nlink > 1:
                 return False
@@ -99,13 +100,41 @@ def _business_safe(path: Path) -> bool:
         return False
 
 
+def _safe_runtime_bytes(path: Path, *, max_bytes: int, require_private: bool = True) -> bytes:
+    """Read one runtime marker through a no-follow, bounded descriptor."""
+
+    if not _business_safe(path):
+        raise OSError("unsafe runtime marker path")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > max_bytes:
+            raise OSError("unsafe runtime marker file")
+        if require_private and info.st_mode & 0o077:
+            raise OSError("runtime marker is not private")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                raise OSError("runtime marker exceeds its read limit")
+        final = os.fstat(fd)
+        if final.st_dev != info.st_dev or final.st_ino != info.st_ino or final.st_nlink != 1 or final.st_size != total:
+            raise OSError("runtime marker changed during read")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
 def _load_business(path: Path) -> dict[str, dict[str, str]]:
     if not path.exists():
         return {}
     try:
-        if path.is_symlink() or path.stat().st_size > 128 * 1024:
-            raise ValueError("unsafe terminal business state")
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(_safe_runtime_bytes(path, max_bytes=128 * 1024).decode("utf-8"))
         if not isinstance(value, dict) or value.get("schema_version") != TERMINAL_BUSINESS_SCHEMA_VERSION:
             raise ValueError("incompatible terminal business state")
         entries = value.get("entries")
@@ -119,10 +148,9 @@ def _load_business(path: Path) -> dict[str, dict[str, str]]:
             if isinstance(fingerprint, str) and len(fingerprint) == 64:
                 result[key[:128]] = {"fingerprint": fingerprint}
         return result
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        invalid = path.with_name(f"{path.stem}.invalid.{int(datetime.now(UTC).timestamp())}.json")
-        with suppress(OSError):
-            os.replace(path, invalid)
+    except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        # A claim is a read boundary.  Malformed evidence stays in place for
+        # explicit recovery; Stop must not silently quarantine or rename it.
         return {}
 
 
@@ -135,12 +163,21 @@ def _write_business(path: Path, entries: Mapping[str, Mapping[str, str]]) -> Wri
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
+        if not _business_safe(path):
+            raise OSError("unsafe terminal business target")
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        if not _business_safe(path):
+            raise OSError("terminal business target changed during publication")
+        fd_dir = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(fd_dir)
+        finally:
+            os.close(fd_dir)
         return WriteResult(
             changed=True,
             bytes_written=len(encoded),
@@ -165,7 +202,13 @@ def terminal_business_claim(scope: StopScope, fingerprint: str):
         marker.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with suppress(OSError):
             marker.parent.chmod(0o700)
-        lock = lock_path.open("a+", encoding="utf-8")
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(fd)
+            raise OSError("unsafe terminal business lock")
+        os.fchmod(fd, 0o600)
+        lock = os.fdopen(fd, "a+", encoding="utf-8")
     except (OSError, TypeError, ValueError):
         yield TerminalBusinessClaim(False, fingerprint, False, write_result=WriteResult.unknown())
         return
@@ -296,9 +339,14 @@ def _handoff_lock(scope: StopScope):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with suppress(OSError):
             lock_path.parent.chmod(0o700)
-        handle = lock_path.open("a+", encoding="utf-8")
-        with suppress(OSError):
-            lock_path.chmod(0o600)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(fd)
+            yield False
+            return
+        os.fchmod(fd, 0o600)
+        handle = os.fdopen(fd, "a+", encoding="utf-8")
     except OSError:
         yield False
         return
@@ -317,11 +365,9 @@ def _handoff_marker(scope: StopScope) -> Path:
 
 
 def _marker_value(path: Path) -> str:
-    if path.is_symlink():
-        return ""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(_safe_runtime_bytes(path, max_bytes=8 * 1024).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return ""
     return str(data.get("fingerprint", "")) if isinstance(data, dict) else ""
 
@@ -349,8 +395,8 @@ def _handoff_fingerprint(payload: Mapping[str, object], scope: StopScope) -> str
 
 
 def _write_marker(path: Path, scope: StopScope, fingerprint: str) -> WriteResult:
-    if path.is_symlink():
-        raise OSError("refusing symlink handoff marker")
+    if not _business_safe(path):
+        raise OSError("refusing unsafe handoff marker")
     payload = {"schema_version": 2, "scope_key": scope.scope_key, "fingerprint": fingerprint}
     encoded = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -361,6 +407,13 @@ def _write_marker(path: Path, scope: StopScope, fingerprint: str) -> WriteResult
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        if not _business_safe(path):
+            raise OSError("handoff marker changed during publication")
+        fd_dir = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(fd_dir)
+        finally:
+            os.close(fd_dir)
         return WriteResult(
             changed=True,
             bytes_written=len(encoded),

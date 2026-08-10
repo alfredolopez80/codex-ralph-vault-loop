@@ -289,6 +289,23 @@ def test_explicit_replay_rebuilds_missing_snapshot_from_verified_journal(tmp_pat
     assert actual["last_event_sequence"] == expected["last_event_sequence"]
 
 
+def test_explicit_replay_rejects_partial_tail_without_publishing_snapshot(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _register(store)
+    plan = store.plan_paths("plan")
+    before_state = plan.state.read_bytes()
+    before_events = plan.events.read_bytes()
+    plan.events.write_bytes(before_events + b'{"schema_version":1,"sequence":2')
+    plan.state.unlink()
+
+    with pytest.raises(IntegrityError, match="incomplete final line"):
+        store.replay_plan("plan")
+
+    assert not plan.state.exists()
+    assert plan.events.read_bytes() == before_events + b'{"schema_version":1,"sequence":2'
+    assert before_state
+
+
 def test_snapshot_faults_preserve_append_and_allow_explicit_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = _store(tmp_path)
     _register(store)

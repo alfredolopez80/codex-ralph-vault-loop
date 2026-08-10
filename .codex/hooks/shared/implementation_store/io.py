@@ -20,6 +20,11 @@ from .paths import StorePathError, _reject_symlink_components, directory_stat, r
 from .schema import FutureSchemaError, SchemaError, canonical_json
 
 
+DEFAULT_JSON_READ_LIMIT_BYTES = 256 * 1024
+DEFAULT_JSONL_READ_LIMIT_BYTES = 8 * 1024 * 1024
+DEFAULT_JSONL_MAX_RECORDS = 4096
+
+
 class StoreIOError(RuntimeError):
     """Raised when safe publication or recovery cannot be completed."""
 
@@ -65,13 +70,14 @@ def read_json(
     *,
     label: str,
     quarantine: bool = False,
+    hard_limit: int = DEFAULT_JSON_READ_LIMIT_BYTES,
 ) -> dict[str, Any] | None:
     """Read/validate without creating or changing anything on a normal read."""
 
     _reject_symlink_components(path, allow_missing=True)
     if not path.exists():
         return None
-    raw = _read_bytes(path, label=label)
+    raw = _read_bytes(path, label=label, max_bytes=hard_limit)
     try:
         decoded = json.loads(raw.decode("utf-8"))
         if not isinstance(decoded, Mapping):
@@ -92,11 +98,13 @@ def read_jsonl(
     *,
     label: str,
     unplanned: bool = False,
+    total_hard_limit: int = DEFAULT_JSONL_READ_LIMIT_BYTES,
+    max_records: int = DEFAULT_JSONL_MAX_RECORDS,
 ) -> JsonlReadResult:
     _reject_symlink_components(path, allow_missing=True)
     if not path.exists():
         return JsonlReadResult(())
-    raw = _read_bytes(path, label=label)
+    raw = _read_bytes(path, label=label, max_bytes=total_hard_limit)
     records: list[dict[str, Any]] = []
     partial = False
     lines = raw.splitlines(keepends=True)
@@ -112,6 +120,8 @@ def read_jsonl(
             decoded = json.loads(line.decode("utf-8"))
             if not isinstance(decoded, Mapping):
                 raise SchemaError(f"{label} record must be a JSON object")
+            if len(records) >= max_records:
+                raise CorruptRecordError(f"{label} exceeds the maximum of {max_records} records")
             records.append(validator(decoded))
         except FutureSchemaError:
             raise
@@ -149,7 +159,15 @@ def locked_file(path: Path) -> Iterator[int]:
         os.close(fd)
 
 
-def append_jsonl(path: Path, payload: Mapping[str, Any], *, hard_limit: int) -> WriteMetadata:
+def append_jsonl(
+    path: Path,
+    payload: Mapping[str, Any],
+    *,
+    hard_limit: int,
+    total_hard_limit: int | None = None,
+    max_records: int | None = None,
+    existing_records: int | None = None,
+) -> WriteMetadata:
     """Append exactly one validated JSON line with O_NOFOLLOW and fsync."""
 
     encoded = (canonical_json(payload) + "\n").encode("utf-8")
@@ -169,6 +187,10 @@ def append_jsonl(path: Path, payload: Mapping[str, Any], *, hard_limit: int) -> 
         info = os.fstat(fd)
         if not _is_regular(info.st_mode) or info.st_nlink != 1:
             raise StoreIOError(f"append target is not a regular non-hardlinked file: {path}")
+        if total_hard_limit is not None and info.st_size + len(encoded) > total_hard_limit:
+            raise StoreIOError(f"{path.name} exceeds its journal limit of {total_hard_limit} bytes")
+        if max_records is not None and existing_records is not None and existing_records >= max_records:
+            raise StoreIOError(f"{path.name} exceeds its journal limit of {max_records} records")
         os.fchmod(fd, _private_mode(info.st_mode))
         _write_all(fd, encoded)
         os.fsync(fd)
@@ -196,7 +218,7 @@ def publish_json(path: Path, payload: Mapping[str, Any], *, hard_limit: int) -> 
     mode = 0o600
     if path.exists():
         info = regular_file_stat(path)
-        existing = _read_bytes(path, label=path.name)
+        existing = _read_bytes(path, label=path.name, max_bytes=hard_limit)
         mode = _private_mode(info.st_mode)
         if existing == encoded:
             return WriteMetadata()
@@ -248,7 +270,7 @@ def publish_bytes(path: Path, encoded: bytes, *, hard_limit: int) -> WriteMetada
         # permissions. The target was already proven regular/non-aliased;
         # compare its bounded bytes without applying canonical store-read
         # privacy checks to the immutable source view.
-        existing = path.read_bytes()
+        existing = _read_bytes(path, label=path.name, max_bytes=hard_limit, require_private=False)
         mode = _private_mode(info.st_mode)
         if existing == encoded:
             return WriteMetadata()
@@ -305,9 +327,17 @@ def quarantine_file(path: Path, *, reason: str = "invalid") -> Path:
     return candidate
 
 
-def _read_bytes(path: Path, *, label: str) -> bytes:
+def _read_bytes(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int | None = None,
+    require_private: bool = True,
+) -> bytes:
     _reject_symlink_components(path)
     info = regular_file_stat(path)
+    if max_bytes is not None and info.st_size > max_bytes:
+        raise StoreIOError(f"{label} exceeds its read limit of {max_bytes} bytes")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(path, flags)
@@ -317,14 +347,28 @@ def _read_bytes(path: Path, *, label: str) -> bytes:
         after = os.fstat(fd)
         if not _is_regular(after.st_mode) or after.st_nlink != 1:
             raise StoreIOError(f"{label} changed to an unsafe file during read")
-        if after.st_mode & 0o077:
+        if require_private and after.st_mode & 0o077:
             raise StoreIOError(f"{label} is not privately permissioned")
         chunks: list[bytes] = []
+        total = 0
         while True:
-            chunk = os.read(fd, 64 * 1024)
+            read_size = 64 * 1024
+            if max_bytes is not None:
+                read_size = min(read_size, max_bytes - total + 1)
+            chunk = os.read(fd, read_size)
             if not chunk:
                 break
             chunks.append(chunk)
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise StoreIOError(f"{label} exceeds its read limit of {max_bytes} bytes")
+        final = os.fstat(fd)
+        if final.st_dev != after.st_dev or final.st_ino != after.st_ino or final.st_nlink != 1:
+            raise StoreIOError(f"{label} changed to an unsafe file during read")
+        if max_bytes is not None and final.st_size > max_bytes:
+            raise StoreIOError(f"{label} grew beyond its read limit during read")
+        if final.st_size != total:
+            raise StoreIOError(f"{label} changed size during read")
         return b"".join(chunks)
     finally:
         os.close(fd)

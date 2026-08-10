@@ -113,6 +113,33 @@ def test_checkpoint_and_completion_require_plan_approval_when_document_exists(tm
     assert [event["kind"] for event in store.read_events("progress")] == ["started"]
 
 
+def test_payload_approval_boolean_cannot_complete_an_undocumented_plan(tmp_path: Path) -> None:
+    root = tmp_path / "primary"
+    root.mkdir()
+    _git(root, "init")
+    _git(root, "config", "user.email", "test@example.invalid")
+    _git(root, "config", "user.name", "Progress Test")
+    (root / "README.md").write_text("fixture\n", encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "fixture")
+    store = ImplementationStore(resolve_store_paths(primary_root=root))
+    store.register_plan("undocumented", status="active", operation_id="start-undocumented")
+    context = active_context_from_payload({"cwd": str(root), "session_id": "progress-session"}, resolve_git=False)
+    payload = {
+        **_payload(root),
+        "progress_plan_id": "undocumented",
+        "plan_approved": True,
+        "progress_complete": True,
+        "validation_status": "pass",
+    }
+
+    assert progress_checkpoint_reference(payload, context) is None
+    transition = complete_progress(payload, context)
+    assert transition.changed is False
+    assert transition.error_code == "progress_approval_invalid"
+    assert [event["kind"] for event in store.read_events("undocumented")] == ["started"]
+
+
 def test_stop_completion_is_one_terminal_transition_and_retry_is_read_only(tmp_path: Path) -> None:
     root, store = _fixture(tmp_path)
     context = active_context_from_payload({"cwd": str(root), "session_id": "progress-session", "branch": "main"}, resolve_git=False)
@@ -150,3 +177,22 @@ def test_stop_completion_rejects_corrupt_state_and_survives_deleted_worktree(tmp
     assert result.changed is False
     assert result.error_code == "progress_state_corrupt"
     assert state.exists()
+
+
+def test_stop_completion_rejects_future_schema_without_downgrade(tmp_path: Path) -> None:
+    root, store = _fixture(tmp_path)
+    state = store.plan_paths("progress").state
+    state.write_text('{"schema_version": 999}', encoding="utf-8")
+    context = active_context_from_payload({"cwd": str(root), "session_id": "progress-session"}, resolve_git=False)
+    payload = {
+        **_payload(root),
+        "progress_plan_id": "progress",
+        "progress_complete": True,
+        "validation_status": "pass",
+    }
+
+    result = complete_progress(payload, context)
+    assert result.changed is False
+    assert result.error_code == "progress_future_schema"
+    assert state.read_text(encoding="utf-8") == '{"schema_version": 999}'
+    assert [event["kind"] for event in store.read_events("progress")] == ["started"]

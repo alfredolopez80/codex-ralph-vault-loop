@@ -38,7 +38,7 @@ from shared.implementation_store import (
     StoreResult,
 )
 from shared.implementation_store.io import locked_file
-from shared.implementation_store.paths import StorePaths, ensure_store_layout, validate_plan_id
+from shared.implementation_store.paths import StorePaths, _reject_symlink_components, ensure_store_layout, validate_plan_id
 from shared.implementation_store.schema import (
     canonical_json,
     digest,
@@ -56,11 +56,13 @@ INDEX_MD_NAME = "implementation-index.md"
 CONSOLIDATED_HTML_NAME = "implementation-notes-consolidated.html"
 CONSOLIDATED_MD_NAME = "implementation-notes-consolidated.md"
 MAX_FILES = 2_000
+MAX_SCANNED_ENTRIES = MAX_FILES * 4
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_TEXT = 400
 MAX_REASON = 400
 MAX_REFERENCES = 8
 MAX_EVENTS_PER_PLAN = 512
+MAX_DERIVED_VIEW_BYTES = 256 * 1024
 VALID_STATUSES = frozenset({"planned", "active", "completed", "blocked", "superseded", "reopened"})
 VALID_RESULTS = frozenset({"not_run", "pending", "partial", "pass", "fail", "blocked"})
 SENSITIVE_NAME_RE = re.compile(
@@ -223,6 +225,61 @@ def _digest_bytes(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
+def _read_bounded_file(
+    path: Path,
+    *,
+    max_bytes: int,
+    expected_inode: tuple[int, int] | None = None,
+    expected_digest: str = "",
+) -> tuple[bytes, os.stat_result]:
+    """Read a legacy source through one stable, no-follow descriptor."""
+
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise OSError("legacy source cannot be inspected") from exc
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise OSError("legacy source is an alias or non-regular file")
+    if expected_inode is not None and (before.st_dev, before.st_ino) != expected_inode:
+        raise MigrationError("legacy_changed", "legacy source changed identity after inventory")
+    if before.st_size > max_bytes:
+        raise OSError("legacy source exceeds its read limit")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:
+        raise OSError("legacy source cannot be opened safely") from exc
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or opened.st_size > max_bytes:
+            raise OSError("legacy source changed to an unsafe file")
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise MigrationError("legacy_changed", "legacy source changed identity during read")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                raise OSError("legacy source exceeds its read limit")
+        final = os.fstat(fd)
+        if (
+            final.st_dev != opened.st_dev
+            or final.st_ino != opened.st_ino
+            or final.st_nlink != 1
+            or final.st_size != total
+        ):
+            raise MigrationError("legacy_changed", "legacy source changed during read")
+        data = b"".join(chunks)
+    finally:
+        os.close(fd)
+    if expected_digest and _digest_bytes(data) != expected_digest:
+        raise MigrationError("legacy_changed", "legacy source changed after inventory")
+    return data, final
+
+
 def _bounded(value: object, limit: int = MAX_TEXT) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
@@ -318,57 +375,71 @@ def _scan_artifacts(roots: tuple[Path, ...], primary: Path) -> tuple[list[Artifa
         if plans_root.is_symlink():
             aliases.append({"path": str(plans_root), "reason": "plans root is a symlink"})
             continue
-        paths = sorted(plans_root.rglob("*"))
-        for path in paths:
-            if path.is_dir() and not path.is_symlink():
-                continue
-            kind = _artifact_kind(path)
-            if not kind:
-                if path.is_symlink():
-                    aliases.append({"path": str(path), "reason": "symlink alias"})
-                continue
+        pending = [plans_root]
+        scanned = 0
+        while pending:
+            current = pending.pop()
             try:
-                info = path.lstat()
+                entries = sorted(os.scandir(current), key=lambda entry: entry.name)
             except OSError as exc:
-                aliases.append({"path": str(path), "reason": f"cannot inspect source: {exc.__class__.__name__}"})
+                aliases.append({"path": str(current), "reason": f"cannot scan source: {exc.__class__.__name__}"})
                 continue
-            rel = path.relative_to(plans_root).as_posix()
-            alias_reason = ""
-            inode = (info.st_dev, info.st_ino)
-            if stat.S_ISLNK(info.st_mode):
-                alias_reason = "symlink alias"
-            elif not stat.S_ISREG(info.st_mode):
-                alias_reason = "non-regular source"
-            elif info.st_nlink != 1:
-                alias_reason = "hardlink alias"
-            elif inode in inode_seen and inode_seen[inode] != path:
-                alias_reason = f"same inode as {inode_seen[inode]}"
-            else:
-                inode_seen[inode] = path
-            digest_value = ""
-            size = int(info.st_size)
-            if not alias_reason:
-                if size > MAX_FILE_BYTES:
-                    alias_reason = "source exceeds migration size limit"
+            for entry in entries:
+                scanned += 1
+                if scanned > MAX_SCANNED_ENTRIES:
+                    raise MigrationError("legacy_limit", "legacy directory traversal exceeds the migration limit")
+                path = Path(entry.path)
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                    continue
+                kind = _artifact_kind(path)
+                if not kind:
+                    if path.is_symlink():
+                        aliases.append({"path": str(path), "reason": "symlink alias"})
+                    continue
+                try:
+                    info = path.lstat()
+                except OSError as exc:
+                    aliases.append({"path": str(path), "reason": f"cannot inspect source: {exc.__class__.__name__}"})
+                    continue
+                rel = path.relative_to(plans_root).as_posix()
+                alias_reason = ""
+                inode = (info.st_dev, info.st_ino)
+                if stat.S_ISLNK(info.st_mode):
+                    alias_reason = "symlink alias"
+                elif not stat.S_ISREG(info.st_mode):
+                    alias_reason = "non-regular source"
+                elif info.st_nlink != 1:
+                    alias_reason = "hardlink alias"
+                elif inode in inode_seen and inode_seen[inode] != path:
+                    alias_reason = f"same inode as {inode_seen[inode]}"
                 else:
-                    try:
-                        digest_value = _digest_bytes(path.read_bytes())
-                    except (OSError, ValueError) as exc:
-                        alias_reason = f"cannot read source: {exc.__class__.__name__}"
-            artifact = Artifact(
-                path=path,
-                root=root,
-                relative=rel,
-                kind=kind,
-                digest=digest_value,
-                bytes=size,
-                mtime_ns=int(info.st_mtime_ns),
-                inode=inode,
-                alias_reason=alias_reason,
-            )
-            artifacts.append(artifact)
-            if alias_reason:
-                aliases.append({"path": str(path), "reason": alias_reason})
+                    inode_seen[inode] = path
+                digest_value = ""
+                size = int(info.st_size)
+                if not alias_reason:
+                    if size > MAX_FILE_BYTES:
+                        alias_reason = "source exceeds migration size limit"
+                    else:
+                        try:
+                            raw, _stat = _read_bounded_file(path, max_bytes=MAX_FILE_BYTES)
+                            digest_value = _digest_bytes(raw)
+                        except (OSError, ValueError) as exc:
+                            alias_reason = f"cannot read source: {exc.__class__.__name__}"
+                artifact = Artifact(
+                    path=path,
+                    root=root,
+                    relative=rel,
+                    kind=kind,
+                    digest=digest_value,
+                    bytes=size,
+                    mtime_ns=int(info.st_mtime_ns),
+                    inode=inode,
+                    alias_reason=alias_reason,
+                )
+                artifacts.append(artifact)
+                if alias_reason:
+                    aliases.append({"path": str(path), "reason": alias_reason})
     if len(artifacts) > MAX_FILES:
         raise MigrationError("legacy_limit", "legacy artifact count exceeds the migration limit")
     return artifacts, aliases
@@ -419,9 +490,12 @@ def _read_text(artifact: Artifact) -> str:
     if artifact.alias_reason:
         raise MigrationError("source_alias", "legacy source is an alias or cannot be read")
     try:
-        raw = artifact.path.read_bytes()
-        if artifact.digest and _digest_bytes(raw) != artifact.digest:
-            raise MigrationError("legacy_changed", "legacy source changed after inventory")
+        raw, _stat = _read_bounded_file(
+            artifact.path,
+            max_bytes=MAX_FILE_BYTES,
+            expected_inode=artifact.inode,
+            expected_digest=artifact.digest,
+        )
         text = raw.decode("utf-8")
         ensure_not_red("legacy migration source", text)
     except MigrationError:
@@ -724,7 +798,13 @@ def _parse_index(artifact: Artifact) -> IndexCopy:
     if artifact.alias_reason:
         return IndexCopy(artifact, None, "alias", artifact.alias_reason)
     try:
-        raw = artifact.path.read_text(encoding="utf-8")
+        raw_bytes, _stat = _read_bounded_file(
+            artifact.path,
+            max_bytes=MAX_FILE_BYTES,
+            expected_inode=artifact.inode,
+            expected_digest=artifact.digest,
+        )
+        raw = raw_bytes.decode("utf-8")
         ensure_not_red("legacy implementation index", raw)
         data = json.loads(raw)
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -1246,10 +1326,8 @@ def _verify_source_snapshot(context: MigrationContext, before: Mapping[str, tupl
     for raw_path, expected in before.items():
         path = Path(raw_path)
         try:
-            info = path.lstat()
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                raise MigrationError("legacy_changed", "legacy source changed type during migration")
-            actual = (_digest_bytes(path.read_bytes()), int(info.st_size), int(info.st_mtime_ns))
+            raw, info = _read_bounded_file(path, max_bytes=MAX_FILE_BYTES, expected_digest=expected[0])
+            actual = (_digest_bytes(raw), int(info.st_size), int(info.st_mtime_ns))
         except OSError as exc:
             raise MigrationError("legacy_changed", "legacy source disappeared during migration") from exc
         if actual != expected:
@@ -1293,7 +1371,7 @@ def _apply_plan_events(store: ImplementationStore, record: PlanMigration, specs:
     objective = record.plan_id
     if record.plan_source and not record.plan_source.alias_reason:
         try:
-            text = record.plan_source.path.read_text(encoding="utf-8")
+            text = _read_text(record.plan_source)
             for line in text.splitlines():
                 if line.strip().startswith("# "):
                     objective = _bounded(line.strip()[2:], 480)
@@ -1356,6 +1434,11 @@ def apply_migration(context: MigrationContext, *, recovery_mode: bool = False) -
     ensure_store_layout(context.paths)
     with locked_file(context.paths.root / "migration.lock"):
         before = _source_snapshot(context)
+        # Revalidate the inventory after taking the maintenance lock and
+        # before the first canonical write.  A changed source now fails before
+        # a partial import can be published; the post-write check below still
+        # detects a race that occurs during the import itself.
+        _verify_source_snapshot(context, before)
         store = ImplementationStore(context.paths)
         imported_plans = 0
         imported_events = 0
@@ -1511,14 +1594,49 @@ def apply_migration(context: MigrationContext, *, recovery_mode: bool = False) -
 
 
 def _all_new_plans(store: ImplementationStore) -> list[tuple[str, dict[str, Any], tuple[dict[str, Any], ...]]]:
-    if not store.paths.plans_root.exists():
+    plans_root = store.paths.plans_root
+    if not plans_root.exists():
         return []
+    try:
+        root_info = plans_root.lstat()
+    except OSError as exc:
+        raise MigrationError("store_unavailable", "canonical plan directory cannot be inspected") from exc
+    if stat.S_ISLNK(root_info.st_mode) or not stat.S_ISDIR(root_info.st_mode):
+        raise MigrationError("store_alias", "canonical plan directory is an alias or non-directory")
     result: list[tuple[str, dict[str, Any], tuple[dict[str, Any], ...]]] = []
-    for state_path in sorted(store.paths.plans_root.rglob("state.json")):
-        if state_path.is_symlink() or not state_path.is_file():
-            continue
+    pending = [plans_root]
+    scanned = 0
+    state_paths: list[Path] = []
+    while pending:
+        current = pending.pop()
+        try:
+            entries = sorted(os.scandir(current), key=lambda entry: entry.name)
+        except OSError as exc:
+            raise MigrationError("store_unavailable", "canonical plan directory cannot be scanned") from exc
+        for entry in entries:
+            scanned += 1
+            if scanned > MAX_SCANNED_ENTRIES:
+                raise MigrationError("store_limit", "canonical plan directory exceeds the scan limit")
+            path = Path(entry.path)
+            if entry.is_symlink():
+                raise MigrationError("store_alias", "canonical plan directory contains a symlink")
+            if entry.is_dir(follow_symlinks=False):
+                info = entry.stat(follow_symlinks=False)
+                pending.append(path)
+                continue
+            if entry.name != "state.json":
+                continue
+            info = entry.stat(follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise MigrationError("store_alias", "canonical plan state is an alias or non-regular file")
+            state_paths.append(path)
+    for state_path in sorted(state_paths, key=lambda item: item.relative_to(plans_root).as_posix()):
         plan_root = state_path.parent
-        plan_id = plan_root.relative_to(store.paths.plans_root).as_posix()
+        try:
+            plan_id = plan_root.relative_to(plans_root).as_posix()
+            validate_plan_id(plan_id)
+        except (StorePathError, ValueError) as exc:
+            raise MigrationError("store_path", "canonical plan identifier is invalid") from exc
         state = store.read_state(plan_id)
         if state is None:
             continue
@@ -1764,6 +1882,9 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
             (store.paths.primary_root / ".ralph" / "plans" / CONSOLIDATED_MD_NAME, _render_consolidated_markdown(plans)),
         ]
     )
+    for _target, content in views:
+        if len(content.encode("utf-8")) > MAX_DERIVED_VIEW_BYTES:
+            raise MigrationError("rollback_limit", "legacy rollback view exceeds the bounded publication limit")
     source_digest = digest(
         {
             "plans": [{"plan_id": plan_id, "state": state, "events": list(events)} for plan_id, state, events in plans],
@@ -1771,28 +1892,51 @@ def rebuild_legacy_views(store: ImplementationStore, *, apply: bool = False, pla
         }
     )
     staged: list[tuple[Path, str, str]] = []
-    stage_dir = Path(tempfile.mkdtemp(prefix=".rollback-", dir=store.paths.primary_root / ".ralph" / "plans"))
+    view_content = {target: content for target, content in views}
+    plans_dir = store.paths.primary_root / ".ralph" / "plans"
+    try:
+        _reject_symlink_components(plans_dir)
+    except (OSError, StorePathError) as exc:
+        raise MigrationError("rollback_target_alias", "legacy rollback plans directory is unsafe") from exc
+    stage_dir = Path(tempfile.mkdtemp(prefix=".rollback-", dir=plans_dir))
+    os.chmod(stage_dir, 0o700)
     try:
         for target, content in views:
             stage = stage_dir / target.relative_to(store.paths.primary_root / ".ralph" / "plans")
             stage.parent.mkdir(parents=True, exist_ok=True)
-            stage.write_text(content, encoding="utf-8")
+            _reject_symlink_components(stage.parent)
+            encoded = content.encode("utf-8")
+            fd = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            try:
+                view = memoryview(encoded)
+                while view:
+                    written = os.write(fd, view)
+                    if written <= 0:
+                        raise OSError("short staged rollback write")
+                    view = view[written:]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
             staged.append((target, _digest_bytes(content.encode("utf-8")), str(stage)))
         # Validation occurs entirely against the temporary outputs before any
         # legacy target is replaced.
         for target, expected_digest, stage in staged:
-            if _digest_bytes(Path(stage).read_bytes()) != expected_digest:
+            raw, _stat = _read_bounded_file(Path(stage), max_bytes=MAX_DERIVED_VIEW_BYTES)
+            if _digest_bytes(raw) != expected_digest:
                 raise MigrationError("rollback_validation_failed", "staged legacy view digest changed")
         output_digest = digest({str(target.relative_to(store.paths.primary_root)): digest_value for target, digest_value, _stage in staged})
         if apply:
             with locked_file(store.paths.manifest_lock):
                 for target, _expected_digest, stage in staged:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if target.exists() and not target.is_symlink() and target.read_bytes() == Path(stage).read_bytes():
-                        continue
-                    if target.is_symlink() or (target.exists() and target.stat().st_nlink != 1):
-                        raise MigrationError("rollback_target_alias", "legacy rollback target is an alias")
-                    os.replace(stage, target)
+                    content = view_content[target]
+                    try:
+                        store.publish_derived_view(
+                            target.relative_to(store.paths.primary_root),
+                            content,
+                            hard_limit=MAX_DERIVED_VIEW_BYTES,
+                        )
+                    except (StorePathError, OSError, ValueError) as exc:
+                        raise MigrationError("rollback_target_alias", "legacy rollback target is unsafe") from exc
         return {
             "schema_version": 1,
             "command": "rebuild-legacy",

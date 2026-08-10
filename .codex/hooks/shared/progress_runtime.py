@@ -9,8 +9,10 @@ No legacy view, note, or archive writer is reachable from these functions.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shlex
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -31,7 +33,7 @@ from .runtime_profile import profile_from_payload
 # ``progress_hook`` resolves the canonical engine root for both project-local
 # and installed hook copies before importing the pure context engine. Reuse
 # that path setup rather than shipping a second implementation into hooks.
-from implementation_notes_lib import ImplementationNotesError, is_plan_approved, parse_plan_metadata
+from implementation_notes_lib import ImplementationNotesError, is_plan_approved, parse_plan_metadata_text
 
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$")
@@ -121,6 +123,57 @@ def _command(payload: Mapping[str, object]) -> str:
 
 def _tool_name(payload: Mapping[str, object]) -> str:
     return _text(payload.get("tool_name") or payload.get("toolName") or payload.get("tool"), 120).lower()
+
+
+def _safe_plan_metadata(path: Path, root: Path):
+    """Read one plan document without following aliases or unbounded bodies."""
+
+    lexical = path.absolute()
+    try:
+        lexical.relative_to(root)
+    except ValueError:
+        return None
+    current = Path(lexical.parts[0])
+    for part in lexical.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        if stat.S_ISLNK(info.st_mode):
+            return None
+    try:
+        fd = os.open(lexical, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 256 * 1024:
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, 256 * 1024 - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > 256 * 1024:
+                return None
+        final = os.fstat(fd)
+        if final.st_dev != info.st_dev or final.st_ino != info.st_ino or final.st_nlink != 1 or final.st_size != total:
+            return None
+        text = b"".join(chunks).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        os.close(fd)
+    try:
+        return parse_plan_metadata_text(text)
+    except (ImplementationNotesError, OSError, ValueError):
+        return None
 
 
 def _gate_for(payload: Mapping[str, object]) -> str:
@@ -225,9 +278,11 @@ def _write_result(result: object) -> WriteResult:
 
 def _provenance(context: ActiveContext, payload: Mapping[str, object]) -> dict[str, Any]:
     profile = profile_from_payload(payload)
-    workspace = _safe_id(payload.get("workspace_instance_id") or payload.get("workspaceInstanceId"), "")
-    if not workspace:
-        workspace = "ws-" + context.workspace_instance_id
+    # Workspace identity is derived from the active context, never accepted
+    # from the operation payload.  A caller may carry a stale or forged
+    # workspace field, but it must not be able to rewrite the provenance used
+    # by completion and cross-worktree checks.
+    workspace = "ws-" + context.workspace_instance_id
     git: dict[str, str] = {"workspace_instance_id": workspace}
     if context.branch:
         git["branch"] = _text(context.branch, 240)
@@ -322,9 +377,6 @@ def progress_checkpoint_reference(
 
 
 def _plan_is_approved(payload: Mapping[str, object], lookup: ProgressLookup) -> bool:
-    explicit = _value(payload, *_APPROVAL_KEYS)
-    if isinstance(explicit, bool):
-        return explicit
     if lookup.identity is None or lookup.store is None:
         return False
     plan_path = lookup.identity.plan_path
@@ -337,25 +389,16 @@ def _plan_is_approved(payload: Mapping[str, object], lookup: ProgressLookup) -> 
         candidate = Path(plan_path).expanduser()
         if not candidate.is_absolute():
             candidate = lookup.store.paths.primary_root / candidate
-        try:
-            candidate = candidate.resolve(strict=False)
-            candidate.relative_to(lookup.store.paths.primary_root)
-        except (OSError, ValueError):
-            return False
-        if candidate.is_file() and not candidate.is_symlink():
-            try:
-                metadata = parse_plan_metadata(candidate)
-            except (ImplementationNotesError, OSError, ValueError):
-                return False
+        metadata = _safe_plan_metadata(candidate, lookup.store.paths.primary_root)
+        if metadata is not None:
             # A present plan document is authoritative for approval. Missing
             # or pending metadata must not be upgraded merely because a
             # payload supplied a plan ID.
             return is_plan_approved(metadata)
-    # An explicit store plan ID is the bounded approval handoff used by the
-    # new CLI when a plan document is not available in a linked worktree.  A
-    # plan path alone is not approval: an active registration must not silently
-    # promote an unapproved or metadata-free plan into a completion writer.
-    return any(isinstance(payload.get(key), str) and payload.get(key).strip() for key in _PLAN_KEYS)
+    # A payload boolean or an explicit store plan ID is only a request.  It is
+    # never approval evidence: completion and planned checkpoints require the
+    # canonical plan document to be present and marked approved.
+    return False
 
 
 def _plan_identity_matches(payload: Mapping[str, object], lookup: ProgressLookup) -> bool:
@@ -372,8 +415,10 @@ def _plan_identity_matches(payload: Mapping[str, object], lookup: ProgressLookup
         if not candidate.is_absolute():
             candidate = lookup.store.paths.primary_root / candidate
         try:
-            relative = candidate.resolve(strict=False).relative_to(lookup.store.paths.primary_root).as_posix()
+            relative = candidate.absolute().relative_to(lookup.store.paths.primary_root).as_posix()
         except (OSError, ValueError):
+            return False
+        if _safe_plan_metadata(candidate, lookup.store.paths.primary_root) is None:
             return False
         expected = lookup.identity.plan_path
         if expected and relative != expected:
@@ -405,7 +450,10 @@ def _workspace_matches(state: Mapping[str, object], context: ActiveContext, payl
     value = state.get("git")
     git = value if isinstance(value, Mapping) else {}
     recorded = str(git.get("workspace_instance_id") or "").strip()
-    expected = _safe_id(payload.get("workspace_instance_id") or payload.get("workspaceInstanceId"), "") or context.workspace_instance_id
+    # The active cwd/worktree is the identity boundary.  Payload workspace
+    # fields are advisory and must not redirect completion to another
+    # worktree's state.
+    expected = context.workspace_instance_id
     return not recorded or recorded in {expected, f"ws-{expected}"}
 
 
@@ -464,6 +512,13 @@ def complete_progress(
         return CompletionTransition(reason="completion_not_requested")
     lookup = lookup or cheap_lookup(context, payload)
     if not lookup.available or lookup.identity is None or lookup.identity.source != "state":
+        if lookup.resolution.reason == "future_schema" and _progress_hint(payload):
+            return CompletionTransition(
+                in_scope=True,
+                error_code="progress_future_schema",
+                error_reason="active progress state uses an unsupported future schema",
+                reason="future_schema",
+            )
         if lookup.resolution.reason == "state_invalid" and _progress_hint(payload):
             return CompletionTransition(
                 in_scope=True,

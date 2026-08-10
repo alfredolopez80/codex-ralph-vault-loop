@@ -72,3 +72,22 @@ Consolidated dispatchers emit one event per hook process while preserving the
 existing stdout contracts. The maintenance runner emits a separate event
 after queue/runner work. These values describe local runtime and visible bytes
 only; they support scaffold comparisons and do not claim monetary savings.
+
+## Release-candidate reader/writer limits
+
+The observability writer and report reader are bounded independently of the
+canonical progress store. A report accepts at most 64 input files, 32 MiB per
+file, 100,000 records/usage rows, 4,096 profile groups, and 512 KiB of each
+serialized JSON/Markdown report. Quarantine output is capped at 1 MiB with a
+4 KiB digest-only line limit. Files are opened without following symlinks,
+must be regular and singly linked, and are checked again after streaming. A
+rotation or append that cannot prove the complete write returns an unknown
+result and never claims an exact byte count.
+
+Hook stdin and captured compatibility-component output are bounded as well.
+Oversized input is treated as an unknown/allow-safe dispatch condition; it is
+not copied into diagnostics. No report, ledger, cache hit, or normal dispatch
+performs a recursive runtime scan or creates a view as a side effect. The
+persisted `model_source`, `model_verified`, and model-family fields remain
+content-free provenance labels; progress maintenance cannot route through
+Terra, Sol, advisors, workers, or MCPs.

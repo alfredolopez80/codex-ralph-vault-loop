@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .active_context import ActiveContext
-from .implementation_store import ImplementationStore, StorePathError, resolve_store_paths_local
+from .active_context import ActiveContext, local_git_identity
+from .implementation_store import FutureSchemaError, ImplementationStore, StorePathError, resolve_store_paths_local
 from .runtime_profile import RuntimeProfile
 
 
@@ -140,9 +140,32 @@ def _root_candidates(context: ActiveContext, payload: Mapping[str, object]) -> t
             resolved = path.absolute()
         except OSError:
             continue
+        if not _candidate_is_canonical(context, resolved):
+            continue
         if resolved not in result:
             result.append(resolved)
     return tuple(result)
+
+
+def _candidate_is_canonical(context: ActiveContext, candidate: Path) -> bool:
+    """Keep hook-local store selection inside the active Git identity.
+
+    The fast path cannot invoke Git, but it can still inspect the local
+    ``.git`` pointer and common directory.  A candidate must be the main
+    checkout for the same repository as the active worktree.  Non-Git fixture
+    roots remain valid only when they are the active workspace itself.
+    """
+
+    active_root = context.workspace_root
+    active_identity = local_git_identity(active_root)
+    candidate_identity = local_git_identity(candidate)
+    if active_identity is None:
+        return candidate == active_root.absolute()
+    if candidate_identity is None:
+        return False
+    active_common = active_identity[2]
+    candidate_top, candidate_git, candidate_common = candidate_identity
+    return candidate_common == active_common and candidate_git == candidate_common and candidate_top == candidate
 
 
 def local_store(context: ActiveContext, payload: Mapping[str, object]) -> ImplementationStore | None:
@@ -172,9 +195,26 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
 
     store = local_store(context, payload)
     if store is None:
-        return ProgressLookup(None, None, SourceResolution(None, "state_unavailable"))
+        explicit_plan = payload.get("progress_plan_id") or payload.get("progressPlanId")
+        explicit_root = any(
+            isinstance(payload.get(key), (str, Path)) and str(payload.get(key)).strip()
+            for key in (
+                "primary_repo_root",
+                "primaryRoot",
+                "canonical_repo_root",
+                "canonicalRepoRoot",
+                "implementation_store_root",
+            )
+        )
+        # An explicitly requested plan with an untrusted root is a safety
+        # failure, not an ordinary cache miss.  No foreign store is opened,
+        # but Stop can still fail closed with a typed integrity finding.
+        reason = "state_invalid" if explicit_plan and explicit_root else "state_unavailable"
+        return ProgressLookup(None, None, SourceResolution(None, reason))
     try:
         manifest = store.read_manifest()
+    except FutureSchemaError:
+        return ProgressLookup(store, None, SourceResolution(None, "future_schema"))
     except Exception:
         return ProgressLookup(store, None, SourceResolution(None, "state_invalid"))
     if not manifest:
@@ -200,12 +240,16 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         ]
     identities: list[ProgressIdentity] = []
     invalid_state = False
+    future_schema = False
     for pointer in candidates:
         plan_id = str(pointer.get("plan_id") or "")
         if not plan_id:
             continue
         try:
             state = store.read_state_identity(plan_id)
+        except FutureSchemaError:
+            future_schema = True
+            continue
         except Exception:
             invalid_state = True
             continue
@@ -227,6 +271,8 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         return ProgressLookup(store, identity, SourceResolution(None, identity.reason))
     if len(identities) > 1:
         return ProgressLookup(store, None, SourceResolution(None, "ambiguous_active_state"))
+    if future_schema:
+        return ProgressLookup(store, None, SourceResolution(None, "future_schema"))
     if invalid_state:
         return ProgressLookup(store, None, SourceResolution(None, "state_invalid"))
     if _legacy_enabled() and len(candidates) == 1:
@@ -319,10 +365,11 @@ def request_for(
     return ContextRequest(
         profile=model_profile,
         verified=profile.model_verified,
-        project_id=_safe_identifier(str(payload.get("project_id") or context.project_id), context.project_id),
-        workspace_instance_id=_safe_identifier(
-            str(payload.get("workspace_instance_id") or context.workspace_instance_id), context.workspace_instance_id
-        ),
+        # Project and worktree identity are derived from the active context;
+        # hook payload fields cannot forge a ledger scope or replay another
+        # worktree's capsule.
+        project_id=context.project_id,
+        workspace_instance_id=context.workspace_instance_id,
         session_id=_safe_identifier(context.session_id, "unknown"),
         context_epoch=context_epoch(payload, event, context.session_id),
         event=event,
