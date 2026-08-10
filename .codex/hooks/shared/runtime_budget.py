@@ -6,21 +6,21 @@ from typing import Final
 
 MIN_CLEANUP_MARGIN_SECONDS: Final[float] = 1.0
 
-_EXTERNAL_TIMEOUTS: Final[dict[tuple[str, str], float]] = {
-    ("SessionStart", "session_start_dispatch"): 45.0,
-    ("UserPromptSubmit", "user_prompt_dispatch"): 10.0,
-    ("UserPromptSubmit", "user_prompt_capture"): 10.0,
-    ("PreToolUse", "pre_tool_dispatch"): 10.0,
-    ("PostToolUse", "post_tool_dispatch"): 10.0,
-    ("SubagentStart", "sol_advisor_subagent_context"): 10.0,
-    ("SubagentStop", "sol_advisor_subagent_stop"): 10.0,
-    ("Stop", "stop_dispatch"): 10.0,
+_EXTERNAL_TIMEOUTS: Final[dict[tuple[str, str], int]] = {
+    ("SessionStart", "session_start_dispatch"): 45,
+    ("UserPromptSubmit", "user_prompt_dispatch"): 10,
+    ("UserPromptSubmit", "user_prompt_capture"): 10,
+    ("PreToolUse", "pre_tool_dispatch"): 10,
+    ("PostToolUse", "post_tool_dispatch"): 10,
+    ("SubagentStart", "sol_advisor_subagent_context"): 10,
+    ("SubagentStop", "sol_advisor_subagent_stop"): 10,
+    ("Stop", "stop_dispatch"): 10,
 }
 
-_CHILD_TIMEOUTS: Final[dict[tuple[str, str], float]] = {
+_CHILD_TIMEOUTS: Final[dict[tuple[str, str], int]] = {
     # Leaves two seconds for explicit fallback, telemetry and interpreter exit.
-    ("UserPromptSubmit", "user_prompt_capture"): 8.0,
-    ("UserPromptSubmit", "user_prompt_dispatch"): 8.0,
+    ("UserPromptSubmit", "user_prompt_capture"): 8,
+    ("UserPromptSubmit", "user_prompt_dispatch"): 8,
 }
 
 _CONTEXT_LIMITS: Final[dict[tuple[str, str], int]] = {
@@ -30,16 +30,16 @@ _CONTEXT_LIMITS: Final[dict[tuple[str, str], int]] = {
 }
 
 
-def external_timeout_for(event: str, role: str) -> float:
-    """Return the configured outer timeout, failing loud for unknown pairs."""
+def external_timeout_for(event: str, role: str) -> int:
+    """Return the Codex-compatible integer outer timeout."""
     try:
         return _EXTERNAL_TIMEOUTS[(event, role)]
     except KeyError as exc:
         raise ValueError(f"unknown hook runtime budget: {event}/{role}") from exc
 
 
-def child_timeout_for(event: str, role: str) -> float:
-    """Return a child timeout proven to leave at least the cleanup margin."""
+def child_timeout_for(event: str, role: str) -> int:
+    """Return an integer child timeout with the cleanup margin preserved."""
     try:
         child = _CHILD_TIMEOUTS[(event, role)]
     except KeyError as exc:
