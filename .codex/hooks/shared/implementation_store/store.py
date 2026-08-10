@@ -125,6 +125,20 @@ class ImplementationStore:
         self._validate_state_cursor(state, events)
         return state
 
+    def read_state_identity(self, plan_id: str) -> dict[str, Any] | None:
+        """Read only the validated state snapshot, without journal history.
+
+        Hooks use this bounded lookup to put progress generation and writer
+        identity into a cache claim.  Full event-chain verification remains a
+        miss-only operation before a model-visible capsule is rendered.
+        """
+
+        plan = self.plan_paths(plan_id)
+        state = read_json(plan.state, lambda value: validate_state(value, expected_plan_id=plan.plan_id), label="state")
+        if state is not None:
+            self._validate_ownership(state)
+        return state
+
     def read_events(self, plan_id: str) -> tuple[dict[str, Any], ...]:
         plan = self.plan_paths(plan_id)
         result = self._read_plan_events(plan, reject_partial=False)
@@ -193,6 +207,15 @@ class ImplementationStore:
                 hard_limit=CONTEXT_LEDGER_HARD_LIMIT_BYTES,
             )
         return ContextEmissionResult(True, metadata=metadata, reason="emitted")
+
+    def has_context_emission(self, record: Mapping[str, Any]) -> bool:
+        """Return whether a ledger key exists without creating a layout/lock."""
+
+        normalized = validate_context_ledger_record(record)
+        key = context_ledger_key(normalized)
+        if not self.paths.context_ledger.exists():
+            return False
+        return any(context_ledger_key(item) == key for item in self.read_context_ledger())
 
     # ----- plan lifecycle ----------------------------------------------------------
 

@@ -94,6 +94,19 @@ def checkpoint_identity(context: ActiveContext) -> str:
     )
 
 
+def checkpoint_stat_identity(context: ActiveContext) -> str:
+    """Return a content-free checkpoint marker without parsing history."""
+
+    root = project_runtime_root(context)
+    for candidate in (root / "checkpoints" / "latest.json", root / "checkpoints" / "latest.jsonl"):
+        try:
+            stat = candidate.stat()
+        except OSError:
+            continue
+        return f"{candidate.name}:{stat.st_mtime_ns}:{stat.st_size}"
+    return ""
+
+
 def route_from_state(state: Mapping[str, object]) -> str:
     routing = state.get("routing")
     if not isinstance(routing, Mapping):
@@ -186,6 +199,6 @@ def compose_context(segments: list[str], profile: RuntimeProfile) -> str:
 
 
 __all__ = [
-    "checkpoint_identity", "classification_context", "complexity_for_prompt", "compose_context",
+    "checkpoint_identity", "checkpoint_stat_identity", "classification_context", "complexity_for_prompt", "compose_context",
     "memory_generation", "prompt_sensitivity", "route_from_state", "run_intake",
 ]

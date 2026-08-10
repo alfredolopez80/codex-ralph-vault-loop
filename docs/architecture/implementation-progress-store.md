@@ -1,9 +1,11 @@
 # Canonical implementation-progress store
 
-This document describes the canonical store, its public CLI, and the Phase 5
-recovery-only context engine. The package is deliberately not connected to
-lifecycle hooks yet; legacy HTML/index readers and writers remain compatibility
-evidence until a later writer-switch phase.
+This document describes the canonical store, its public CLI, and the
+recovery-only context engine. The engine is consumed by the consolidated
+`UserPromptSubmit` and `SessionStart` dispatchers in the current integration
+phase; remaining lifecycle writers and real-data migration are still deferred.
+Legacy HTML/index readers and writers remain compatibility evidence behind
+explicit boundaries.
 
 ## Public CLI
 
@@ -175,8 +177,10 @@ network, MCP, advisor, or worker. Source selection is strict:
 3. ambiguity or an invalid source produces no automatic selection.
 
 The legacy parser reads and parses at most one HTML source per fallback
-operation. It is a recovery bridge, not the normal progress path. Complete
-JSON/JSONL/HTML/index/view artifacts are never injected automatically.
+operation. It is a recovery bridge, not the normal progress path, and hook
+fallback is disabled unless `RALPH_PROGRESS_LEGACY_FALLBACK=1` is explicitly
+set. Complete JSON/JSONL/HTML/index/view artifacts are never injected
+automatically.
 
 The shared `context-emissions.jsonl` ledger contains only the deduplication key:
 `project_id`, `workspace_instance_id`, `session_id`, `context_epoch`, `plan_id`,
@@ -194,3 +198,25 @@ one full capsule even when the generation is unchanged; an explicit progress
 request emits a bounded expanded capsule. Current user instructions and
 repository files remain authoritative in every verified Luna capsule. No
 absolute paths, historical narrative, or raw hashes are rendered.
+
+## Prompt/session integration (Prompt 9)
+
+`UserPromptSubmit` is cache-first. It classifies safety before resolving model
+provenance, performs a content-free manifest/state identity lookup, folds the
+plan ID, generation, and context epoch into the task signature, and claims the
+existing prompt-context cache before reading journals or rendering recovery.
+Hits and in-flight claims return an empty hook response; the normal path does
+not update rolling checkpoints or inject a second implementation narrative.
+Recall, prompt improvement, and any compatibility checkpoint are miss-only
+components and are composed after safety/classification and stable routing
+metadata.
+
+`SessionStart` is the primary new-store recovery surface. Startup/new-session
+uses one full capsule for one matching active plan, resume uses a full or
+external-writer delta only when the epoch/generation key is absent, compact
+uses a new full-epoch key, and clear supersedes the local emission state while
+remaining silent. A ledger hit is checked before the full journal read. The
+fast path resolves only explicit/local checkout paths and reads files directly;
+it does not run Git, wakeup, dream maintenance, or an HTML parser for a valid
+new-store source. Project/global registration remains the single consolidated
+dispatcher contract, so compatibility entrypoints cannot duplicate output.

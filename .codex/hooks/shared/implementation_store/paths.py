@@ -119,6 +119,31 @@ def resolve_store_paths(
     )
 
 
+def resolve_store_paths_local(primary_root: Path | str) -> StorePaths:
+    """Resolve a canonical store from an already-proven local checkout.
+
+    Lifecycle hooks use this narrow resolver on their fast path.  The caller
+    must supply a checkout path from trusted local payload/configuration; this
+    function performs the same symlink and boundary checks as the Git-backed
+    resolver but never invokes Git or another child process.
+    """
+
+    primary = _existing_directory(Path(primary_root), "primary checkout")
+    _reject_symlink_components(primary)
+    root = primary / STORE_RELATIVE
+    _validate_store_boundary(root, primary)
+    return StorePaths(
+        primary_root=primary,
+        root=root,
+        manifest=root / "manifest.json",
+        manifest_lock=root / "manifest.lock",
+        unplanned_events=root / "unplanned-events.jsonl",
+        plans_root=root / "plans",
+        context_ledger=root / "context-emissions.jsonl",
+        context_ledger_lock=root / "context-emissions.lock",
+    )
+
+
 def validate_plan_id(plan_id: str) -> tuple[str, ...]:
     """Validate a relative plan identifier, allowing bounded nested plans."""
 

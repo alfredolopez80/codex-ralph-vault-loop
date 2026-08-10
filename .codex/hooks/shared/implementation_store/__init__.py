@@ -11,6 +11,7 @@ from .paths import (
     StorePaths,
     ensure_store_layout,
     resolve_primary_checkout_root,
+    resolve_store_paths_local,
     resolve_store_paths,
     validate_plan_id,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "new_state",
     "publish_bytes",
     "resolve_primary_checkout_root",
+    "resolve_store_paths_local",
     "resolve_store_paths",
     "state_semantic_hash",
     "state_size_band",

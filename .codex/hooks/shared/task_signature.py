@@ -61,9 +61,18 @@ def signature_from_prompt(
     profile: RuntimeProfile,
     sensitivity: str,
     checkpoint_identity: str = "",
+    progress_plan_id: str = "",
+    progress_generation: int = 0,
+    context_epoch: str = "",
 ) -> TaskSignature:
     prompt_hash = _digest(prompt, 40)
-    checkpoint = _digest(checkpoint_identity, 24) if checkpoint_identity else ""
+    checkpoint_material = {
+        "checkpoint": checkpoint_identity,
+        "progress_plan_id": progress_plan_id,
+        "progress_generation": max(0, int(progress_generation or 0)),
+        "context_epoch": context_epoch,
+    }
+    checkpoint = _digest(json.dumps(checkpoint_material, sort_keys=True, separators=(",", ":")), 24) if any(checkpoint_material.values()) else ""
     intent = normalized_intent(prompt)
     anchor_material = {
         "schema_version": SCHEMA_VERSION,

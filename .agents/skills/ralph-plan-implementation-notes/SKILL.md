@@ -25,8 +25,11 @@ recovery boundary, and no automatic selection when active plans are ambiguous.
 Use `--event ordinary|startup|resume|compact|clear|reset|external|explicit`,
 an explicit `--session-id`, and `--context-epoch` when exercising lifecycle
 semantics. The content-free emission ledger is written only for a real
-non-empty capsule; hits are read-only. The renderer is deliberately not
-registered in hooks in the current phase.
+non-empty capsule; hits are read-only. The consolidated `UserPromptSubmit`
+and `SessionStart` dispatchers now consume this engine through a local,
+cache-first bridge. The legacy fallback remains feature-flagged with
+`RALPH_PROGRESS_LEGACY_FALLBACK=1`; compatibility wrappers and old checkpoint
+readers are evidence only and are not independent progress implementations.
 
 Use this skill when a user approves a plan and requests implementation, or
 when a finalization gate references implementation notes. The canonical copy

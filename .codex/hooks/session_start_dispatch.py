@@ -23,6 +23,12 @@ from shared.checkpoint_io import CheckpointError, classify_payload, load_latest
 from shared.maintenance_queue import enqueue_maintenance
 from shared.redaction import is_red, redact_text, safe_preview
 from shared.runtime_profile import RuntimeProfile, profile_from_payload
+from shared.progress_hook import (
+    cheap_lookup,
+    emit_lookup,
+    ProgressLookup,
+    request_for,
+)
 from shared.session_context_cache import read_state, session_entry, state_lock, write_state
 from shared.paths import now_iso, read_hook_input
 from shared.subagent_routing import session_routing_context
@@ -549,12 +555,79 @@ def _record_clear(context: ActiveContext, payload: Mapping[str, object], profile
         write_state(context, state)
 
 
+def _progress_bool(payload: Mapping[str, object], *keys: str) -> bool:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.strip().lower() in {"1", "true", "yes"}:
+            return True
+    return False
+
+
+def _progress_clear_supersedes_session(context: ActiveContext) -> bool:
+    """Keep a clear boundary silent for the remainder of that session.
+
+    The content-free context ledger is append-only evidence.  Clear therefore
+    supersedes emission eligibility through the existing local session cache
+    instead of deleting ledger records or touching the implementation store.
+    A later session has a different cache key and can recover normally.
+    """
+
+    try:
+        entry = session_entry(read_state(context), context.session_id)
+    except Exception:
+        return False
+    return bool(entry.get("cleared") and entry.get("cleared_session_id") == context.session_id)
+
+
+def _run_progress_session(
+    payload: Mapping[str, object],
+    context: ActiveContext,
+    profile: RuntimeProfile,
+    source: str,
+    lookup: ProgressLookup,
+) -> str:
+    """Run the new-store recovery surface without legacy readers or queues."""
+
+    if source == "clear":
+        _record_clear(context, payload, profile)
+        return ""
+    if _progress_clear_supersedes_session(context):
+        return ""
+    # A present new store is authoritative.  Ambiguity and missing active
+    # plans are intentionally silent; legacy selection cannot guess safely.
+    if lookup.identity is None:
+        return ""
+    request = request_for(
+        profile,
+        context,
+        payload,
+        event=source,
+        external_writer=(
+            _progress_bool(payload, "external_writer", "externalWriter")
+            or (source == "resume" and bool(lookup.identity.writer_session_id) and lookup.identity.writer_session_id != context.session_id)
+        ),
+        same_session_write=_progress_bool(payload, "same_session_write", "sameSessionWrite"),
+    )
+    if source == "resume" and lookup.identity.writer_session_id == context.session_id:
+        return ""
+    try:
+        decision = emit_lookup(lookup, request, recovery_boundary=True)
+    except Exception:
+        return ""
+    return decision.capsule if decision.emitted else ""
+
+
 def run(payload: Mapping[str, object]) -> str:
     source = _source(payload)
     profile = profile_from_payload(payload)
     # The fast path reads git metadata from local files only.  It never calls
     # ``git`` or another child process; payload branch/HEAD metadata wins.
     context = active_context_from_payload(dict(payload), resolve_git=False)
+    progress_lookup = cheap_lookup(context, payload)
+    if progress_lookup.store is not None:
+        return _run_progress_session(payload, context, profile, source, progress_lookup)
     with contextlib.suppress(Exception):
         enqueue_maintenance(context, reason_code=f"session_start_{source}", payload=payload)
     if source == "clear":

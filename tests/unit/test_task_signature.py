@@ -60,6 +60,37 @@ def test_model_provenance_invalidates_context_signature_even_with_same_family(tm
     )
 
 
+def test_progress_generation_and_context_epoch_are_signature_inputs(tmp_path: Path) -> None:
+    base = signature(tmp_path, "Implement the cache")
+    workspace = tmp_path / "workspace"
+    context = active_context_from_payload(
+        {"cwd": str(workspace), "session_id": "session-a", "branch": "main", "sha": "abc"},
+        resolve_git=False,
+    )
+    changed_generation = signature_from_prompt(
+        "Implement the cache",
+        context=context,
+        profile=LUNA,
+        sensitivity="GREEN",
+        checkpoint_identity="checkpoint-a",
+        progress_plan_id="demo",
+        progress_generation=2,
+        context_epoch="startup:session-a",
+    )
+    changed_epoch = signature_from_prompt(
+        "Implement the cache",
+        context=context,
+        profile=LUNA,
+        sensitivity="GREEN",
+        checkpoint_identity="checkpoint-a",
+        progress_plan_id="demo",
+        progress_generation=1,
+        context_epoch="compact:session-a",
+    )
+    assert changed_generation != base
+    assert changed_epoch != changed_generation
+
+
 def test_serialization_has_only_metadata_fields(tmp_path: Path) -> None:
     data = json.loads(safe_serialization(signature(tmp_path, "Review safe cache behavior")))
     assert set(data) == {

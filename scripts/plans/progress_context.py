@@ -409,6 +409,12 @@ def _capsule_kind(request: ContextRequest) -> str | None:
     return "delta" if request.external_writer or request.event == "external" else "full"
 
 
+def capsule_kind_for(request: ContextRequest) -> str | None:
+    """Expose the deterministic kind selection for hook-side ledger probes."""
+
+    return _capsule_kind(request.checked())
+
+
 def _ledger_record(request: ContextRequest, source: ContextSource, kind: str) -> dict[str, Any]:
     material = {
         "project_id": request.project_id,
@@ -421,6 +427,14 @@ def _ledger_record(request: ContextRequest, source: ContextSource, kind: str) ->
     }
     emission_id = "ctx-" + hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:40]
     return {"schema_version": 1, **material, "emission_id": emission_id}
+
+
+def ledger_record_for(request: ContextRequest, source: ContextSource, kind: str) -> dict[str, Any]:
+    """Build the content-free emission key without rendering a capsule."""
+
+    if kind not in CAPSULE_KINDS:
+        raise ContextError("unsupported capsule kind")
+    return _ledger_record(request.checked(), source, kind)
 
 
 def emit_context(source: ContextSource | None, request: ContextRequest, *, ledger: LedgerLike | None = None) -> ContextDecision:
@@ -460,8 +474,10 @@ __all__ = [
     "ContextRequest",
     "ContextSource",
     "SourceResolution",
+    "capsule_kind_for",
     "derive_context_epoch",
     "emit_context",
+    "ledger_record_for",
     "legacy_fallback",
     "render_capsule",
     "resolve_context_source",
