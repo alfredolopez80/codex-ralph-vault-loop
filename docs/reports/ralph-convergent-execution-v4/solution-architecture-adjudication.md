@@ -1,6 +1,6 @@
 # Solution Architecture Adjudication — Anti-Loop Amendment
 
-Status: **APPROVED — REPO-LOCAL T14A CLOSED; T15 GLOBAL ROLLOUT PENDING**
+Status: **APPROVED — T14A CLOSED; T15 GLOBAL INSTALL VALIDATED**
 
 Plan: `ralph-convergent-execution-v4-20260811`
 
@@ -84,16 +84,20 @@ binds enforce decisions to the prepared runtime attestation, the actual full
 checkout HEAD and the atomic initialization operation; a distinct task epoch
 is archived behind an active CAS pointer without resetting budgets; and
 PostTool commits only bounded, typed evidence through an evidence-only store
-transition. Their local evidence and the remaining live rollout boundary are
-recorded in `t14a-implementation-residual.json`. Global installation and
-production rollout were neither part of this correction batch nor attempted;
-T15 remains pending its own backup, parity, smoke and rollback proof.
+transition. Their local evidence is recorded in
+`t14a-implementation-residual.json`. The later, explicitly authorized T15
+global installation ran from merged `main` at
+`c6f12550b1e0f684c963c915dc00c8674715debd`; backup, hook parity, effective
+doctor, model-visible skill discovery, smoke and isolated rollback rehearsal
+all passed. Production rollout and enforce promotion remain separate from
+this global hook installation.
 
 The canary remains structural-only. Provider credits, live SOL/model turns,
 wall time, escaped defects, full lifecycle equivalence, and global hook writes
-remain `UNKNOWN` unless measured in a paired runtime lane. Repo-local shadow is
-allowed by the existing T13 user decision; T15 global install remains outside
-this PR.
+remain `UNKNOWN` unless measured in a paired runtime lane. Repo-local shadow
+and the installed global wrapper remain on the approved activation boundary;
+no subscription-credit or provider-savings claim is derived from the
+structural canary.
 
 ## Done when
 

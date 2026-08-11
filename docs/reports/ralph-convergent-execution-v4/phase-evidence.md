@@ -2,8 +2,8 @@
 
 Plan: `ralph-convergent-execution-v4-20260811`
 Plan digest: `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`
-Entry SHA: `78a314b47e6a1017b6d369358fda4c6c28450e06`
-Branch: `codex/ralph-convergent-execution-v4`
+Entry SHA: `c6f12550b1e0f684c963c915dc00c8674715debd`
+Branch: `main`
 Writable owner: real `gpt-5.6-sol`, reasoning `max`; authority: `codex-main`
 
 The table distinguishes deterministic/local structural evidence from evidence
@@ -27,8 +27,8 @@ No `UNKNOWN` metric is converted into zero or into a quality claim.
 | T12   | G-SHADOW-CANARY                    | PASS (structural)                              | The structural harness executes the candidate boundary, recall and hot-path predicates for the fixed 24-case fixture and derives its boolean structural gates from those observations. It does not execute a baseline or the full reducer/store/Stop lifecycle.                                                                                                                                                                                                                                                                                            | It does not invoke a model or claim credits, wall time, escaped defects or full lifecycle equivalence.                                                                                        |
 | T13   | G-SHADOW-CANARY                    | PASS WITH EXPLICIT USER OVERRIDE (SHADOW-ONLY) | The user explicitly authorized proceeding without inventing a model-quality or subscription-cost claim. The fixed structural fixture is `24/24`; lifecycle execution, baseline equivalence, false-close/RED/worktree outcomes without explicit markers, credits, wall time, escaped defects and full model-quality comparison remain `UNKNOWN`. Evidence is the append-only progress journal (`question_opened` seq 21, `question_resolved` seq 23, validation seq 24) plus implementation-notes operation `ralph-v4-t13-user-override-shadow-activation`. | This is an amendment to the activation decision, not a waiver of safety gates. Enforce remains fail-closed until a trusted runtime attestation and material-transition adapter are available. |
 | T14   | G-ROLLOUT                          | PASS (REPO-LOCAL SHADOW)                       | The versioned `config/convergent-execution-mode.toml` binds `shadow` to this plan and policy; the effective-hook doctor is `WARN` only for the enabled Figma declaration digest explicitly trusted as report-only, while unknown guarded plugins fail closed; the complete minimal gate, hook smoke, memory-flow checks and rollback mode checks are green. No global configuration is changed.                                                                                                                                                            | Repo-local shadow execution is allowed by the explicit decision; enforce activation and global install remain separate approval boundaries.                                                   |
-| T14A  | G-SOLUTION-ADJUDICATION-HARDENING  | PASS (REPO-LOCAL; LIVE T15 PENDING)            | The user approved `AM-001`; the content-safe 28-thread adjudication is frozen at reviewed HEAD `5b25553e7327c81f6e2ae772837c42cb23fd70ad`. One coherent batch wires enforce authority to RuntimeAttestation/full HEAD and atomic prompt initialization, archives distinct task epochs behind an active CAS pointer with pending-rotation recovery, makes same-work retries idempotent, and commits bounded PostTool evidence-only transitions. The immutable v1 plan digest is preserved.                                                                  | Repo-local structural proof is complete. T15 still must prove a real global attestation, parity, backup, smoke and rollback; no global configuration was changed.                             |
-| T15   | G-ROLLOUT                          | BLOCKED                                        | Global install/backup/parity/rollback has not been attempted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Requires explicit user approval and a completed repo-default gate.                                                                                                                            |
+| T14A  | G-SOLUTION-ADJUDICATION-HARDENING  | PASS (REPO-LOCAL; T15 COMPLETE)                | The user approved `AM-001`; the content-safe adjudication and direct-fix batch were validated at the merged PR head `89c3257810a0e37b35e5c87d5108422431c6ccb9`. Runtime attestation, atomic prompt initialization, epoch recovery, same-work idempotency and bounded PostTool evidence transitions are covered by the full suite. The immutable v1 plan digest is preserved.                                                                                                                                                                               | Live provider credits and model-quality equivalence remain `UNKNOWN`; no claim is inferred from structural canary evidence.                                                                   |
+| T15   | G-ROLLOUT                          | PASS (GLOBAL INSTALL)                          | After the PR was merged as `c6f12550b1e0f684c963c915dc00c8674715debd`, the authorized `bash scripts/setup/install-global.sh --install` completed from canonical `main`. The installer preserved `~/.codex/config.toml`, backed up global state, published `~/.codex/hooks.json` and the hook tree, and completed with `GLOBAL_INSTALL_DONE`. Global smoke passed; elevated `doctor-global.sh --check-discovery` passed with `warnings=0`; hook smoke, memory flow, minimal gates, benchmark and an isolated backup/restore rollback rehearsal passed.      | Enforce promotion remains separately governed by the runtime-attestation and activation contract. Subscription credits and live provider savings remain `UNKNOWN`.                            |
 
 ## Structural canary metrics
 
@@ -81,19 +81,18 @@ store as authoritative. This is a provenance boundary, not a claim that the
 public branch alone contains the complete local ledger.
 
 This snapshot closes local T0–T12 verification, records the explicit T13 user
-override that permits T14 repo-local shadow execution, and records T14A as a
-repo-local completed amendment. It does not authorize global T15 installation,
-claim full model-quality improvement, or convert structural canary evidence
-into live provider/credit metrics.
+override that permits T14 repo-local shadow execution, records T14A as a
+completed amendment, and records the authorized T15 global installation and
+rollback evidence. It does not claim full model-quality improvement or convert
+structural canary evidence into live provider/credit metrics.
 
-## PR #74 direct-fix batch at reviewed HEAD `60da08c`
+## PR #74 direct-fix batch and global rollout
 
 Status: **BATCH VALIDATED; AGGREGATE GATES PASS**
 
-The content-safe 23-thread adjudication is frozen in
+The content-safe adjudication is frozen in
 `pr74-review-adjudication-60da08c.md`. The direct-fix batch addresses root
-causes 1–6 from that artifact without changing the immutable v1 plan bytes,
-activating enforce, installing global hooks, or starting T15.
+causes 1–6 from that artifact without changing the immutable v1 plan bytes.
 
 - focused authority, reducer, store, hook, progress, canary and attestation
   matrix: `138 passed`;
@@ -108,7 +107,22 @@ skips` (no package manifest and security outside minimal mode); and
 - `git diff --check` passes, and the plan bytes remain
   `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`.
 
-Thread `3761410168` remains `NEEDS_USER_DECISION`: no production actor owns the
-intermediate Aristotle lifecycle. Selecting that producer, its attestation
-schema and its authority would add a trust surface. This batch deliberately
-does not invent or wire one, and T15 remains blocked.
+Thread `3761410168` was manually resolved by the user after the final code
+validation. No new production actor was invented for the intermediate
+Aristotle lifecycle, and the global install remains on the approved activation
+boundary rather than silently promoting enforce.
+
+## T15 global installation evidence
+
+- Merge commit: `c6f12550b1e0f684c963c915dc00c8674715debd` on local and
+  `origin/main`.
+- Installer: `bash scripts/setup/install-global.sh --install` (without the
+  optional `--with-agents` scope).
+- Backup: `/Users/alfredolopez/.ralph-codex/backups/global-install/20260811T220952Z/`.
+- Global smoke: `GLOBAL_HOOKS_SMOKE_PASS`.
+- Effective doctor and model-visible skill discovery: `GLOBAL_DOCTOR_PASS
+warnings=0` (run with the required elevated Codex CLI capability).
+- Hook smoke: `ALL_HOOK_TESTS_PASS`.
+- Rollback rehearsal: isolated `HOME` backup/restore passed with matching
+  configuration hash; the temporary fixture was `/private/tmp/ralph-global-rollback-4S50su`.
+- `~/.codex/config.toml` remained unchanged.
