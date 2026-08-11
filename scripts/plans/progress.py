@@ -10,6 +10,7 @@ only by the explicit migration/rebuild commands.
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import html
 import json
@@ -243,7 +244,9 @@ def _resolve_plan(raw: str, paths: StorePaths) -> PlanRef:
         plan_rel = canonical.relative_to(plans_root).as_posix()
     except ValueError:
         plan_rel = rel.as_posix()
-    plan_id = Path(plan_rel).with_suffix("").as_posix() if Path(plan_rel).suffix in {".md", ".markdown"} else plan_rel
+    plan_id = _declared_plan_id(canonical)
+    if plan_id is None:
+        plan_id = Path(plan_rel).with_suffix("").as_posix() if Path(plan_rel).suffix in {".md", ".markdown"} else plan_rel
     if not plan_id:
         raise CliFailure("invalid_plan_path", "plan path is invalid", 2)
     try:
@@ -256,12 +259,87 @@ def _resolve_plan(raw: str, paths: StorePaths) -> PlanRef:
     return PlanRef(paths.primary_root, canonical, rel.as_posix(), plan_id)
 
 
+def _declared_plan_id(path: Path) -> str | None:
+    """Return an explicit immutable ``Plan ID`` declaration when present.
+
+    Filenames remain the compatibility default for older plans.  Approved
+    plans may carry a stable logical ID that intentionally differs from the
+    date-prefixed filename; resolving that declaration here keeps the
+    progress store, goal compiler, and execution ledger on one identity.
+    A malformed declaration is rejected rather than silently falling back to
+    a filename-derived identity.
+    """
+
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        raw = _read_stable_prefix(path, max_bytes=16 * 1024)
+        decoder = codecs.getincrementaldecoder("utf-8")("strict")
+        text = decoder.decode(raw, final=False)
+    except (OSError, UnicodeError) as exc:
+        raise CliFailure("invalid_plan", "plan could not be read safely", 3) from exc
+    match = re.search(r"(?m)^Plan ID:\s*`?([^`\s]+)`?\s*$", text)
+    if not match:
+        return None
+    declared = match.group(1).strip()
+    try:
+        from shared.implementation_store.paths import validate_plan_id
+
+        validate_plan_id(declared)
+    except (StorePathError, ValueError) as exc:
+        raise CliFailure("invalid_plan_id", "declared plan ID is invalid", 2) from exc
+    return declared
+
+
+def _read_stable_prefix(path: Path, *, max_bytes: int) -> bytes:
+    """Read only a stable regular-file prefix without imposing a file cap."""
+
+    before = path.lstat()
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise OSError("plan is not a private regular file")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise OSError("plan changed while opening")
+        chunks: list[bytes] = []
+        remaining = max_bytes
+        while remaining:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(descriptor)
+        if (
+            (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            != (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
+        ):
+            raise OSError("plan changed while reading")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
 def _store_for_plan(raw: str) -> tuple[ImplementationStore, StorePaths, PlanRef]:
     try:
         paths = resolve_store_paths(active_root=Path.cwd())
     except StorePathError as exc:
         raise CliFailure("store_path", "cannot resolve the canonical implementation store", 6) from exc
-    return ImplementationStore(paths), paths, _resolve_plan(raw, paths)
+    store = ImplementationStore(paths)
+    ref = _resolve_plan(raw, paths)
+    try:
+        registered = store.read_state(ref.plan_id)
+    except (FutureSchemaError, CorruptRecordError, IntegrityError) as exc:
+        raise CliFailure("integrity_error", "implementation progress integrity verification failed", 5) from exc
+    except StoreError as exc:
+        raise CliFailure("store_error", "implementation progress store operation failed", 7) from exc
+    if registered is not None and registered.get("plan_path") != ref.plan_rel:
+        raise CliFailure("plan_path_mismatch", "declared plan ID is already bound to another canonical path", 6)
+    return store, paths, ref
 
 
 def _metadata_payload(metadata: WriteMetadata) -> dict[str, Any]:

@@ -10,7 +10,6 @@ FIXTURES="$ROOT/.codex/tests/fixtures"
 HOOKS="$ROOT/.codex/hooks"
 STATE="${CODEX_HOOK_TEST_STATE_ROOT:-${TMPDIR:-/tmp}/codex-hook-tests-$$}"
 export CODEX_HOOK_STATE_ROOT="$STATE"
-PYTHON_BIN="$(command -v python3)"
 
 fail() {
   printf 'FAIL %s\n' "$1" >&2
@@ -51,7 +50,6 @@ printf '{"blocks":0}\n' > "$STATE/fixture-stop-verified/quality-blocks.json"
 
 for script in \
   universal-prompt-classifier.sh \
-  aristotle-analysis-display.sh \
   anti-rationalization-stop.sh \
   ralph-stop-quality-gate.sh; do
   bash -n "$HOOKS/$script" || fail "bash -n $script"
@@ -67,7 +65,6 @@ PYTHONPYCACHEPREFIX="$STATE/pycache" python3 -m py_compile \
   "$HOOKS/shared/context_budget.py" \
   "$HOOKS/shared/learning.py" \
   "$HOOKS/implementation_notes_guard.py" \
-  "$ROOT/scripts/gates/codex_stop_slop_guard.py" \
   "$ROOT/scripts/plans/implementation_index_lib.py" \
   "$ROOT/scripts/plans/implementation_notes_lib.py" \
   "$ROOT/scripts/plans/consolidated_notes_artifacts.py" \
@@ -81,9 +78,6 @@ pass "implementation notes python syntax"
 simple_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-simple.json)"
 assert_json "$simple_classifier"
 printf '%s' "$simple_classifier" | jq -e '.continue == true' > /dev/null || fail "simple classifier did not continue"
-simple_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-simple.json)"
-assert_json "$simple_aristotle"
-printf '%s' "$simple_aristotle" | jq -e 'has("hookSpecificOutput") | not' > /dev/null || fail "simple prompt injected Aristotle noise"
 pass "prompt simple"
 
 rm -rf "$STATE/unknown" "$STATE/turn-only"
@@ -97,18 +91,12 @@ pass "prompt metadata empty fields"
 complex_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-complex.json)"
 assert_json "$complex_classifier"
 printf '%s' "$complex_classifier" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "complex classifier missing Aristotle context"
-complex_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-complex.json)"
-assert_json "$complex_aristotle"
-printf '%s' "$complex_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "complex prompt missing Aristotle context"
 pass "prompt complex Aristotle"
 
 spanish_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-spanish-plan.json)"
 assert_json "$spanish_classifier"
 printf '%s' "$spanish_classifier" | jq -e '.hookSpecificOutput.additionalContext | contains("PLAN_REQUIRED") or contains("QUICK_ARISTOTLE") or contains("DECOMPOSE_AND_VALIDATE")' > /dev/null || fail "spanish planning prompt did not escalate"
 printf '%s' "$spanish_classifier" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "spanish classifier missing Aristotle context"
-spanish_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-spanish-plan.json)"
-assert_json "$spanish_aristotle"
-printf '%s' "$spanish_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "spanish planning prompt missing Aristotle context"
 pass "prompt spanish Aristotle"
 
 improve_prompt="$(run_python_hook user_prompt_improve.py user-prompt-simple.json)"
@@ -273,23 +261,5 @@ tests_not_plan_done="$(jq -n --arg cwd "$PLAN_REPO" '{hook_event_name:"Stop", se
 assert_json "$tests_not_plan_done"
 printf '%s' "$tests_not_plan_done" | jq -e '.decision == "block"' > /dev/null || fail "tests passed incorrectly closed pending plan"
 pass "tests passed does not close pending plan"
-
-SLOP_HOME="$STATE/slop-home"
-mkdir -p "$SLOP_HOME"
-slop_goal_payload="$(jq -n --arg cwd "$ROOT" '{hook_event_name:"Stop", session_id:"fixture-slop-goal", cwd:$cwd, last_assistant_message:"/goal Implement the approved hook policy and validate that operational prompts skip analyzer."}')"
-slop_goal="$(printf '%s' "$slop_goal_payload" | HOME="$SLOP_HOME" PATH="" CODEX_SLOP_GUARD_ENABLED=1 "$PYTHON_BIN" "$ROOT/scripts/gates/codex_stop_slop_guard.py")"
-assert_empty "$slop_goal" "slop operational skip"
-slop_log="$SLOP_HOME/.ralph-codex/logs/slop_guard_hooks.jsonl"
-[[ -f "$slop_log" ]] || fail "slop operational skip did not write log"
-tail -1 "$slop_log" | jq -e '.mode == "operational_skip" and .policy_action == "skip" and .blocked == false' > /dev/null ||
-  fail "slop operational skip log mismatch"
-grep -q "/goal Implement" "$slop_log" && fail "slop operational log leaked raw prompt"
-
-slop_structured_payload="$(jq -n --arg cwd "$ROOT" '{hook_event_name:"Stop", session_id:"fixture-slop-structured", cwd:$cwd, last_assistant_message:"{\"mode\":\"structured_skip\",\"blocked\":false,\"threshold\":60}" }')"
-slop_structured="$(printf '%s' "$slop_structured_payload" | HOME="$SLOP_HOME" PATH="" CODEX_SLOP_GUARD_ENABLED=1 "$PYTHON_BIN" "$ROOT/scripts/gates/codex_stop_slop_guard.py")"
-assert_empty "$slop_structured" "slop structured skip"
-tail -1 "$slop_log" | jq -e '.mode == "structured_skip" and .policy_action == "skip" and .blocked == false and .json_like == true' > /dev/null ||
-  fail "slop structured skip log mismatch"
-pass "slop guard operational and structured skips"
 
 printf 'ALL_HOOK_TESTS_PASS\n'

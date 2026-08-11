@@ -1,0 +1,15 @@
+{
+  "id": "recall-delta-flow",
+  "title": "Ralph Recall — Metadata First, Delta Only",
+  "template": "data-flow",
+  "style": "openai",
+  "version": 3,
+  "description": "Content-free metadata lookup on every prompt, stable selection cache, zero-output hits, progressive body retrieval, and bounded non-authoritative delta injection.",
+  "hot_key_excludes": ["current_head"],
+  "body_fetch_on": [
+    "new_task",
+    "material_change",
+    "explicit_recall",
+    "compaction_recovery"
+  ]
+}

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .active_context import ActiveContext, local_git_identity
+from .active_context import ActiveContext, fast_git_metadata_for, local_git_identity
 from .implementation_store import FutureSchemaError, ImplementationStore, StorePathError, resolve_store_paths_local
 from .runtime_profile import RuntimeProfile
 
@@ -131,7 +131,14 @@ def _root_candidates(context: ActiveContext, payload: Mapping[str, object]) -> t
         values.append(configured)
     values.extend((context.workspace_root, Path(__file__).resolve().parents[3]))
     result: list[Path] = []
-    for value in values:
+    explicit_primary_keys = {
+        "primary_repo_root",
+        "primaryRoot",
+        "canonical_repo_root",
+        "canonicalRepoRoot",
+        "implementation_store_root",
+    }
+    for index, value in enumerate(values):
         if not isinstance(value, (str, Path)) or not str(value).strip():
             continue
         path = Path(value).expanduser()
@@ -141,14 +148,24 @@ def _root_candidates(context: ActiveContext, payload: Mapping[str, object]) -> t
             resolved = path.absolute()
         except OSError:
             continue
-        if not _candidate_is_canonical(context, resolved):
+        detached_primary = (
+            not context.workspace_root.exists()
+            and index < len(explicit_primary_keys)
+            and isinstance(value, (str, Path))
+        )
+        if not _candidate_is_canonical(context, resolved, allow_detached_primary=detached_primary):
             continue
         if resolved not in result:
             result.append(resolved)
     return tuple(result)
 
 
-def _candidate_is_canonical(context: ActiveContext, candidate: Path) -> bool:
+def _candidate_is_canonical(
+    context: ActiveContext,
+    candidate: Path,
+    *,
+    allow_detached_primary: bool = False,
+) -> bool:
     """Keep hook-local store selection inside the active Git identity.
 
     The fast path cannot invoke Git, but it can still inspect the local
@@ -160,6 +177,15 @@ def _candidate_is_canonical(context: ActiveContext, candidate: Path) -> bool:
     active_root = context.workspace_root
     active_identity = local_git_identity(active_root)
     candidate_identity = local_git_identity(candidate)
+    if active_identity is None and allow_detached_primary:
+        # A deleted linked worktree cannot provide a local ``.git`` identity.
+        # An explicit primary checkout is still safe to inspect because it is
+        # independently proven to be a real main checkout; completion later
+        # applies the workspace/branch/HEAD gates before any mutation.
+        if candidate_identity is None:
+            return False
+        candidate_top, candidate_git, candidate_common = candidate_identity
+        return candidate_top == candidate and candidate_git == candidate_common
     if active_identity is None:
         return candidate == active_root.absolute()
     if candidate_identity is None:
@@ -221,6 +247,17 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
     if not manifest:
         return ProgressLookup(store, None, SourceResolution(None, "state_unavailable"))
 
+    # A deleted worktree has no independently readable .git identity. The
+    # caller must therefore bind recovery to the canonical repository ID
+    # stored in the manifest; an explicit primary path alone is insufficient.
+    if not context.workspace_root.exists():
+        supplied_repository_id = str(
+            payload.get("repository_id") or payload.get("repositoryId") or ""
+        ).strip()
+        manifest_repository_id = str(manifest.get("canonical_repo_identity") or "").strip()
+        if not supplied_repository_id or supplied_repository_id != manifest_repository_id:
+            return ProgressLookup(store, None, SourceResolution(None, "repository_identity_mismatch"))
+
     expected_workspace = _safe_identifier(
         payload.get("workspace_instance_id") or payload.get("workspaceInstanceId") or context.workspace_instance_id,
         context.workspace_instance_id,
@@ -255,6 +292,16 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
             invalid_state = True
             continue
         if not state or state.get("status") not in _DISCOVERABLE_STATUSES:
+            continue
+        # An unqualified lifecycle event must not inherit an active plan from
+        # another branch or HEAD merely because the canonical checkout is
+        # discoverable.  Explicit plan references remain available so the
+        # completion path can emit its stronger identity-mismatch gate.
+        event_name = str(payload.get("hook_event_name") or "")
+        must_route_canonically = event_name in {"SessionStart", "UserPromptSubmit"}
+        if (not explicit_plan or must_route_canonically) and not _payload_provenance_matches(
+            state, payload, context=context
+        ):
             continue
         identities.append(
             ProgressIdentity(
@@ -291,6 +338,50 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
             )
             return ProgressLookup(store, identity, SourceResolution(None, "legacy_candidate"))
     return ProgressLookup(store, None, SourceResolution(None, "no_active_state"))
+
+
+def _payload_provenance_matches(
+    state: Mapping[str, object],
+    payload: Mapping[str, object],
+    *,
+    context: ActiveContext | None = None,
+) -> bool:
+    value = state.get("git")
+    git = value if isinstance(value, Mapping) else {}
+    supplied_branch = str(payload.get("branch") or payload.get("git_branch") or "").strip()
+    if not supplied_branch and context is not None:
+        supplied_branch = str(context.branch or "").strip()
+    if context is not None:
+        _git_root, actual_branch, actual_sha = fast_git_metadata_for(context.workspace_root)
+        explicit_branch = str(payload.get("branch") or payload.get("git_branch") or "").strip()
+        if explicit_branch and actual_branch and explicit_branch != actual_branch:
+            return False
+    else:
+        actual_branch = actual_sha = ""
+    recorded_branch = str(git.get("branch") or "").strip()
+    if recorded_branch and (not supplied_branch or supplied_branch != recorded_branch):
+        return False
+    supplied_sha = str(payload.get("sha") or payload.get("git_sha") or "").strip()
+    if not supplied_sha and context is not None:
+        supplied_sha = str(context.sha or "").strip()
+    recorded_sha = str(git.get("commit") or git.get("sha") or "").strip()
+    # A commit advances during an implementation epoch. Recovery may still
+    # use the same canonical plan when branch/worktree identity is stable;
+    # completion and Stop retain the strict current-HEAD gate. An explicitly
+    # supplied SHA must nevertheless match the actual context, so a caller
+    # cannot redirect recovery to a foreign checkout.
+    explicit_sha = str(payload.get("sha") or payload.get("git_sha") or "").strip()
+    if explicit_sha and actual_sha and not (
+        explicit_sha.startswith(actual_sha) or actual_sha.startswith(explicit_sha)
+    ):
+        return False
+    if explicit_sha and supplied_sha and not (
+        supplied_sha.startswith(explicit_sha) or explicit_sha.startswith(supplied_sha)
+    ):
+        return False
+    if recorded_sha and not supplied_sha:
+        return False
+    return True
 
 
 def source_for_lookup(lookup: ProgressLookup) -> ContextSource | None:

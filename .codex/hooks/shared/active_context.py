@@ -35,7 +35,12 @@ def tool_input(payload: dict[str, Any]) -> Any:
     return payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
 
 
-def active_context_from_payload(payload: dict[str, Any] | None = None, *, resolve_git: bool = True) -> ActiveContext:
+def active_context_from_payload(
+    payload: dict[str, Any] | None = None,
+    *,
+    resolve_git: bool = True,
+    trust_payload_identity: bool = True,
+) -> ActiveContext:
     payload = payload or {}
     workspace = workspace_root(payload)
     git_root, branch, sha = git_metadata_for(workspace, use_subprocess=resolve_git)
@@ -45,8 +50,9 @@ def active_context_from_payload(payload: dict[str, Any] | None = None, *, resolv
         if git_root and resolve_git
         else fast_remote_url(identity_root) if git_root else ""
     )
-    branch = str(payload.get("branch") or payload.get("git_branch") or branch).strip()
-    sha = str(payload.get("sha") or payload.get("git_sha") or sha).strip()
+    if trust_payload_identity:
+        branch = str(payload.get("branch") or payload.get("git_branch") or branch).strip()
+        sha = str(payload.get("sha") or payload.get("git_sha") or sha).strip()
     project_slug = safe_slug(remote_repo_name(remote_url) or identity_root.name)
     workspace_instance_id = hash_text(str(workspace.resolve()))[:16]
     return ActiveContext(
@@ -76,12 +82,28 @@ def workspace_root(payload: dict[str, Any]) -> Path:
             value = data.get(key)
             if isinstance(value, str):
                 candidates.append(value)
-    env_pwd = os.environ.get("PWD")
-    if env_pwd:
-        candidates.append(env_pwd)
-
+    # An explicit hook payload is authoritative for worktree identity.  Do
+    # not let the process PWD mask a missing/deleted worktree path.
     for candidate in candidates:
         path = Path(candidate).expanduser()
+        if path.exists():
+            return path.resolve()
+    # Preserve an explicitly supplied, currently missing worktree as the
+    # identity boundary.  Falling back to the process CWD silently rebinds a
+    # deleted/relocated worktree to an unrelated checkout and can make a
+    # Stop-time integrity failure look like an ordinary cache miss.  Callers
+    # still require an independently proven primary checkout and must pass
+    # their branch/HEAD/workspace gates before mutating anything.
+    for candidate in candidates:
+        path = Path(candidate).expanduser()
+        if path.is_absolute():
+            try:
+                return path.absolute()
+            except OSError:
+                continue
+    env_pwd = os.environ.get("PWD")
+    if env_pwd:
+        path = Path(env_pwd).expanduser()
         if path.exists():
             return path.resolve()
     return Path.cwd().resolve()
@@ -168,6 +190,13 @@ def _common_git_dir(git_dir: Path) -> Path:
 
 
 def fast_git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
+    git_root, branch, sha = fast_git_head_for(path)
+    return git_root, branch, sha[:12]
+
+
+def fast_git_head_for(path: Path) -> tuple[Path | None, str, str]:
+    """Return the independently read full checkout HEAD without spawning Git."""
+
     git_root, git_dir = _git_dir_for(path)
     if git_root is None or git_dir is None:
         return None, "", ""
@@ -182,7 +211,7 @@ def fast_git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
     else:
         branch = "HEAD"
         sha = head
-    return git_root, branch, sha[:12]
+    return git_root, branch, sha
 
 
 def local_git_identity(path: Path) -> tuple[Path, Path, Path] | None:

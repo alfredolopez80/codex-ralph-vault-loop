@@ -1,0 +1,15 @@
+{
+  "id": "review-mitigation-final-audit",
+  "title": "Review, Mitigation, and Final Audit",
+  "template": "flowchart",
+  "style": "openai",
+  "version": 3,
+  "description": "Risk-based 0/1 generative review, finding triage, one root-cause mitigation batch, deterministic final audit, and terminal critical exception.",
+  "budgets": {
+    "low_risk_review": 0,
+    "material_review": 1,
+    "mitigation_batches": 1,
+    "automatic_generative_final_audit": 0,
+    "preapproved_critical_final_audit": 1
+  }
+}

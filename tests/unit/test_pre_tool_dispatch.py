@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / ".codex" / "hooks" / "pre_tool_dispatch.py"
 HOOKS = HOOK.parent
@@ -119,6 +121,64 @@ def test_identified_action_fails_closed_when_a_component_errors(monkeypatch, tmp
     response, executed = pre_tool_dispatch.dispatch(payload(tmp_path, "exec_command", {"cmd": "git status"}))
     assert response and response["decision"] == "block"
     assert executed == ["safety"]
+
+
+def test_enforce_phase_gate_classifies_shell_reads_validations_and_mutations(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(pre_tool_dispatch, "configured_activation_mode", lambda **_kwargs: "enforce")
+    phases = {"value": "verify"}
+    monkeypatch.setattr(
+        pre_tool_dispatch,
+        "load_authoritative_state",
+        lambda _payload: (object(), {"phase": phases["value"]}),
+    )
+    read = payload(tmp_path, "exec_command", {"cmd": "git status --short"})
+    assert pre_tool_dispatch._convergent_phase_gate(read, "exec_command") is None
+    validation = payload(tmp_path, "exec_command", {"cmd": "python3 -m pytest tests/unit -q"})
+    assert pre_tool_dispatch._convergent_phase_gate(validation, "exec_command") is None
+    chained = payload(tmp_path, "exec_command", {"cmd": "pytest -q && touch changed.txt"})
+    blocked = pre_tool_dispatch._convergent_phase_gate(chained, "exec_command")
+    assert blocked and blocked["decision"] == "block"
+    mutation = payload(tmp_path, "exec_command", {"cmd": "touch changed.txt"})
+    blocked = pre_tool_dispatch._convergent_phase_gate(mutation, "exec_command")
+    assert blocked and blocked["decision"] == "block"
+    phases["value"] = "implement"
+    assert pre_tool_dispatch._convergent_phase_gate(mutation, "exec_command") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/unit -q",
+        "pytest -q",
+        "npm test",
+        "pnpm run typecheck",
+        "make test",
+        "mypy .",
+        "ruff check .",
+        "ruff format --check .",
+        "tsc --noEmit",
+        "bash .codex/tests/run-hook-tests.sh",
+        "python3 scripts/gates/run-gates.py --minimal",
+    ],
+)
+def test_validation_command_allowlist_accepts_only_closed_read_or_gate_forms(command: str) -> None:
+    assert pre_tool_dispatch._is_validation_command(command) is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest -q && touch changed.txt",
+        "make test deploy",
+        "ruff check --fix .",
+        "ruff format .",
+        "tsc",
+        "bash .codex/tests/run-hook-tests.sh --rewrite",
+        "./pytest -q",
+    ],
+)
+def test_validation_command_allowlist_rejects_mutating_or_ambiguous_forms(command: str) -> None:
+    assert pre_tool_dispatch._is_validation_command(command) is False
 
 
 def test_invalid_json_is_fail_open_with_sanitized_stderr(tmp_path: Path) -> None:

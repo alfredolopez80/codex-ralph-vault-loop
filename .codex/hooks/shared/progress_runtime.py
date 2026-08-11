@@ -362,6 +362,14 @@ def progress_checkpoint_reference(
 ) -> dict[str, object] | None:
     """Return the only progress data allowed in a planned-work checkpoint."""
 
+    # Generic PostTool events belong to the ordinary checkpoint contract.  A
+    # discovered active plan becomes authoritative only when the caller names
+    # that plan (or its approved plan document) explicitly.
+    if not any(
+        isinstance(payload.get(key), (str, Path)) and str(payload.get(key)).strip()
+        for key in (*_PLAN_KEYS, *_PLAN_PATH_KEYS)
+    ):
+        return None
     lookup = cheap_lookup(context, payload)
     if not lookup.available or lookup.identity is None or lookup.identity.source != "state":
         return None
@@ -514,11 +522,21 @@ def complete_progress(
     lookup = lookup or cheap_lookup(context, payload)
     if not lookup.available or lookup.identity is None or lookup.identity.source != "state":
         if lookup.resolution.reason == "future_schema" and _progress_hint(payload):
+            # A future schema is typed separately when the active worktree is
+            # intact.  If the hook payload points at a deleted/relocated
+            # worktree, the state cannot be associated with a trustworthy
+            # runtime identity, so report the broader corruption boundary
+            # while preserving the bytes for explicit recovery.
+            detached = not context.workspace_root.exists()
             return CompletionTransition(
                 in_scope=True,
-                error_code="progress_future_schema",
-                error_reason="active progress state uses an unsupported future schema",
-                reason="future_schema",
+                error_code="progress_state_corrupt" if detached else "progress_future_schema",
+                error_reason=(
+                    "active progress state could not be associated with the deleted worktree"
+                    if detached
+                    else "active progress state uses an unsupported future schema"
+                ),
+                reason="state_corrupt" if detached else "future_schema",
             )
         if lookup.resolution.reason == "state_invalid" and _progress_hint(payload):
             return CompletionTransition(

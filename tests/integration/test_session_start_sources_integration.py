@@ -12,6 +12,9 @@ DISPATCH = ROOT / ".codex" / "hooks" / "session_start_dispatch.py"
 
 
 def run_session(tmp_path: Path, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(exist_ok=True)
+    isolated_payload = {**payload, "cwd": str(workspace)}
     env = os.environ.copy()
     env["RALPH_HOME"] = str(tmp_path / "ralph")
     env["VAULT_DIR"] = str(tmp_path / "vault")
@@ -19,7 +22,7 @@ def run_session(tmp_path: Path, payload: dict[str, object]) -> subprocess.Comple
     return subprocess.run(
         [sys.executable, str(HOOK)],
         cwd=ROOT,
-        input=json.dumps(payload),
+        input=json.dumps(isolated_payload),
         text=True,
         capture_output=True,
         env=env,

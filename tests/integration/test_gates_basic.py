@@ -97,7 +97,7 @@ def test_python_gate_disables_pytest_plugin_autoload(monkeypatch: pytest.MonkeyP
         {
             "name": "python.pytest",
             "command": ["python3", "-m", "pytest", "-q"],
-            "timeout": 180,
+                "timeout": 480,
             "env": {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
         }
     ]
@@ -174,3 +174,38 @@ def test_security_minimal_skips_without_failure() -> None:
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["results"][0]["status"] == "skipped"
+
+
+def test_run_json_rejects_missing_results_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_gates = load_gate_script(monkeypatch, "run-gates.py")
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args[0], 0, stdout="{}\n", stderr="")
+
+    monkeypatch.setattr(run_gates.subprocess, "run", fake_run)
+    exit_code, results = run_gates.run_json(["malformed-gate"])
+    assert exit_code == 1
+    assert results[0]["status"] == "failed"
+    assert "omitted a results list" in results[0]["reason"]
+
+
+def test_run_json_rejects_empty_or_nonzero_passing_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_gates = load_gate_script(monkeypatch, "run-gates.py")
+
+    monkeypatch.setattr(
+        run_gates.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout='{"results": []}\n', stderr=""),
+    )
+    exit_code, results = run_gates.run_json(["empty-gate"])
+    assert exit_code == 1
+    assert "empty results" in results[0]["reason"]
+
+    monkeypatch.setattr(
+        run_gates.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, stdout='{"results": [{"name": "x", "status": "passed"}]}\n', stderr="failed"),
+    )
+    exit_code, results = run_gates.run_json(["failed-gate"])
+    assert exit_code == 1
+    assert any(item["status"] == "failed" for item in results)

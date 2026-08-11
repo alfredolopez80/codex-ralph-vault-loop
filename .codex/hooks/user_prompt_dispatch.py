@@ -33,6 +33,9 @@ from shared.progress_hook import (
     progress_event_for_prompt,
     request_for,
 )
+from shared.convergence_authority import AuthorityError, ensure_prompt_boundary
+from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
+from shared.prompt_boundary import classify_boundary
 from shared.sol_advisor import executor_context, initialize, is_task_boundary, read_state
 from shared.task_signature import signature_from_prompt
 from sol_advisor_prompt_state import routing_context
@@ -156,6 +159,39 @@ def run(payload: dict[str, Any]) -> str:
         return output
 
     sensitivity = prompt_sensitivity(prompt, payload)
+    # v4 Prompt Boundary runs before recall in shadow mode.  Its result is
+    # deliberately not injected into the model-visible context until the
+    # repository rollout phase; computing it here proves that task boundary,
+    # risk, complexity, and obligation deltas are independent of prompt size.
+    boundary_shadow = None
+    activation_mode = "off"
+    try:
+        activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
+        if activation_mode != "off":
+            boundary = classify_boundary(prompt, payload)
+            boundary_shadow = boundary.as_dict()
+            # Prompt sensitivity is classified before any recall or authority
+            # lookup.  Carry that canonical result into the v4 state builder;
+            # a payload omission must not silently downgrade YELLOW to GREEN.
+            authority_payload = {**payload, "sensitivity": sensitivity}
+            runtime_candidate = ensure_prompt_boundary(
+                authority_payload,
+                prompt=prompt,
+                boundary=boundary_shadow,
+                mode=activation_mode,
+            )
+            if runtime_candidate is not None:
+                boundary_shadow["authority_candidate"] = runtime_candidate
+    except ExecutionPolicyError:
+        output = json.dumps({"decision": "block", "reason": "convergent-activation-invalid"}, ensure_ascii=True, separators=(",", ":"))
+        return output
+    except AuthorityError:
+        if activation_mode == "enforce":
+            return json.dumps({"decision": "block", "reason": "convergent-authority-unavailable"}, ensure_ascii=True, separators=(",", ":"))
+    except Exception:
+        if activation_mode == "enforce":
+            return json.dumps({"decision": "block", "reason": "convergent-authority-invalid"}, ensure_ascii=True, separators=(",", ":"))
+        boundary_shadow = None
     generation = memory_generation(context, payload)
     # Only a file-stat marker is consulted before the cache claim.  The
     # checkpoint body and progress journal are miss-only reads.
@@ -164,11 +200,15 @@ def run(payload: dict[str, Any]) -> str:
     progress_event = progress_event_for_prompt(prompt, payload)
     progress_request = request_for(profile, context, payload, event=progress_event)
     progress_identity = progress.identity
-    boundary = is_task_boundary(payload, prompt)
+    # This legacy predicate controls the existing routing/task-signature
+    # epoch.  Keep it separate from the v4 Prompt Boundary result above: the
+    # two contracts answer different questions and must not overwrite one
+    # another before the v4 reducer is wired in enforce mode.
+    task_boundary = is_task_boundary(payload, prompt)
     # Every explicit boundary is a new lifecycle epoch.  A nonce prevents two
     # concurrent or repeated boundaries with identical text from sharing one
     # cache claim before initialize() can reset task-scoped routing state.
-    boundary_epoch = f":boundary:{time.time_ns()}" if boundary else ""
+    boundary_epoch = f":boundary:{time.time_ns()}" if task_boundary else ""
     signature_epoch = progress_request.context_epoch + boundary_epoch
     signature = signature_from_prompt(
         prompt,
@@ -214,6 +254,8 @@ def run(payload: dict[str, Any]) -> str:
             "sensitivity": sensitivity,
             "task_signature": signature.value,
         }
+        if boundary_shadow is not None:
+            enriched["convergent_boundary_shadow"] = boundary_shadow
         state = initialize(enriched) or {}
         capture_safe_prompt(prompt, context)
         intake, selected_memory_ids, clarification = run_intake(prompt, context, profile)
@@ -272,7 +314,8 @@ def run(payload: dict[str, Any]) -> str:
         return output
     except Exception:
         if cache.status == "miss":
-            discard(context, signature)
+            with contextlib.suppress(Exception):
+                discard(context, signature)
         _record(
             context,
             payload,
@@ -283,6 +326,12 @@ def run(payload: dict[str, Any]) -> str:
             success=False,
             skipped=["operational_failure"],
         )
+        if activation_mode == "enforce":
+            return json.dumps(
+                {"decision": "block", "reason": "convergent-prompt-initialization-failed"},
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
         return ""
 
 

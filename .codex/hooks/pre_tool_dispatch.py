@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shlex
 import sys
 import time
 from contextlib import redirect_stdout
@@ -16,12 +17,23 @@ from pre_tool_guard import _guard_main
 from sol_advisor_pretool_guard import _advisor_main
 from subagent_routing_pretool_guard import _routing_main
 from shared.active_context import active_context_from_payload
+from shared.convergence_authority import AuthorityError, load_authoritative_state
+from shared.convergent_hooks import is_read_only_command
+from shared.execution_policy import configured_activation_mode
 from shared.redaction import is_red, safe_preview
 from shared.runtime_observability import record_event
 
 MATCHER = r"Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*"
 SPAWN_TOOLS = {"agent", "spawn_agent", "spawnagent"}
 WRITE_TOOLS = {"apply_patch", "edit", "write"}
+COMMAND_TOOLS = {"bash", "exec_command", "run_command", "shell", "sh", "terminal", "zsh"}
+VALIDATION_TASKS = {"test", "build", "lint", "typecheck"}
+VALIDATION_SCRIPTS = {
+    ".codex/tests/run-hook-tests.sh",
+    "scripts/validate-ralph-memory-flow.sh",
+}
+PYTHON_VALIDATION_SCRIPTS = {"scripts/gates/run-gates.py"}
+ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=[^\x00\r\n]*$")
 PATH_KEYS = ("path", "file_path", "filePath", "target_path", "targetPath", "filename")
 PATCH_PATH_RE = re.compile(r"(?m)^\*\*\* (?:Add|Update|Delete) File: (?P<path>[^\r\n]+)$")
 MAX_COMPONENT_OUTPUT_BYTES = 64 * 1024
@@ -66,6 +78,55 @@ def _tool_input(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
     return {}
+
+
+def _command(payload: dict[str, Any]) -> str:
+    data = _tool_input(payload)
+    for value in (payload.get("command"), payload.get("cmd"), data.get("command"), data.get("cmd")):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _is_validation_command(command: str) -> bool:
+    """Recognize one closed-world validation command, never a shell chain."""
+
+    if not command or len(command.encode("utf-8", errors="replace")) > 4_096:
+        return False
+    if any(marker in command for marker in ("\n", "\r", ";", "|", "&", ">", "<", "`", "$")):
+        return False
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    while tokens and ENV_ASSIGNMENT_RE.fullmatch(tokens[0]):
+        tokens.pop(0)
+    if not tokens or "/" in tokens[0] or "\\" in tokens[0]:
+        return False
+    executable = tokens[0].lower()
+    arguments = tokens[1:]
+    if executable in {"python", "python3"}:
+        return (len(arguments) >= 2 and arguments[:2] == ["-m", "pytest"]) or (
+            bool(arguments) and arguments[0] in PYTHON_VALIDATION_SCRIPTS
+        )
+    if executable == "pytest":
+        return True
+    if executable in {"npm", "pnpm"}:
+        if arguments[:1] == ["run"]:
+            arguments = arguments[1:]
+        return bool(arguments) and arguments[0].lower() in VALIDATION_TASKS
+    if executable == "make":
+        return len(arguments) == 1 and arguments[0].lower() in {"test", "build"}
+    if executable == "mypy":
+        return True
+    if executable == "ruff":
+        mutating = any(argument in {"--fix", "--fix-only"} or argument.startswith("--fix=") for argument in arguments)
+        return not mutating and (
+            arguments[:1] == ["check"] or (arguments[:1] == ["format"] and "--check" in arguments)
+        )
+    if executable == "tsc":
+        return "--noEmit" in arguments
+    return executable == "bash" and len(arguments) == 1 and arguments[0] in VALIDATION_SCRIPTS
 
 
 def _external_denial(payload: dict[str, Any]) -> dict[str, str] | None:
@@ -141,6 +202,38 @@ def _deny(reason: object) -> dict[str, str]:
     return {"decision": "block", "reason": text}
 
 
+def _convergent_phase_gate(payload: dict[str, Any], tool: str) -> dict[str, str] | None:
+    """Apply the narrow v4 write-phase gate after the existing safety owners.
+
+    Reads remain on the established path. Explicit write tools and shell
+    commands that are not proven read-only are gated so an enforce mutation
+    cannot bypass lifecycle authority by travelling through ``exec_command``.
+    """
+
+    if tool not in WRITE_TOOLS and tool not in COMMAND_TOOLS:
+        return None
+    command = _command(payload) if tool in COMMAND_TOOLS else ""
+    if command and is_read_only_command(command):
+        return None
+    context = active_context_from_payload(payload, resolve_git=False)
+    try:
+        mode = configured_activation_mode(workspace_root=context.workspace_root)
+    except Exception:
+        return _deny("Convergent activation configuration is invalid.")
+    if mode != "enforce":
+        return None
+    try:
+        _authority, state = load_authoritative_state(payload)
+    except AuthorityError:
+        return _deny("Convergent authority and runtime attestation are required for a write.")
+    allowed_phases = {"implement", "mitigate"}
+    if tool in COMMAND_TOOLS and _is_validation_command(command):
+        allowed_phases |= {"verify", "final_audit"}
+    if state.get("phase") not in allowed_phases:
+        return _deny("The active convergent phase does not accept this command or implementation write.")
+    return None
+
+
 def dispatch(payload: dict[str, Any]) -> tuple[dict[str, str] | None, list[str]]:
     tool = _tool_name(payload)
     if not tool:
@@ -159,6 +252,10 @@ def dispatch(payload: dict[str, Any]) -> tuple[dict[str, str] | None, list[str]]
     workspace = _workspace_denial(payload, tool)
     if workspace:
         return workspace, executed
+    executed.append("convergent_phase_gate")
+    phase_gate = _convergent_phase_gate(payload, tool)
+    if phase_gate:
+        return phase_gate, executed
     if tool in SPAWN_TOOLS:
         executed.append("subagent_routing")
         routing, failed = _component(_routing_main, payload)

@@ -1,0 +1,29 @@
+{
+  "id": "convergent-execution",
+  "title": "Ralph Convergent Execution v4",
+  "template": "state-machine",
+  "style": "openai",
+  "version": 4,
+  "description": "Prompt-gated task lifecycle with tiered Aristotle, one implementation owner, bounded review/mitigation, deterministic final audit, and explicit user-decision exits.",
+  "preserved": [
+    "Aristotle",
+    "Anti-Rationalization Evidence Gate",
+    "Repo Boundary",
+    "Git Safety",
+    "RED / Egress",
+    "Ralph Recall",
+    "Stop / Completion Guard"
+  ],
+  "automatic_budgets": {
+    "full_aristotle": 1,
+    "subagents": 0,
+    "material_review": 1,
+    "mitigation_batches": 1,
+    "generative_final_audit": 0,
+    "material_amendment": 1,
+    "automatic_second_review": 0,
+    "repair_cycles": 3,
+    "stop_continuations": "1+1 critical"
+  },
+  "principle": "Cada nueva evidencia debe acercar monotónicamente la tarea hacia CLOSED o hacia una decisión explícita del usuario. Ninguna fase puede reiniciar indefinidamente una fase anterior."
+}

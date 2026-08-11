@@ -22,7 +22,16 @@ def python_results(project: dict, mode: str) -> list[dict]:
             run_command(
                 "python.pytest",
                 ["python3", "-m", "pytest", "-q"],
-                timeout=180,
+                # The repository has more than 1,200 tests and the bounded
+                # full lane is intentionally allowed to finish.  A timeout
+                # must fail the gate; it must never be interpreted as a
+                # successful empty result by the aggregate runner.
+                # The repository's full pytest lane is currently just over
+                # five minutes on the supported Python runtime.  Keep a
+                # bounded timeout, but leave enough headroom for the complete
+                # 1,200+ test compatibility lane instead of converting a
+                # healthy run into a false gate failure.
+                timeout=480,
                 env=PYTEST_ENV,
             )
         )

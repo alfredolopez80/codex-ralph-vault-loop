@@ -1,0 +1,826 @@
+{
+  "baseline_execution": "UNKNOWN",
+  "candidate_execution": "deterministic-predicates-only",
+  "corpus_execution": "structural-fixture-only",
+  "corpus_loaded_24_of_24": true,
+  "efficiency_gate": "UNKNOWN (structural fixture lane does not measure live lifecycle or provider efficiency)",
+  "hard_gates": {
+    "automatic_subagent_policy_zero": true,
+    "budget_policy_valid": true,
+    "declared_risk_classes": true,
+    "fast_path_predicate_eligible": true,
+    "guardrail_bypasses": true,
+    "paired_scenarios_24_of_24": true,
+    "review_budget_policy_bound": true,
+    "unchanged_recall_injection": true,
+    "unexplained_divergences": true
+  },
+  "measurement_status": {
+    "escaped_defects": "UNKNOWN",
+    "lifecycle_contract_execution": "UNKNOWN",
+    "provider_credits": "UNKNOWN",
+    "wall_time": "UNKNOWN"
+  },
+  "metrics": {
+    "amendments": "UNKNOWN",
+    "context_bytes": "UNKNOWN",
+    "escaped_defects": "UNKNOWN",
+    "hook_writes": "UNKNOWN",
+    "model_turns": "UNKNOWN",
+    "reasoning_turns": "UNKNOWN",
+    "recall_body_reads": "UNKNOWN",
+    "repair_cycles": "UNKNOWN",
+    "reviews": "UNKNOWN",
+    "stop_continuations": "UNKNOWN",
+    "subagents": "UNKNOWN",
+    "subscription_credits": "UNKNOWN",
+    "wall_time_p50": "UNKNOWN",
+    "wall_time_p95": "UNKNOWN"
+  },
+  "mode": "structural-fixture-only",
+  "mode_selection_proof": {
+    "off": true,
+    "shadow": true
+  },
+  "paired_corpus_execution": "UNKNOWN",
+  "paired_corpus_manifest": true,
+  "pass": true,
+  "plan_id": "ralph-convergent-execution-v4-20260811",
+  "quality_gate": "UNKNOWN (no full model execution in this local harness)",
+  "report_version": 1,
+  "result_scope": "STRUCTURAL_ONLY",
+  "runtime_rollback": "UNKNOWN",
+  "scenario_results": [
+    {
+      "baseline_decision": "status",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "status_only",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "status",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "status",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "status_only-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "status_only-boundary",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:29bfdce7be11cce1e8874378fbd78626cd08b468f9a972cb9d4fedb951af65aa",
+      "expected_risk": "low",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-01"
+    },
+    {
+      "baseline_decision": "continuation",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "continuation",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "continuation",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "continuation",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "continuation-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "continuation-boundary",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:d08b9cc014cfc145ba10dcb77098cb097872f5db5f5c0f1db43a63cd7aae7a82",
+      "expected_risk": "low",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-02"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "task",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "new_task",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "new_task",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:449ef14df5f57fe31125acb221f6eaa5fa10c38ba3e8e2efdf6c90613a007733",
+      "expected_risk": "low",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-03"
+    },
+    {
+      "baseline_decision": "continuation",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "continuation",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "continuation",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "continuation",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "continuation-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "continuation-boundary",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:93322757cbf6773d1e3ea5831646449338879cc98d4c15f4b220484c1769de37",
+      "expected_risk": "low",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-04"
+    },
+    {
+      "baseline_decision": "read",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "status_only",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "read",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "read",
+        "false_close": null,
+        "fast_eligible": true,
+        "guardrail_bypass": false,
+        "reason": "successful_read_unchanged",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "successful_read_unchanged",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:4375e31892b5aa00a6a8402f72244f405549d42924abb5c773c3dd2af699f00d",
+      "expected_risk": "low",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-05"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "task",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "new_task",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "new_task",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:7ea6ef0ee9806ccb4497d29e73216fa9aef2bc0ec44da1f378432887e105e1d1",
+      "expected_risk": "low",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-06"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "task",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "new_task",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "new_task",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:8e4bacca69a8d2ca28b5aaf78cf95185ec5f81e0e343111bb48a5f4301435e7f",
+      "expected_risk": "material",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-07"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "verify",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "verify",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "focused-verification",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "focused-verification",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:a3a076dad9eb7be71d783b8e807e4b6b5593ad132c8d4adce67a975b9d0762cd",
+      "expected_risk": "material",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-08"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "amendment",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "amendment",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "material-change-amendment",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "material-change-amendment",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:54462f0420f9e9e07b1a2d5239540b918d6c1e92c36632b37499e72e92fde6be",
+      "expected_risk": "material",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-09"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "design",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "design",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "decision-packet-required",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "decision-packet-required",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:e1f03a6a2c0811608ceb89cc3d3f0d9b63fe6cc60c204d045f853437bb34b85e",
+      "expected_risk": "material",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-10"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "review",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "review",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "material-review-budget-one",
+        "red_leak": null,
+        "review_count": 1,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "material-review-budget-one",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:c1bf4ca3a445c7b563e7ee15a42a703ff527eacc221d6b03b511bf8a49b5dc77",
+      "expected_risk": "material",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-11"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "mitigation",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "mitigation",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "root-cause-batch",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "root-cause-batch",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:668b31b131c30dd10d9f86ab42865b83589436b5a08eba8ce0fd8c055d60329f",
+      "expected_risk": "material",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-12"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "critical-approval-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:fbc8e9fc2149f43a4c2c2e9a4f04452be735cf25b63c8f6d1bcb2803e2b991c2",
+      "expected_risk": "critical",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-13"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "material_change",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "critical-approval-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:6d3ed262bbead6c9111c087fe26b35df4e7203c5dcc6b51290cf1c0e8f8cbad0",
+      "expected_risk": "critical",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-14"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "critical-approval-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:e2e08a24faf4c787255661a11c6036853e43eba4ec50281aba8260d8d483fc2c",
+      "expected_risk": "critical",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-15"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "critical-approval-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:4e1e24e744129a2b763e143c94cd924cf5f419bd09723902fdf0d673aed16073",
+      "expected_risk": "critical",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-16"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "critical-approval-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:ea81ff720f77b50e41262f2d63511e8fe4803cb7abcc034122b47dfa9dd585b4",
+      "expected_risk": "critical",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-17"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "critical-approval-boundary",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:879d7a81ae5d3d75ca6df2aa17301b6b81bf2e311248d712e34792a240822fe5",
+      "expected_risk": "critical",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-18"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "task",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "new_task",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "new_task",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:c51c43ab358896429b3f40b616420c668b567a398c715ea132d53a2947376a17",
+      "expected_risk": "not-applicable",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-19"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "task",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "new_task",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "new_task",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:125302dd2b0d403c22514f2baa86c0b32a04f7bfbda4fa62452a995dcaf79741",
+      "expected_risk": "not-applicable",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-20"
+    },
+    {
+      "baseline_decision": "user-decision",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "user-decision",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "budget-exhaustion-is-not-success",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "budget-exhaustion-is-not-success",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:959655d299554e7d1acd1d07da0060cd7181fc577e57fd20cf865b8f76645f74",
+      "expected_risk": "not-applicable",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-21"
+    },
+    {
+      "baseline_decision": "terminal-no-op",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "terminal-no-op",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "terminal-no-op",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "terminal-attempt-requires-persisted-claim",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "terminal-attempt-requires-persisted-claim",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:c1ec0c08cdbcc7415070dddb086c1a79c51db52f5405ea352e0967a2a765b6ea",
+      "expected_risk": "not-applicable",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-22"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "task",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "new_task",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "new_task",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:46052dd99feef21a4f014adeadeebac8667a2debc8bf981183fbce15600b35ae",
+      "expected_risk": "not-applicable",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-23"
+    },
+    {
+      "baseline_decision": "rollback",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "rollback",
+      "candidate_observation": {
+        "budget_valid": true,
+        "decision": "rollback",
+        "false_close": null,
+        "fast_eligible": false,
+        "guardrail_bypass": false,
+        "reason": "rollback-is-a-terminal-safety-action",
+        "red_leak": null,
+        "review_count": 0,
+        "wrong_worktree": null
+      },
+      "candidate_reason": "rollback-is-a-terminal-safety-action",
+      "different": false,
+      "divergence_explained": true,
+      "evidence_digest": "sha256:2b9310ce77494c48200aaf0402dab325e338921497a438d5de572f4f5cdb09af",
+      "expected_risk": "not-applicable",
+      "guardrail_impact": "none",
+      "risk_match": true,
+      "scenario_id": "C-24"
+    }
+  ],
+  "structural_improvements": {
+    "successful_read_fast_path": {
+      "baseline": "UNKNOWN",
+      "candidate": "eligible",
+      "improvement_percent": "UNKNOWN"
+    },
+    "unchanged_recall_predicate": {
+      "baseline": "UNKNOWN",
+      "candidate": "zero_reads",
+      "improvement_percent": "UNKNOWN"
+    }
+  },
+  "structural_observations": {
+    "candidate_runtime_hook_writes": "UNKNOWN",
+    "candidate_runtime_recall_body_reads": "UNKNOWN",
+    "candidate_runtime_subagents": "UNKNOWN",
+    "fast_path_predicate_eligible": true,
+    "unchanged_recall_predicate_zero_reads": true
+  },
+  "structural_pass": true,
+  "unmeasured_runtime_gates": {
+    "baseline_equivalence": "UNKNOWN",
+    "lifecycle_runtime_execution": "UNKNOWN",
+    "no_false_closes": "UNKNOWN",
+    "no_red_leaks": "UNKNOWN",
+    "no_wrong_worktree_operations": "UNKNOWN"
+  }
+}

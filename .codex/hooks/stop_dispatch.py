@@ -8,6 +8,12 @@ import time
 from typing import Any, Mapping
 
 from shared.continuation_budget import Reservation, reserve
+from shared.convergence_authority import AuthorityError, load_authoritative_state
+from shared.convergent_stop_adapter import evaluate_convergent_stop
+from shared.convergent_reducer import TransitionRequest
+from shared.convergent_store import ConvergentIntegrityError, ConvergentStoreError
+from shared.convergent_stop import terminal_attempt_fingerprint
+from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
 from shared.objective_gates import (
     GateFinding,
     collect_hard_findings,
@@ -23,7 +29,7 @@ from shared.stop_persistence import (
     terminal_business_claim,
     terminal_business_fingerprint,
 )
-from shared.stop_scope import StopScope, evidence_fingerprint, scope_from_payload
+from shared.stop_scope import StopScope, evidence_fingerprint, scope_from_convergent_state, scope_from_payload
 from shared.post_tool_state import directory_bytes
 from shared.runtime_observability import record_event
 
@@ -31,23 +37,20 @@ OUTPUT_LIMIT = 420
 MAX_INPUT_BYTES = 4 * 1024 * 1024
 
 
-def parse_payload() -> dict[str, Any] | None:
+def parse_payload() -> dict[str, Any]:
     try:
         stream = getattr(sys.stdin, "buffer", sys.stdin)
         value = stream.read(MAX_INPUT_BYTES + 1)
         raw = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
         if len(raw.encode("utf-8")) > MAX_INPUT_BYTES:
-            sys.stderr.write("stop_dispatch input exceeded its bounded limit; allowing Stop.\n")
-            return None
+            return {"__parse_error": "input-too-large"}
         if not raw.strip():
             return {}
         value = json.loads(raw)
     except (OSError, json.JSONDecodeError):
-        sys.stderr.write("stop_dispatch invalid JSON payload; allowing Stop.\n")
-        return None
+        return {"__parse_error": "invalid-input"}
     if not isinstance(value, dict):
-        sys.stderr.write("stop_dispatch payload is not an object; allowing Stop.\n")
-        return None
+        return {"__parse_error": "invalid-input"}
     return value
 
 
@@ -145,13 +148,122 @@ def _record_observation(
 def main() -> int:
     started = time.perf_counter_ns()
     payload = parse_payload()
-    if payload is None:
-        return 0
-    if payload.get("stop_hook_active") is True:
-        return 0
+    parse_error = payload.get("__parse_error")
     event = payload.get("hook_event_name") or payload.get("hookEventName")
     if event not in (None, "", "Stop"):
         return 0
+
+    # The repo-local activation record controls the rollout boundary.  Shadow
+    # evaluation is deliberately silent.  Enforce mode resolves canonical
+    # state through the implementation store and never falls through to the
+    # legacy reducer, which could otherwise close an incomplete v4 task.
+    try:
+        # A malformed payload has no trustworthy workspace field.  Resolve the
+        # activation record against the hook process' actual cwd rather than
+        # the installed source repository, preventing one repo's enforce flag
+        # from governing an unrelated global-hook invocation.
+        workspace_root = payload.get("cwd") if isinstance(payload.get("cwd"), str) and payload.get("cwd", "").strip() else os.getcwd()
+        activation_mode = configured_activation_mode(workspace_root=workspace_root)
+    except ExecutionPolicyError:
+        # A malformed activation contract must not silently select the legacy
+        # reducer: that would make a v4 Stop appear successful without v4
+        # evidence.  Keep the response bounded and supported.
+        sys.stdout.write(_block_response("convergent-activation-invalid"))
+        return 0
+    if parse_error:
+        if activation_mode == "enforce":
+            sys.stdout.write(_block_response("convergent-input-invalid"))
+        else:
+            # Preserve the legacy diagnostic for off/shadow callers while
+            # keeping malformed enforce input fail-closed above.
+            sys.stderr.write("invalid JSON payload\n")
+        return 0
+    if payload.get("stop_hook_active") is True:
+        return 0
+    if activation_mode == "enforce":
+        try:
+            authority, candidate = load_authoritative_state(payload)
+            # Scope and task identity are rebound to the canonical state.  The
+            # payload's optional convergence snapshot and task signature are
+            # diagnostics only and cannot redirect the terminal marker.
+            canonical_scope_payload = dict(payload)
+            canonical_scope_payload.update(
+                {
+                    "cwd": str(authority.active.workspace_root),
+                    "branch": authority.active.branch,
+                    "sha": authority.active.sha,
+                }
+            )
+            scope = scope_from_convergent_state(canonical_scope_payload, candidate)
+            attempt = terminal_attempt_fingerprint(candidate)
+        except AuthorityError as exc:
+            reason = str(exc)
+            if reason in {"convergent-authority-unavailable", "convergent-state-unavailable"}:
+                reason = "convergent-state-required"
+            elif not reason.startswith("convergent-"):
+                reason = "convergent-state-invalid"
+            sys.stdout.write(_block_response(reason))
+            return 0
+        except (ConvergentStoreError, ConvergentIntegrityError, OSError, TypeError, ValueError):
+            sys.stdout.write(_block_response("convergent-state-invalid"))
+            return 0
+        # The marker is the only trusted source for a duplicate terminal
+        # acknowledgement.  Caller-supplied attempt/prior fields are ignored.
+        # The legacy terminal marker stores the raw 64-hex digest; the v4
+        # contract retains the ``sha256:`` envelope in the trusted adapter.
+        marker_fingerprint = attempt.removeprefix("sha256:")
+        with terminal_business_claim(scope, marker_fingerprint) as business:
+            if not business.available:
+                sys.stdout.write(_block_response("terminal-state-unavailable"))
+                return 0
+            # CLOSE is journaled before the separate legacy marker. If the
+            # process crashed in that window, the canonical closed state is
+            # authoritative and the next Stop repairs only the missing
+            # marker; it does not reopen or re-run the lifecycle.
+            if candidate.get("phase") == "close" and candidate.get("status") == "closed":
+                if not business.duplicate:
+                    business.commit()
+                return 0
+            canonical_payload = dict(payload)
+            canonical_payload["convergence_state"] = candidate
+            convergent = evaluate_convergent_stop(
+                canonical_payload,
+                trusted_previous_terminal_fingerprint=attempt if business.duplicate else "",
+            )
+            if convergent is None:
+                sys.stdout.write(_block_response("convergent-state-required"))
+                return 0
+            if convergent.transition:
+                try:
+                    operation_suffix = f"{attempt[7:39]}-{convergent.expected_generation}"
+                    transition = authority.store.transition(
+                        authority.plan_id,
+                        TransitionRequest(
+                            operation_id=("stop-" + convergent.transition.lower() + "-" + operation_suffix),
+                            transition=convergent.transition,
+                            expected_generation=convergent.expected_generation,
+                            target_phase=convergent.repair_phase,
+                            actor_role="deterministic-runtime",
+                            critical=str(candidate.get("risk") or "") == "critical",
+                            reason=convergent.reason,
+                        ),
+                    )
+                except Exception:
+                    sys.stdout.write(_block_response("convergent-state-transition-failed"))
+                    return 0
+                if convergent.transition != "CLOSE":
+                    sys.stdout.write(_block_response(convergent.reason))
+                    return 0
+                candidate = dict(transition.state or candidate)
+            elif convergent.action == "block":
+                sys.stdout.write(_block_response(convergent.reason))
+                return 0
+            if convergent.action == "allow" or convergent.transition == "CLOSE":
+                business.commit()
+            # Both allow and a duplicate terminal no-op are silent.  The
+            # context manager publishes the marker only for the first allow.
+        return 0
+    convergent = evaluate_convergent_stop(payload) if activation_mode == "shadow" else None
 
     try:
         scope = scope_from_payload(payload)
