@@ -17,6 +17,13 @@ Files:
 - `ralph-memory-refinement.json`, `.svg`, `.png`: readable graduation flow for hook capture, quarantine, Aristotelian review, curated MiVault memory, and recall-default use.
 - `ralph-memory-worktree-architecture.json`, `.svg`, `.png`: worktree-aware split between stable hook code, active project identity, project runtime memory, MiVault, and recall.
 - `ralph-memory-graduation-recall-flow.json`, `.svg`, `.png`: quarantine, source-project checks, Aristotelian review, auto/ask/skip decisions, and recall-default behavior.
+- `convergent-execution.json`, `.svg`, `.png`: finite task lifecycle from Prompt Boundary through deterministic Stop.
+- `prompt-boundary-aristotle-flow.json`, `.svg`, `.png`: task classification and tiered Aristotle.
+- `guardrail-preservation-contract.json`, `.svg`, `.png`: always-on safety and evidence boundaries.
+- `hook-efficiency-flow.json`, `.svg`, `.png`: PreTool safety and PostTool material/no-op paths.
+- `recall-delta-flow.json`, `.svg`, `.png`: metadata-first selection, cache, context epoch, and bounded delta.
+- `review-mitigation-final-audit.json`, `.svg`, `.png`: one review, complete triage, batch mitigation, and deterministic close.
+- `convergence-budget.json`, `.svg`, `.png`: finite budgets that prevent unbounded loops.
 
 Regenerate SVG and PNG for the Ralph memory refinement flow:
 
@@ -48,4 +55,15 @@ rsvg-convert -w 1920 docs/architecture/diagrams/memory-tree-v2-model.svg -o docs
 rsvg-convert -w 1920 docs/architecture/diagrams/ralph-memory-refinement.svg -o docs/architecture/diagrams/ralph-memory-refinement.png
 rsvg-convert -w 1920 docs/architecture/diagrams/ralph-memory-worktree-architecture.svg -o docs/architecture/diagrams/ralph-memory-worktree-architecture.png
 rsvg-convert -w 1920 docs/architecture/diagrams/ralph-memory-graduation-recall-flow.svg -o docs/architecture/diagrams/ralph-memory-graduation-recall-flow.png
+```
+
+Validate the v4 diagrams with the same production workflow:
+
+```bash
+for svg in docs/architecture/diagrams/{convergent-execution,prompt-boundary-aristotle-flow,guardrail-preservation-contract,hook-efficiency-flow,recall-delta-flow,review-mitigation-final-audit,convergence-budget}.svg; do
+  bash ~/.codex/skills/fireworks-tech-graph/scripts/validate-svg.sh "$svg"
+done
+for svg in docs/architecture/diagrams/{convergent-execution,prompt-boundary-aristotle-flow,guardrail-preservation-contract,hook-efficiency-flow,recall-delta-flow,review-mitigation-final-audit,convergence-budget}.svg; do
+  rsvg-convert -w 1920 "$svg" -o "${svg%.svg}.png"
+done
 ```

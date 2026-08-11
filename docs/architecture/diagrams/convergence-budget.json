@@ -1,0 +1,19 @@
+{
+  "id": "convergence-budget",
+  "title": "Ralph Convergence Budget",
+  "template": "flowchart",
+  "style": "openai",
+  "principle": "Cada nueva evidencia debe acercar monotónicamente la tarea hacia CLOSED o hacia una decisión explícita del usuario. Ninguna fase puede reiniciar indefinidamente una fase anterior.",
+  "budgets": {
+    "full_aristotle": 1,
+    "material_amendment": 1,
+    "automatic_subagents": 0,
+    "max_active_child": 1,
+    "material_review": 1,
+    "automatic_second_review": 0,
+    "repair_cycles": 3,
+    "generative_final_audit_default": 0,
+    "ordinary_stop_continuation": 1,
+    "critical_stop_continuation": 1
+  }
+}

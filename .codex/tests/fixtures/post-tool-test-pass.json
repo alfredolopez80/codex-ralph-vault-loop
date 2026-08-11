@@ -1,5 +1,6 @@
 {
   "hook_event_name": "PostToolUse",
+  "progress_plan_id": "fixture-generic-checkpoint",
   "tool_name": "functions.exec_command",
   "success": true,
   "tool_input": {

@@ -12,9 +12,45 @@ from _gate_common import REPORT_DIR, detect_project, now_iso, summarize, write_r
 def run_json(command: list[str]) -> tuple[int, list[dict]]:
     completed = subprocess.run(command, text=True, capture_output=True, check=False)
     if not completed.stdout.strip():
-        return completed.returncode, []
-    payload = json.loads(completed.stdout)
-    return completed.returncode, payload.get("results", [])
+        return completed.returncode, [
+            {
+                "name": "gate-subcommand",
+                "status": "failed",
+                "command": command,
+                "reason": "gate subcommand returned no JSON result",
+                "stdout": "",
+                "stderr": completed.stderr[-4_000:],
+                "exit_code": completed.returncode,
+            }
+        ]
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return completed.returncode or 1, [
+            {
+                "name": "gate-subcommand",
+                "status": "failed",
+                "command": command,
+                "reason": "gate subcommand returned malformed JSON",
+                "stdout": completed.stdout[-4_000:],
+                "stderr": completed.stderr[-4_000:],
+                "exit_code": completed.returncode or 1,
+            }
+        ]
+    results = payload.get("results", [])
+    if not isinstance(results, list):
+        return completed.returncode or 1, [
+            {
+                "name": "gate-subcommand",
+                "status": "failed",
+                "command": command,
+                "reason": "gate subcommand JSON omitted a results list",
+                "stdout": completed.stdout[-4_000:],
+                "stderr": completed.stderr[-4_000:],
+                "exit_code": completed.returncode or 1,
+            }
+        ]
+    return completed.returncode, results
 
 
 def main() -> int:

@@ -105,6 +105,28 @@ def test_read_only_call_records_compact_telemetry_without_checkpoint(tmp_path: P
     assert not project_dirs
 
 
+def test_enforced_successful_read_is_a_physical_noop(tmp_path: Path) -> None:
+    result = run_dispatch(
+        tmp_path,
+        payload(tmp_path, tool="exec_command", tool_input={"cmd": "git status --short"}),
+        {"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"},
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert runtime_files(tmp_path) == []
+
+
+def test_enforced_mixed_read_and_mutation_does_not_take_fast_path(tmp_path: Path) -> None:
+    target = tmp_path / "mixed.txt"
+    result = run_dispatch(
+        tmp_path,
+        payload(tmp_path, tool="exec_command", tool_input={"cmd": f"git status --short && touch {target}"}),
+        {"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"},
+    )
+    assert result.returncode == 0
+    assert list((tmp_path / "ralph").rglob("*"))
+
+
 def test_small_patch_runs_file_line_shaping_checkpoint_and_ledger(tmp_path: Path) -> None:
     target = tmp_path / "small.py"
     target.write_text("print('ok')\n", encoding="utf-8")

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 880" width="1400" height="880" role="img" aria-labelledby="title desc">
+<title id="title">Ralph Recall — Metadata First, Delta Only</title>
+<desc id="desc">Continuidad útil sin releer cuerpos ni reinyectar contexto idéntico en cada prompt</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.title{fill:#0d0d0d;font-size:29px;font-weight:700;letter-spacing:-.02em}
+.subtitle{fill:#6e6e80;font-size:14px}
+.group{fill:#6e6e80;font-size:11px;font-weight:700;letter-spacing:.08em}
+.node{fill:#0d0d0d;font-size:15px;font-weight:700}
+.copy{fill:#6e6e80;font-size:12px}
+.small{fill:#6e6e80;font-size:11px}
+.tiny{fill:#6e6e80;font-size:10px}
+.yes{fill:#087f63;font-size:11px;font-weight:700}
+.no{fill:#9a3412;font-size:11px;font-weight:700}
+</style>
+<defs>
+<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="10" flood-color="#0d0d0d" flood-opacity=".07"/></filter>
+<marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#71717a"/></marker>
+<marker id="arr-g" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#10a37f"/></marker>
+<marker id="arr-o" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#f97316"/></marker>
+<marker id="arr-b" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#1d4ed8"/></marker>
+</defs>
+<rect width="1400" height="880" fill="#ffffff"/>
+<text x="700.0" y="42" text-anchor="middle" class="title">Ralph Recall — Metadata First, Delta Only</text>
+<text x="700.0" y="67" text-anchor="middle" class="subtitle">Continuidad útil sin releer cuerpos ni reinyectar contexto idéntico en cada prompt</text>
+<rect x="60" y="105" width="1280" height="600" rx="14" fill="#ffffff" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="6 5"/>
+<text x="78" y="130" class="group">RECALL SELECTION PIPELINE</text>
+<rect x="90" y="170" width="185" height="86" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="90" y="170" width="5" height="86" rx="2.5" fill="#10a37f"/>
+<text x="182.5" y="199" text-anchor="middle" class="node">Prompt Gate</text>
+<text x="182.5" y="220" text-anchor="middle" class="copy">task / continuation</text>
+<text x="182.5" y="237" text-anchor="middle" class="copy">recall generation</text>
+<rect x="350" y="158" width="220" height="110" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5" filter="url(#shadow)"/>
+<rect x="350" y="158" width="5" height="110" rx="2.5" fill="#1d4ed8"/>
+<text x="460.0" y="187" text-anchor="middle" class="node">Metadata lookup</text>
+<text x="460.0" y="208" text-anchor="middle" class="copy">project + worktree</text>
+<text x="460.0" y="225" text-anchor="middle" class="copy">branch + task ID</text>
+<text x="460.0" y="242" text-anchor="middle" class="copy">generation fingerprints</text>
+<polygon points="700,154.0 810.0,213 700,272.0 590.0,213" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="700" y="210" text-anchor="middle" class="node">Selection cache</text>
+<text x="700" y="230" text-anchor="middle" class="copy">valid + unchanged?</text>
+<rect x="860" y="150" width="220" height="118" rx="10" fill="#e8f7f2" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="860" y="150" width="5" height="118" rx="2.5" fill="#10a37f"/>
+<text x="970.0" y="179" text-anchor="middle" class="node">Zero-output hit</text>
+<text x="970.0" y="200" text-anchor="middle" class="copy">0 body reads</text>
+<text x="970.0" y="217" text-anchor="middle" class="copy">0 context injection</text>
+<text x="970.0" y="234" text-anchor="middle" class="copy">0 durable write</text>
+<rect x="860" y="340" width="220" height="122" rx="10" fill="#eff6ff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="860" y="340" width="5" height="122" rx="2.5" fill="#1d4ed8"/>
+<text x="970.0" y="369" text-anchor="middle" class="node">Progressive retrieval</text>
+<text x="970.0" y="390" text-anchor="middle" class="copy">scope + TTL + provenance</text>
+<text x="970.0" y="407" text-anchor="middle" class="copy">read candidate bodies only</text>
+<text x="970.0" y="424" text-anchor="middle" class="copy">max 8 selected</text>
+<rect x="1145" y="340" width="160" height="122" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="1145" y="340" width="5" height="122" rx="2.5" fill="#10a37f"/>
+<text x="1225.0" y="369" text-anchor="middle" class="node">Delta compose</text>
+<text x="1225.0" y="390" text-anchor="middle" class="copy">new or changed</text>
+<text x="1225.0" y="407" text-anchor="middle" class="copy">bounded tokens</text>
+<rect x="1145" y="520" width="160" height="98" rx="10" fill="#e8f7f2" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="1145" y="520" width="5" height="98" rx="2.5" fill="#10a37f"/>
+<text x="1225.0" y="549" text-anchor="middle" class="node">Prompt context</text>
+<text x="1225.0" y="570" text-anchor="middle" class="copy">delimited</text>
+<text x="1225.0" y="587" text-anchor="middle" class="copy">non-authoritative</text>
+<rect x="860" y="520" width="220" height="98" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="860" y="520" width="5" height="98" rx="2.5" fill="#1d4ed8"/>
+<text x="970.0" y="549" text-anchor="middle" class="node">Selection publish</text>
+<text x="970.0" y="570" text-anchor="middle" class="copy">atomic metadata only</text>
+<text x="970.0" y="587" text-anchor="middle" class="copy">body never cached</text>
+<rect x="520" y="520" width="230" height="98" rx="10" fill="#fff7ed" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="520" y="520" width="5" height="98" rx="2.5" fill="#f97316"/>
+<text x="635.0" y="549" text-anchor="middle" class="node">Current evidence wins</text>
+<text x="635.0" y="570" text-anchor="middle" class="copy">user prompt + repo files</text>
+<text x="635.0" y="587" text-anchor="middle" class="copy">HEAD used for closure</text>
+<rect x="150" y="520" width="230" height="98" rx="10" fill="#fff7ed" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="150" y="520" width="5" height="98" rx="2.5" fill="#f97316"/>
+<text x="265.0" y="549" text-anchor="middle" class="node">RED / foreign / stale</text>
+<text x="265.0" y="570" text-anchor="middle" class="copy">reject or keep local</text>
+<text x="265.0" y="587" text-anchor="middle" class="copy">no injection</text>
+<line x1="275" y1="213" x2="350" y2="213" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<line x1="570" y1="213" x2="590" y2="213" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M 810 185 L 860 185" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arr-g)"/>
+<text x="835" y="173" text-anchor="middle" class="yes">sí</text>
+<path d="M 700 272 L 700 401 L 860 401" stroke="#1d4ed8" stroke-width="1.7" fill="none" marker-end="url(#arr-b)"/>
+<text x="782" y="389" text-anchor="middle" class="small">miss / generación cambió</text>
+<line x1="1080" y1="401" x2="1145" y2="401" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arr-g)"/>
+<line x1="1225" y1="462" x2="1225" y2="520" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arr-g)"/>
+<path d="M 1145 569 L 1080 569" stroke="#1d4ed8" stroke-width="1.7" fill="none" marker-end="url(#arr-b)"/>
+<path d="M 860 569 L 750 569" stroke="#f97316" stroke-width="1.7" fill="none" marker-end="url(#arr-o)"/>
+<path d="M 520 569 L 380 569" stroke="#f97316" stroke-width="1.7" fill="none" marker-end="url(#arr-o)"/>
+<text x="700" y="650" text-anchor="middle" class="small">La clave caliente excluye el HEAD actual para no invalidar por cada commit; HEAD sigue siendo evidencia de provenance y cierre.</text>
+<rect x="70" y="816" width="1260" height="40" rx="9" fill="#ffffff" stroke="#e5e5e5"/>
+<rect x="70" y="816" width="5" height="40" rx="2.5" fill="#10a37f"/>
+<text x="91" y="841" class="small">Metadata check barata en cada prompt; body fetch solo en new_task, material_change, explicit_recall o recovery.</text>
+</svg>

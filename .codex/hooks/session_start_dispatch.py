@@ -593,6 +593,27 @@ def _progress_bool(payload: Mapping[str, object], *keys: str) -> bool:
     return False
 
 
+def _progress_session_requested(payload: Mapping[str, object]) -> bool:
+    """Require an explicit progress boundary before using the plan store."""
+
+    keys = (
+        "progress_plan_id",
+        "progressPlanId",
+        "implementation_plan_path",
+        "implementationPlanPath",
+        "plan_path",
+        "planPath",
+        "primary_repo_root",
+        "primaryRoot",
+        "canonical_repo_root",
+        "canonicalRepoRoot",
+        "implementation_store_root",
+        "workspace_instance_id",
+        "workspaceInstanceId",
+    )
+    return any(isinstance(payload.get(key), str) and str(payload.get(key)).strip() for key in keys)
+
+
 def _progress_clear_supersedes_session(context: ActiveContext) -> bool:
     """Keep a clear boundary silent for the remainder of that session.
 
@@ -654,7 +675,7 @@ def run(payload: Mapping[str, object]) -> str:
     # ``git`` or another child process; payload branch/HEAD metadata wins.
     context = active_context_from_payload(dict(payload), resolve_git=False)
     progress_lookup = cheap_lookup(context, payload)
-    if progress_lookup.store is not None:
+    if progress_lookup.available and _progress_session_requested(payload):
         return _run_progress_session(payload, context, profile, source, progress_lookup)
     with contextlib.suppress(Exception):
         enqueue_maintenance(context, reason_code=f"session_start_{source}", payload=payload)

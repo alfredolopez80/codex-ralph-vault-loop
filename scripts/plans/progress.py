@@ -243,7 +243,9 @@ def _resolve_plan(raw: str, paths: StorePaths) -> PlanRef:
         plan_rel = canonical.relative_to(plans_root).as_posix()
     except ValueError:
         plan_rel = rel.as_posix()
-    plan_id = Path(plan_rel).with_suffix("").as_posix() if Path(plan_rel).suffix in {".md", ".markdown"} else plan_rel
+    plan_id = _declared_plan_id(canonical)
+    if plan_id is None:
+        plan_id = Path(plan_rel).with_suffix("").as_posix() if Path(plan_rel).suffix in {".md", ".markdown"} else plan_rel
     if not plan_id:
         raise CliFailure("invalid_plan_path", "plan path is invalid", 2)
     try:
@@ -254,6 +256,36 @@ def _resolve_plan(raw: str, paths: StorePaths) -> PlanRef:
     except (StorePathError, ValueError) as exc:
         raise CliFailure("invalid_plan_path", "plan path is invalid", 2) from exc
     return PlanRef(paths.primary_root, canonical, rel.as_posix(), plan_id)
+
+
+def _declared_plan_id(path: Path) -> str | None:
+    """Return an explicit immutable ``Plan ID`` declaration when present.
+
+    Filenames remain the compatibility default for older plans.  Approved
+    plans may carry a stable logical ID that intentionally differs from the
+    date-prefixed filename; resolving that declaration here keeps the
+    progress store, goal compiler, and execution ledger on one identity.
+    A malformed declaration is rejected rather than silently falling back to
+    a filename-derived identity.
+    """
+
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")[:16 * 1024]
+    except (OSError, UnicodeError) as exc:
+        raise CliFailure("invalid_plan", "plan could not be read safely", 3) from exc
+    match = re.search(r"(?m)^Plan ID:\s*`?([^`\s]+)`?\s*$", text)
+    if not match:
+        return None
+    declared = match.group(1).strip()
+    try:
+        from shared.implementation_store.paths import validate_plan_id
+
+        validate_plan_id(declared)
+    except (StorePathError, ValueError) as exc:
+        raise CliFailure("invalid_plan_id", "declared plan ID is invalid", 2) from exc
+    return declared
 
 
 def _store_for_plan(raw: str) -> tuple[ImplementationStore, StorePaths, PlanRef]:

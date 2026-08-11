@@ -1,0 +1,464 @@
+{
+  "efficiency_gate": "PASS (fixture structural metrics only; real credits/wall time remain UNKNOWN)",
+  "hard_gates": {
+    "automatic_subagents": true,
+    "budget_violations": true,
+    "false_closes": true,
+    "guardrail_bypasses": true,
+    "paired_scenarios_24_of_24": true,
+    "red_leaks": true,
+    "second_review": true,
+    "successful_read_writes": true,
+    "unchanged_recall_injection": true,
+    "unexplained_divergences": true,
+    "wrong_worktree_operations": true
+  },
+  "metrics": {
+    "amendments": 0,
+    "context_bytes": "UNKNOWN",
+    "escaped_defects": "UNKNOWN",
+    "hook_writes": 0,
+    "model_turns": "UNKNOWN",
+    "reasoning_turns": "UNKNOWN",
+    "recall_body_reads": 0,
+    "repair_cycles": 0,
+    "reviews": 0,
+    "stop_continuations": 0,
+    "subagents": 0,
+    "subscription_credits": "UNKNOWN",
+    "wall_time_p50": "UNKNOWN",
+    "wall_time_p95": "UNKNOWN"
+  },
+  "mode": "structural-fixture-only",
+  "paired_corpus": true,
+  "pass": true,
+  "plan_id": "ralph-convergent-execution-v4-20260811",
+  "quality_gate": "UNKNOWN (no full model execution in this local harness)",
+  "report_version": 1,
+  "rollback_proof": {
+    "off": true,
+    "shadow": true
+  },
+  "scenario_results": [
+    {
+      "baseline_decision": "status",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "status_only",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "status",
+      "candidate_reason": "status_only",
+      "different": false,
+      "evidence_digest": "sha256:29bfdce7be11cce1e8874378fbd78626cd08b468f9a972cb9d4fedb951af65aa",
+      "guardrail_impact": "none",
+      "scenario_id": "C-01"
+    },
+    {
+      "baseline_decision": "continuation",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "continuation",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "continuation",
+      "candidate_reason": "continuation",
+      "different": false,
+      "evidence_digest": "sha256:d08b9cc014cfc145ba10dcb77098cb097872f5db5f5c0f1db43a63cd7aae7a82",
+      "guardrail_impact": "none",
+      "scenario_id": "C-02"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "material_change",
+      "different": false,
+      "evidence_digest": "sha256:479d896b58565b95eee69c0c79d2e44ebfc303a79baf13d70a0822c87e082d69",
+      "guardrail_impact": "none",
+      "scenario_id": "C-03"
+    },
+    {
+      "baseline_decision": "continuation",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "continuation",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "continuation",
+      "candidate_reason": "continuation",
+      "different": false,
+      "evidence_digest": "sha256:93322757cbf6773d1e3ea5831646449338879cc98d4c15f4b220484c1769de37",
+      "guardrail_impact": "none",
+      "scenario_id": "C-04"
+    },
+    {
+      "baseline_decision": "read",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "status_only",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "read",
+      "candidate_reason": "status_only",
+      "different": false,
+      "evidence_digest": "sha256:4375e31892b5aa00a6a8402f72244f405549d42924abb5c773c3dd2af699f00d",
+      "guardrail_impact": "none",
+      "scenario_id": "C-05"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:7ea6ef0ee9806ccb4497d29e73216fa9aef2bc0ec44da1f378432887e105e1d1",
+      "guardrail_impact": "none",
+      "scenario_id": "C-06"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:c71cce5cdfa6210b9c9cc2840cb7b3b4b8c6f7f25870247e5a4f6e9756b43982",
+      "guardrail_impact": "none",
+      "scenario_id": "C-07"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:1b6e53a60009fdda2c5806fb6a0fd260d5bb85a24c6e15501aa7ef8f21fbd01e",
+      "guardrail_impact": "none",
+      "scenario_id": "C-08"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "material_change",
+      "different": false,
+      "evidence_digest": "sha256:54462f0420f9e9e07b1a2d5239540b918d6c1e92c36632b37499e72e92fde6be",
+      "guardrail_impact": "none",
+      "scenario_id": "C-09"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:241b28ac2594702eb853ea2dcd0a8e63a51794ea23c812cdeca65ed3fe268d42",
+      "guardrail_impact": "none",
+      "scenario_id": "C-10"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "material_change",
+        "complexity": 4,
+        "obligation_delta": false,
+        "risk": "material",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "material_change",
+      "different": false,
+      "evidence_digest": "sha256:c1bf4ca3a445c7b563e7ee15a42a703ff527eacc221d6b03b511bf8a49b5dc77",
+      "guardrail_impact": "none",
+      "scenario_id": "C-11"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:44b8fe93495b280799b29b49d29a4aa8869ade64db6d1dce7b3972fceef7639b",
+      "guardrail_impact": "none",
+      "scenario_id": "C-12"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:fbc8e9fc2149f43a4c2c2e9a4f04452be735cf25b63c8f6d1bcb2803e2b991c2",
+      "guardrail_impact": "none",
+      "scenario_id": "C-13"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "material_change",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "material_change",
+      "different": false,
+      "evidence_digest": "sha256:6d3ed262bbead6c9111c087fe26b35df4e7203c5dcc6b51290cf1c0e8f8cbad0",
+      "guardrail_impact": "none",
+      "scenario_id": "C-14"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:e2e08a24faf4c787255661a11c6036853e43eba4ec50281aba8260d8d483fc2c",
+      "guardrail_impact": "none",
+      "scenario_id": "C-15"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:4e1e24e744129a2b763e143c94cd924cf5f419bd09723902fdf0d673aed16073",
+      "guardrail_impact": "none",
+      "scenario_id": "C-16"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:f662cc8529b2f17b9889bf73cb6c9899bda139ec42a5c5fb79630f961f2e8d5c",
+      "guardrail_impact": "none",
+      "scenario_id": "C-17"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": true,
+        "boundary_kind": "new_task",
+        "complexity": 6,
+        "obligation_delta": false,
+        "risk": "critical",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:879d7a81ae5d3d75ca6df2aa17301b6b81bf2e311248d712e34792a240822fe5",
+      "guardrail_impact": "none",
+      "scenario_id": "C-18"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:c51c43ab358896429b3f40b616420c668b567a398c715ea132d53a2947376a17",
+      "guardrail_impact": "none",
+      "scenario_id": "C-19"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:125302dd2b0d403c22514f2baa86c0b32a04f7bfbda4fa62452a995dcaf79741",
+      "guardrail_impact": "none",
+      "scenario_id": "C-20"
+    },
+    {
+      "baseline_decision": "user-decision",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "user-decision",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:959655d299554e7d1acd1d07da0060cd7181fc577e57fd20cf865b8f76645f74",
+      "guardrail_impact": "none",
+      "scenario_id": "C-21"
+    },
+    {
+      "baseline_decision": "terminal-no-op",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "terminal-no-op",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:c1ec0c08cdbcc7415070dddb086c1a79c51db52f5405ea352e0967a2a765b6ea",
+      "guardrail_impact": "none",
+      "scenario_id": "C-22"
+    },
+    {
+      "baseline_decision": "task",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "task",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:46052dd99feef21a4f014adeadeebac8667a2debc8bf981183fbce15600b35ae",
+      "guardrail_impact": "none",
+      "scenario_id": "C-23"
+    },
+    {
+      "baseline_decision": "rollback",
+      "boundary": {
+        "approval_delta": false,
+        "boundary_kind": "new_task",
+        "complexity": 1,
+        "obligation_delta": false,
+        "risk": "low",
+        "scope_delta": false
+      },
+      "candidate_decision": "rollback",
+      "candidate_reason": "new_task",
+      "different": false,
+      "evidence_digest": "sha256:2b9310ce77494c48200aaf0402dab325e338921497a438d5de572f4f5cdb09af",
+      "guardrail_impact": "none",
+      "scenario_id": "C-24"
+    }
+  ],
+  "structural_improvements": {
+    "successful_read_writes": {
+      "baseline": 1,
+      "candidate": 0,
+      "improvement_percent": 100.0
+    },
+    "unchanged_recall_injection": {
+      "baseline": 1,
+      "candidate": 0,
+      "improvement_percent": 100.0
+    }
+  }
+}

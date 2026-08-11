@@ -76,12 +76,28 @@ def workspace_root(payload: dict[str, Any]) -> Path:
             value = data.get(key)
             if isinstance(value, str):
                 candidates.append(value)
-    env_pwd = os.environ.get("PWD")
-    if env_pwd:
-        candidates.append(env_pwd)
-
+    # An explicit hook payload is authoritative for worktree identity.  Do
+    # not let the process PWD mask a missing/deleted worktree path.
     for candidate in candidates:
         path = Path(candidate).expanduser()
+        if path.exists():
+            return path.resolve()
+    # Preserve an explicitly supplied, currently missing worktree as the
+    # identity boundary.  Falling back to the process CWD silently rebinds a
+    # deleted/relocated worktree to an unrelated checkout and can make a
+    # Stop-time integrity failure look like an ordinary cache miss.  Callers
+    # still require an independently proven primary checkout and must pass
+    # their branch/HEAD/workspace gates before mutating anything.
+    for candidate in candidates:
+        path = Path(candidate).expanduser()
+        if path.is_absolute():
+            try:
+                return path.absolute()
+            except OSError:
+                continue
+    env_pwd = os.environ.get("PWD")
+    if env_pwd:
+        path = Path(env_pwd).expanduser()
         if path.exists():
             return path.resolve()
     return Path.cwd().resolve()

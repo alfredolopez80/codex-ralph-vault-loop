@@ -19,6 +19,12 @@ GIT_MARKERS = ("git ", "git-")
 
 def run(payload: dict[str, Any], context: ActiveContext | None = None) -> dict[str, Any] | None:
     context = context or active_context_from_payload(payload)
+    # Sensitivity is the first PostTool decision.  Do not let the observer or
+    # planned-work resolver create any checkpoint/metric artifact for a RED or
+    # toxic result, even when the payload does not carry an explicit plan ID.
+    command = command_from_payload(payload)
+    if unsafe_payload(payload, command):
+        return None
     safe_observe_post_tool_payload(payload, context)
     progress_ref = progress_checkpoint_reference(payload, context)
     update = (

@@ -1,0 +1,16 @@
+{
+  "id": "prompt-boundary-aristotle-flow",
+  "title": "Prompt Boundary and Aristotle Policy",
+  "template": "flowchart",
+  "style": "openai",
+  "version": 3,
+  "description": "Distinguishes every-prompt deterministic gate from new-task tiered Aristotle analysis.",
+  "boundary_kinds": [
+    "status_only",
+    "continuation",
+    "new_task",
+    "material_change",
+    "user_override"
+  ],
+  "aristotle_tiers": ["micro", "quick", "full", "critical"]
+}

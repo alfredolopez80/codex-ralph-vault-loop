@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 880" width="1400" height="880" role="img" aria-labelledby="title desc">
+<title id="title">Prompt Boundary and Aristotle Policy</title>
+<desc id="desc">Chequeo mínimo en cada prompt; análisis completo solo cuando comienza o cambia materialmente la tarea</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.title{fill:#0d0d0d;font-size:29px;font-weight:700;letter-spacing:-.02em}
+.subtitle{fill:#6e6e80;font-size:14px}
+.group{fill:#6e6e80;font-size:11px;font-weight:700;letter-spacing:.08em}
+.node{fill:#0d0d0d;font-size:15px;font-weight:700}
+.copy{fill:#6e6e80;font-size:12px}
+.small{fill:#6e6e80;font-size:11px}
+.tiny{fill:#6e6e80;font-size:10px}
+.yes{fill:#087f63;font-size:11px;font-weight:700}
+.no{fill:#9a3412;font-size:11px;font-weight:700}
+</style>
+<defs>
+<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="10" flood-color="#0d0d0d" flood-opacity=".07"/></filter>
+<marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#71717a"/></marker>
+<marker id="arr-g" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#10a37f"/></marker>
+<marker id="arr-o" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#f97316"/></marker>
+<marker id="arr-b" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#1d4ed8"/></marker>
+</defs>
+<rect width="1400" height="880" fill="#ffffff"/>
+<text x="700.0" y="42" text-anchor="middle" class="title">Prompt Boundary and Aristotle Policy</text>
+<text x="700.0" y="67" text-anchor="middle" class="subtitle">Chequeo mínimo en cada prompt; análisis completo solo cuando comienza o cambia materialmente la tarea</text>
+<rect x="60" y="100" width="1280" height="150" rx="14" fill="#f7f7f8" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="6 5"/>
+<text x="78" y="125" class="group">EVERY PROMPT — DETERMINISTIC AND CHEAP</text>
+<rect x="90" y="145" width="175" height="74" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="90" y="145" width="5" height="74" rx="2.5" fill="#10a37f"/>
+<text x="177.5" y="174" text-anchor="middle" class="node">User prompt</text>
+<text x="177.5" y="195" text-anchor="middle" class="copy">raw prompt stays local</text>
+<rect x="325" y="132" width="225" height="100" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5" filter="url(#shadow)"/>
+<rect x="325" y="132" width="5" height="100" rx="2.5" fill="#10a37f"/>
+<text x="437.5" y="161" text-anchor="middle" class="node">Prompt Gate</text>
+<text x="437.5" y="182" text-anchor="middle" class="copy">sensitivity</text>
+<text x="437.5" y="199" text-anchor="middle" class="copy">boundary + scope delta</text>
+<text x="437.5" y="216" text-anchor="middle" class="copy">approval + recall generation</text>
+<polygon points="690,124.0 805.0,182 690,240.0 575.0,182" fill="#ffffff" stroke="#10a37f" stroke-width="1.5"/>
+<text x="690" y="179" text-anchor="middle" class="node">Boundary kind?</text>
+<text x="690" y="199" text-anchor="middle" class="copy">5 mutually exclusive classes</text>
+<rect x="945" y="132" width="170" height="100" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="945" y="132" width="5" height="100" rx="2.5" fill="#1d4ed8"/>
+<text x="1030.0" y="161" text-anchor="middle" class="node">State lookup</text>
+<text x="1030.0" y="182" text-anchor="middle" class="copy">task fingerprint</text>
+<text x="1030.0" y="199" text-anchor="middle" class="copy">Decision Packet</text>
+<text x="1030.0" y="216" text-anchor="middle" class="copy">open obligations</text>
+<rect x="1170" y="145" width="135" height="74" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="1170" y="145" width="5" height="74" rx="2.5" fill="#10a37f"/>
+<text x="1237.5" y="174" text-anchor="middle" class="node">Output</text>
+<text x="1237.5" y="195" text-anchor="middle" class="copy">delta o vacío</text>
+<line x1="265" y1="182" x2="325" y2="182" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<line x1="550" y1="182" x2="575" y2="182" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<line x1="805" y1="182" x2="945" y2="182" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<line x1="1115" y1="182" x2="1170" y2="182" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<rect x="60" y="290" width="1280" height="488" rx="14" fill="#ffffff" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="6 5"/>
+<text x="78" y="315" class="group">BOUNDARY-SPECIFIC ACTION</text>
+<rect x="80" y="335" width="210" height="112" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="80" y="335" width="5" height="112" rx="2.5" fill="#71717a"/>
+<text x="185.0" y="364" text-anchor="middle" class="node">STATUS_ONLY</text>
+<text x="185.0" y="385" text-anchor="middle" class="copy">sin Aristotle</text>
+<text x="185.0" y="402" text-anchor="middle" class="copy">sin body recall</text>
+<text x="185.0" y="419" text-anchor="middle" class="copy">respuesta directa</text>
+<rect x="330" y="335" width="210" height="112" rx="10" fill="#eff6ff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="330" y="335" width="5" height="112" rx="2.5" fill="#1d4ed8"/>
+<text x="435.0" y="364" text-anchor="middle" class="node">CONTINUATION</text>
+<text x="435.0" y="385" text-anchor="middle" class="copy">reuse Packet</text>
+<text x="435.0" y="402" text-anchor="middle" class="copy">recall delta</text>
+<text x="435.0" y="419" text-anchor="middle" class="copy">sin replan</text>
+<rect x="580" y="335" width="210" height="112" rx="10" fill="#e8f7f2" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="580" y="335" width="5" height="112" rx="2.5" fill="#10a37f"/>
+<text x="685.0" y="364" text-anchor="middle" class="node">NEW_TASK</text>
+<text x="685.0" y="385" text-anchor="middle" class="copy">crear lifecycle</text>
+<text x="685.0" y="402" text-anchor="middle" class="copy">tier Aristotle</text>
+<text x="685.0" y="419" text-anchor="middle" class="copy">Done when</text>
+<rect x="830" y="335" width="210" height="112" rx="10" fill="#fff7ed" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="830" y="335" width="5" height="112" rx="2.5" fill="#f97316"/>
+<text x="935.0" y="364" text-anchor="middle" class="node">MATERIAL_CHANGE</text>
+<text x="935.0" y="385" text-anchor="middle" class="copy">validar trigger</text>
+<text x="935.0" y="402" text-anchor="middle" class="copy">amendment 0/1</text>
+<text x="935.0" y="419" text-anchor="middle" class="copy">aprobación</text>
+<rect x="1080" y="335" width="210" height="112" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="1080" y="335" width="5" height="112" rx="2.5" fill="#f97316"/>
+<text x="1185.0" y="364" text-anchor="middle" class="node">USER_OVERRIDE</text>
+<text x="1185.0" y="385" text-anchor="middle" class="copy">reanálisis explícito</text>
+<text x="1185.0" y="402" text-anchor="middle" class="copy">segunda auditoría</text>
+<text x="1185.0" y="419" text-anchor="middle" class="copy">nuevo perfil</text>
+<text x="685" y="505" text-anchor="middle" class="group">ARISTOTLE TIERS</text>
+<rect x="130" y="535" width="230" height="142" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="130" y="535" width="5" height="142" rx="2.5" fill="#10a37f"/>
+<text x="245.0" y="564" text-anchor="middle" class="node">MICRO · 1–2</text>
+<text x="245.0" y="585" text-anchor="middle" class="copy">objetivo</text>
+<text x="245.0" y="602" text-anchor="middle" class="copy">supuesto</text>
+<text x="245.0" y="619" text-anchor="middle" class="copy">riesgo</text>
+<text x="245.0" y="636" text-anchor="middle" class="copy">done_when</text>
+<rect x="410" y="535" width="230" height="142" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="410" y="535" width="5" height="142" rx="2.5" fill="#10a37f"/>
+<text x="525.0" y="564" text-anchor="middle" class="node">QUICK · 3</text>
+<text x="525.0" y="585" text-anchor="middle" class="copy">Fase 1</text>
+<text x="525.0" y="602" text-anchor="middle" class="copy">Fase 5</text>
+<text x="525.0" y="619" text-anchor="middle" class="copy">movimiento</text>
+<rect x="690" y="535" width="230" height="142" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="690" y="535" width="5" height="142" rx="2.5" fill="#10a37f"/>
+<text x="805.0" y="564" text-anchor="middle" class="node">FULL · 4–6 / material</text>
+<text x="805.0" y="585" text-anchor="middle" class="copy">5 fases</text>
+<text x="805.0" y="602" text-anchor="middle" class="copy">root cause</text>
+<text x="805.0" y="619" text-anchor="middle" class="copy">Decision Packet</text>
+<rect x="970" y="535" width="230" height="142" rx="10" fill="#ffffff" stroke="#e5e5e5" stroke-width="1.5"/>
+<rect x="970" y="535" width="5" height="142" rx="2.5" fill="#f97316"/>
+<text x="1085.0" y="564" text-anchor="middle" class="node">CRITICAL · trust boundary</text>
+<text x="1085.0" y="585" text-anchor="middle" class="copy">Full + threat</text>
+<text x="1085.0" y="602" text-anchor="middle" class="copy">rollout</text>
+<text x="1085.0" y="619" text-anchor="middle" class="copy">rollback</text>
+<path d="M 185 447 L 60 720 L 1240 720" stroke="#71717a" stroke-width="1.7" fill="none" marker-end="url(#arr)" stroke-dasharray="6 5"/>
+<path d="M 435 447 L 385 490 L 385 720" stroke="#1d4ed8" stroke-width="1.7" fill="none" marker-end="url(#arr-b)" stroke-dasharray="6 5"/>
+<path d="M 685 447 L 685 535" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arr-g)"/>
+<path d="M 935 447 L 935 510 L 805 510 L 805 535" stroke="#f97316" stroke-width="1.7" fill="none" marker-end="url(#arr-o)"/>
+<path d="M 1185 447 L 1240 500 L 1240 700" stroke="#f97316" stroke-width="1.7" fill="none" marker-end="url(#arr-o)" stroke-dasharray="6 5"/>
+<line x1="360" y1="606" x2="410" y2="606" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arr-g)"/>
+<line x1="640" y1="606" x2="690" y2="606" stroke="#10a37f" stroke-width="1.7" fill="none" marker-end="url(#arr-g)"/>
+<line x1="920" y1="606" x2="970" y2="606" stroke="#f97316" stroke-width="1.7" fill="none" marker-end="url(#arr-o)"/>
+<text x="685" y="694" text-anchor="middle" class="small">El nivel se elige por complejidad lógica, riesgo, reversibilidad e incertidumbre; la longitud solo es señal secundaria.</text>
+<rect x="70" y="816" width="1260" height="40" rx="9" fill="#ffffff" stroke="#e5e5e5"/>
+<rect x="70" y="816" width="5" height="40" rx="2.5" fill="#10a37f"/>
+<text x="91" y="841" class="small">Regla: cada prompt recibe orientación barata; cada tarea nueva recibe al menos Micro Aristotle; Full ocurre una vez por tarea compleja.</text>
+</svg>

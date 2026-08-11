@@ -7,6 +7,14 @@ executor. The policy routes only newly spawned subagents. Codex main remains
 the sole spawn initiator and the final owner of decisions, edits, safety, and
 verification.
 
+Ralph Convergent Execution v4 is a separate task-local execution contract. A
+user-approved v4 task may require a real writable `gpt-5.6-sol` implementation
+owner with `max` reasoning and a stable lease. This does not change the
+repository default above, does not mutate `.codex/config.toml`, and does not
+permit Luna/Terra fallback when the SOL lease cannot be proven. The read-only
+`sol-advisor` route remains advisory and is never an automatic implementation
+owner.
+
 Hooks may classify, persist bounded metadata, annotate, allow, or block spawn
 arguments. They never start a subagent, change the current executor, or edit
 `.codex/config.toml` during a turn. Z.ai and MiniMax retain their separate MCP

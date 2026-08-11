@@ -29,6 +29,8 @@ from shared.post_tool_ledger import append_cost_event
 from shared.persistence_metrics import WriteAccumulator, WriteResult
 from shared.progress_hook import cheap_lookup
 from shared.progress_runtime import structured_validation, validation_transition
+from shared.convergent_hooks import successful_read_fast_path
+from shared.execution_policy import configured_activation_mode
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
@@ -227,8 +229,19 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     if payload.get("hook_event_name") not in (None, "PostToolUse"):
         return None
     started = time.perf_counter_ns()
-    context = active_context_from_payload(payload, resolve_git=False)
     tool = classify_tool(payload)
+    # In enforce mode a proven successful, non-material read is a physical
+    # no-op.  This return happens before context, ledger, checkpoint, memory,
+    # advisor, or observability writers.  PreToolUse is a separate dispatcher
+    # and remains active for the corresponding tool invocation.
+    try:
+        if configured_activation_mode() == "enforce" and successful_read_fast_path(payload).eligible:
+            return None
+    except Exception:
+        # Invalid activation metadata must never create a bypass; retain the
+        # existing conservative dispatcher behavior and let normal gates run.
+        pass
+    context = active_context_from_payload(payload, resolve_git=False)
     stage = result_stage(payload)
     pending_stream = stage == "partial"
     persistence_allowed = _runtime_safe()

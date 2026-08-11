@@ -8,6 +8,8 @@ import time
 from typing import Any, Mapping
 
 from shared.continuation_budget import Reservation, reserve
+from shared.convergent_stop_adapter import evaluate_convergent_stop
+from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
 from shared.objective_gates import (
     GateFinding,
     collect_hard_findings,
@@ -151,6 +153,20 @@ def main() -> int:
         return 0
     event = payload.get("hook_event_name") or payload.get("hookEventName")
     if event not in (None, "", "Stop"):
+        return 0
+
+    # The v4 snapshot is opt-in until the repo-local canary and rollout gates
+    # are approved.  Shadow evaluation is deliberately silent.  Enforce mode
+    # consumes only the bounded v4 decision and never falls through to the
+    # legacy reducer, which could otherwise close an incomplete v4 task.
+    try:
+        activation_mode = configured_activation_mode()
+    except ExecutionPolicyError:
+        activation_mode = "invalid"
+    convergent = evaluate_convergent_stop(payload) if activation_mode in {"shadow", "enforce"} else None
+    if activation_mode == "enforce" and convergent is not None:
+        if convergent.action == "block":
+            sys.stdout.write(_block_response(convergent.reason))
         return 0
 
     try:

@@ -10,6 +10,15 @@ Events:
 - `PostToolUse` runs through the consolidated `post_tool_dispatch.py`, which gates the existing line, shaping, memory, checkpoint, advisor, and ledger policies by tool/result class. A structured test/build/lint/typecheck result may produce one semantic validation transition in the canonical implementation-progress store; ordinary reads/writes and unchanged results are no-ops.
 - `Stop` runs through the single `stop_dispatch.py` reducer. It evaluates scoped objective evidence, preserves the file-line and implementation-notes hard gates, and, for an explicit approved progress completion, verifies canonical ownership, provenance, material evidence, validation gates, and current commit/workspace before one terminal store transition. It records route and phrase observations as report-only telemetry, writes a lightweight handoff, and enforces one bounded continuation budget. Heavy memory promotion is marked for later processing and is not run on the critical path.
 
+Ralph Convergent Execution v4 adds a policy-hashed, task-local lifecycle above
+these dispatchers. `UserPromptSubmit` owns Prompt Boundary classification and
+goal/epoch selection; `PreToolUse` remains the non-bypassable safety owner;
+`PostToolUse` records only material transitions and uses a physical no-op for a
+successful read with no signal; `Stop` owns deterministic final audit and
+terminal budgets. The execution lease records the actual implementation model
+and effort. A configured repository default is not evidence that a current
+task is running under SOL.
+
 The file-line guard is intentionally blocking for source-like files and intentionally permissive for generated artifacts such as lockfiles, minified assets, maps, and media. When it blocks, Codex must split the file before continuing. The required split style is behavior-preserving and boundary-oriented: tests before and after, domain/use-case/component boundaries, no generic dumping-ground modules, validation/auth/secrets and trust boundaries preserved, sec-context anti-patterns avoided while moving code, and React/Next splits aligned with component-per-file, extracted hooks, direct imports, and lazy loading for heavy UI.
 
 Hooks must degrade safely. Missing files should not crash a session. Hooks must not print secrets and must not save RED content.

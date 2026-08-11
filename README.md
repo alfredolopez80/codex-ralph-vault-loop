@@ -206,6 +206,69 @@ The repo includes a security detector in
 Semgrep rules in [`.semgrep.yml`](./.semgrep.yml), and the public security
 policy in [`SECURITY.md`](./SECURITY.md).
 
+## Convergent Execution
+
+> **Every new piece of evidence must move the task monotonically toward
+> `CLOSED` or an explicit user decision. No phase may restart an earlier phase
+> indefinitely.**
+
+Ralph Convergent Execution v4 applies a lightweight Prompt Boundary to every
+prompt. A materially new task runs the appropriate Aristotle tier first and
+produces a versioned Decision Packet. Continuations reuse that packet unless
+new evidence invalidates a material assumption. The implementation owner is a
+stable task-local `gpt-5.6-sol` worker at `max` reasoning when its runtime
+lease proves that identity; Codex main remains the authority for edits,
+integration, safety, verification, and close. The read-only Sol advisor is not
+started automatically and cannot replace the implementation owner.
+
+The lifecycle is:
+
+`Prompt Gate → Aristotle → Design → Implementation → Verification → Review →`
+`Finding Triage → Mitigation → Final Audit → Anti-Rationalization → Stop`.
+
+![Ralph Convergent Execution](./docs/architecture/diagrams/convergent-execution.png)
+
+Efficiency comes from bounded deliberation, delta context, physical no-op hot
+paths, and finite review/repair budgets. It never comes from weakening Repo
+Boundary, Git Safety, RED/egress, worktree integrity, Ralph Recall, or Stop.
+
+### Anti-Rationalization Evidence Gate
+
+Anti-Rationalization rejects unsupported completion or blocker claims; it does
+not launch another reasoning cycle. Phrase matches are signals. Tests,
+lint/typecheck/build, finding ledgers, blocker state, security gates,
+branch/HEAD, the Decision Packet, and `Done when` are authoritative. The gate
+shares the finite Stop continuation budget and cannot automatically trigger
+Aristotle, an advisor, or a reviewer.
+
+### Preserved Guardrails
+
+| Guardrail | Convergent behavior |
+| --- | --- |
+| Aristotle | Runs at task boundaries and is reused until materially invalidated |
+| Anti-Rationalization | Evidence gate at material phase exit and Stop |
+| Repo Boundary | Always-on |
+| Git Safety | Always-on |
+| RED / Egress | Always-on |
+| Ralph Recall | Metadata-first and delta-based |
+| Stop Guard | Evidence-driven and terminal-budgeted |
+
+### Efficient Hook Paths
+
+PreTool security paths remain always-on. Successful read-only PostTool events
+with no material signal take a physical no-op path: no checkpoint, durable
+ledger write, memory extraction, advisor observation, or additional model
+context. If a production fast-path metric cannot be measured honestly, it is
+reported as `UNKNOWN`.
+
+### Delta-Based Ralph Recall
+
+Ralph Recall first checks scope, memory/checkpoint generation, selected IDs,
+selection fingerprint, and context epoch. Memory bodies are read only when the
+selection changes or a new context epoch requires one bounded rehydration.
+See the complete contract in
+[`docs/architecture/ralph-convergent-execution-v4.md`](./docs/architecture/ralph-convergent-execution-v4.md).
+
 ## <img src="./docs/assets/branding/heading-memory.svg" width="22" alt=""> Memory, Gates, And Evals
 
 ![Memory and eval lifecycle](./docs/architecture/diagrams/memory-eval-lifecycle.png)

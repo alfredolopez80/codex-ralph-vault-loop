@@ -97,7 +97,7 @@ def test_python_gate_disables_pytest_plugin_autoload(monkeypatch: pytest.MonkeyP
         {
             "name": "python.pytest",
             "command": ["python3", "-m", "pytest", "-q"],
-            "timeout": 180,
+            "timeout": 300,
             "env": {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
         }
     ]

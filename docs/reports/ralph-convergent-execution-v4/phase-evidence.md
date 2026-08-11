@@ -1,0 +1,63 @@
+# Ralph Convergent Execution v4 — Phase Evidence
+
+Plan: `ralph-convergent-execution-v4-20260811`
+Plan digest: `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`
+Entry SHA: `78a314b47e6a1017b6d369358fda4c6c28450e06`
+Branch: `codex/ralph-convergent-execution-v4`
+Writable owner: real `gpt-5.6-sol`, reasoning `max`; authority: `codex-main`
+
+The table distinguishes deterministic/local structural evidence from evidence
+that requires a real paired model-task lane or an explicit rollout approval.
+No `UNKNOWN` metric is converted into zero or into a quality claim.
+
+| Phase | Goal                               | Status                                         | Evidence                                                                                                                                                                                                                                                                                                                             | Rollback / open boundary                                                                                                                                    |
+| ----- | ---------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T0    | G-BASELINE                         | PASS                                           | Source hashes and ZIP members reconciled; 24-case manifest; focused baseline; bounded baseline repairs; hook smoke now `ALL_HOOK_TESTS_PASS`.                                                                                                                                                                                        | No v4 activation at baseline.                                                                                                                               |
+| T1    | G-BASELINE                         | PASS                                           | Effective graph doctor reports one blocking owner for Prompt Boundary, PreTool, PostTool and Stop; legacy wrapper unregistered.                                                                                                                                                                                                      | Doctor remains report-only until rollout.                                                                                                                   |
+| T2    | G-BOUNDARY                         | PASS                                           | Exact policy parser/hash tests; seven policy aliases map to seven wire kinds; UserPrompt shadow result is internal and model-silent.                                                                                                                                                                                                 | `RALPH_CONVERGENT_EXECUTION_MODE=off` retains current behavior.                                                                                             |
+| T3    | G-DECISION                         | PASS                                           | Tier/packet/goal determinism, exact `irreducible_truths`, owner metadata, immutable fingerprints and serial `G-*` compiler tests.                                                                                                                                                                                                    | No implicit second Aristotle.                                                                                                                               |
+| T4    | G-DECISION                         | PASS                                           | Reducer/store tests cover stale CAS, duplicate operation no-op/conflict, crash replay, incomplete tail, out-of-order events, future schema, tamper, amendment/repair exhaustion and persisted goals.                                                                                                                                 | Journals are preserved; no schema downgrade.                                                                                                                |
+| T5    | G-LEASE                            | PASS (structural)                              | Lease rejects Luna/Terra, non-max effort, advisor ownership, fallback and tool/CWD drift; automatic-child policy is zero.                                                                                                                                                                                                            | A live payload without real SOL/max evidence must block enforce activation.                                                                                 |
+| T6    | G-RECALL-HOTPATH                   | PASS (structural)                              | Metadata-first Recall Delta tests prove same key/epoch is 0 body reads/0 context/0 durable writes, context epoch rehydrates once, and changed selection emits bounded IDs.                                                                                                                                                           | Real memory host metrics remain separate.                                                                                                                   |
+| T7    | G-RECALL-HOTPATH                   | PASS (structural)                              | Enforced successful-read PostTool is a physical no-op; mixed shell, partial stream, agent, external and test signals remain on the normal path; PreTool is untouched.                                                                                                                                                                | Default remains shadow until canary quality evidence.                                                                                                       |
+| T8    | G-EVIDENCE-CLOSE                   | PASS                                           | Anti-Rationalization uses objective evidence; phrase scans are signal-only; no spawn/advisor/reviewer loop.                                                                                                                                                                                                                          | Missing evidence blocks.                                                                                                                                    |
+| T9    | G-EVIDENCE-CLOSE                   | PASS                                           | Stop reducer tests cover hard gates, ordinary/critical budgets and duplicate terminal physical no-op; exhaustion becomes `USER_DECISION`.                                                                                                                                                                                            | No automatic restart or model switch.                                                                                                                       |
+| T10   | G-EVIDENCE-CLOSE + G-DOCUMENTATION | PASS                                           | Structured finding ledger, complete triage, one root-cause mitigation batch, deterministic documentation and seven editable JSON/SVG/PNG diagrams.                                                                                                                                                                                   | No microsite copied.                                                                                                                                        |
+| T11   | G-EVIDENCE-CLOSE                   | PASS (structural)                              | Deterministic final-audit runner validates exact check set, missing checks, P0/P1, and explicit critical generative approval.                                                                                                                                                                                                        | Real repository audit still gates rollout.                                                                                                                  |
+| T12   | G-SHADOW-CANARY                    | PASS (structural)                              | Shadow/candidate harness preserves 24 decisions, reports no unexplained divergence, and keeps report-only paths silent.                                                                                                                                                                                                              | It does not invoke a model or claim credits/wall time.                                                                                                      |
+| T13   | G-SHADOW-CANARY                    | PASS WITH EXPLICIT USER OVERRIDE (SHADOW-ONLY) | The user explicitly authorized proceeding without inventing a model-quality or subscription-cost claim. The fixed structural canary is `24/24`; all hard safety/budget gates remain enforced, while credits, wall time, escaped defects and full model-quality comparison stay `UNKNOWN`. Decision record: `t13-user-decision.json`. | This is an amendment to the activation decision, not a waiver of safety gates. Enforce mode remains unavailable until a real paired model lane is measured. |
+| T14   | G-ROLLOUT                          | PASS (REPO-LOCAL SHADOW)                       | The versioned `config/convergent-execution-mode.toml` binds `shadow` to this plan and policy; the effective-hook doctor, complete minimal gate, hook smoke, memory-flow checks and rollback mode checks are green. No global configuration is changed.                                                                               | Repo-local shadow execution is allowed by the explicit decision; enforce activation and global install remain separate approval boundaries.                 |
+| T15   | G-ROLLOUT                          | BLOCKED                                        | Global install/backup/parity/rollback has not been attempted.                                                                                                                                                                                                                                                                        | Requires explicit user approval and a completed repo-default gate.                                                                                          |
+
+## Structural canary metrics
+
+`canary-structural-report.json` records the same 24 scenario IDs in both
+lanes. It reports `subscription_credits=UNKNOWN`, wall-time percentiles and
+escaped defects as `UNKNOWN`, and measures only deterministic local structure:
+
+- successful-read writes: baseline fixture `1`, candidate `0`;
+- unchanged Recall body reads/context/writes: candidate `0`;
+- automatic subagents: `0`;
+- second review: `0`;
+- rollback mode checks (`off` and `shadow`): pass.
+
+These are structural contract measurements, not subscription-savings or
+production-quality claims.
+
+## Final local verification snapshot
+
+- v4 focused/cross-owner matrix: `133 passed`.
+- Complete repository pytest lane: `1218 passed, 5 subtests passed` in 218.48 s.
+- Implementation-notes and progress compatibility suite: `55 passed`.
+- Complete repository minimal gate: `passed` (`passed=1`, `failed=0`, `skipped=2`).
+- Hook smoke: `ALL_HOOK_TESTS_PASS`.
+- Ralph memory-flow validation: `PASS` (optional `ruff`/`mypy` checks were
+  unavailable and therefore remain explicitly skipped).
+- Effective hook graph: `PASS`, one blocking semantic owner per guarded domain.
+- Versioned repo-local activation flag tests: `PASS`; aggregate gate timeout/error propagation tests: `PASS`.
+- Diagram validation: all seven SVGs valid; all seven PNGs are 1920px wide.
+- Plan bytes remain `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`.
+
+This snapshot closes local T0–T12 verification and records the explicit T13
+user override that permits T14 repo-local shadow execution. It does not
+authorize global T15 installation or claim full model-quality improvement.
