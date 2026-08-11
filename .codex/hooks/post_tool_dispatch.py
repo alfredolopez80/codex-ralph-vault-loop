@@ -218,7 +218,7 @@ def _commit_convergent_transition(
     if activation_mode != "enforce":
         return False, None
     try:
-        request, attestation_digest = request_from_attestation(candidate)
+        request, _attestation_digest = request_from_attestation(candidate)
         authority, _state = load_authoritative_state(payload)
         runtime = load_runtime_attestation(
             authority.active.workspace_root,
@@ -226,8 +226,8 @@ def _commit_convergent_transition(
             head_sha=authority.checkout_head_sha,
             policy=authority.policy,
         )
-        if attestation_digest != runtime.attestation_digest:
-            raise RuntimeAttestationError("PostTool attestation digest does not match the active runtime")
+        if request.runtime_attestation_digest != runtime.attestation_digest:
+            raise RuntimeAttestationError("PostTool runtime attestation does not match the active runtime")
         authority.store.transition(authority.plan_id, request)
         return True, None
     except (ToolResultAttestationError, AuthorityError, RuntimeAttestationError, ConvergentStoreError, ConvergentIntegrityError, ValueError, TypeError):

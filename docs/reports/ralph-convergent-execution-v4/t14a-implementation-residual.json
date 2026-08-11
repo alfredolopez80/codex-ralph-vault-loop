@@ -26,7 +26,10 @@
     "prompt_initialization_atomic_store_primitive",
     "runtime_attestation_authority_binding",
     "epoch_rotation_active_pointer",
+    "epoch_rotation_pending_recovery",
+    "same_work_item_retry_idempotency",
     "post_tool_evidence_transition",
+    "post_tool_runtime_digest_binding",
     "pre_tool_phase_gate",
     "aristotle_display_shell_retirement"
   ],
@@ -57,8 +60,8 @@
     }
   ],
   "validation": {
-    "focused_cross_owner": "153 passed",
-    "full_suite_for_current_batch": "1238 passed, 5 subtests passed",
+    "focused_cross_owner": "158 passed",
+    "full_suite_for_current_batch": "1243 passed, 5 subtests passed",
     "minimal_gate": "passed (failed=0, passed=1, skipped=2)",
     "hook_smoke": "ALL_HOOK_TESTS_PASS",
     "memory_flow": "PASS (optional ruff/mypy unavailable)",

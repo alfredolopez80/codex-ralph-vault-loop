@@ -153,6 +153,15 @@ def ensure_prompt_boundary(
         boundary_kind = _wire_boundary_kind(boundary.get("boundary_kind"))
         if boundary_kind == "new_task":
             candidate = _new_epoch_state(authority, payload, prompt, boundary, state)
+            # A repeated boundary for the same normalized work item is a
+            # retry/continuation, even when the caller supplies a new session
+            # or omits task_epoch.  Rotating here would mint fresh budgets for
+            # the same work and make a retry non-idempotent.
+            requested_epoch = _explicit_task_epoch(payload)
+            same_work_item = _work_item_fingerprint(candidate) == _work_item_fingerprint(state)
+            explicit_distinct_epoch = bool(requested_epoch and requested_epoch != str(state.get("task_epoch") or ""))
+            if same_work_item and not explicit_distinct_epoch:
+                return state
             evidence = attestation.lease_evidence(
                 cwd=str(authority.active.workspace_root),
                 branch=authority.active.branch,
@@ -312,10 +321,18 @@ def _wire_boundary_kind(value: object) -> str:
 
 
 def _task_epoch(payload: Mapping[str, object], boundary: Mapping[str, object]) -> str:
-    value = payload.get("task_epoch") or payload.get("taskEpoch") or payload.get("task_signature")
+    value = _explicit_task_epoch(payload)
     if not isinstance(value, str) or not value.strip():
         value = "epoch-" + str(_boundary_epoch(payload))
     return value.strip()[:180]
+
+
+def _explicit_task_epoch(payload: Mapping[str, object]) -> str:
+    for key in ("task_epoch", "taskEpoch", "task_signature"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:180]
+    return ""
 
 
 def _new_epoch_state(
@@ -360,6 +377,20 @@ def _new_epoch_state(
         boundary_kind=_wire_boundary_kind(boundary.get("boundary_kind")) or "new_task",
         risk=risk,
         activation_mode="enforce",
+    )
+
+
+def _work_item_fingerprint(state: Mapping[str, Any]) -> str:
+    """Derive a stable work identity independent of session/turn/SHA."""
+
+    identity = state.get("task_identity")
+    if not isinstance(identity, Mapping):
+        raise AuthorityError("convergent-task-identity-missing")
+    return digest_text(
+        "|".join(
+            str(identity.get(key) or "")
+            for key in ("plan_id", "plan_version", "plan_digest", "project_id", "worktree_id", "branch", "objective_hash")
+        )
     )
 
 

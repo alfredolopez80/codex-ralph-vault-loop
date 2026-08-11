@@ -6,6 +6,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / ".codex" / "hooks" / "post_tool_dispatch.py"
@@ -137,6 +138,33 @@ def test_enforced_mixed_read_and_mutation_does_not_take_fast_path(tmp_path: Path
     )
     assert result.returncode == 0
     assert list((tmp_path / "ralph").rglob("*"))
+
+
+def test_valid_v1_attestation_uses_runtime_digest_for_dispatcher_binding(monkeypatch) -> None:
+    calls: list[str] = []
+    request = SimpleNamespace(runtime_attestation_digest="sha256:" + "a" * 64)
+    authority = SimpleNamespace(
+        active=SimpleNamespace(workspace_root=Path("/tmp/fixture-workspace"), branch="main"),
+        checkout_head_sha="a" * 40,
+        policy=object(),
+        plan_id="fixture-plan",
+        store=SimpleNamespace(transition=lambda plan_id, value: calls.append(plan_id)),
+    )
+    monkeypatch.setattr(post_tool_dispatch, "request_from_attestation", lambda value: (request, "sha256:" + "b" * 64))
+    monkeypatch.setattr(post_tool_dispatch, "load_authoritative_state", lambda payload: (authority, {}))
+    monkeypatch.setattr(
+        post_tool_dispatch,
+        "load_runtime_attestation",
+        lambda *args, **kwargs: SimpleNamespace(attestation_digest="sha256:" + "a" * 64),
+    )
+
+    handled, response = post_tool_dispatch._commit_convergent_transition(
+        {"convergent_transition": {"schema_version": 1}}, activation_mode="enforce"
+    )
+
+    assert handled is True
+    assert response is None
+    assert calls == ["fixture-plan"]
 
 
 def test_command_classifier_does_not_truncate_mutating_suffix() -> None:

@@ -10,12 +10,12 @@ Audited candidate: current PR working tree before publication
 
 | Classification          |        Count | Decision                                                                             |
 | ----------------------- | -----------: | ------------------------------------------------------------------------------------ |
-| `KEEP`                  |        1,237 | Active v4 contracts, rollback, compatibility, security and existing runtime behavior |
+| `KEEP`                  |        1,242 | Active v4 contracts, rollback, compatibility, security and existing runtime behavior |
 | `REFACTOR`              |  1 test node | Keep, but move to an explicit global/T15 profile lane                                |
 | `DELETE`                | 0 test nodes | No pytest node has sufficient evidence for deletion                                  |
-| Final pytest collection |        1,238 | Plus 5 subtests                                                                      |
+| Final pytest collection |        1,243 | Plus 5 subtests                                                                      |
 
-The branch adds 108 v4 tests relative to the exact base and removes no active
+The branch adds 113 v4 tests relative to the exact base and removes no active
 pytest contract coverage. The 108 additions map to explicit plan obligations
 and stay in the suite. Legacy tests remain necessary while `off` and `shadow`
 preserve rollback to the current runtime.
@@ -56,14 +56,14 @@ remains useful evidence for T15/global installation. It reads the real
 machine-local global profile. It is not deterministic repository evidence and
 should run only in an explicitly provisioned global lane; it is not deleted.
 
-The other 1,237 tests are not deprecated merely because v4 exists. They cover
+The other 1,242 tests are not deprecated merely because v4 exists. They cover
 the active off/shadow rollback path, legacy memory/Recall compatibility,
 security boundaries, migrations, hooks, progress persistence, and current
 quality gates.
 
 ## CI coverage gap
 
-The current GitHub workflow executes the 912 unit tests and redundantly runs
+The current GitHub workflow executes the 904 unit tests and redundantly runs
 the three regression-guard tests again. The remaining 339 tests (integration,
 eval, golden and maintenance) are not deprecated; they simply lack a
 continuous CI lane. Removing them would weaken evidence. A future, separately
@@ -75,7 +75,7 @@ the redundant regression rerun.
 After retiring the bundles:
 
 ```text
-1238 passed, 5 subtests passed
+1243 passed, 5 subtests passed
 ALL_HOOK_TESTS_PASS
 ```
 

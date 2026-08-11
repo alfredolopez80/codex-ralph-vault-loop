@@ -121,6 +121,54 @@ def boundary_request(state: dict, operation_id: str = "op-boundary") -> Transiti
     )
 
 
+def epoch_candidate(epoch: str, objective: str, boundary_epoch: int, operation_id: str) -> tuple[dict, TransitionRequest]:
+    identity = TaskIdentity.from_values(
+        session=f"session-{epoch}",
+        project="project-store",
+        worktree="workspace-store",
+        branch="codex/ralph-convergent-execution-v4",
+        objective=objective,
+        boundary_epoch=boundary_epoch,
+        sensitivity="GREEN",
+        plan=PLAN_ID,
+        plan_version=1,
+        plan_digest=PLAN_DIGEST,
+    )
+    candidate = new_state(
+        policy=load_execution_policy(),
+        plan_id=PLAN_ID,
+        plan_version=1,
+        plan_digest=PLAN_DIGEST,
+        task_identity=identity,
+        goal_id="G-BASELINE",
+        task_epoch=epoch,
+        boundary_epoch=boundary_epoch,
+        boundary_kind="new_task",
+        activation_mode="shadow",
+    )
+    evidence = LeaseEvidence(
+        model="gpt-5.6-sol",
+        reasoning_effort="max",
+        tools=("apply_patch", "exec_command"),
+        cwd=str(ROOT),
+        branch="codex/ralph-convergent-execution-v4",
+        task_epoch=epoch,
+        owner_role="sol-worker",
+        authority_role="codex-main",
+        source="verified-runtime",
+    )
+    lease = acquire_execution_lease(evidence, policy=load_execution_policy(), issued_generation=0)
+    request = TransitionRequest(
+        operation_id=operation_id,
+        transition="BOUNDARY_CLASSIFIED",
+        expected_generation=0,
+        evidence_ids=("epoch-rotation",),
+        actor_role="deterministic-runtime",
+        lease=lease,
+    )
+    return candidate, request
+
+
 def test_start_transition_idempotency_and_conflict(tmp_path: Path) -> None:
     _root, store = make_store(tmp_path)
     state = initial_state()
@@ -275,6 +323,74 @@ def test_new_task_epoch_rotation_preserves_prior_state_and_publishes_cas_pointer
     retry = store.rotate_epoch_and_transition(candidate, request)
     assert retry.changed is False
     assert retry.replayed is True
+
+
+def test_pending_epoch_rotation_recovers_partial_archive_before_authoritative_read(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    store.start(initial_state())
+    candidate, request = epoch_candidate("epoch-current", "current work", 2, "rotate-current")
+    store.rotate_epoch_and_transition(candidate, request)
+    paths = store.paths(PLAN_ID)
+    current = store.read_current(PLAN_ID, authoritative=True).state
+    assert current is not None
+
+    archive_name = "prepared-recovery"
+    archive = paths.root / "epochs" / archive_name
+    archive.mkdir(mode=0o700)
+    for name in store._epoch_movable_names():
+        source = paths.root / name
+        if source.exists():
+            shutil.copy2(source, archive / name)
+    paths.state.unlink()
+    marker = {
+        "schema_version": 1,
+        "archive_name": archive_name,
+        "candidate_epoch_id": "epoch-recovery",
+        "candidate_task_id": "sha256:" + "c" * 64,
+        "operation_id": "rotate-recovery",
+        "operation_digest": digest_value("rotate-recovery"),
+        "previous_state_hash": current["state_hash"],
+        "files": list(store._epoch_movable_names()),
+    }
+    store_module.publish_json(paths.rotation_pending, marker, hard_limit=store_module.MAX_STATE_BYTES)
+
+    recovered = store.read_current(PLAN_ID, authoritative=True)
+
+    assert recovered.state == current
+    assert not paths.rotation_pending.exists()
+    assert not archive.exists()
+
+
+def test_epoch_rotation_failure_after_pointer_publication_restores_previous_epoch_and_is_retryable(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _root, store = make_store(tmp_path)
+    store.start(initial_state())
+    first_candidate, first_request = epoch_candidate("epoch-first", "first work", 2, "rotate-first")
+    store.rotate_epoch_and_transition(first_candidate, first_request)
+    paths = store.paths(PLAN_ID)
+    before = store.read_current(PLAN_ID, authoritative=True).state
+    assert before is not None
+    second_candidate, second_request = epoch_candidate("epoch-second", "second work", 3, "rotate-second")
+    original_publish = store._publish_active_epoch
+
+    def publish_then_fail(*args, **kwargs):
+        original_publish(*args, **kwargs)
+        raise RuntimeError("simulated crash after pointer publication")
+
+    monkeypatch.setattr(store, "_publish_active_epoch", publish_then_fail)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        store.rotate_epoch_and_transition(second_candidate, second_request)
+
+    restored = store.read_current(PLAN_ID, authoritative=True).state
+    assert restored == before
+    assert not paths.rotation_pending.exists()
+    assert not (paths.root / "epochs" / str(second_candidate["task_id"]).replace(":", "-")).exists()
+
+    monkeypatch.setattr(store, "_publish_active_epoch", original_publish)
+    retried = store.rotate_epoch_and_transition(second_candidate, second_request)
+    assert retried.state is not None and retried.state["task_epoch"] == "epoch-second"
+    assert store.read_current(PLAN_ID, authoritative=True).state == retried.state
 
 
 def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_path: Path) -> None:

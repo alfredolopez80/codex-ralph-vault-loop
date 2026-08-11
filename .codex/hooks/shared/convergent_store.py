@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from contextlib import contextmanager
 import hashlib
 from math import isfinite
 import os
@@ -82,6 +83,7 @@ class ExecutionPaths:
     tool_results: Path
     active_epoch: Path
     epoch_lock: Path
+    rotation_pending: Path
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,7 @@ class ConvergentStore:
             tool_results=root / "tool-results.jsonl",
             active_epoch=root / "active-epoch.json",
             epoch_lock=root / "epoch.lock",
+            rotation_pending=root / "epoch-rotation.pending.json",
         )
 
     def start(self, state: Mapping[str, Any]) -> ConvergentStoreResult:
@@ -143,7 +146,7 @@ class ConvergentStore:
         goals = self._compile_goal_artifact(candidate, active_plan=active_plan)
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             events = self._read_events(paths, reject_partial=True)
             initial = self._read_state_file(paths.initial, label="execution initial")
             snapshot = self._read_state_file(paths.state, label="execution state")
@@ -199,7 +202,7 @@ class ConvergentStore:
         goals = self._compile_goal_artifact(candidate, active_plan=active_plan)
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             events = self._read_events(paths, reject_partial=True)
             initial = self._read_state_file(paths.initial, label="execution initial")
             snapshot = self._read_state_file(paths.state, label="execution state")
@@ -296,7 +299,7 @@ class ConvergentStore:
         goals = self._compile_goal_artifact(candidate, active_plan=active_plan)
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             initial = self._read_state_file(paths.initial, label="execution initial")
             snapshot = self._read_state_file(paths.state, label="execution state")
             events = self._read_events(paths, reject_partial=True)
@@ -315,7 +318,7 @@ class ConvergentStore:
                 if initial != candidate:
                     raise ConvergentStoreError("epoch retry has a conflicting candidate")
                 return self._initialize_boundary_locked(paths, candidate, request, goals, events=events, current=current)
-            archive_name = candidate["task_id"].split(":", 1)[-1]
+            archive_name = str(candidate["task_id"]).replace(":", "-")
             archive = paths.root / "epochs" / archive_name
             if archive.exists():
                 raise ConvergentIdempotencyError("task epoch archive already exists")
@@ -334,6 +337,17 @@ class ConvergentStore:
                 paths.tool_results,
                 paths.active_epoch,
             )
+            marker = {
+                "schema_version": 1,
+                "archive_name": archive_name,
+                "candidate_epoch_id": str(candidate["task_epoch"]),
+                "candidate_task_id": str(candidate["task_id"]),
+                "operation_id": request.operation_id,
+                "operation_digest": request.operation_digest(),
+                "previous_state_hash": str(current["state_hash"]),
+                "files": list(self._epoch_movable_names()),
+            }
+            publish_json(paths.rotation_pending, marker, hard_limit=MAX_STATE_BYTES)
             moved: list[tuple[Path, Path]] = []
             try:
                 for source in movable:
@@ -358,11 +372,23 @@ class ConvergentStore:
                     reason=result.reason,
                     replayed=result.replayed,
                 )
+                os.unlink(paths.rotation_pending)
                 return result
             except Exception:
                 for source, target in reversed(moved):
-                    if target.exists() and not source.exists():
+                    if target.exists():
+                        # A failure can occur after the candidate has already
+                        # published a replacement file (especially the active
+                        # pointer). Remove that candidate before restoring the
+                        # archived predecessor; otherwise the pointer and
+                        # state files can describe different epochs.
+                        if source.exists():
+                            os.unlink(source)
                         os.replace(target, source)
+                if paths.rotation_pending.exists():
+                    os.unlink(paths.rotation_pending)
+                if archive.exists() and not any(archive.iterdir()):
+                    os.rmdir(archive)
                 raise
 
     def _initialize_boundary_locked(
@@ -416,6 +442,12 @@ class ConvergentStore:
 
     def read_current(self, plan_id: str, *, authoritative: bool = False) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
+        if authoritative:
+            with self._epoch_state_lock(paths):
+                return self._read_current_unlocked(paths, authoritative=True)
+        return self._read_current_unlocked(paths, authoritative=False)
+
+    def _read_current_unlocked(self, paths: ExecutionPaths, *, authoritative: bool) -> ConvergentStoreResult:
         initial = self._read_state_file(paths.initial, label="execution initial")
         snapshot = self._read_state_file(paths.state, label="execution state")
         if initial is None:
@@ -431,7 +463,7 @@ class ConvergentStore:
     def transition(self, plan_id: str, request: TransitionRequest) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             initial = self._read_state_file(paths.initial, label="execution initial")
             if initial is None:
                 raise ConvergentStoreError("execution state is not initialized")
@@ -1132,6 +1164,97 @@ class ConvergentStore:
         plan = self.progress.plan_paths(plan_id)
         ensure_directory_chain(plan.root, mode=0o700)
         ensure_directory_chain(self.paths(plan_id).root, mode=0o700)
+
+    @staticmethod
+    def _epoch_movable_names() -> tuple[str, ...]:
+        return (
+            "initial.json",
+            "state.json",
+            "events.jsonl",
+            "goals.json",
+            "aristotle-evidence.json",
+            "decision-packet.json",
+            "findings.json",
+            "final-audit.json",
+            "amendments.jsonl",
+            "amendment-approvals.jsonl",
+            "tool-results.jsonl",
+            "active-epoch.json",
+        )
+
+    def _recover_pending_rotation(self, paths: ExecutionPaths) -> None:
+        """Recover a rotation interrupted before active-pointer publication."""
+
+        if not paths.rotation_pending.exists():
+            return
+        try:
+            marker = read_json(
+                paths.rotation_pending,
+                lambda value: deepcopy(dict(value)),
+                label="pending epoch rotation",
+                hard_limit=MAX_STATE_BYTES,
+            )
+        except CorruptRecordError as exc:
+            raise ConvergentIntegrityError(str(exc)) from exc
+        required = {
+            "schema_version",
+            "archive_name",
+            "candidate_epoch_id",
+            "candidate_task_id",
+            "operation_id",
+            "operation_digest",
+            "previous_state_hash",
+            "files",
+        }
+        if not isinstance(marker, Mapping) or set(marker) != required:
+            raise ConvergentIntegrityError("pending epoch rotation marker schema is invalid")
+        if marker.get("schema_version") != 1 or tuple(marker.get("files") or ()) != self._epoch_movable_names():
+            raise ConvergentIntegrityError("pending epoch rotation marker is invalid")
+        archive_name = str(marker.get("archive_name") or "")
+        if not archive_name or "/" in archive_name or "\\" in archive_name or archive_name in {".", ".."}:
+            raise ConvergentIntegrityError("pending epoch rotation archive is unsafe")
+        pointer = None
+        if paths.active_epoch.exists():
+            try:
+                pointer = read_json(
+                    paths.active_epoch,
+                    lambda value: deepcopy(dict(value)),
+                    label="execution active epoch",
+                    hard_limit=MAX_STATE_BYTES,
+                )
+            except CorruptRecordError as exc:
+                raise ConvergentIntegrityError(str(exc)) from exc
+        if isinstance(pointer, Mapping) and (
+            pointer.get("epoch_id") == marker.get("candidate_epoch_id")
+            and pointer.get("task_id") == marker.get("candidate_task_id")
+            and pointer.get("activation_operation_id") == marker.get("operation_id")
+            and pointer.get("activation_operation_digest") == marker.get("operation_digest")
+        ):
+            os.unlink(paths.rotation_pending)
+            return
+        archive = paths.root / "epochs" / archive_name
+        if not archive.is_dir():
+            raise ConvergentIntegrityError("pending epoch rotation archive is missing")
+        for name in self._epoch_movable_names():
+            source = paths.root / name
+            target = archive / name
+            if source.exists() and target.exists():
+                os.unlink(source)
+            if not source.exists() and target.exists():
+                os.replace(target, source)
+        if any((archive / name).exists() for name in self._epoch_movable_names()):
+            raise ConvergentIntegrityError("pending epoch rotation archive could not be restored")
+        os.rmdir(archive)
+        os.unlink(paths.rotation_pending)
+
+    @contextmanager
+    def _epoch_state_lock(self, paths: ExecutionPaths):
+        """Acquire locks in the one allowed epoch-then-state order."""
+
+        with locked_file(paths.epoch_lock):
+            self._recover_pending_rotation(paths)
+            with locked_file(paths.state_lock):
+                yield
 
     def _publish_active_epoch(
         self,
