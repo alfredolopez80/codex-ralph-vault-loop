@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
+MAX_TRUSTED_PLUGIN_FILE_BYTES = 1 * 1024 * 1024
 if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
@@ -25,6 +28,63 @@ def load_json(path: Path) -> dict[str, Any] | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _sha256(path: Path) -> str | None:
+    """Hash a bounded, non-aliased plugin file without loading it whole."""
+
+    try:
+        info = path.lstat()
+        if path.is_symlink() or not path.is_file() or info.st_nlink != 1 or info.st_size > MAX_TRUSTED_PLUGIN_FILE_BYTES:
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            remaining = info.st_size
+            while remaining:
+                chunk = handle.read(min(64 * 1024, remaining))
+                if not chunk:
+                    return None
+                digest.update(chunk)
+                remaining -= len(chunk)
+        return "sha256:" + digest.hexdigest()
+    except OSError:
+        return None
+
+
+def _verified_bundle(path: Path, manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return content-bound plugin provenance for trusted hook classification."""
+
+    bundle_root = path.parent
+    try:
+        manifest_digest = _sha256(path)
+        if manifest_digest is None:
+            return None
+        script_digests: dict[str, str] = {}
+        hooks = manifest.get("hooks")
+        if isinstance(hooks, dict):
+            for groups in hooks.values():
+                if not isinstance(groups, list):
+                    continue
+                for group in groups:
+                    if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                        continue
+                    for child in group["hooks"]:
+                        if not isinstance(child, dict) or not isinstance(child.get("command"), str):
+                            continue
+                        tokens = shlex.split(child["command"])
+                        if not tokens or not tokens[0].startswith("."):
+                            continue
+                        candidate = bundle_root / tokens[0]
+                        if candidate.is_symlink():
+                            return None
+                        target = candidate.resolve()
+                        target.relative_to(bundle_root.resolve())
+                        digest = _sha256(target)
+                        if digest is not None:
+                            script_digests[tokens[0]] = digest
+        return {"bundle_id": bundle_root.name, "manifest_digest": manifest_digest, "script_digests": script_digests}
+    except (OSError, ValueError, UnicodeError):
+        return None
 
 
 def _enabled_plugin_keys(config_path: Path | None = None) -> tuple[str, ...]:
@@ -128,6 +188,8 @@ def plugin_snapshots() -> list[tuple[str, dict[str, Any]]]:
                 value = load_json(resolved)
             except OSError:
                 value = None
+            if value is not None:
+                value["_ralph_verified_bundle"] = _verified_bundle(resolved, value)
             snapshots.append((f"plugin:{identity}", value or {"hooks": {}}))
     for root in roots:
         try:
@@ -147,12 +209,36 @@ def plugin_snapshots() -> list[tuple[str, dict[str, Any]]]:
                 value = load_json(resolved)
             except OSError:
                 value = None
+            if value is not None:
+                value["_ralph_verified_bundle"] = _verified_bundle(resolved, value)
             name = path.parent.name or "unknown"
             if value is None:
                 snapshots.append((f"plugin:{name}", {"hooks": {}}))
             else:
                 snapshots.append((f"plugin:{name}", value))
     return snapshots
+
+
+def trusted_report_only_declarations(path: Path | None = None) -> dict[str, dict[str, str]]:
+    """Load versioned plugin declaration digests; malformed trust fails closed."""
+
+    trust_path = path or (ROOT / "config" / "effective-hook-trust.json")
+    value = load_json(trust_path)
+    if value is None or value.get("version") != 1:
+        return {}
+    report_only = value.get("report_only")
+    if not isinstance(report_only, dict):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for source, declarations in report_only.items():
+        if not isinstance(source, str) or not isinstance(declarations, dict):
+            continue
+        result[source] = {
+            digest: domain
+            for digest, domain in declarations.items()
+            if isinstance(digest, str) and isinstance(domain, str)
+        }
+    return result
 
 
 def main() -> int:
@@ -176,7 +262,7 @@ def main() -> int:
         if generated is not None:
             configs.append(("global-dry-run", generated))
     configs.extend(plugin_snapshots())
-    report = analyze_hook_graph(configs)
+    report = analyze_hook_graph(configs, trusted_report_only=trusted_report_only_declarations())
     payload = report.as_dict()
     payload["project_config"] = str(args.project)
     payload["global_config"] = str(global_path)

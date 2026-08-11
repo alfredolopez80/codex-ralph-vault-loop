@@ -8,6 +8,8 @@ the CLI wrapper is responsible for loading configuration snapshots.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
@@ -87,7 +89,21 @@ class HookGraphReport:
         }
 
 
-def analyze_hook_graph(configs: Iterable[tuple[str, Mapping[str, Any]]]) -> HookGraphReport:
+def analyze_hook_graph(
+    configs: Iterable[tuple[str, Mapping[str, Any]]],
+    *,
+    trusted_report_only: Mapping[str, Mapping[str, str]] | None = None,
+) -> HookGraphReport:
+    """Resolve ownership, failing closed on unknown guarded plugin hooks.
+
+    A narrow matcher is not evidence that an unknown plugin hook is
+    report-only: it can still block, close, or mutate when its event fires.
+    The only exception is an explicit, version-controlled declaration digest
+    supplied by the doctor.  This keeps plugin trust data separate from the
+    untrusted manifest being inspected and makes a hook change fail closed.
+    """
+
+    trusted_report_only = trusted_report_only or {}
     entries: list[HookEntry] = []
     warnings: list[str] = []
     errors: list[str] = []
@@ -120,19 +136,41 @@ def analyze_hook_graph(configs: Iterable[tuple[str, Mapping[str, Any]]]) -> Hook
                     role = role_for_command(command)
                     if not role:
                         message = f"{source}:{event}: unclassified command"
-                        narrow_plugin = source.startswith("plugin:") and _plugin_matcher_is_narrow(group.get("matcher"))
-                        if source.startswith("plugin:") and event in set(REQUIRED_EVENTS.values()) and not narrow_plugin:
-                            errors.append(message + " may own a guarded domain; explicit classification is required")
+                        trusted_domain = _trusted_report_only_domain(
+                            trusted_report_only,
+                            source,
+                            event,
+                            group.get("matcher"),
+                            command,
+                            config.get("_ralph_verified_bundle"),
+                        )
+                        if trusted_domain is not None:
+                            entries.append(HookEntry(event, "plugin_report_only", source, command, False, trusted_domain))
+                            warnings.append(message + f" trusted report-only digest for {trusted_domain}")
+                            continue
+                        elif source.startswith("plugin:") and event in set(REQUIRED_EVENTS.values()):
+                            errors.append(message + " may own a guarded domain; explicit trusted classification is required")
                         else:
-                            warnings.append(message + (" report-only narrow matcher" if narrow_plugin else ""))
+                            warnings.append(message)
                         continue
                     if source.startswith("plugin:") and domain_for_role(role) is None:
                         message = f"{source}:{event}: plugin hook is unclassified"
-                        narrow_plugin = _plugin_matcher_is_narrow(group.get("matcher"))
-                        if event in set(REQUIRED_EVENTS.values()) and not narrow_plugin:
-                            errors.append(message + " may own a guarded domain; explicit classification is required")
+                        trusted_domain = _trusted_report_only_domain(
+                            trusted_report_only,
+                            source,
+                            event,
+                            group.get("matcher"),
+                            command,
+                            config.get("_ralph_verified_bundle"),
+                        )
+                        if trusted_domain is not None:
+                            entries.append(HookEntry(event, "plugin_report_only", source, command, False, trusted_domain))
+                            warnings.append(message + f" trusted report-only digest for {trusted_domain}")
+                            continue
+                        elif event in set(REQUIRED_EVENTS.values()):
+                            errors.append(message + " may own a guarded domain; explicit trusted classification is required")
                         else:
-                            warnings.append(message + (" report-only narrow matcher" if narrow_plugin else " report-only"))
+                            warnings.append(message)
                     if role == "anti_rationalization_stop":
                         legacy_registered = True
                     domain = domain_for_role(role)
@@ -199,11 +237,29 @@ def domain_for_role(role: str) -> str | None:
     return None
 
 
-def _plugin_matcher_is_narrow(matcher: object) -> bool:
-    if not isinstance(matcher, str) or not matcher.strip():
-        return False
-    normalized = matcher.strip().lower()
-    return normalized not in {".*", "*", "all", "always"}
+def _trusted_report_only_domain(
+    trusted: Mapping[str, Mapping[str, str]],
+    source: str,
+    event: str,
+    matcher: object,
+    command: str,
+    verified_bundle: object,
+) -> str | None:
+    if not source.startswith("plugin:") or not isinstance(matcher, str):
+        return None
+    declaration = {
+        "source": source,
+        "event": event,
+        "matcher": matcher,
+        "command": command,
+    }
+    if isinstance(verified_bundle, Mapping):
+        declaration["bundle"] = dict(verified_bundle)
+    digest = "sha256:" + hashlib.sha256(json.dumps(declaration, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    domain = trusted.get(source, {}).get(digest)
+    if domain not in DOMAINS or REQUIRED_EVENTS.get(domain) != event:
+        return None
+    return domain
 
 
 __all__ = ["DOMAINS", "DomainResult", "HookEntry", "HookGraphReport", "analyze_hook_graph", "domain_for_role", "role_for_command"]

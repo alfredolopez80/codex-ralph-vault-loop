@@ -48,6 +48,7 @@ from .redaction import is_red
 
 MAX_JOURNAL_BYTES = 8 * 1024 * 1024
 MAX_EVENTS = 4096
+MAX_PLAN_BYTES = 1 * 1024 * 1024
 
 
 class ConvergentStoreError(RuntimeError):
@@ -603,7 +604,13 @@ class ConvergentStore:
         if not target.is_file() or info.st_nlink != 1:
             raise ConvergentStoreError("canonical implementation plan must be a regular non-aliased file")
         try:
-            actual = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
+            if target.stat().st_size > MAX_PLAN_BYTES:
+                raise ConvergentStoreError("canonical implementation plan exceeds the bounded size")
+            with target.open("rb") as handle:
+                raw = handle.read(MAX_PLAN_BYTES + 1)
+            if len(raw) > MAX_PLAN_BYTES:
+                raise ConvergentStoreError("canonical implementation plan exceeds the bounded size")
+            actual = "sha256:" + hashlib.sha256(raw).hexdigest()
         except OSError as exc:
             raise ConvergentStoreError("canonical implementation plan bytes are unavailable") from exc
         if actual != state["plan_digest"]:

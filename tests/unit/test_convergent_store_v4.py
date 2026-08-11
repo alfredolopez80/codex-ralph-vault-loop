@@ -244,6 +244,21 @@ def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_pat
     assert goals["goals"][0]["objective"] == "Validate a user-owned execution plan."
 
 
+def test_plan_provenance_rejects_oversized_plan_before_reading(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    progress = ImplementationStore(resolve_store_paths(primary_root=root))
+    plan_id = "oversized-plan-20260811"
+    plan_path = root / ".ralph" / "plans" / "oversized-plan.md"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_bytes(b"x" * (store_module.MAX_PLAN_BYTES + 1))
+    progress.register_plan(plan_id, plan_path=".ralph/plans/oversized-plan.md", operation_id="op-register-oversized")
+    store = ConvergentStore(progress, load_execution_policy())
+    metadata = progress.read_state(plan_id)
+    assert metadata is not None
+    with pytest.raises(store_module.ConvergentStoreError, match="bounded size"):
+        store._validate_plan_provenance({"plan_digest": "sha256:" + "0" * 64}, metadata)
+
+
 def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_path: Path) -> None:
     _root, store = make_store(tmp_path)
     amendment = DecisionAmendment.create(

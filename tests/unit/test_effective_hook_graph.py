@@ -74,3 +74,97 @@ def test_plugin_hooks_are_visible_and_unclassified_guarded_plugins_fail_closed()
     stop = next(item for item in report.domains if item.domain == "stop_completion")
     assert stop.blocking_owners == ("stop_dispatch",)
     assert any("plugin:replayio" in error for error in report.errors)
+
+
+def test_narrow_matcher_does_not_prove_unknown_plugin_is_report_only() -> None:
+    report = analyze_hook_graph(
+        [
+            ("project", _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])),
+            (
+                "plugin:unknown",
+                {
+                    "hooks": {
+                        "Stop": [{"matcher": "Write", "hooks": [{"command": "./hooks/unknown-stop.sh"}]}]
+                    }
+                },
+            ),
+        ]
+    )
+    assert report.status == "FAIL"
+    assert any("trusted classification" in error for error in report.errors)
+
+
+def test_explicit_plugin_declaration_digest_can_prove_report_only() -> None:
+    project = _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])
+    plugin = {
+        "hooks": {
+            "PostToolUse": [
+                {"matcher": "Write|Edit", "hooks": [{"command": "./scripts/post_write_figma_parity_check.sh"}]}
+            ]
+        }
+    }
+    import hashlib
+    import json
+
+    declaration = {
+        "source": "plugin:figma@openai-curated",
+        "event": "PostToolUse",
+        "matcher": "Write|Edit",
+        "command": "./scripts/post_write_figma_parity_check.sh",
+    }
+    context = {
+        "bundle_id": "bd2122cb",
+        "manifest_digest": "sha256:" + "1" * 64,
+        "script_digests": {"./scripts/post_write_figma_parity_check.sh": "sha256:" + "2" * 64},
+    }
+    declaration["bundle"] = context
+    digest = "sha256:" + hashlib.sha256(json.dumps(declaration, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    plugin["_ralph_verified_bundle"] = context
+    report = analyze_hook_graph(
+        [("project", project), ("plugin:figma@openai-curated", plugin)],
+        trusted_report_only={"plugin:figma@openai-curated": {digest: "post_tool_persistence"}},
+    )
+    assert report.status == "WARN"
+    assert any("trusted report-only digest" in warning for warning in report.warnings)
+    assert sum(item.source == "plugin:figma@openai-curated" for item in report.entries) == 1
+
+
+def test_trusted_plugin_digest_binds_bundle_content() -> None:
+    plugin = {
+        "_ralph_verified_bundle": {
+            "bundle_id": "bd2122cb",
+            "manifest_digest": "sha256:" + "1" * 64,
+            "script_digests": {"./scripts/post_write_figma_parity_check.sh": "sha256:" + "2" * 64},
+        },
+        "hooks": {"PostToolUse": [{"matcher": "Write|Edit", "hooks": [{"command": "./scripts/post_write_figma_parity_check.sh"}]}]},
+    }
+    report = analyze_hook_graph(
+        [("project", _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])), ("plugin:figma@openai-curated", plugin)],
+        trusted_report_only={"plugin:figma@openai-curated": {"sha256:" + "3" * 64: "post_tool_persistence"}},
+    )
+    assert report.status == "FAIL"
+    assert any("trusted classification" in error for error in report.errors)
+
+
+def test_trusted_plugin_digest_must_match_guarded_event_domain() -> None:
+    plugin = {
+        "_ralph_verified_bundle": {"bundle_id": "bundle", "manifest_digest": "sha256:" + "1" * 64, "script_digests": {}},
+        "hooks": {"Stop": [{"matcher": "Write", "hooks": [{"command": "./scripts/report-only.sh"}]}]},
+    }
+    import hashlib
+    import json
+
+    declaration = {
+        "source": "plugin:unknown",
+        "event": "Stop",
+        "matcher": "Write",
+        "command": "./scripts/report-only.sh",
+        "bundle": plugin["_ralph_verified_bundle"],
+    }
+    digest = "sha256:" + hashlib.sha256(json.dumps(declaration, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    report = analyze_hook_graph(
+        [("project", _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])), ("plugin:unknown", plugin)],
+        trusted_report_only={"plugin:unknown": {digest: "post_tool_persistence"}},
+    )
+    assert report.status == "FAIL"
+    assert any("trusted classification" in error for error in report.errors)

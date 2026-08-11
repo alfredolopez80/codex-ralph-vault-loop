@@ -22,7 +22,7 @@ from .convergent_contracts import (
     new_state,
     validate_state,
 )
-from .convergent_store import ConvergentStore, ConvergentStoreError
+from .convergent_store import MAX_PLAN_BYTES, ConvergentStore, ConvergentStoreError
 from .execution_lease import LeaseError, acquire_execution_lease, evidence_from_payload
 from .execution_policy import ExecutionPolicy, assert_policy_compatible, load_execution_policy
 from .progress_hook import ProgressLookup, cheap_lookup
@@ -120,7 +120,7 @@ def ensure_prompt_boundary(
             return {
                 "plan_id": "",
                 "policy_hash": "",
-                "boundary_kind": str(boundary.get("boundary_kind") or ""),
+                "boundary_kind": _wire_boundary_kind(boundary.get("boundary_kind")),
                 "risk": str(boundary.get("risk") or ""),
                 "complexity": int(boundary.get("complexity") or 0),
                 "state_available": False,
@@ -128,7 +128,7 @@ def ensure_prompt_boundary(
         return {
             "plan_id": authority.plan_id,
             "policy_hash": authority.policy.policy_hash,
-            "boundary_kind": str(boundary.get("boundary_kind") or ""),
+            "boundary_kind": _wire_boundary_kind(boundary.get("boundary_kind")),
             "risk": str(boundary.get("risk") or ""),
             "complexity": int(boundary.get("complexity") or 0),
             "state_available": authority.store.read_current(authority.plan_id).state is not None,
@@ -139,8 +139,8 @@ def ensure_prompt_boundary(
     if current.state is not None:
         state = validate_state(current.state)
         _validate_binding(authority, state)
-        boundary_kind = str(boundary.get("boundary_kind") or "")
-        if boundary_kind in {"new-task", "material-change", "scope-extension", "user-override"}:
+        boundary_kind = _wire_boundary_kind(boundary.get("boundary_kind"))
+        if boundary_kind in {"new_task", "material_change", "scope_extension", "user_override"}:
             # Epoch rotation is a separate canonical operation. Reusing the
             # immutable execution namespace would attribute new work to a
             # closed/active task, so enforce fails closed until that archive
@@ -172,7 +172,7 @@ def ensure_prompt_boundary(
         goal_id=goal_id,
         task_epoch=task_epoch,
         boundary_epoch=epoch,
-        boundary_kind=str(boundary.get("boundary_kind") or "new_task"),
+        boundary_kind=_wire_boundary_kind(boundary.get("boundary_kind")) or "new_task",
         risk=str(boundary.get("risk") or "low"),
         activation_mode="enforce",
     )
@@ -249,6 +249,12 @@ def _boundary_epoch(payload: Mapping[str, object]) -> int:
     return value
 
 
+def _wire_boundary_kind(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().replace("-", "_")
+
+
 def _task_epoch(payload: Mapping[str, object], boundary: Mapping[str, object]) -> str:
     value = payload.get("task_epoch") or payload.get("taskEpoch") or payload.get("task_signature")
     if not isinstance(value, str) or not value.strip():
@@ -285,7 +291,13 @@ def _plan_digest(root: Path, relative_path: str) -> str:
     resolved_root = root.resolve()
     resolved = candidate.resolve()
     resolved.relative_to(resolved_root)
-    return "sha256:" + hashlib.sha256(resolved.read_bytes()).hexdigest()
+    if resolved.stat().st_size > MAX_PLAN_BYTES:
+        raise AuthorityError("convergent-plan-provenance-unavailable")
+    with resolved.open("rb") as handle:
+        raw = handle.read(MAX_PLAN_BYTES + 1)
+    if len(raw) > MAX_PLAN_BYTES:
+        raise AuthorityError("convergent-plan-provenance-unavailable")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
 __all__ = ["AuthorityContext", "AuthorityError", "ensure_prompt_boundary", "load_authoritative_state", "resolve_authority"]

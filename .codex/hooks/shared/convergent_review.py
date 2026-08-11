@@ -80,9 +80,13 @@ class ReviewLedger:
         maximum = 0 if risk == "low" else 1
         if maximum == 0 or prior_passes >= maximum or pass_number > maximum:
             raise ReviewContractError("review budget exhausted or low-risk review is forbidden")
-        if not isinstance(findings, (list, tuple)) or any(not isinstance(item, Finding) for item in findings):
+        if not isinstance(findings, (list, tuple)):
             raise ReviewContractError("finding ledger items must be structured Finding values")
-        if len(findings) > 128 or len({item.finding_id for item in findings}) != len(findings):
+        if len(findings) > 128:
+            raise ReviewContractError("finding ledger is unbounded")
+        if any(not isinstance(item, Finding) for item in findings):
+            raise ReviewContractError("finding ledger items must be structured Finding values")
+        if len({item.finding_id for item in findings}) != len(findings):
             raise ReviewContractError("finding ledger is unbounded or contains duplicate IDs")
         normalized = tuple(findings)
         digest = digest_value({"risk": risk, "owner": owner, "pass_number": pass_number, "findings": [item.as_dict() for item in normalized]})
@@ -110,8 +114,12 @@ class ReviewLedger:
 def triage_findings(findings: Sequence[Finding]) -> dict[str, tuple[str, ...]]:
     """Return all statuses and accepted IDs; no implicit status is invented."""
 
-    if not isinstance(findings, (list, tuple)) or any(not isinstance(item, Finding) for item in findings):
+    if not isinstance(findings, (list, tuple)):
         raise ReviewContractError("triage items must be structured Finding values")
+    if len(findings) > 128:
+        raise ReviewContractError("triage items are unbounded")
+    if any(not isinstance(item, Finding) for item in findings):
+        raise ReviewContractError("triage items are not structured Finding values")
     if len({item.finding_id for item in findings}) != len(findings):
         raise ReviewContractError("triage received duplicate finding IDs")
     grouped: dict[str, list[str]] = {status: [] for status in sorted(FINDING_STATUSES)}
@@ -220,10 +228,12 @@ class FindingLedger:
             raise ReviewContractError("low-risk work has zero automatic review")
         if risk != "low" and review_pass != 1:
             raise ReviewContractError("material review must consume exactly one pass")
-        if not isinstance(findings, (list, tuple)) or any(not isinstance(item, ReviewFinding) for item in findings):
+        if not isinstance(findings, (list, tuple)):
             raise ReviewContractError("finding ledger items must be structured ReviewFinding values")
         if len(findings) > 128:
             raise ReviewContractError("finding ledger is unbounded")
+        if any(not isinstance(item, ReviewFinding) for item in findings):
+            raise ReviewContractError("finding ledger items must be structured ReviewFinding values")
         normalized = tuple(findings)
         if len({item.finding_id for item in normalized}) != len(normalized):
             raise ReviewContractError("finding ledger contains duplicate IDs")

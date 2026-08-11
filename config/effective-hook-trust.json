@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "report_only": {
+    "plugin:figma@openai-curated": {
+      "sha256:368ad15dd2aef1f621e0cd2dff16402213f0f3109456af8e56c1d668de2238ed": "post_tool_persistence"
+    }
+  }
+}

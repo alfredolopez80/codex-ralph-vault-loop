@@ -106,9 +106,11 @@ def deterministic_final_audit(
     ):
         if not isinstance(value, bool):
             raise FinalAuditError(f"{label} must be an explicit boolean verdict")
-    if not isinstance(gates, (list, tuple)) or any(not isinstance(gate, AuditGate) for gate in gates):
+    if not isinstance(gates, (list, tuple)):
         raise FinalAuditError("audit gates must be structured AuditGate values")
-    if len(gates) > 256 or len({gate.gate_id for gate in gates}) != len(gates):
+    if len(gates) > 256 or any(not isinstance(gate, AuditGate) for gate in gates):
+        raise FinalAuditError("audit gates are unbounded or duplicate")
+    if len({gate.gate_id for gate in gates}) != len(gates):
         raise FinalAuditError("audit gates are unbounded or duplicate")
     failed: list[str] = []
     for gate in gates:
@@ -182,7 +184,9 @@ def run_final_audit(evidence: Mapping[str, Mapping[str, object]]) -> "Compatibil
         if not isinstance(value, Mapping) or not isinstance(value.get("passed"), bool):
             raise FinalAuditError(f"final audit evidence for {check} is invalid")
         ids = value.get("evidence_ids", ())
-        if not isinstance(ids, (list, tuple)) or not ids or any(not isinstance(item, str) or not item for item in ids):
+        if not isinstance(ids, (list, tuple)) or not ids or len(ids) > 128:
+            raise FinalAuditError(f"final audit evidence IDs for {check} are invalid")
+        if any(not isinstance(item, str) or not item for item in ids):
             raise FinalAuditError(f"final audit evidence IDs for {check} are invalid")
         normalized[check] = {"passed": value["passed"], "evidence_ids": list(ids)}
         if not value["passed"]:

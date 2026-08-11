@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.convergent_review import Finding, FindingLedger, ReviewContractError, ReviewLedger, triage_findings  # noqa: E402
+from shared.convergent_review import Finding, FindingLedger, ReviewContractError, ReviewFinding, ReviewLedger, triage_findings  # noqa: E402
 
 
 def finding(identifier: str, root: str, status: str = "ACCEPT") -> Finding:
@@ -60,3 +60,27 @@ def test_review_ledger_rejects_unstructured_or_evidence_free_findings() -> None:
             recommended_fix="fix",
             status="ACCEPT",
         )
+
+
+def test_review_ledger_rejects_oversized_sequence_before_iterating() -> None:
+    findings = [finding(f"F-{index}", "root") for index in range(129)]
+    with pytest.raises(ReviewContractError, match="unbounded"):
+        ReviewLedger.create(risk="material", findings=findings)
+
+
+def test_compatibility_finding_ledger_rejects_oversized_sequence_before_iterating() -> None:
+    findings = [
+        ReviewFinding(
+            finding_id=f"F-{index}",
+            severity="P2",
+            location="module.py:1",
+            root_cause="root",
+            impact="impact",
+            evidence_ids=(f"E-{index}",),
+            recommendation="fix",
+            triage_status="pending",
+        )
+        for index in range(129)
+    ]
+    with pytest.raises(ReviewContractError, match="unbounded"):
+        FindingLedger.create(risk="material", review_pass=1, review_owner="reviewer", findings=findings)

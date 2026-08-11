@@ -63,6 +63,10 @@ def test_tiered_aristotle_is_deterministic_and_critical_domains_win() -> None:
     with pytest.raises(AristotleContractError, match="RED"):
         validate_aristotle_output(micro, red_output)
 
+    whitespace_output = {section: "   \n\t" for section in micro.required_sections}
+    with pytest.raises(AristotleContractError, match="empty"):
+        validate_aristotle_output(micro, whitespace_output)
+
 
 def packet_values() -> dict[str, object]:
     return {

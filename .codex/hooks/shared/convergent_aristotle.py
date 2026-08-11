@@ -125,7 +125,7 @@ def validate_aristotle_output(decision: AristotleDecision, output: Mapping[str, 
         raise AristotleContractError(f"Aristotle output mismatch: unknown={unknown} missing={missing}")
     for section in decision.required_sections:
         value = output[section]
-        if value in (None, "", (), [], {}):
+        if value is None or (isinstance(value, str) and not value.strip()) or value in ((), [], {}):
             raise AristotleContractError(f"Aristotle output section {section} is empty")
         _validate_output_value(value, label=f"Aristotle output section {section}", top_level=True)
     if decision.produces_decision_packet:
@@ -140,7 +140,7 @@ def validate_aristotle_output(decision: AristotleDecision, output: Mapping[str, 
 
 def _validate_output_value(value: object, *, label: str, top_level: bool = False) -> None:
     if isinstance(value, str):
-        if len(value.encode("utf-8")) > 8_192 or is_red(value):
+        if not value.strip() or len(value.encode("utf-8")) > 8_192 or is_red(value):
             raise AristotleContractError(f"{label} is oversized or RED")
         return
     if isinstance(value, Mapping):
