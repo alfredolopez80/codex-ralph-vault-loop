@@ -42,6 +42,7 @@ from sol_advisor_observer import run as advisor_run
 from shared.tool_result import success_from_payload
 
 TEST_MARKERS = ("test", "pytest", "npm test", "pnpm test", "make test", "build", "typecheck", "lint")
+COMMAND_CLASSIFICATION_BYTES = 4_096
 READ_WORDS = {"cat", "head", "tail", "less", "more", "sed", "rg", "grep", "find", "fd", "ls", "pwd", "stat", "file", "wc"}
 READ_TOOL_WORDS = ("read", "search", "find", "list", "glob", "get", "stat", "inspect", "status", "diff", "log", "show")
 WRITE_TOOL_WORDS = ("apply_patch", "edit", "write", "save", "create", "update", "delete", "remove", "move", "rename", "copy", "mkdir", "touch")
@@ -79,7 +80,15 @@ def _command(payload: dict[str, Any]) -> str:
     data = _tool_input(payload)
     for value in (payload.get("command"), payload.get("cmd"), data.get("command"), data.get("cmd")):
         if isinstance(value, str) and value.strip():
-            return safe_preview(value, 500)
+            # Keep enough of an oversized command to make the shared
+            # closed-world classifier reject it by length.  Truncating at a
+            # safe-looking prefix would hide a mutating suffix from the
+            # normal PostTool classification path.
+            encoded = value.encode("utf-8", errors="replace")
+            if len(encoded) <= COMMAND_CLASSIFICATION_BYTES:
+                return value
+            prefix = encoded[: COMMAND_CLASSIFICATION_BYTES + 1].decode("utf-8", errors="ignore")
+            return prefix + "\n"
     return ""
 
 

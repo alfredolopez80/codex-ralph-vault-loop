@@ -93,6 +93,16 @@ def test_read_executables_with_write_options_are_never_fast_path() -> None:
         "file -C -m magic",
         "less -O /tmp/out file",
         "rg --hostname-bin=touch pattern .",
+        "git remote show origin",
     ):
         result = successful_read_fast_path(event(tool_input={"cmd": command}))
         assert result.eligible is False, command
+
+
+def test_fast_path_rejects_unscanned_structured_response_fields() -> None:
+    for response in (
+        {"exit_code": 0, "structuredContent": {"result": "P1 BLOCKER"}},
+        {"exit_code": 0, "data": {"message": "ROUTE_DECISION required"}},
+        {"exit_code": 0, "plugin_payload": object()},
+    ):
+        assert successful_read_fast_path(event(tool_response=response)).eligible is False

@@ -138,6 +138,13 @@ def test_enforced_mixed_read_and_mutation_does_not_take_fast_path(tmp_path: Path
     assert list((tmp_path / "ralph").rglob("*"))
 
 
+def test_command_classifier_does_not_truncate_mutating_suffix() -> None:
+    command = "cat " + ("x" * 500) + "; touch hidden"
+    tool = post_tool_dispatch.classify_tool({"tool_name": "exec_command", "tool_input": {"cmd": command}})
+    assert tool.read_only is False
+    assert tool.write is True
+
+
 def test_small_patch_runs_file_line_shaping_checkpoint_and_ledger(tmp_path: Path) -> None:
     target = tmp_path / "small.py"
     target.write_text("print('ok')\n", encoding="utf-8")

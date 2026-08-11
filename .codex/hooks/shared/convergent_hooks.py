@@ -140,7 +140,10 @@ def _is_read(name: str, command: str) -> bool:
     if subcommand == "branch":
         return _git_branch_read_only(tokens[2:])
     if subcommand == "remote":
-        return len(tokens) == 2 or tokens[2].lower() in {"-v", "--verbose", "show", "get-url"}
+        # ``remote show`` may contact the remote and is not a physical
+        # no-op-safe local read.  Listing remotes and reading a configured URL
+        # remain bounded local metadata operations.
+        return len(tokens) == 2 or tokens[2].lower() in {"-v", "--verbose", "get-url"}
     return False
 
 
@@ -342,11 +345,15 @@ def _bounded_output(payload: Mapping[str, object], response: Mapping[str, object
             # unchanged because it may contain a deferred material signal.
             complete = False
 
-    for source in (payload, response):
-        if isinstance(source, Mapping):
-            for key in ("output", "stdout", "stderr", "result", "message", "content"):
-                if key in source:
-                    visit(source[key])
+    # Scan the complete tool response, including structuredContent/data and
+    # plugin-defined fields.  Ignoring an unknown response key would let a
+    # deferred blocker or redaction signal sit outside the materiality gate.
+    if isinstance(response, Mapping):
+        visit(response)
+    if isinstance(payload, Mapping):
+        for key in ("output", "stdout", "stderr", "result", "message", "content"):
+            if key in payload:
+                visit(payload[key])
     return "\n".join(values), complete
 
 
