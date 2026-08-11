@@ -30,12 +30,12 @@ def run_dispatch(tmp_path: Path, payload: dict, *, extra_env: dict[str, str] | N
         activation = tmp_path / "config" / "convergent-execution-mode.toml"
         activation.parent.mkdir(parents=True, exist_ok=True)
         activation.write_text(
-            "version = 2\n"
+            "version = 3\n"
             "mode = \"enforce\"\n"
             "plan_id = \"ralph-convergent-execution-v4-20260811\"\n"
             "plan_digest = \"sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1\"\n"
             "policy_hash = \"sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef\"\n"
-            "runtime_attestation = \".local-notes/ralph/convergent-runtime-attestation.toml\"\n",
+            "activation_approval = \".local-notes/ralph/convergent-manual-activation.toml\"\n",
             encoding="utf-8",
         )
     return subprocess.run(
@@ -101,7 +101,7 @@ def test_enforce_requires_v4_snapshot_instead_of_falling_through_to_legacy(tmp_p
     assert decision["reason"] == "convergent-state-required"
 
 
-def test_invalid_payload_fails_open_with_sanitized_stderr(tmp_path: Path) -> None:
+def test_invalid_payload_is_blocked_by_enforce_activation(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.update({"RALPH_HOME": str(tmp_path / "ralph")})
     result = subprocess.run(
@@ -114,8 +114,8 @@ def test_invalid_payload_fails_open_with_sanitized_stderr(tmp_path: Path) -> Non
         check=False,
     )
     assert result.returncode == 0
-    assert result.stdout == ""
-    assert "invalid JSON payload" in result.stderr
+    assert json.loads(result.stdout)["reason"] == "convergent-input-invalid"
+    assert result.stderr == ""
 
 
 def test_verified_done_true_allows(tmp_path: Path) -> None:

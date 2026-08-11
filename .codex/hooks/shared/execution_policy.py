@@ -28,10 +28,13 @@ REQUIRED_REASONING_EFFORT: Final[str] = "max"
 AUTHORITY_ROLE: Final[str] = "codex-main"
 IMPLEMENTATION_ROLE: Final[str] = "sol-worker"
 ACTIVATION_CONFIG_PATH: Final[Path] = REPO_ROOT / "config" / "convergent-execution-mode.toml"
-ACTIVATION_CONFIG_VERSION: Final[int] = 2
+ACTIVATION_CONFIG_VERSION: Final[int] = 3
 ACTIVATION_PLAN_ID: Final[str] = "ralph-convergent-execution-v4-20260811"
 ACTIVATION_PLAN_DIGEST: Final[str] = "sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1"
-ACTIVATION_ATTESTATION_RELATIVE_PATH: Final[str] = ".local-notes/ralph/convergent-runtime-attestation.toml"
+ACTIVATION_APPROVAL_RELATIVE_PATH: Final[str] = ".local-notes/ralph/convergent-manual-activation.toml"
+# Compatibility import for the retired runtime-attestation module. Production
+# authority loads the manual activation contract instead.
+ACTIVATION_ATTESTATION_RELATIVE_PATH: Final[str] = ACTIVATION_APPROVAL_RELATIVE_PATH
 
 BOUNDARY_CLASSES: Final[tuple[str, ...]] = (
     "status",
@@ -291,18 +294,16 @@ def configured_activation_mode(
 ) -> str:
     """Resolve the versioned repo-local rollout mode.
 
-    A supplied mapping is an intentionally isolated test/rollback override and
-    retains the historical default used by hook unit tests.  Production calls
-    read the repo-local, plan-bound activation file; a missing file is ``off``
-    so a globally installed hook cannot activate v4 in an unrelated project.
-    An explicit environment value may demote a validated repository rollout to
-    ``off`` or ``shadow`` for rollback.  It cannot promote a plan-bound
-    repository to ``enforce`` because that would bypass the checked-in
-    activation record.
+    A supplied mapping is an intentionally isolated test/rollback override.
+    Production calls read the repo-local, plan-bound activation file; a missing
+    file is ``off`` so a globally installed hook cannot activate v4 in an
+    unrelated project.  ``enforce`` is the only active convergence mode.  The
+    only demotion is the explicit ``off`` rollback path; the former ``shadow``
+    mode is rejected rather than silently reinterpreted.
     """
 
     if env is not None:
-        value = str(env.get("RALPH_CONVERGENT_EXECUTION_MODE", "shadow")).strip().lower()
+        value = str(env.get("RALPH_CONVERGENT_EXECUTION_MODE", "off")).strip().lower()
         return _validate_activation_mode(value, "RALPH_CONVERGENT_EXECUTION_MODE")
 
     workspace = Path(workspace_root or os.environ.get("RALPH_CONVERGENT_WORKSPACE_ROOT", str(REPO_ROOT))).expanduser().resolve()
@@ -321,14 +322,14 @@ def configured_activation_mode(
     requested = _validate_activation_mode(environment_value.strip().lower(), "RALPH_CONVERGENT_EXECUTION_MODE")
     if configured == "off" and requested != "off":
         raise ExecutionPolicyError("RALPH_CONVERGENT_EXECUTION_MODE cannot promote an off rollout")
-    if configured == "shadow" and requested == "enforce":
-        raise ExecutionPolicyError("RALPH_CONVERGENT_EXECUTION_MODE cannot promote a shadow rollout to enforce")
+    if requested == "shadow":
+        raise ExecutionPolicyError("RALPH_CONVERGENT_EXECUTION_MODE shadow mode is retired")
     return requested
 
 
 def _validate_activation_mode(value: str, source: str) -> str:
-    if value not in {"off", "shadow", "enforce"}:
-        raise ExecutionPolicyError(f"{source} must be off, shadow, or enforce")
+    if value not in {"off", "enforce"}:
+        raise ExecutionPolicyError(f"{source} must be off or enforce; shadow mode is retired")
     return value
 
 
@@ -342,7 +343,7 @@ def _read_activation_config(path: Path) -> str:
         decoded = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise ExecutionPolicyError("convergent activation config is not valid UTF-8 TOML") from exc
-    expected_keys = {"version", "mode", "plan_id", "plan_digest", "policy_hash", "runtime_attestation"}
+    expected_keys = {"version", "mode", "plan_id", "plan_digest", "policy_hash", "activation_approval"}
     if not isinstance(decoded, dict) or set(decoded) != expected_keys:
         raise ExecutionPolicyError("convergent activation config has unknown or missing keys")
     if decoded.get("version") != ACTIVATION_CONFIG_VERSION:
@@ -355,8 +356,8 @@ def _read_activation_config(path: Path) -> str:
         raise ExecutionPolicyError("convergent activation config plan_id does not match the approved plan")
     if decoded.get("plan_digest") != ACTIVATION_PLAN_DIGEST:
         raise ExecutionPolicyError("convergent activation config plan_digest does not match the approved plan")
-    if decoded.get("runtime_attestation") != ACTIVATION_ATTESTATION_RELATIVE_PATH:
-        raise ExecutionPolicyError("convergent activation config runtime_attestation path is unsupported")
+    if decoded.get("activation_approval") != ACTIVATION_APPROVAL_RELATIVE_PATH:
+        raise ExecutionPolicyError("convergent activation config activation_approval path is unsupported")
     policy_hash = "sha256:" + EXPECTED_POLICY_SHA256
     if decoded.get("policy_hash") != policy_hash:
         raise ExecutionPolicyError("convergent activation config policy_hash does not match execution policy")
@@ -442,7 +443,7 @@ def _freeze_values(values: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "AUTHORITY_ROLE",
-    "ACTIVATION_ATTESTATION_RELATIVE_PATH",
+    "ACTIVATION_APPROVAL_RELATIVE_PATH",
     "BOUNDARY_CLASSES",
     "DEFAULT_POLICY_PATH",
     "EXPECTED_POLICY_SHA256",

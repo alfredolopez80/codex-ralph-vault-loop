@@ -116,10 +116,10 @@ TEMPLATES: Final[tuple[_GoalTemplate, ...]] = (
     _GoalTemplate(
         "G-BOUNDARY",
         "T2",
-        "Implement Prompt Boundary classification in shadow mode without prompt-length task creation.",
+        "Implement Prompt Boundary classification in enforce mode without prompt-length task creation.",
         (".codex/hooks/shared/prompt_boundary.py", ".codex/hooks/user_prompt_dispatch.py", "tests/**"),
-        ("All seven configured boundary classes are deterministic.", "Default hook output remains unchanged in shadow mode."),
-        ("boundary_matrix", "shadow_noop_proof", "focused_tests"),
+        ("All seven configured boundary classes are deterministic.", "Off rollback remains silent and enforce uses canonical authority."),
+        ("boundary_matrix", "off_rollback_proof", "focused_tests"),
         "material",
     ),
     _GoalTemplate(

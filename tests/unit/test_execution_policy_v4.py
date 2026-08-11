@@ -72,24 +72,25 @@ def test_active_epoch_blocks_policy_hash_drift() -> None:
 
 
 def test_activation_mode_is_internal_and_strict() -> None:
-    assert configured_activation_mode({}) == "shadow"
+    assert configured_activation_mode({}) == "off"
     assert configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"}) == "enforce"
+    with pytest.raises(ExecutionPolicyError, match="shadow mode is retired"):
+        configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "shadow"})
     with pytest.raises(ExecutionPolicyError):
         configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "maybe"})
 
 
 def test_repo_local_activation_file_is_plan_and_policy_bound() -> None:
     assert ACTIVATION_CONFIG_PATH.is_file()
-    assert configured_activation_mode() == "shadow"
+    assert configured_activation_mode() == "enforce"
 
 
-def test_environment_cannot_promote_repo_shadow_to_enforce(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "enforce")
-    with pytest.raises(ExecutionPolicyError, match="cannot promote"):
-        configured_activation_mode()
+def test_environment_can_only_demote_repo_enforce_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "off")
+    assert configured_activation_mode() == "off"
 
 
-def test_environment_cannot_promote_missing_rollout_to_shadow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_environment_cannot_promote_from_an_unrelated_activation_copy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_CONFIG", str(tmp_path / "missing.toml"))
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "shadow")
     with pytest.raises(ExecutionPolicyError, match="active workspace activation file"):
@@ -100,12 +101,12 @@ def test_repo_local_activation_file_rejects_drift(tmp_path: Path, monkeypatch: p
     path = tmp_path / "config" / "convergent-execution-mode.toml"
     path.parent.mkdir()
     path.write_text(
-        "version = 2\n"
-        "mode = \"shadow\"\n"
+        "version = 3\n"
+        "mode = \"enforce\"\n"
         "plan_id = \"wrong\"\n"
         "plan_digest = \"sha256:" + "0" * 64 + "\"\n"
         "policy_hash = \"sha256:" + "0" * 64 + "\"\n"
-        "runtime_attestation = \".local-notes/ralph/convergent-runtime-attestation.toml\"\n",
+        "activation_approval = \".local-notes/ralph/convergent-manual-activation.toml\"\n",
         encoding="utf-8",
     )
     monkeypatch.delenv("RALPH_CONVERGENT_EXECUTION_MODE", raising=False)
@@ -116,7 +117,7 @@ def test_repo_local_activation_file_rejects_drift(tmp_path: Path, monkeypatch: p
 
 def test_activation_override_cannot_point_at_an_unrelated_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "copied-enforce.toml"
-    path.write_text((ROOT / "config" / "convergent-execution-mode.toml").read_text(encoding="utf-8").replace('mode = "shadow"', 'mode = "enforce"'), encoding="utf-8")
+    path.write_text((ROOT / "config" / "convergent-execution-mode.toml").read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_CONFIG", str(path))
     with pytest.raises(ExecutionPolicyError, match="active workspace activation file"):
         configured_activation_mode(workspace_root=ROOT)

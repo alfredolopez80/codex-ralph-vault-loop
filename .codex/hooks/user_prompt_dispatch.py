@@ -159,17 +159,16 @@ def run(payload: dict[str, Any]) -> str:
         return output
 
     sensitivity = prompt_sensitivity(prompt, payload)
-    # v4 Prompt Boundary runs before recall in shadow mode.  Its result is
-    # deliberately not injected into the model-visible context until the
-    # repository rollout phase; computing it here proves that task boundary,
-    # risk, complexity, and obligation deltas are independent of prompt size.
-    boundary_shadow = None
+    # v4 Prompt Boundary runs before recall.  Its bounded result is kept
+    # separate from model-visible context until the canonical authority/store
+    # accepts the enforce transition.
+    boundary_result = None
     activation_mode = "off"
     try:
         activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
         if activation_mode != "off":
             boundary = classify_boundary(prompt, payload)
-            boundary_shadow = boundary.as_dict()
+            boundary_result = boundary.as_dict()
             # Prompt sensitivity is classified before any recall or authority
             # lookup.  Carry that canonical result into the v4 state builder;
             # a payload omission must not silently downgrade YELLOW to GREEN.
@@ -177,11 +176,11 @@ def run(payload: dict[str, Any]) -> str:
             runtime_candidate = ensure_prompt_boundary(
                 authority_payload,
                 prompt=prompt,
-                boundary=boundary_shadow,
+                boundary=boundary_result,
                 mode=activation_mode,
             )
             if runtime_candidate is not None:
-                boundary_shadow["authority_candidate"] = runtime_candidate
+                boundary_result["authority_candidate"] = runtime_candidate
     except ExecutionPolicyError:
         output = json.dumps({"decision": "block", "reason": "convergent-activation-invalid"}, ensure_ascii=True, separators=(",", ":"))
         return output
@@ -191,7 +190,7 @@ def run(payload: dict[str, Any]) -> str:
     except Exception:
         if activation_mode == "enforce":
             return json.dumps({"decision": "block", "reason": "convergent-authority-invalid"}, ensure_ascii=True, separators=(",", ":"))
-        boundary_shadow = None
+        boundary_result = None
     generation = memory_generation(context, payload)
     # Only a file-stat marker is consulted before the cache claim.  The
     # checkpoint body and progress journal are miss-only reads.
@@ -254,8 +253,8 @@ def run(payload: dict[str, Any]) -> str:
             "sensitivity": sensitivity,
             "task_signature": signature.value,
         }
-        if boundary_shadow is not None:
-            enriched["convergent_boundary_shadow"] = boundary_shadow
+        if boundary_result is not None:
+            enriched["convergent_boundary"] = boundary_result
         state = initialize(enriched) or {}
         capture_safe_prompt(prompt, context)
         intake, selected_memory_ids, clarification = run_intake(prompt, context, profile)

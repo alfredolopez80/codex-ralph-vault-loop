@@ -55,7 +55,7 @@ def initial(*, obligations: tuple[str, ...] = (), risk: str = "low") -> dict:
         boundary_epoch=1,
         boundary_kind="new_task",
         risk=risk,
-        activation_mode="shadow",
+        activation_mode="enforce",
         obligations=obligations,
     )
 
@@ -187,7 +187,7 @@ def test_payload_cannot_self_attest_platform_identity_source() -> None:
     }
     unverified = evidence_from_payload(payload, task_epoch="epoch-1")
     assert unverified.source == "payload"
-    with pytest.raises(LeaseError, match="runtime-verifiable"):
+    with pytest.raises(LeaseError, match="identity source is not authorized"):
         acquire_execution_lease(unverified, policy=policy, issued_generation=0)
 
     verified = evidence_from_payload(payload, task_epoch="epoch-1", verified_source="platform")

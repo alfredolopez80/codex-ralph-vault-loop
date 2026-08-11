@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "phase": "T14A",
-  "status": "CLOSED_GLOBAL_INSTALL_VALIDATED",
+  "status": "CLOSED_GLOBAL_ENFORCE_MANUAL_APPROVAL",
   "plan_id": "ralph-convergent-execution-v4-20260811",
   "plan_version": 1,
   "control_generation": 2,
@@ -24,7 +24,7 @@
     "fast_path_attached_exec_rejection",
     "stop_material_reopen_and_final_audit_store_contracts",
     "prompt_initialization_atomic_store_primitive",
-    "runtime_attestation_authority_binding",
+    "manual_activation_authority_binding",
     "epoch_rotation_active_pointer",
     "epoch_rotation_pending_recovery",
     "same_work_item_retry_idempotency",
@@ -38,8 +38,8 @@
       "id": "UD-T14A-AUTHORITY",
       "status": "CLOSED_REPO_LOCAL",
       "surface": "runtime attestation, actual checkout HEAD binding, and atomic prompt initialization",
-      "evidence": "Enforce authority independently resolves the checkout branch and full HEAD, loads the bounded RuntimeAttestation and activation approval, binds the verified SOL/max lease, and uses the atomic start-and-classify operation. Shadow remains report-only and does not resolve Git or read attestation.",
-      "live_proof": "T15_INSTALL_PASS",
+      "evidence": "Enforce authority independently resolves the checkout branch and full HEAD, loads the bounded manual activation approval, binds the approved SOL/max implementation contract, and uses the atomic start-and-classify operation. Off is the only rollback mode; shadow is retired.",
+      "live_proof": "T15_GLOBAL_ENFORCE_PASS",
       "fallback": null
     },
     {
@@ -47,7 +47,7 @@
       "status": "CLOSED_REPO_LOCAL",
       "surface": "fresh task epoch and immutable prior-task archival",
       "evidence": "A distinct new-task boundary archives the prior immutable execution files, creates a bounded epoch namespace and publishes the active-epoch CAS pointer last. Continuations and material/scope changes reuse the active epoch and do not reset budgets.",
-      "live_proof": "T15_INSTALL_PASS",
+      "live_proof": "T15_GLOBAL_ENFORCE_PASS",
       "fallback": null
     },
     {
@@ -55,7 +55,7 @@
       "status": "CLOSED_REPO_LOCAL",
       "surface": "PostTool material state transitions and result attestation",
       "evidence": "PostTool parses only bounded ToolResultAttestation records, commits POST_TOOL_RESULT_RECORDED evidence through ConvergentStore with CAS/idempotency and current-HEAD binding, and never infers phase advancement or closes obligations.",
-      "live_proof": "T15_INSTALL_PASS",
+      "live_proof": "T15_GLOBAL_ENFORCE_PASS",
       "fallback": null
     }
   ],
@@ -65,8 +65,8 @@
     "minimal_gate": "passed (failed=0, passed=1, skipped=2)",
     "hook_smoke": "ALL_HOOK_TESTS_PASS",
     "memory_flow": "PASS (optional ruff/mypy unavailable)",
-    "canary": "24/24 structural; live lifecycle/provider metrics UNKNOWN",
-    "global_install": "PASS (backup, parity, doctor, discovery, smoke and rollback rehearsal; enforce activation remains separately governed)"
+    "canary": "24/24 structural; live lifecycle/provider metrics not measured",
+    "global_install": "PASS (backup, parity, doctor, discovery, smoke and rollback rehearsal; enforce uses manual activation approval)"
   },
   "t15_allowed": true
 }

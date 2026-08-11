@@ -98,7 +98,7 @@ def initial_state() -> dict:
         task_epoch="epoch-store",
         boundary_epoch=1,
         boundary_kind="new_task",
-        activation_mode="shadow",
+        activation_mode="enforce",
     )
 
 
@@ -146,7 +146,7 @@ def epoch_candidate(epoch: str, objective: str, boundary_epoch: int, operation_i
         task_epoch=epoch,
         boundary_epoch=boundary_epoch,
         boundary_kind="new_task",
-        activation_mode="shadow",
+        activation_mode="enforce",
     )
     evidence = LeaseEvidence(
         model="gpt-5.6-sol",
@@ -293,7 +293,7 @@ def test_new_task_epoch_rotation_preserves_prior_state_and_publishes_cas_pointer
         task_epoch="epoch-new",
         boundary_epoch=2,
         boundary_kind="new_task",
-        activation_mode="shadow",
+        activation_mode="enforce",
     )
     evidence = LeaseEvidence(
         model="gpt-5.6-sol",
@@ -532,7 +532,7 @@ def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_pat
         task_epoch="epoch-custom",
         boundary_epoch=1,
         boundary_kind="new_task",
-        activation_mode="shadow",
+        activation_mode="enforce",
     )
     custom_store = ConvergentStore(progress, load_execution_policy())
     started = custom_store.start(state)

@@ -225,7 +225,7 @@ def _convergent_phase_gate(payload: dict[str, Any], tool: str) -> dict[str, str]
     try:
         _authority, state = load_authoritative_state(payload)
     except AuthorityError:
-        return _deny("Convergent authority and runtime attestation are required for a write.")
+        return _deny("Convergent authority and manual activation approval are required for a write.")
     allowed_phases = {"implement", "mitigate"}
     if tool in COMMAND_TOOLS and _is_validation_command(command):
         allowed_phases |= {"verify", "final_audit"}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the bounded v4 structural shadow/canary over the fixed 24-case corpus.
+"""Run the bounded v4 structural canary over the fixed 24-case corpus.
 
 This harness intentionally does not invoke a model or infer subscription
 credits.  It compares deterministic decisions and hook contracts, emitting
@@ -362,7 +362,7 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "structural_improvements": structural_improvements,
         "efficiency_gate": "UNKNOWN (structural fixture lane does not measure live lifecycle or provider efficiency)",
         "structural_pass": structural_pass,
-        "mode_selection_proof": {"off": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "off"}) == "off", "shadow": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "shadow"}) == "shadow"},
+        "mode_selection_proof": {"off": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "off"}) == "off", "enforce": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"}) == "enforce"},
         "runtime_rollback": "UNKNOWN",
         # Backward-compatible boolean for the CLI/test contract.  It means
         # only ``structural_pass``; live baseline/candidate quality is kept

@@ -39,8 +39,8 @@
   },
   "mode": "structural-fixture-only",
   "mode_selection_proof": {
-    "off": true,
-    "shadow": true
+    "enforce": true,
+    "off": true
   },
   "paired_corpus_execution": "UNKNOWN",
   "paired_corpus_manifest": true,

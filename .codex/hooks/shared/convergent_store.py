@@ -483,7 +483,7 @@ class ConvergentStore:
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
         # Reads participate in the same namespace protocol as mutations.  In
-        # particular, a non-authoritative shadow read must not observe the
+        # particular, a non-authoritative read must not observe the
         # half-moved files of an epoch rotation or race recovery with a
         # writer.  The ``authoritative`` bit only controls partial-tail
         # handling; it does not weaken the lock/recovery boundary.

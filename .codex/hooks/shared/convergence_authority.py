@@ -27,7 +27,7 @@ from .execution_lease import LeaseError, acquire_execution_lease, assert_lease_s
 from .execution_policy import ExecutionPolicy, assert_policy_compatible, load_execution_policy
 from .progress_hook import ProgressLookup, cheap_lookup
 from .convergent_reducer import TransitionRequest
-from .runtime_attestation import RuntimeAttestation, RuntimeAttestationError, load_runtime_attestation
+from .manual_activation import ManualActivation, ManualActivationError, load_manual_activation
 
 
 class AuthorityError(RuntimeError):
@@ -113,36 +113,14 @@ def ensure_prompt_boundary(
 ) -> dict[str, Any] | None:
     """Bind a new enforce-mode Prompt Boundary to the canonical store.
 
-    Shadow mode evaluates the same authority inputs but does not publish a
-    business state transition.  This preserves the rollout boundary while
-    making the real enforce path use the same state/lease contract.
+    Enforce is the only active convergence mode.  ``off`` is an explicit
+    rollback state and returns before any authority or store mutation.
     """
 
     if mode == "off":
         return None
-    if mode == "shadow":
-        try:
-            authority = resolve_authority(payload, resolve_git=False)
-        except AuthorityError:
-            # Shadow is report-only when no approved plan is active.  It must
-            # still return a bounded candidate record rather than inventing a
-            # store or blocking the legacy prompt path.
-            return {
-                "plan_id": "",
-                "policy_hash": "",
-                "boundary_kind": _wire_boundary_kind(boundary.get("boundary_kind")),
-                "risk": str(boundary.get("risk") or ""),
-                "complexity": int(boundary.get("complexity") or 0),
-                "state_available": False,
-            }
-        return {
-            "plan_id": authority.plan_id,
-            "policy_hash": authority.policy.policy_hash,
-            "boundary_kind": _wire_boundary_kind(boundary.get("boundary_kind")),
-            "risk": str(boundary.get("risk") or ""),
-            "complexity": int(boundary.get("complexity") or 0),
-            "state_available": authority.store.read_current(authority.plan_id).state is not None,
-        }
+    if mode != "enforce":
+        raise AuthorityError("convergent-activation-mode-invalid")
     authority = resolve_authority(payload)
     attestation = _require_runtime_attestation(authority)
 
@@ -255,7 +233,7 @@ def _validate_binding(
     authority: AuthorityContext,
     state: Mapping[str, Any],
     *,
-    attestation: RuntimeAttestation | None = None,
+    attestation: ManualActivation | None = None,
 ) -> None:
     if (
         state.get("plan_id") != authority.plan_id
@@ -304,20 +282,20 @@ def _validate_binding(
                 raise AuthorityError("convergent-lease-attestation-required") from exc
 
 
-def _require_runtime_attestation(authority: AuthorityContext) -> RuntimeAttestation:
-    """Require an independently materialized runtime identity in enforce."""
+def _require_runtime_attestation(authority: AuthorityContext) -> ManualActivation:
+    """Require the explicit, content-addressed manual enforce approval."""
 
     if not authority.checkout_head_sha:
         raise AuthorityError("convergent-runtime-attestation-unavailable")
     try:
-        return load_runtime_attestation(
+        return load_manual_activation(
             authority.active.workspace_root,
             branch=authority.active.branch,
             head_sha=authority.checkout_head_sha,
             policy=authority.policy,
         )
-    except (RuntimeAttestationError, OSError, ValueError, TypeError) as exc:
-        raise AuthorityError("convergent-runtime-attestation-unavailable") from exc
+    except (ManualActivationError, OSError, ValueError, TypeError) as exc:
+        raise AuthorityError("convergent-manual-activation-unavailable") from exc
 
 
 def _boundary_epoch(payload: Mapping[str, object]) -> int:

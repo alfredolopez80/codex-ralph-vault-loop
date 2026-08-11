@@ -20,6 +20,7 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = str(home)
+    env["RALPH_CONVERGENT_EXECUTION_MODE"] = "off"
     if extra_env:
         env.update(extra_env)
     script_path = Path(script)
@@ -38,6 +39,7 @@ def run_script(
 def run_python_script(home: Path, script: str, *args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = str(home)
+    env["RALPH_CONVERGENT_EXECUTION_MODE"] = "off"
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "setup" / script), *args],
         cwd=ROOT,

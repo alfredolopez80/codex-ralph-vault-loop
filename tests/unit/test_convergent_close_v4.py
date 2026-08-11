@@ -47,7 +47,7 @@ def _initial() -> dict:
         task_epoch="epoch-close",
         boundary_epoch=1,
         boundary_kind="new_task",
-        activation_mode="shadow",
+        activation_mode="enforce",
     )
 
 

@@ -1,9 +1,9 @@
 """Bounded adapter from the Stop hook payload to the v4 Stop contract.
 
-The legacy Stop reducer remains the compatibility path until repo-local v4
-enforcement is approved.  A v4 state snapshot is therefore opt-in: shadow
-mode evaluates it without changing hook output, while enforce mode emits only
-the supported bounded block response for an incomplete or invalid snapshot.
+The legacy Stop reducer remains the explicit ``off`` rollback path.  An
+enforce-mode v4 state snapshot is opt-in through the plan-bound activation
+contract and emits only the supported bounded block response for an
+incomplete or invalid snapshot.
 No snapshot, prompt, or phrase text is persisted by this adapter.
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def evaluate_convergent_stop(
     """Evaluate an explicitly supplied v4 state snapshot.
 
     ``None`` means that the payload belongs to the legacy reducer (there is no
-    v4 snapshot).  This keeps off/shadow compatibility deterministic while
+    v4 snapshot).  This keeps the explicit off rollback deterministic while
     ensuring enforce mode never treats a malformed v4 snapshot as success.
     """
 

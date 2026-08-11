@@ -43,6 +43,10 @@ def isolated_env(tmp_path: Path) -> dict[str, str]:
             "VAULT_PROJECT": "lifecycle-e2e",
             "RALPH_LOCAL_NOTES_ROOTS": "",
             "CODEX_SLOP_GUARD_ENABLED": "0",
+            # This suite exercises the legacy/advisor compatibility lane. The
+            # repository default is enforce, so select the explicit rollback
+            # lane instead of requiring a v4 activation artifact.
+            "RALPH_CONVERGENT_EXECUTION_MODE": "off",
         }
     )
     return env

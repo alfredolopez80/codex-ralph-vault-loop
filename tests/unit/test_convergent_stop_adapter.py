@@ -41,7 +41,7 @@ def _state() -> dict[str, object]:
         task_epoch="epoch-adapter",
         boundary_epoch=1,
         boundary_kind="new_task",
-        activation_mode="shadow",
+        activation_mode="enforce",
     )
     state["phase"] = "stop"
     state["execution_lease"] = acquire_execution_lease(

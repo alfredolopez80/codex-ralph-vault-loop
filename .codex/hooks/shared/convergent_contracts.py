@@ -57,7 +57,7 @@ PHASES: Final[tuple[str, ...]] = (
     "user_decision",
 )
 STATUSES: Final[frozenset[str]] = frozenset({"active", "verifying", "closed", "blocked", "user-decision"})
-ACTIVATION_MODES: Final[frozenset[str]] = frozenset({"shadow", "enforce"})
+ACTIVATION_MODES: Final[frozenset[str]] = frozenset({"off", "enforce"})
 ACTOR_ROLES: Final[frozenset[str]] = frozenset({AUTHORITY_ROLE, IMPLEMENTATION_ROLE, "deterministic-runtime", "reviewer"})
 TRANSITIONS: Final[frozenset[str]] = frozenset(
     {

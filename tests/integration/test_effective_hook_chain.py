@@ -47,6 +47,8 @@ def isolated_env(tmp_path: Path) -> dict[str, str]:
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
     env["CODEX_HOOK_STATE_ROOT"] = str(tmp_path / "hook-state")
     env["CODEX_SLOP_GUARD_ENABLED"] = "0"
+    # Dispatch-shape tests are intentionally on the supported rollback lane.
+    env["RALPH_CONVERGENT_EXECUTION_MODE"] = "off"
     return env
 
 

@@ -153,8 +153,8 @@ def main() -> int:
     if event not in (None, "", "Stop"):
         return 0
 
-    # The repo-local activation record controls the rollout boundary.  Shadow
-    # evaluation is deliberately silent.  Enforce mode resolves canonical
+    # The repo-local activation record controls the rollout boundary.  Off is
+    # deliberately silent.  Enforce mode resolves canonical
     # state through the implementation store and never falls through to the
     # legacy reducer, which could otherwise close an incomplete v4 task.
     try:
@@ -174,7 +174,7 @@ def main() -> int:
         if activation_mode == "enforce":
             sys.stdout.write(_block_response("convergent-input-invalid"))
         else:
-            # Preserve the legacy diagnostic for off/shadow callers while
+            # Preserve the legacy diagnostic for off callers while
             # keeping malformed enforce input fail-closed above.
             sys.stderr.write("invalid JSON payload\n")
         return 0
@@ -263,7 +263,7 @@ def main() -> int:
             # Both allow and a duplicate terminal no-op are silent.  The
             # context manager publishes the marker only for the first allow.
         return 0
-    convergent = evaluate_convergent_stop(payload) if activation_mode == "shadow" else None
+    convergent = evaluate_convergent_stop(payload) if activation_mode == "enforce" else None
 
     try:
         scope = scope_from_payload(payload)

@@ -33,7 +33,13 @@ from shared.convergent_hooks import is_read_only_command, successful_read_fast_p
 from shared.execution_policy import configured_activation_mode
 from shared.convergence_authority import AuthorityError, load_authoritative_state
 from shared.convergent_store import ConvergentStoreError, ConvergentIntegrityError
-from shared.runtime_attestation import RuntimeAttestationError, load_runtime_attestation
+from shared.manual_activation import ManualActivationError, load_manual_activation
+
+# Kept as local names for the existing PostTool test seam.  The production
+# implementation now resolves the manual activation artifact; no runtime
+# payload can mint this evidence.
+RuntimeAttestationError = ManualActivationError
+load_runtime_attestation = load_manual_activation
 from shared.tool_result_attestation import ToolResultAttestationError, request_from_attestation, structural_digest
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
@@ -286,9 +292,9 @@ def _commit_convergent_transition(
     """Commit one explicitly attested material PostTool transition.
 
     The hook never derives a transition from free-form output. A transition
-    is handled only when the runtime supplies the closed, content-safe
-    attestation contract and the canonical authority/store accepts its CAS
-    request. Shadow/off remain non-mutating compatibility modes.
+    is handled only when the manual activation contract and the canonical
+    authority/store accept its CAS request. Off is the only non-mutating
+    rollback mode.
     """
 
     candidate = payload.get("convergent_transition")
@@ -309,7 +315,7 @@ def _commit_convergent_transition(
             policy=authority.policy,
         )
         if request.runtime_attestation_digest != runtime.attestation_digest:
-            raise RuntimeAttestationError("PostTool runtime attestation does not match the active runtime")
+            raise ManualActivationError("PostTool activation approval does not match the active checkout")
         authority.store.transition(authority.plan_id, request)
         return True, None
     except (ToolResultAttestationError, AuthorityError, RuntimeAttestationError, ConvergentStoreError, ConvergentIntegrityError, ValueError, TypeError):

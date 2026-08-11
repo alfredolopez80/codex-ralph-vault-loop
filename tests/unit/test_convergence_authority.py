@@ -17,27 +17,24 @@ from shared.convergent_contracts import TaskIdentity, new_state  # noqa: E402
 from shared.execution_policy import load_execution_policy  # noqa: E402
 
 
-def test_shadow_without_an_active_plan_is_bounded_and_nonblocking(tmp_path: Path) -> None:
+def test_off_rollback_is_non_mutating_without_an_active_plan(tmp_path: Path) -> None:
     result = ensure_prompt_boundary(
         {"cwd": str(tmp_path), "session_id": "session-a", "prompt": "implement the change"},
         prompt="implement the change",
         boundary={"boundary_kind": "new_task", "risk": "low", "complexity": 1},
-        mode="shadow",
+        mode="off",
     )
-    assert result is not None
-    assert result["state_available"] is False
-    assert result["plan_id"] == ""
+    assert result is None
 
 
-def test_shadow_normalizes_policy_boundary_aliases(tmp_path: Path) -> None:
-    result = ensure_prompt_boundary(
-        {"cwd": str(tmp_path), "session_id": "session-a", "prompt": "implement the change"},
-        prompt="implement the change",
-        boundary={"boundary_kind": "new-task", "risk": "low", "complexity": 1},
-        mode="shadow",
-    )
-    assert result is not None
-    assert result["boundary_kind"] == "new_task"
+def test_retired_shadow_mode_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(AuthorityError, match="activation-mode-invalid"):
+        ensure_prompt_boundary(
+            {"cwd": str(tmp_path), "session_id": "session-a", "prompt": "implement the change"},
+            prompt="implement the change",
+            boundary={"boundary_kind": "new-task", "risk": "low", "complexity": 1},
+            mode="shadow",
+        )
 
 
 def test_enforce_never_uses_a_caller_snapshot_without_canonical_state(tmp_path: Path) -> None:

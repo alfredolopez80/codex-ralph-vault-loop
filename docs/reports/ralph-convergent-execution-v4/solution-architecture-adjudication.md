@@ -1,6 +1,6 @@
 # Solution Architecture Adjudication — Anti-Loop Amendment
 
-Status: **APPROVED — T14A CLOSED; T15 GLOBAL INSTALL VALIDATED**
+Status: **APPROVED — T14A CLOSED; T15 GLOBAL ENFORCE PROMOTION IN PROGRESS**
 
 Plan: `ralph-convergent-execution-v4-20260811`
 
@@ -80,22 +80,20 @@ The implementation then applied one coherent correction batch for the direct
 contracts and core guards.
 
 The batch closes the three repo-local control-plane surfaces: authority now
-binds enforce decisions to the prepared runtime attestation, the actual full
-checkout HEAD and the atomic initialization operation; a distinct task epoch
+binds enforce decisions to the content-addressed manual activation approval,
+the actual full checkout HEAD and the atomic initialization operation; a distinct task epoch
 is archived behind an active CAS pointer without resetting budgets; and
 PostTool commits only bounded, typed evidence through an evidence-only store
 transition. Their local evidence is recorded in
-`t14a-implementation-residual.json`. The later, explicitly authorized T15
-global installation ran from merged `main` at
-`c6f12550b1e0f684c963c915dc00c8674715debd`; backup, hook parity, effective
-doctor, model-visible skill discovery, smoke and isolated rollback rehearsal
-all passed. Production rollout and enforce promotion remain separate from
-this global hook installation.
+`t14a-implementation-residual.json`. The explicitly authorized T15 global
+installation runs only after the final `main` HEAD is published and the manual
+approval is rebound to that exact HEAD. The manual activation amendment
+promotes the global wrapper to enforce; `off` remains the explicit rollback
+mode and `shadow` is retired.
 
 The canary remains structural-only. Provider credits, live SOL/model turns,
 wall time, escaped defects, full lifecycle equivalence, and global hook writes
-remain `UNKNOWN` unless measured in a paired runtime lane. Repo-local shadow
-and the installed global wrapper remain on the approved activation boundary;
+remain not measured unless their authoritative evidence sources are present;
 no subscription-credit or provider-savings claim is derived from the
 structural canary.
 

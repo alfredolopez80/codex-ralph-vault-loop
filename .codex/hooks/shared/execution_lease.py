@@ -123,8 +123,8 @@ def validate_lease_evidence(evidence: LeaseEvidence, *, policy: ExecutionPolicy)
         raise LeaseError("read-only advisor or alternate owner cannot hold the execution lease")
     if evidence.authority_role != AUTHORITY_ROLE:
         raise LeaseError("Codex main must remain the authority owner")
-    if evidence.source not in {"platform", "verified-runtime"}:
-        raise LeaseError("model identity source is not runtime-verifiable")
+    if evidence.source not in {"platform", "verified-runtime", "manual-approval"}:
+        raise LeaseError("execution identity source is not authorized")
     if not evidence.tools or any(not tool or len(tool) > 160 for tool in evidence.tools):
         raise LeaseError("execution lease requires a bounded non-empty toolset")
     if len(set(evidence.tools)) != len(evidence.tools):
