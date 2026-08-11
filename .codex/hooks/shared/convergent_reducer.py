@@ -24,7 +24,7 @@ class TransitionError(ContractError):
 
 
 AMEND_ELIGIBLE_PHASES = frozenset(
-    {"design_ready", "approved", "implement", "verify", "review", "finding_triage", "mitigate", "final_audit"}
+    {"design_ready", "approved", "implement", "verify", "review", "finding_triage", "mitigate"}
 )
 
 
@@ -120,6 +120,8 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         lease = request.lease.as_dict()
         if lease["branch_fingerprint"] != digest_text(before["task_identity"]["branch"]):
             raise TransitionError("execution lease branch differs from task identity")
+        if lease["cwd_fingerprint"] != before["task_identity"]["worktree_id"]:
+            raise TransitionError("execution lease CWD differs from task identity")
         if lease["task_epoch_fingerprint"] != digest_text(before["task_epoch"]):
             raise TransitionError("execution lease task epoch differs from control state")
         if lease["issued_generation"] != before["generation"]:
@@ -249,7 +251,10 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
             after["phase"] = "design_ready" if frozen else "prompt_gate"
         after["status"] = "active"
         after["completion"]["terminal_reason"] = ""
-        after["completion"]["invalidation_reason"] = ""
+        after["completion"]["final_audit_digest"] = ""
+        after["completion"]["hard_gates_pass"] = False
+        after["completion"]["invalidation_reason"] = request.reason or "task-reopened"
+        budget["repair_origin"] = ""
         budget["terminal_origin"] = ""
         if request.lease is not None:
             existing_lease = before.get("execution_lease")
@@ -387,7 +392,7 @@ def _advance(after: dict[str, Any], before: Mapping[str, Any], request: Transiti
         # focused verification must return directly to final_audit rather than
         # silently requesting a second review or trusting a caller's default
         # low-risk value.
-        if before["failure_budget"].get("repair_origin") == "final_audit":
+        if before["failure_budget"].get("repair_origin") in {"final_audit", "stop"}:
             target = "final_audit"
             after["status"] = "verifying"
             if request.target_phase and request.target_phase != target:

@@ -34,7 +34,7 @@ from shared.execution_policy import configured_activation_mode
 from shared.convergence_authority import AuthorityError, load_authoritative_state
 from shared.convergent_store import ConvergentStoreError, ConvergentIntegrityError
 from shared.runtime_attestation import RuntimeAttestationError, load_runtime_attestation
-from shared.tool_result_attestation import ToolResultAttestationError, request_from_attestation
+from shared.tool_result_attestation import ToolResultAttestationError, request_from_attestation, structural_digest
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
@@ -199,10 +199,89 @@ def _response_bytes(response: dict[str, Any] | None) -> int:
     return len(json.dumps(response, ensure_ascii=True, sort_keys=True).encode("utf-8")) if response else 0
 
 
+def _event_identifier(payload: dict[str, Any], *keys: str) -> str:
+    # Tool input is caller-controlled material, not event-envelope authority.
+    # Identity may come only from the outer hook event or its runtime response.
+    sources = [payload]
+    for name in ("tool_response", "toolResponse"):
+        value = payload.get(name)
+        if isinstance(value, dict):
+            sources.append(value)
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if value is None:
+                continue
+            if (
+                not isinstance(value, str)
+                or not value
+                or value != value.strip()
+                or len(value) > 180
+                or any(character.isspace() or ord(character) < 32 for character in value)
+            ):
+                raise ToolResultAttestationError("PostTool event identifier is invalid")
+            return value
+    return ""
+
+
+def _result_structure(payload: dict[str, Any]) -> object:
+    for name in ("tool_response", "toolResponse"):
+        value = payload.get(name)
+        if isinstance(value, dict):
+            return value
+    fields = {
+        key: payload[key]
+        for key in (
+            "success",
+            "exit_code",
+            "returncode",
+            "return_code",
+            "status",
+            "output",
+            "stdout",
+            "stderr",
+            "result",
+            "message",
+        )
+        if key in payload
+    }
+    return fields
+
+
+def _actual_event_binding(payload: dict[str, Any], tool: ToolClass) -> dict[str, object]:
+    stage = result_stage(payload)
+    if tool.test_like:
+        kind = "validation_gate"
+        outcome = "pass" if tool.success is True else "fail" if tool.success is False else ""
+    elif tool.write:
+        kind = "implementation_write"
+        outcome = "success" if tool.success is True else "failure" if tool.success is False else ""
+    else:
+        kind = ""
+        outcome = ""
+    return {
+        "tool_use_id": _event_identifier(payload, "tool_use_id", "toolUseId", "tool_call_id", "toolCallId", "call_id", "callId"),
+        "parent_tool_use_id": _event_identifier(
+            payload,
+            "parent_tool_use_id",
+            "parentToolUseId",
+            "originating_tool_use_id",
+            "originatingToolUseId",
+        ),
+        "result_stage": stage,
+        "tool_kind": kind,
+        "tool_name": tool.name,
+        "outcome": outcome,
+        "input_structural_digest": structural_digest(_tool_input(payload)),
+        "result_structural_digest": structural_digest(_result_structure(payload)),
+    }
+
+
 def _commit_convergent_transition(
     payload: dict[str, Any],
     *,
     activation_mode: str,
+    tool: ToolClass,
 ) -> tuple[bool, dict[str, str] | None]:
     """Commit one explicitly attested material PostTool transition.
 
@@ -218,7 +297,10 @@ def _commit_convergent_transition(
     if activation_mode != "enforce":
         return False, None
     try:
-        request, _attestation_digest = request_from_attestation(candidate)
+        request, _attestation_digest = request_from_attestation(
+            candidate,
+            event_binding=_actual_event_binding(payload, tool),
+        )
         authority, _state = load_authoritative_state(payload)
         runtime = load_runtime_attestation(
             authority.active.workspace_root,
@@ -275,7 +357,7 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     # and remains active for the corresponding tool invocation.
     try:
         activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
-        handled, transition_response = _commit_convergent_transition(payload, activation_mode=activation_mode)
+        handled, transition_response = _commit_convergent_transition(payload, activation_mode=activation_mode, tool=tool)
         if transition_response is not None:
             return transition_response
         if handled:

@@ -65,7 +65,7 @@ def lease_evidence(**changes: object) -> LeaseEvidence:
         "model": "gpt-5.6-sol",
         "reasoning_effort": "max",
         "tools": ("apply_patch", "exec_command"),
-        "cwd": str(ROOT),
+        "cwd": "workspace-1",
         "branch": "codex/ralph-convergent-execution-v4",
         "task_epoch": "epoch-1",
         "owner_role": "sol-worker",
@@ -146,6 +146,7 @@ def test_sol_max_lease_rejects_fallback_alternate_models_and_drift() -> None:
         assert_lease_stable(lease.as_dict(), lease_evidence(tools=("exec_command",)), policy=policy)
 
     for changes, message in (
+        ({"cwd": "workspace-other"}, "CWD"),
         ({"branch": "codex/another-branch"}, "branch"),
         ({"task_epoch": "epoch-other"}, "task epoch"),
     ):
@@ -517,3 +518,64 @@ def test_reopen_budget_is_preserved_and_exhaustion_stays_user_decision() -> None
     assert exhausted.state["phase"] == "user_decision"
     assert exhausted.state["failure_budget"]["reopens"] == 1
     assert exhausted.user_decision_reason == "task-reopen-budget-exhausted"
+
+
+def test_reopen_invalidates_stale_final_audit_and_hard_gate_evidence() -> None:
+    policy = load_execution_policy()
+    state = activate(initial())
+    state["phase"] = "blocked"
+    state["status"] = "blocked"
+    state["completion"]["final_audit_digest"] = digest_text("stale-audit")
+    state["completion"]["hard_gates_pass"] = True
+    state["completion"]["terminal_reason"] = "blocked"
+    state["failure_budget"]["repair_origin"] = "final_audit"
+    state["final_audit_digest"] = state["completion"]["final_audit_digest"]
+    state["terminal_reason"] = "blocked"
+    state["state_hash"] = ""
+    state["state_hash"] = state_hash(state)
+    reopened = reduce_state(
+        state,
+        request(state, "op-reopen-audit", "REOPEN", actor_role="codex-main", reason="corrected-evidence"),
+        policy=policy,
+    ).state
+    assert reopened["completion"]["final_audit_digest"] == ""
+    assert reopened["completion"]["hard_gates_pass"] is False
+    assert reopened["completion"]["invalidation_reason"] == "corrected-evidence"
+    assert reopened["failure_budget"]["repair_origin"] == ""
+
+
+def test_amendment_cannot_commit_from_final_audit() -> None:
+    policy = load_execution_policy()
+    state = design_ready(initial())
+    state["phase"] = "final_audit"
+    state["state_hash"] = ""
+    state["state_hash"] = state_hash(state)
+    with pytest.raises(TransitionError, match="not allowed"):
+        reduce_state(
+            state,
+            request(
+                state,
+                "op-amend-final-audit",
+                "AMEND",
+                amendment_fingerprint=digest_text("amendment"),
+                approval_fingerprint=digest_text("approval"),
+                decision_fingerprint=digest_text("packet-v2"),
+                decision_version=2,
+                actor_role="codex-main",
+            ),
+            policy=policy,
+        )
+
+
+def test_stop_origin_verification_returns_directly_to_final_audit() -> None:
+    policy = load_execution_policy()
+    state = design_ready(initial())
+    for operation in ("op-stop-approved", "op-stop-implement", "op-stop-verify"):
+        state = reduce_state(state, request(state, operation, "ADVANCE"), policy=policy).state
+    assert state["phase"] == "verify"
+    state["failure_budget"]["repair_origin"] = "stop"
+    state["state_hash"] = ""
+    state["state_hash"] = state_hash(state)
+    repaired = reduce_state(state, request(state, "op-stop-return", "ADVANCE"), policy=policy).state
+    assert repaired["phase"] == "final_audit"
+    assert repaired["review"]["passes"] == 0

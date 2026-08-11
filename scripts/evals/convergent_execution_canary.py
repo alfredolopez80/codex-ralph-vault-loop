@@ -233,6 +233,10 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         boundary = classify_boundary(prompt, payload)
         baseline = _baseline_label(kind)
         observation = _candidate_observation(kind=kind, payload=payload, boundary=boundary, policy=policy)
+        declared_class = str(scenario.get("class") or "")
+        expected_risk = {"low-risk": "low", "material": "material", "critical": "critical"}.get(declared_class)
+        observed_risk = str(getattr(boundary, "risk", ""))
+        risk_match = expected_risk is None or observed_risk == expected_risk
         candidate = str(observation["decision"])
         different = candidate != baseline
         divergence_explained = (not different) or str(observation["reason"]) in {
@@ -271,6 +275,8 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
             "divergence_explained": divergence_explained,
             "candidate_reason": observation["reason"],
             "boundary": boundary.as_dict(),
+            "expected_risk": expected_risk or "not-applicable",
+            "risk_match": risk_match,
             "guardrail_impact": guardrail_impact,
             "candidate_observation": observation,
             "evidence_digest": digest({"id": scenario_id, "kind": kind, "boundary": boundary.as_dict()}),
@@ -287,6 +293,7 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "unchanged_recall_injection": unchanged_recall_injection == 0,
         "fast_path_predicate_eligible": fast_path_eligible == 1,
         "budget_policy_valid": all(item["candidate_observation"]["budget_valid"] is True for item in results),
+        "declared_risk_classes": all(item["risk_match"] is True for item in results),
         "unexplained_divergences": all(item["divergence_explained"] is True for item in results),
     }
     structural_improvements = {

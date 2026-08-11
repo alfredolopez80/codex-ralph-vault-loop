@@ -49,7 +49,7 @@ def _state() -> dict[str, object]:
             model="gpt-5.6-sol",
             reasoning_effort="max",
             tools=("apply_patch", "exec_command"),
-            cwd=str(ROOT),
+            cwd="adapter-worktree",
             branch="codex/ralph-convergent-execution-v4",
             task_epoch="epoch-adapter",
             owner_role="sol-worker",

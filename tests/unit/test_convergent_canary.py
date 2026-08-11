@@ -29,6 +29,8 @@ def test_canary_executes_candidate_predicates_and_explains_divergence() -> None:
     assert any(item["different"] for item in report["scenario_results"])
     assert all("candidate_observation" in item for item in report["scenario_results"])
     assert all(item["divergence_explained"] for item in report["scenario_results"])
+    assert report["hard_gates"]["declared_risk_classes"] is True
+    assert all(item["risk_match"] is True for item in report["scenario_results"])
 
 
 def test_canary_fails_closed_when_a_required_candidate_predicate_fails(monkeypatch: pytest.MonkeyPatch) -> None:

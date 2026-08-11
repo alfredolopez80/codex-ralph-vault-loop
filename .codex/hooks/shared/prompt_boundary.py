@@ -27,8 +27,16 @@ _CLARIFY = re.compile(r"\b(clarif|question|duda|aclar|what do you mean|explain)\
 _MATERIAL = re.compile(r"\b(material|architecture|architectural|contradict|new evidence|requirements? changed|redesign|trust boundary|scope changed|evidencia nueva|arquitectura|replantea)\b", re.I)
 _SCOPE = re.compile(r"\b(also|additionally|include|extend|expand|plus|adem[aá]s|incluye|ampl[ií]a|extiende)\b", re.I)
 _OVERRIDE = re.compile(r"\b(override|reconsider|second audit|reanalyze|re-?analiza|cambia el modelo|change model|ignore the plan)\b", re.I)
-_CRITICAL = re.compile(r"\b(authori[sz]|permission|security|secret|credential|migration|migraci[oó]n|production|prod|persist|schema|concurren|public contract|trust boundary|egress|autorizaci[oó]n)\b", re.I)
+_CRITICAL = re.compile(r"\b(authori[sz]|permission|security|secret|credential|migration|migraci[oó]n|production|prod|persist|schema|concurrent|concurrency|public contract|trust boundary|egress|autorizaci[oó]n)\b", re.I)
 _IMPLEMENT = re.compile(r"\b(implement|fix|patch|refactor|build|create|modify|corrige|implementa|crea|cambia|arregla)\b", re.I)
+_READ_ONLY = re.compile(r"\b(read|inspect|summari[sz]e|explain|review docs?|lee|inspecciona|resume|explica)\b", re.I)
+_MATERIAL_ACTION = re.compile(
+    r"\b(implement|design|run|perform|mitigate|verify|validate|review|"
+    r"implementa|diseña|ejecuta|mitiga|verifica|valida|revisa)\b.*\b("
+    r"policy|control|verification|decision packet|accepted findings?|review|"
+    r"pol[ií]tica|control|verificaci[oó]n|paquete de decisi[oó]n|hallazgos? aceptados?)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -52,7 +60,9 @@ def classify_boundary(prompt: str, payload: Mapping[str, object] | None = None) 
     override_signal = _truthy(payload, "user_override", "userOverride") or bool(_OVERRIDE.search(bounded))
     override_signal = override_signal or explicit == "user_override"
     critical = bool(_CRITICAL.search(bounded)) or _truthy(payload, "approval_delta", "approvalDelta") or override_signal
-    material = bool(_MATERIAL.search(bounded)) or explicit == "material_change"
+    material = bool(_MATERIAL.search(bounded)) or bool(_MATERIAL_ACTION.search(bounded)) or explicit == "material_change"
+    if material and _READ_ONLY.search(bounded) and not _IMPLEMENT.search(bounded) and not _MATERIAL_ACTION.search(bounded):
+        material = False
     scope_delta = bool(_SCOPE.search(bounded)) or _truthy(payload, "scope_delta", "scopeDelta") or explicit == "scope_extension"
     obligation_delta = bool(re.search(r"\b(must|required|done when|acceptance|obligaci[oó]n|criterio)\b", bounded, re.I)) or _truthy(payload, "obligation_delta", "obligationDelta")
     approval_delta = critical or _truthy(payload, "approval_delta", "approvalDelta", "requires_approval", "requiresApproval")

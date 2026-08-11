@@ -437,3 +437,24 @@ def test_unregistered_plan_is_typed_and_bounded(tmp_path: Path, command: str) ->
     payload = json_result(result)
     assert payload["error"]["code"] == "plan_not_registered"
     assert str(plan) not in result.stdout
+
+
+def test_large_plan_reads_only_bounded_prefix_for_declared_plan_id(tmp_path: Path) -> None:
+    root, plan = repo(tmp_path)
+    plan.write_text(
+        "# Large Plan\n\nPlan ID: `stable-large-plan`\n\n" + ("bounded detail\n" * 3_000),
+        encoding="utf-8",
+    )
+    result = start(root, plan)
+    assert result["plan_id"] == "stable-large-plan"
+
+
+def test_declared_plan_id_cannot_alias_an_existing_canonical_path(tmp_path: Path) -> None:
+    root, first = repo(tmp_path)
+    first.write_text("# First\n\nPlan ID: `stable-logical-plan`\n", encoding="utf-8")
+    start(root, first)
+    second = first.with_name("alias.md")
+    second.write_text("# Alias\n\nPlan ID: `stable-logical-plan`\n", encoding="utf-8")
+    result = run_cli(root, "status", "--plan", str(second), "--format", "json")
+    assert result.returncode == 6
+    assert json_result(result)["error"]["code"] == "plan_path_mismatch"

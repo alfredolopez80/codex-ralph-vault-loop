@@ -91,3 +91,49 @@ def test_structural_attestation_rejects_unsupported_tool_kind() -> None:
     value["tool_kind"] = "shell"
     with pytest.raises(ToolResultAttestationError, match="tool_kind"):
         request_from_attestation(value)
+
+
+@pytest.mark.parametrize("field", ["tool_use_id", "tool_name"])
+def test_structural_attestation_requires_nonempty_tool_identity(field: str) -> None:
+    value = _attestation()
+    value[field] = ""
+    with pytest.raises(ToolResultAttestationError, match="tool identity is incomplete"):
+        request_from_attestation(value)
+
+
+def test_structural_attestation_must_match_the_actual_post_tool_event() -> None:
+    value = _attestation()
+    binding = {
+        key: value[key]
+        for key in (
+            "tool_use_id",
+            "parent_tool_use_id",
+            "result_stage",
+            "tool_kind",
+            "tool_name",
+            "outcome",
+            "input_structural_digest",
+            "result_structural_digest",
+        )
+    }
+    request_from_attestation(value, event_binding=binding)
+    binding["result_structural_digest"] = "sha256:" + "9" * 64
+    with pytest.raises(ToolResultAttestationError, match="actual event"):
+        request_from_attestation(value, event_binding=binding)
+
+
+def test_legacy_attestation_is_rejected_at_the_production_event_boundary() -> None:
+    with pytest.raises(ToolResultAttestationError, match="v1 event-bound"):
+        request_from_attestation(
+            {"transition": "POST_TOOL_RESULT_RECORDED"},
+            event_binding={
+                "tool_use_id": "",
+                "parent_tool_use_id": "",
+                "result_stage": "terminal",
+                "tool_kind": "implementation_write",
+                "tool_name": "apply_patch",
+                "outcome": "success",
+                "input_structural_digest": "sha256:" + "1" * 64,
+                "result_structural_digest": "sha256:" + "2" * 64,
+            },
+        )

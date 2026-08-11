@@ -7,6 +7,7 @@
   "hard_gates": {
     "automatic_subagent_policy_zero": true,
     "budget_policy_valid": true,
+    "declared_risk_classes": true,
     "fast_path_predicate_eligible": true,
     "guardrail_bypasses": true,
     "paired_scenarios_24_of_24": true,
@@ -76,7 +77,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:29bfdce7be11cce1e8874378fbd78626cd08b468f9a972cb9d4fedb951af65aa",
+      "expected_risk": "low",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-01"
     },
     {
@@ -105,17 +108,19 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:d08b9cc014cfc145ba10dcb77098cb097872f5db5f5c0f1db43a63cd7aae7a82",
+      "expected_risk": "low",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-02"
     },
     {
       "baseline_decision": "task",
       "boundary": {
         "approval_delta": false,
-        "boundary_kind": "material_change",
-        "complexity": 4,
+        "boundary_kind": "new_task",
+        "complexity": 1,
         "obligation_delta": false,
-        "risk": "material",
+        "risk": "low",
         "scope_delta": false
       },
       "candidate_decision": "task",
@@ -125,16 +130,18 @@
         "false_close": null,
         "fast_eligible": false,
         "guardrail_bypass": false,
-        "reason": "material_change",
+        "reason": "new_task",
         "red_leak": null,
         "review_count": 0,
         "wrong_worktree": null
       },
-      "candidate_reason": "material_change",
+      "candidate_reason": "new_task",
       "different": false,
       "divergence_explained": true,
-      "evidence_digest": "sha256:479d896b58565b95eee69c0c79d2e44ebfc303a79baf13d70a0822c87e082d69",
+      "evidence_digest": "sha256:449ef14df5f57fe31125acb221f6eaa5fa10c38ba3e8e2efdf6c90613a007733",
+      "expected_risk": "low",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-03"
     },
     {
@@ -163,7 +170,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:93322757cbf6773d1e3ea5831646449338879cc98d4c15f4b220484c1769de37",
+      "expected_risk": "low",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-04"
     },
     {
@@ -192,7 +201,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:4375e31892b5aa00a6a8402f72244f405549d42924abb5c773c3dd2af699f00d",
+      "expected_risk": "low",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-05"
     },
     {
@@ -221,7 +232,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:7ea6ef0ee9806ccb4497d29e73216fa9aef2bc0ec44da1f378432887e105e1d1",
+      "expected_risk": "low",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-06"
     },
     {
@@ -229,9 +242,9 @@
       "boundary": {
         "approval_delta": false,
         "boundary_kind": "new_task",
-        "complexity": 1,
+        "complexity": 4,
         "obligation_delta": false,
-        "risk": "low",
+        "risk": "material",
         "scope_delta": false
       },
       "candidate_decision": "task",
@@ -249,18 +262,20 @@
       "candidate_reason": "new_task",
       "different": false,
       "divergence_explained": true,
-      "evidence_digest": "sha256:c71cce5cdfa6210b9c9cc2840cb7b3b4b8c6f7f25870247e5a4f6e9756b43982",
+      "evidence_digest": "sha256:8e4bacca69a8d2ca28b5aaf78cf95185ec5f81e0e343111bb48a5f4301435e7f",
+      "expected_risk": "material",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-07"
     },
     {
       "baseline_decision": "task",
       "boundary": {
         "approval_delta": false,
-        "boundary_kind": "new_task",
-        "complexity": 1,
+        "boundary_kind": "material_change",
+        "complexity": 4,
         "obligation_delta": false,
-        "risk": "low",
+        "risk": "material",
         "scope_delta": false
       },
       "candidate_decision": "verify",
@@ -278,8 +293,10 @@
       "candidate_reason": "focused-verification",
       "different": true,
       "divergence_explained": true,
-      "evidence_digest": "sha256:1b6e53a60009fdda2c5806fb6a0fd260d5bb85a24c6e15501aa7ef8f21fbd01e",
+      "evidence_digest": "sha256:a3a076dad9eb7be71d783b8e807e4b6b5593ad132c8d4adce67a975b9d0762cd",
+      "expected_risk": "material",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-08"
     },
     {
@@ -308,17 +325,19 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:54462f0420f9e9e07b1a2d5239540b918d6c1e92c36632b37499e72e92fde6be",
+      "expected_risk": "material",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-09"
     },
     {
       "baseline_decision": "task",
       "boundary": {
         "approval_delta": false,
-        "boundary_kind": "new_task",
-        "complexity": 1,
+        "boundary_kind": "material_change",
+        "complexity": 4,
         "obligation_delta": false,
-        "risk": "low",
+        "risk": "material",
         "scope_delta": false
       },
       "candidate_decision": "design",
@@ -336,8 +355,10 @@
       "candidate_reason": "decision-packet-required",
       "different": true,
       "divergence_explained": true,
-      "evidence_digest": "sha256:241b28ac2594702eb853ea2dcd0a8e63a51794ea23c812cdeca65ed3fe268d42",
+      "evidence_digest": "sha256:e1f03a6a2c0811608ceb89cc3d3f0d9b63fe6cc60c204d045f853437bb34b85e",
+      "expected_risk": "material",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-10"
     },
     {
@@ -366,17 +387,19 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:c1bf4ca3a445c7b563e7ee15a42a703ff527eacc221d6b03b511bf8a49b5dc77",
+      "expected_risk": "material",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-11"
     },
     {
       "baseline_decision": "task",
       "boundary": {
         "approval_delta": false,
-        "boundary_kind": "new_task",
-        "complexity": 1,
+        "boundary_kind": "material_change",
+        "complexity": 4,
         "obligation_delta": false,
-        "risk": "low",
+        "risk": "material",
         "scope_delta": false
       },
       "candidate_decision": "mitigation",
@@ -394,8 +417,10 @@
       "candidate_reason": "root-cause-batch",
       "different": true,
       "divergence_explained": true,
-      "evidence_digest": "sha256:44b8fe93495b280799b29b49d29a4aa8869ade64db6d1dce7b3972fceef7639b",
+      "evidence_digest": "sha256:668b31b131c30dd10d9f86ab42865b83589436b5a08eba8ce0fd8c055d60329f",
+      "expected_risk": "material",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-12"
     },
     {
@@ -424,7 +449,9 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:fbc8e9fc2149f43a4c2c2e9a4f04452be735cf25b63c8f6d1bcb2803e2b991c2",
+      "expected_risk": "critical",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-13"
     },
     {
@@ -453,7 +480,9 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:6d3ed262bbead6c9111c087fe26b35df4e7203c5dcc6b51290cf1c0e8f8cbad0",
+      "expected_risk": "critical",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-14"
     },
     {
@@ -482,7 +511,9 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:e2e08a24faf4c787255661a11c6036853e43eba4ec50281aba8260d8d483fc2c",
+      "expected_risk": "critical",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-15"
     },
     {
@@ -511,36 +542,40 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:4e1e24e744129a2b763e143c94cd924cf5f419bd09723902fdf0d673aed16073",
+      "expected_risk": "critical",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-16"
     },
     {
       "baseline_decision": "task",
       "boundary": {
-        "approval_delta": false,
+        "approval_delta": true,
         "boundary_kind": "new_task",
-        "complexity": 1,
+        "complexity": 6,
         "obligation_delta": false,
-        "risk": "low",
+        "risk": "critical",
         "scope_delta": false
       },
-      "candidate_decision": "task",
+      "candidate_decision": "user-decision",
       "candidate_observation": {
         "budget_valid": true,
-        "decision": "task",
+        "decision": "user-decision",
         "false_close": null,
         "fast_eligible": false,
         "guardrail_bypass": false,
-        "reason": "new_task",
+        "reason": "critical-approval-boundary",
         "red_leak": null,
         "review_count": 0,
         "wrong_worktree": null
       },
-      "candidate_reason": "new_task",
-      "different": false,
+      "candidate_reason": "critical-approval-boundary",
+      "different": true,
       "divergence_explained": true,
-      "evidence_digest": "sha256:f662cc8529b2f17b9889bf73cb6c9899bda139ec42a5c5fb79630f961f2e8d5c",
+      "evidence_digest": "sha256:ea81ff720f77b50e41262f2d63511e8fe4803cb7abcc034122b47dfa9dd585b4",
+      "expected_risk": "critical",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-17"
     },
     {
@@ -569,7 +604,9 @@
       "different": true,
       "divergence_explained": true,
       "evidence_digest": "sha256:879d7a81ae5d3d75ca6df2aa17301b6b81bf2e311248d712e34792a240822fe5",
+      "expected_risk": "critical",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-18"
     },
     {
@@ -598,7 +635,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:c51c43ab358896429b3f40b616420c668b567a398c715ea132d53a2947376a17",
+      "expected_risk": "not-applicable",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-19"
     },
     {
@@ -627,7 +666,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:125302dd2b0d403c22514f2baa86c0b32a04f7bfbda4fa62452a995dcaf79741",
+      "expected_risk": "not-applicable",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-20"
     },
     {
@@ -656,7 +697,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:959655d299554e7d1acd1d07da0060cd7181fc577e57fd20cf865b8f76645f74",
+      "expected_risk": "not-applicable",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-21"
     },
     {
@@ -685,7 +728,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:c1ec0c08cdbcc7415070dddb086c1a79c51db52f5405ea352e0967a2a765b6ea",
+      "expected_risk": "not-applicable",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-22"
     },
     {
@@ -714,7 +759,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:46052dd99feef21a4f014adeadeebac8667a2debc8bf981183fbce15600b35ae",
+      "expected_risk": "not-applicable",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-23"
     },
     {
@@ -743,7 +790,9 @@
       "different": false,
       "divergence_explained": true,
       "evidence_digest": "sha256:2b9310ce77494c48200aaf0402dab325e338921497a438d5de572f4f5cdb09af",
+      "expected_risk": "not-applicable",
       "guardrail_impact": "none",
+      "risk_match": true,
       "scenario_id": "C-24"
     }
   ],

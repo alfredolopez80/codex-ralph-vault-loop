@@ -1,6 +1,7 @@
 """Closed, content-safe PostTool transition attestation contract."""
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
 from .convergent_contracts import SHA256_RE, digest_value
@@ -72,7 +73,25 @@ _LEGACY_REQUEST_FIELDS = frozenset(
 )
 
 
-def request_from_attestation(value: object) -> tuple[TransitionRequest, str]:
+_EVENT_BINDING_FIELDS = frozenset(
+    {
+        "tool_use_id",
+        "parent_tool_use_id",
+        "result_stage",
+        "tool_kind",
+        "tool_name",
+        "outcome",
+        "input_structural_digest",
+        "result_structural_digest",
+    }
+)
+
+
+def request_from_attestation(
+    value: object,
+    *,
+    event_binding: Mapping[str, object] | None = None,
+) -> tuple[TransitionRequest, str]:
     if not isinstance(value, Mapping):
         raise ToolResultAttestationError("PostTool transition attestation must be an object")
     # The v1 structural contract is the only production contract.  The
@@ -80,7 +99,9 @@ def request_from_attestation(value: object) -> tuple[TransitionRequest, str]:
     # contract; it is normalized into the same evidence-only transition and
     # still requires a runtime attestation digest and result digest.
     if "schema_version" in value:
-        return _request_from_v1(value)
+        return _request_from_v1(value, event_binding=event_binding)
+    if event_binding is not None:
+        raise ToolResultAttestationError("PostTool production attestation must use the v1 event-bound contract")
     if set(value) - (_LEGACY_REQUEST_FIELDS | {"result", "result_digest", "attestation_digest"}):
         raise ToolResultAttestationError("PostTool transition attestation has unknown fields")
     transition = value.get("transition")
@@ -148,7 +169,11 @@ def request_from_attestation(value: object) -> tuple[TransitionRequest, str]:
     return request, attestation_digest
 
 
-def _request_from_v1(value: Mapping[str, object]) -> tuple[TransitionRequest, str]:
+def _request_from_v1(
+    value: Mapping[str, object],
+    *,
+    event_binding: Mapping[str, object] | None,
+) -> tuple[TransitionRequest, str]:
     if set(value) != _V1_FIELDS:
         raise ToolResultAttestationError("PostTool v1 attestation has unknown or missing fields")
     if value.get("schema_version") != 1:
@@ -170,6 +195,8 @@ def _request_from_v1(value: Mapping[str, object]) -> tuple[TransitionRequest, st
         item = value.get(field)
         if not isinstance(item, str) or len(item) > 180:
             raise ToolResultAttestationError(f"PostTool {field} is invalid")
+    if not value["tool_use_id"] or not value["tool_name"]:
+        raise ToolResultAttestationError("PostTool tool identity is incomplete")
     if value["result_stage"] != "terminal":
         raise ToolResultAttestationError("PostTool result_stage must be terminal")
     if value["tool_kind"] not in {"implementation_write", "validation_gate"}:
@@ -194,6 +221,11 @@ def _request_from_v1(value: Mapping[str, object]) -> tuple[TransitionRequest, st
     }
     if digest_value(structural_material) != value["attestation_digest"]:
         raise ToolResultAttestationError("PostTool attestation digest is not bound")
+    if event_binding is not None:
+        if set(event_binding) != _EVENT_BINDING_FIELDS:
+            raise ToolResultAttestationError("PostTool runtime event binding is incomplete")
+        if any(value.get(field) != event_binding.get(field) for field in _EVENT_BINDING_FIELDS):
+            raise ToolResultAttestationError("PostTool attestation does not match the actual event")
     expected_transition = "POST_TOOL_RESULT_RECORDED"
     request = TransitionRequest(
         operation_id=operation_id,
@@ -217,6 +249,42 @@ def _request_from_v1(value: Mapping[str, object]) -> tuple[TransitionRequest, st
     return request, value["attestation_digest"]
 
 
+def structural_digest(value: object) -> str:
+    """Hash a bounded type/length/value projection without retaining bodies."""
+
+    return digest_value(_structural_projection(value, depth=0))
+
+
+def _structural_projection(value: object, *, depth: int) -> object:
+    if depth > 8:
+        raise ToolResultAttestationError("PostTool event structure exceeds its depth limit")
+    if value is None or isinstance(value, bool):
+        return {"type": type(value).__name__, "value": value}
+    if isinstance(value, int):
+        return {"type": "int", "value": value}
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ToolResultAttestationError("PostTool event contains a non-finite number")
+        return {"type": "float", "value": value}
+    if isinstance(value, str):
+        encoded = value.encode("utf-8", errors="replace")
+        return {"type": "str", "bytes": len(encoded), "digest": digest_value(value)}
+    if isinstance(value, Mapping):
+        if len(value) > 128:
+            raise ToolResultAttestationError("PostTool event object exceeds its item limit")
+        rows = []
+        for key in sorted(value, key=lambda item: str(item)):
+            if not isinstance(key, str) or len(key) > 180:
+                raise ToolResultAttestationError("PostTool event object has an invalid key")
+            rows.append([digest_value(key), _structural_projection(value[key], depth=depth + 1)])
+        return {"type": "object", "items": rows}
+    if isinstance(value, (list, tuple)):
+        if len(value) > 128:
+            raise ToolResultAttestationError("PostTool event array exceeds its item limit")
+        return {"type": "array", "items": [_structural_projection(item, depth=depth + 1) for item in value]}
+    raise ToolResultAttestationError("PostTool event contains an unsupported value")
+
+
 def _bounded_strings(value: object, label: str) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)) or len(value) > 64:
         raise ToolResultAttestationError(f"PostTool {label} is invalid")
@@ -226,4 +294,4 @@ def _bounded_strings(value: object, label: str) -> tuple[str, ...]:
     return result
 
 
-__all__ = ["ALLOWED_TRANSITIONS", "ToolResultAttestationError", "request_from_attestation"]
+__all__ = ["ALLOWED_TRANSITIONS", "ToolResultAttestationError", "request_from_attestation", "structural_digest"]

@@ -64,3 +64,19 @@ def test_policy_class_aliases_map_to_the_wire_boundary_kinds() -> None:
         assert result.boundary_kind == wire_kind
         if supplied == "user-override":
             assert result.risk == "critical" and result.approval_delta is True
+
+
+def test_read_only_architecture_is_low_but_material_actions_keep_declared_risk() -> None:
+    assert classify_boundary("read README.md and summarize the architecture").risk == "low"
+    for prompt in (
+        "implement the bounded policy parser",
+        "run focused verification for the candidate",
+        "design a versioned decision packet",
+        "mitigate accepted findings in one batch",
+    ):
+        assert classify_boundary(prompt).risk == "material"
+
+
+def test_complete_concurrency_terms_are_critical() -> None:
+    assert classify_boundary("change concurrent writers and CAS semantics").risk == "critical"
+    assert classify_boundary("repair the concurrency contract").risk == "critical"

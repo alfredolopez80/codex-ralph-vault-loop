@@ -85,3 +85,30 @@ override that permits T14 repo-local shadow execution, and records T14A as a
 repo-local completed amendment. It does not authorize global T15 installation,
 claim full model-quality improvement, or convert structural canary evidence
 into live provider/credit metrics.
+
+## PR #74 direct-fix batch at reviewed HEAD `60da08c`
+
+Status: **BATCH VALIDATED; AGGREGATE GATES PASS**
+
+The content-safe 23-thread adjudication is frozen in
+`pr74-review-adjudication-60da08c.md`. The direct-fix batch addresses root
+causes 1–6 from that artifact without changing the immutable v1 plan bytes,
+activating enforce, installing global hooks, or starting T15.
+
+- focused authority, reducer, store, hook, progress, canary and attestation
+  matrix: `138 passed`;
+- lockstep, hook lifecycle and installed-dispatcher integrations: `89 passed`;
+- hook smoke: `ALL_HOOK_TESTS_PASS`;
+- Ralph memory-flow validation: `PASS` (`ruff` and `mypy` unavailable and
+  explicitly skipped);
+- the complete pytest lane reached `1292 passed, 5 subtests passed` after the
+  lease-CWD and canonical-session fixture updates;
+- the aggregate minimal gate passed with `1 passed, 0 failed, 2 expected
+skips` (no package manifest and security outside minimal mode); and
+- `git diff --check` passes, and the plan bytes remain
+  `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`.
+
+Thread `3761410168` remains `NEEDS_USER_DECISION`: no production actor owns the
+intermediate Aristotle lifecycle. Selecting that producer, its attestation
+schema and its authority would add a trust surface. This batch deliberately
+does not invent or wire one, and T15 remains blocked.

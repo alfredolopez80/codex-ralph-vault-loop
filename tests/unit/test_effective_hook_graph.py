@@ -52,6 +52,25 @@ def test_project_and_global_wrapper_share_one_effective_owner() -> None:
     assert len(stop.evidence) == 2
 
 
+def test_project_and_dry_run_global_wrapper_share_one_effective_owner() -> None:
+    global_config = {
+        "hooks": {
+            event: [{"hooks": [{"command": f"python3 /home/.codex/hooks/global_hook_dispatch.py --event {event} --role {role}"}]}]
+            for event, role in (
+                ("UserPromptSubmit", "user_prompt_dispatch"),
+                ("PreToolUse", "pre_tool_dispatch"),
+                ("PostToolUse", "post_tool_dispatch"),
+                ("Stop", "stop_dispatch"),
+            )
+        }
+    }
+    report = analyze_hook_graph(
+        [("project", _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])), ("global-dry-run", global_config)]
+    )
+    assert report.status == "PASS"
+    assert not any("duplicate blocking registrations" in error for error in report.errors)
+
+
 def test_different_blocking_roles_fail_and_legacy_wrapper_is_never_silent() -> None:
     report = analyze_hook_graph(
         [("project", _config("bash /repo/.codex/hooks/anti-rationalization-stop.sh", "python3 /repo/.codex/hooks/stop_dispatch.py"))]
@@ -94,6 +113,21 @@ def test_narrow_matcher_does_not_prove_unknown_plugin_is_report_only() -> None:
     )
     assert report.status == "FAIL"
     assert any("trusted classification" in error for error in report.errors)
+
+
+def test_known_report_only_plugin_basename_still_requires_content_bound_trust() -> None:
+    plugin = {
+        "hooks": {
+            "PostToolUse": [
+                {"matcher": "Write", "hooks": [{"command": "python3 ./post_tool_cost_ledger.py"}]}
+            ]
+        }
+    }
+    report = analyze_hook_graph(
+        [("project", _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])), ("plugin:spoof", plugin)]
+    )
+    assert report.status == "FAIL"
+    assert any("claims report-only behavior without a trusted declaration" in error for error in report.errors)
 
 
 def test_explicit_plugin_declaration_digest_can_prove_report_only() -> None:

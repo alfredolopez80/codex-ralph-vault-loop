@@ -151,6 +151,14 @@ def ensure_prompt_boundary(
         state = validate_state(current.state)
         _validate_binding(authority, state, attestation=attestation)
         boundary_kind = _wire_boundary_kind(boundary.get("boundary_kind"))
+        rank = {"low": 0, "material": 1, "critical": 2}
+        requested_risk = str(boundary.get("risk") or state.get("risk") or "low")
+        material_delta = (
+            rank.get(requested_risk, 2) > rank.get(str(state.get("risk") or "low"), 0)
+            or boundary.get("scope_delta") is True
+            or boundary.get("obligation_delta") is True
+            or boundary.get("approval_delta") is True
+        )
         if boundary_kind == "new_task":
             candidate = _new_epoch_state(authority, payload, prompt, boundary, state)
             # A repeated boundary for the same normalized work item is a
@@ -162,6 +170,8 @@ def ensure_prompt_boundary(
             # not an attestation of new work and therefore cannot mint fresh
             # budgets for an otherwise identical work item.
             if same_work_item:
+                if material_delta:
+                    raise AuthorityError("convergent-amendment-required")
                 return state
             evidence = attestation.lease_evidence(
                 cwd=str(authority.active.workspace_root),
@@ -185,6 +195,8 @@ def ensure_prompt_boundary(
             except (LeaseError, ConvergentStoreError, ContractError, TypeError, ValueError) as exc:
                 raise AuthorityError("convergent-new-epoch-cannot-be-committed") from exc
         if boundary_kind in {"material_change", "scope_extension", "user_override"}:
+            raise AuthorityError("convergent-amendment-required")
+        if material_delta:
             raise AuthorityError("convergent-amendment-required")
         return state
 
@@ -408,7 +420,7 @@ def _sha_matches(supplied: str, actual: str) -> bool:
         return False
     supplied = supplied.lower()
     actual = actual.lower()
-    if len(supplied) < 7 or len(supplied) > 40 or len(actual) < 7 or len(actual) > 40:
+    if len(supplied) < 7 or len(supplied) > 64 or len(actual) < 7 or len(actual) > 64:
         return False
     return supplied == actual or supplied.startswith(actual) or actual.startswith(supplied)
 

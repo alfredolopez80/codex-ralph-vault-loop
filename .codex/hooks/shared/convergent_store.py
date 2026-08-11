@@ -35,7 +35,7 @@ from .convergent_contracts import (
 from .convergent_reducer import AMEND_ELIGIBLE_PHASES, Reduction, TransitionRequest, reduce_state
 from .decision_packet import AmendmentApproval, DecisionAmendment, DecisionPacketError
 from .execution_policy import ExecutionPolicy, assert_policy_compatible
-from .goal_compiler import GOAL_IDS, PLAN_ID, GoalCompileError, compile_goals
+from .goal_compiler import GoalCompileError, compile_goals
 from .implementation_store import ImplementationStore
 from .implementation_store.io import (
     CorruptRecordError,
@@ -79,6 +79,8 @@ class ExecutionPaths:
     decision_packet: Path
     findings: Path
     final_audit: Path
+    evidence_manifest: Path
+    handoff: Path
     amendments: Path
     amendment_approvals: Path
     tool_results: Path
@@ -125,6 +127,8 @@ class ConvergentStore:
             decision_packet=root / "decision-packet.json",
             findings=root / "findings.json",
             final_audit=root / "final-audit.json",
+            evidence_manifest=root / "evidence-manifest.json",
+            handoff=root / "handoff.json",
             amendments=root / "amendments.jsonl",
             amendment_approvals=root / "amendment-approvals.jsonl",
             tool_results=root / "tool-results.jsonl",
@@ -158,6 +162,7 @@ class ConvergentStore:
                     raise ConvergentStoreError("execution state is already initialized for another task epoch")
                 metadata = self._ensure_goal_artifact(paths, goals)
                 current, snapshot_current = self._replay(initial, snapshot, events)
+                metadata = metadata.plus(self._repair_stale_active_epoch(paths, current, events))
                 self._validate_active_epoch(paths, current)
                 if not snapshot_current:
                     metadata = metadata.plus(publish_json(paths.state, current, hard_limit=MAX_STATE_BYTES))
@@ -221,6 +226,7 @@ class ConvergentStore:
                 if initial != candidate:
                     raise ConvergentStoreError("execution state is already initialized for another task epoch")
                 current, snapshot_current = self._replay(initial, snapshot, events)
+                metadata = metadata.plus(self._repair_stale_active_epoch(paths, current, events))
                 self._validate_active_epoch(paths, current)
             metadata = metadata.plus(self._ensure_goal_artifact(paths, goals))
             operation_digest = request.operation_digest()
@@ -309,6 +315,7 @@ class ConvergentStore:
                     raise ConvergentIntegrityError("execution epoch lacks immutable active state")
                 return self._initialize_boundary_locked(paths, candidate, request, goals, events=())
             current, _snapshot_current = self._replay(initial, snapshot, events)
+            self._repair_stale_active_epoch(paths, current, events)
             self._validate_active_epoch(paths, current)
             if current["task_epoch"] == candidate["task_epoch"]:
                 prior = next((event for event in events if event["operation_id"] == request.operation_id), None)
@@ -353,6 +360,8 @@ class ConvergentStore:
                 paths.decision_packet,
                 paths.findings,
                 paths.final_audit,
+                paths.evidence_manifest,
+                paths.handoff,
                 paths.amendments,
                 paths.amendment_approvals,
                 paths.tool_results,
@@ -490,9 +499,16 @@ class ConvergentStore:
             return ConvergentStoreResult(False, reason="execution state missing")
         events = self._read_events(paths, reject_partial=authoritative)
         replayed, snapshot_current = self._replay(initial, snapshot, events)
+        metadata = self._repair_stale_active_epoch(paths, replayed, events)
         self._validate_active_epoch(paths, replayed)
         self._validate_current_plan_provenance(replayed)
-        return ConvergentStoreResult(False, replayed, reason="read-only replay", replayed=not snapshot_current)
+        return ConvergentStoreResult(
+            metadata.changed,
+            replayed,
+            metadata=metadata,
+            reason="active epoch repaired" if metadata.changed else "read-only replay",
+            replayed=not snapshot_current,
+        )
 
     def transition(self, plan_id: str, request: TransitionRequest) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
@@ -504,6 +520,7 @@ class ConvergentStore:
             snapshot = self._read_state_file(paths.state, label="execution state")
             events = self._read_events(paths, reject_partial=True)
             current, snapshot_current = self._replay(initial, snapshot, events)
+            pointer_metadata = self._repair_stale_active_epoch(paths, current, events)
             self._validate_active_epoch(paths, current)
             assert_policy_compatible(current["policy_hash"], self.policy)
             self._validate_current_plan_provenance(current)
@@ -512,9 +529,9 @@ class ConvergentStore:
             if previous_operation is not None:
                 if previous_operation["operation_digest"] != operation_digest:
                     raise ConvergentIdempotencyError("operation ID conflicts with an earlier material payload")
-                metadata = WriteMetadata()
+                metadata = pointer_metadata
                 if not snapshot_current:
-                    metadata = publish_json(paths.state, current, hard_limit=MAX_STATE_BYTES)
+                    metadata = metadata.plus(publish_json(paths.state, current, hard_limit=MAX_STATE_BYTES))
                 return ConvergentStoreResult(
                     False,
                     current,
@@ -564,7 +581,7 @@ class ConvergentStore:
                 previous_event_hash=events[-1]["event_hash"] if events else "",
                 actor_role=request.actor_role,
             )
-            metadata = tool_result_metadata.plus(append_jsonl(
+            metadata = pointer_metadata.plus(tool_result_metadata).plus(append_jsonl(
                 paths.events,
                 event,
                 hard_limit=MAX_EVENT_BYTES,
@@ -649,6 +666,20 @@ class ConvergentStore:
                 raise ConvergentStoreError("triage findings ledger digest is stale")
             if tuple(sorted(ledger.accepted_ids)) != tuple(sorted(request.accepted_finding_ids)):
                 raise ConvergentStoreError("triage accepted findings do not match the persisted ledger")
+        elif request.transition == "EVIDENCE_RECORDED":
+            self._require_evidence_manifest(
+                paths.evidence_manifest,
+                request.evidence_manifest_digest,
+                current=current,
+                expected_evidence_ids=request.evidence_ids,
+            )
+            if request.handoff_digest:
+                self._require_handoff(
+                    paths.handoff,
+                    request.handoff_digest,
+                    current=current,
+                    evidence_manifest_digest=request.evidence_manifest_digest,
+                )
         elif request.transition == "FINAL_AUDIT_RECORDED":
             audit = self._read_final_audit(paths.final_audit, current=current)
             if audit.audit_digest != request.final_audit_digest:
@@ -658,6 +689,7 @@ class ConvergentStore:
             if request.hard_gates_pass is not audit.passed:
                 raise ConvergentStoreError("final audit hard-gate verdict does not match the typed audit artifact")
             self._require_decision_evidence(paths, current)
+            self._require_completion_evidence(paths, current)
             if current["review"].get("findings_digest"):
                 ledger = self._read_finding_ledger(paths.findings)
                 if ledger.findings_digest != current["review"]["findings_digest"]:
@@ -666,6 +698,8 @@ class ConvergentStore:
             audit = self._read_final_audit(paths.final_audit, current=current)
             if audit.audit_digest != current["completion"].get("final_audit_digest"):
                 raise ConvergentStoreError("close is not bound to the current final audit")
+            self._require_decision_evidence(paths, current)
+            self._require_completion_evidence(paths, current)
 
     def _read_final_audit(self, path: Path, *, current: Mapping[str, Any] | None = None):
         try:
@@ -706,6 +740,8 @@ class ConvergentStore:
                 if not isinstance(values, list) or any(not isinstance(item, str) or not item for item in values):
                     raise ConvergentStoreError(f"final audit {label} is invalid")
             if current is not None:
+                if not self.checkout_head_digest:
+                    raise ConvergentStoreError("final audit requires an independently resolved checkout HEAD")
                 identity = current.get("task_identity") if isinstance(current.get("task_identity"), Mapping) else {}
                 expected = {
                     "packet_fingerprint": current.get("aristotle", {}).get("decision_fingerprint"),
@@ -717,10 +753,20 @@ class ConvergentStore:
                 }
                 if any(payload.get(label) != value for label, value in expected.items()):
                     raise ConvergentStoreError("final audit artifact is not bound to the canonical state")
-                if self.checkout_head_digest and payload.get("head_digest") != self.checkout_head_digest:
+                if payload.get("head_digest") != self.checkout_head_digest:
                     raise ConvergentStoreError("final audit artifact does not bind the actual checkout HEAD")
                 accepted = tuple(sorted(payload.get("accepted_finding_ids", [])))
                 closed = tuple(sorted(payload.get("closed_finding_ids", [])))
+                findings_digest = current.get("review", {}).get("findings_digest")
+                if findings_digest:
+                    ledger = self._read_finding_ledger(path.parent / "findings.json")
+                    if ledger.findings_digest != findings_digest:
+                        raise ConvergentStoreError("final audit findings ledger is stale")
+                    ledger_ids = {finding.finding_id for finding in ledger.findings}
+                    if accepted != tuple(sorted(ledger.accepted_ids)):
+                        raise ConvergentStoreError("final audit accepted findings differ from the persisted ledger")
+                    if set(closed) - ledger_ids:
+                        raise ConvergentStoreError("final audit closes findings absent from the persisted ledger")
                 if set(accepted) - set(closed):
                     raise ConvergentStoreError("final audit leaves accepted findings open")
             return result
@@ -829,7 +875,7 @@ class ConvergentStore:
         aristotle = current.get("aristotle") if isinstance(current.get("aristotle"), Mapping) else {}
         tier = str(aristotle.get("tier") or "")
         expected = str(aristotle.get("decision_fingerprint") or "")
-        if tier in {"full", "critical"}:
+        if tier in {"full", "critical"} or int(aristotle.get("amendments") or 0) > 0:
             ConvergentStore._require_packet_digest(
                 paths.decision_packet,
                 expected,
@@ -843,6 +889,147 @@ class ConvergentStore:
             current=current,
             tier=tier,
             decision_version=int(aristotle.get("decision_version") or 0),
+        )
+
+    @staticmethod
+    def _validate_evidence_manifest_payload(
+        payload: Mapping[str, Any],
+        *,
+        current: Mapping[str, Any],
+        exact_generation: bool = True,
+    ) -> None:
+        required = {
+            "schema_version",
+            "task_id",
+            "task_epoch",
+            "plan_digest",
+            "decision_fingerprint",
+            "state_generation",
+            "evidence_ids",
+        }
+        if set(payload) != required or payload.get("schema_version") != 1:
+            raise ConvergentStoreError("evidence manifest schema is invalid")
+        generation = payload.get("state_generation")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise ConvergentStoreError("evidence manifest generation is invalid")
+        if exact_generation and generation != current.get("generation"):
+            raise ConvergentStoreError("evidence manifest generation is stale")
+        if not exact_generation and generation > int(current.get("generation") or 0):
+            raise ConvergentStoreError("evidence manifest generation is from the future")
+        expected = {
+            "task_id": current.get("task_id"),
+            "task_epoch": current.get("task_epoch"),
+            "plan_digest": current.get("plan_digest"),
+            "decision_fingerprint": current.get("aristotle", {}).get("decision_fingerprint"),
+        }
+        if any(payload.get(key) != value for key, value in expected.items()):
+            raise ConvergentStoreError("evidence manifest is not bound to the canonical state")
+        evidence_ids = payload.get("evidence_ids")
+        if (
+            not isinstance(evidence_ids, list)
+            or len(evidence_ids) > 64
+            or any(not isinstance(item, str) or not item or len(item) > 180 for item in evidence_ids)
+            or len(set(evidence_ids)) != len(evidence_ids)
+        ):
+            raise ConvergentStoreError("evidence manifest identifiers are invalid")
+
+    @staticmethod
+    def _validate_handoff_payload(
+        payload: Mapping[str, Any],
+        *,
+        current: Mapping[str, Any],
+        exact_generation: bool = True,
+    ) -> None:
+        required = {
+            "schema_version",
+            "task_id",
+            "task_epoch",
+            "plan_digest",
+            "decision_fingerprint",
+            "state_generation",
+            "evidence_manifest_digest",
+        }
+        if set(payload) != required or payload.get("schema_version") != 1:
+            raise ConvergentStoreError("handoff schema is invalid")
+        generation = payload.get("state_generation")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise ConvergentStoreError("handoff generation is invalid")
+        if exact_generation and generation != current.get("generation"):
+            raise ConvergentStoreError("handoff generation is stale")
+        if not exact_generation and generation > int(current.get("generation") or 0):
+            raise ConvergentStoreError("handoff generation is from the future")
+        expected = {
+            "task_id": current.get("task_id"),
+            "task_epoch": current.get("task_epoch"),
+            "plan_digest": current.get("plan_digest"),
+            "decision_fingerprint": current.get("aristotle", {}).get("decision_fingerprint"),
+        }
+        if any(payload.get(key) != value for key, value in expected.items()):
+            raise ConvergentStoreError("handoff is not bound to the canonical state")
+        manifest_digest = payload.get("evidence_manifest_digest")
+        if not isinstance(manifest_digest, str) or not SHA256_RE.fullmatch(manifest_digest):
+            raise ConvergentStoreError("handoff evidence manifest digest is invalid")
+
+    @staticmethod
+    def _require_evidence_manifest(
+        path: Path,
+        expected: str,
+        *,
+        current: Mapping[str, Any],
+        expected_evidence_ids: tuple[str, ...] | None = None,
+    ) -> None:
+        try:
+            payload = read_json(path, lambda value: deepcopy(dict(value)), label="execution evidence manifest", hard_limit=MAX_STATE_BYTES)
+        except (CorruptRecordError, TypeError, ValueError) as exc:
+            raise ConvergentStoreError("persisted evidence manifest is missing or invalid") from exc
+        if not isinstance(payload, Mapping):
+            raise ConvergentStoreError("persisted evidence manifest is missing or invalid")
+        ConvergentStore._validate_evidence_manifest_payload(payload, current=current, exact_generation=False)
+        if digest_value(payload) != expected:
+            raise ConvergentStoreError("evidence manifest digest is not bound to persisted evidence")
+        if expected_evidence_ids is not None and tuple(payload["evidence_ids"]) != tuple(expected_evidence_ids):
+            raise ConvergentStoreError("evidence manifest identifiers do not match the transition")
+
+    @staticmethod
+    def _require_handoff(
+        path: Path,
+        expected: str,
+        *,
+        current: Mapping[str, Any],
+        evidence_manifest_digest: str,
+    ) -> None:
+        try:
+            payload = read_json(path, lambda value: deepcopy(dict(value)), label="execution handoff", hard_limit=MAX_STATE_BYTES)
+        except (CorruptRecordError, TypeError, ValueError) as exc:
+            raise ConvergentStoreError("persisted handoff is missing or invalid") from exc
+        if not isinstance(payload, Mapping):
+            raise ConvergentStoreError("persisted handoff is missing or invalid")
+        ConvergentStore._validate_handoff_payload(payload, current=current, exact_generation=False)
+        if digest_value(payload) != expected or payload.get("evidence_manifest_digest") != evidence_manifest_digest:
+            raise ConvergentStoreError("handoff digest is not bound to persisted evidence")
+
+    def _require_completion_evidence(self, paths: ExecutionPaths, current: Mapping[str, Any]) -> None:
+        completion = current.get("completion") if isinstance(current.get("completion"), Mapping) else {}
+        manifest_digest = str(completion.get("evidence_manifest_digest") or "")
+        handoff_digest = str(completion.get("handoff_digest") or "")
+        if not manifest_digest or completion.get("handoff_published") is not True or not handoff_digest:
+            raise ConvergentStoreError("completion evidence artifacts are incomplete")
+        if paths.evidence_manifest.exists():
+            self._require_evidence_manifest(paths.evidence_manifest, manifest_digest, current=current)
+        else:
+            records = self._read_tool_result_records(paths)
+            if not any(
+                row.get("task_id") == current.get("task_id")
+                and row.get("task_epoch") == current.get("task_epoch")
+                and row.get("evidence_manifest_digest") == manifest_digest
+                for row in records
+            ):
+                raise ConvergentStoreError("completion evidence has no persisted manifest or tool-result record")
+        self._require_handoff(
+            paths.handoff,
+            handoff_digest,
+            current=current,
+            evidence_manifest_digest=manifest_digest,
         )
 
     @staticmethod
@@ -892,9 +1079,16 @@ class ConvergentStore:
             snapshot = self._read_state_file(paths.state, label="execution state")
             events = self._read_events(paths, reject_partial=True)
             current, snapshot_current = self._replay(initial, snapshot, events)
+            pointer_metadata = self._repair_stale_active_epoch(paths, current, events)
+            self._validate_active_epoch(paths, current)
             if snapshot_current:
-                return ConvergentStoreResult(False, current, reason="already current")
-            metadata = publish_json(paths.state, current, hard_limit=MAX_STATE_BYTES)
+                return ConvergentStoreResult(
+                    pointer_metadata.changed,
+                    current,
+                    metadata=pointer_metadata,
+                    reason="active epoch repaired" if pointer_metadata.changed else "already current",
+                )
+            metadata = pointer_metadata.plus(publish_json(paths.state, current, hard_limit=MAX_STATE_BYTES))
             return ConvergentStoreResult(True, current, metadata=metadata, reason="journal replayed", replayed=True)
 
     def publish_artifact(self, plan_id: str, name: str, payload: Mapping[str, Any]) -> WriteMetadata:
@@ -907,6 +1101,8 @@ class ConvergentStore:
             "decision-packet": paths.decision_packet,
             "findings": paths.findings,
             "final-audit": paths.final_audit,
+            "evidence-manifest": paths.evidence_manifest,
+            "handoff": paths.handoff,
         }
         if name not in allowed:
             raise ConvergentStoreError("unsupported execution artifact")
@@ -935,7 +1131,7 @@ class ConvergentStore:
                     and row.get("new_decision_fingerprint")
                     for row in amendments
                 )
-                if not pending_amendment:
+                if current["phase"] not in AMEND_ELIGIBLE_PHASES or not pending_amendment:
                     raise ConvergentStoreError("Decision Packet artifact is immutable without a material amendment")
             if name == "findings" and current["review"].get("findings_digest"):
                 # Review records the pending ledger before triage. Exactly one
@@ -949,6 +1145,10 @@ class ConvergentStore:
                 raise ConvergentStoreError("final-audit artifact is immutable after audit recording")
             if name == "aristotle-evidence" and current["aristotle"].get("decision_fingerprint"):
                 raise ConvergentStoreError("Aristotle evidence is immutable after analysis recording")
+            if name == "evidence-manifest":
+                self._validate_evidence_manifest_payload(encoded, current=current)
+            if name == "handoff":
+                self._validate_handoff_payload(encoded, current=current)
             return publish_json(allowed[name], encoded, hard_limit=MAX_STATE_BYTES)
 
     @staticmethod
@@ -1154,18 +1354,19 @@ class ConvergentStore:
     def _compile_goal_artifact(self, state: Mapping[str, Any], *, active_plan: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
             goal_id = str(state["goal_id"])
-            known_goal_ids = GOAL_IDS if state["plan_id"] == PLAN_ID else (goal_id,)
+            compilation_args = {
+                "plan_id": str(state["plan_id"]),
+                "plan_version": int(state["plan_version"]),
+                "plan_digest": str(state["plan_digest"]),
+                "state_generation": int(state["generation"]),
+                "active_plan": active_plan,
+                "decision_packet": active_plan.get("latest_decision") if isinstance(active_plan, Mapping) else None,
+                "goal_id": goal_id,
+            }
+            declared = compile_goals(completed=(), **compilation_args)
+            known_goal_ids = tuple(goal.goal_id for goal in declared)
             goal_index = known_goal_ids.index(goal_id)
-            goals = compile_goals(
-                plan_id=str(state["plan_id"]),
-                plan_version=int(state["plan_version"]),
-                plan_digest=str(state["plan_digest"]),
-                state_generation=int(state["generation"]),
-                completed=known_goal_ids[:goal_index],
-                active_plan=active_plan,
-                decision_packet=active_plan.get("latest_decision") if isinstance(active_plan, Mapping) else None,
-                goal_id=goal_id,
-            )
+            goals = compile_goals(completed=known_goal_ids[:goal_index], **compilation_args)
         except (GoalCompileError, ValueError) as exc:
             raise ConvergentStoreError("execution state cannot compile the approved serial goal set") from exc
         return {
@@ -1210,6 +1411,8 @@ class ConvergentStore:
             "decision-packet.json",
             "findings.json",
             "final-audit.json",
+            "evidence-manifest.json",
+            "handoff.json",
             "amendments.jsonl",
             "amendment-approvals.jsonl",
             "tool-results.jsonl",
@@ -1382,6 +1585,22 @@ class ConvergentStore:
         epoch.
         """
 
+        payload = self._active_epoch_payload(
+            state,
+            operation_id=request.operation_id,
+            operation_digest=request.operation_digest(),
+            previous_epoch_id=previous_epoch_id,
+        )
+        return publish_json(paths.active_epoch, payload, hard_limit=MAX_STATE_BYTES)
+
+    @staticmethod
+    def _active_epoch_payload(
+        state: Mapping[str, Any],
+        *,
+        operation_id: str,
+        operation_digest: str,
+        previous_epoch_id: str,
+    ) -> dict[str, Any]:
         material = {
             "schema_version": 1,
             "plan_id": state["plan_id"],
@@ -1394,18 +1613,37 @@ class ConvergentStore:
             "task_id": str(state["task_id"]),
             "state_generation": int(state["generation"]),
             "state_hash": str(state["state_hash"]),
-            "activation_operation_id": request.operation_id,
-            "activation_operation_digest": request.operation_digest(),
+            "activation_operation_id": operation_id,
+            "activation_operation_digest": operation_digest,
             "previous_epoch_id": previous_epoch_id,
         }
-        payload = {**material, "pointer_digest": digest_value(material)}
-        return publish_json(paths.active_epoch, payload, hard_limit=MAX_STATE_BYTES)
+        return {**material, "pointer_digest": digest_value(material)}
 
-    def _validate_active_epoch(self, paths: ExecutionPaths, state: Mapping[str, Any]) -> None:
-        """Fail closed on a present but stale/corrupt active epoch marker."""
+    @staticmethod
+    def _active_epoch_fields() -> frozenset[str]:
+        return frozenset(
+            {
+                "schema_version",
+                "plan_id",
+                "plan_version",
+                "plan_digest",
+                "control_generation",
+                "epoch_sequence",
+                "epoch_id",
+                "task_epoch_digest",
+                "task_id",
+                "state_generation",
+                "state_hash",
+                "activation_operation_id",
+                "activation_operation_digest",
+                "previous_epoch_id",
+                "pointer_digest",
+            }
+        )
 
+    def _read_active_epoch_pointer(self, paths: ExecutionPaths) -> Mapping[str, Any] | None:
         if not paths.active_epoch.exists():
-            return
+            return None
         try:
             pointer = read_json(
                 paths.active_epoch,
@@ -1415,28 +1653,70 @@ class ConvergentStore:
             )
         except CorruptRecordError as exc:
             raise ConvergentIntegrityError(str(exc)) from exc
-        required = {
-            "schema_version",
-            "plan_id",
-            "plan_version",
-            "plan_digest",
-            "control_generation",
-            "epoch_sequence",
-            "epoch_id",
-            "task_epoch_digest",
-            "task_id",
-            "state_generation",
-            "state_hash",
-            "activation_operation_id",
-            "activation_operation_digest",
-            "previous_epoch_id",
-            "pointer_digest",
-        }
+        required = self._active_epoch_fields()
         if not isinstance(pointer, Mapping) or set(pointer) != required:
             raise ConvergentIntegrityError("active epoch pointer schema is invalid")
         material = {key: pointer[key] for key in sorted(required - {"pointer_digest"})}
         if pointer.get("pointer_digest") != digest_value(material):
             raise ConvergentIntegrityError("active epoch pointer digest is invalid")
+        return pointer
+
+    def _repair_stale_active_epoch(
+        self,
+        paths: ExecutionPaths,
+        state: Mapping[str, Any],
+        events: tuple[Mapping[str, Any], ...],
+    ) -> WriteMetadata:
+        """Repair only a digest-valid pointer lagging a committed event."""
+
+        pointer = self._read_active_epoch_pointer(paths)
+        if pointer is None:
+            return WriteMetadata()
+        immutable_expected = {
+            "schema_version": 1,
+            "plan_id": state.get("plan_id"),
+            "plan_version": state.get("plan_version"),
+            "plan_digest": state.get("plan_digest"),
+            "control_generation": 2,
+            "epoch_sequence": int(state.get("boundary_epoch") or 0),
+            "epoch_id": state.get("task_epoch"),
+            "task_epoch_digest": digest_text(str(state.get("task_epoch"))),
+            "task_id": state.get("task_id"),
+        }
+        if any(pointer.get(key) != value for key, value in immutable_expected.items()):
+            raise ConvergentIntegrityError("active epoch pointer does not bind the current task epoch")
+        pointer_generation = pointer.get("state_generation")
+        if isinstance(pointer_generation, bool) or not isinstance(pointer_generation, int):
+            raise ConvergentIntegrityError("active epoch pointer generation is invalid")
+        current_generation = int(state.get("generation") or 0)
+        if pointer_generation > current_generation:
+            raise ConvergentIntegrityError("active epoch pointer is ahead of the journal")
+        historic = next((event for event in events if event.get("generation") == pointer_generation), None)
+        if historic is None or (
+            pointer.get("state_hash") != historic.get("new_state_hash")
+            or pointer.get("activation_operation_id") != historic.get("operation_id")
+            or pointer.get("activation_operation_digest") != historic.get("operation_digest")
+        ):
+            raise ConvergentIntegrityError("active epoch pointer is not bound to a committed event")
+        if pointer_generation == current_generation:
+            return WriteMetadata()
+        latest = events[-1] if events else None
+        if latest is None or latest.get("generation") != current_generation or latest.get("new_state_hash") != state.get("state_hash"):
+            raise ConvergentIntegrityError("active epoch pointer cannot be repaired from the journal")
+        repaired = self._active_epoch_payload(
+            state,
+            operation_id=str(latest["operation_id"]),
+            operation_digest=str(latest["operation_digest"]),
+            previous_epoch_id=str(pointer.get("previous_epoch_id") or ""),
+        )
+        return publish_json(paths.active_epoch, repaired, hard_limit=MAX_STATE_BYTES)
+
+    def _validate_active_epoch(self, paths: ExecutionPaths, state: Mapping[str, Any]) -> None:
+        """Fail closed on a present but stale/corrupt active epoch marker."""
+
+        pointer = self._read_active_epoch_pointer(paths)
+        if pointer is None:
+            return
         if (
             pointer.get("plan_id") != state.get("plan_id")
             or pointer.get("plan_version") != state.get("plan_version")

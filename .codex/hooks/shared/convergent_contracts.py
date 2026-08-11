@@ -447,6 +447,8 @@ def validate_state(value: Mapping[str, Any]) -> dict[str, Any]:
     if lease is not None:
         if lease["branch_fingerprint"] != digest_text(identity["branch"]):
             raise ContractError("execution lease branch differs from task identity")
+        if lease["cwd_fingerprint"] != identity["worktree_id"]:
+            raise ContractError("execution lease CWD differs from task identity")
         if lease["task_epoch_fingerprint"] != digest_text(normalized["task_epoch"]):
             raise ContractError("execution lease task epoch differs from control state")
         if lease["issued_generation"] > normalized["generation"]:

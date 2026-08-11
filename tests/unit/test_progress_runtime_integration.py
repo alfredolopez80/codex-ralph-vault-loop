@@ -228,6 +228,25 @@ def test_stop_completion_rejects_corrupt_state_and_survives_deleted_worktree(tmp
     assert state.exists()
 
 
+def test_deleted_worktree_recovery_rejects_foreign_repository_identity(tmp_path: Path) -> None:
+    root, store = _fixture(tmp_path)
+    payload = {
+        "cwd": str(tmp_path / "deleted-worktree"),
+        "primary_repo_root": str(root),
+        "session_id": "progress-session",
+        "progress_plan_id": "progress",
+        "repository_id": "sha256:" + "f" * 64,
+    }
+    assert payload["repository_id"] != store.read_manifest()["canonical_repo_identity"]
+    context = active_context_from_payload(payload, resolve_git=False)
+
+    lookup = cheap_lookup(context, payload)
+
+    assert lookup.available is False
+    assert lookup.identity is None
+    assert lookup.resolution.reason == "repository_identity_mismatch"
+
+
 def test_stop_completion_rejects_future_schema_without_downgrade(tmp_path: Path) -> None:
     root, store = _fixture(tmp_path)
     state = store.plan_paths("progress").state

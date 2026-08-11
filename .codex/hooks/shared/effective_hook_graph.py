@@ -174,6 +174,24 @@ def analyze_hook_graph(
                     if role == "anti_rationalization_stop":
                         legacy_registered = True
                     domain = domain_for_role(role)
+                    if (
+                        source.startswith("plugin:")
+                        and domain is not None
+                        and role in REPORT_ONLY_ROLES[domain]
+                    ):
+                        trusted_domain = _trusted_report_only_domain(
+                            trusted_report_only,
+                            source,
+                            event,
+                            group.get("matcher"),
+                            command,
+                            config.get("_ralph_verified_bundle"),
+                        )
+                        if trusted_domain != domain:
+                            errors.append(
+                                f"{source}:{event}:{role} claims report-only behavior without a trusted declaration digest"
+                            )
+                            continue
                     if domain is not None and REQUIRED_EVENTS[domain] != event:
                         errors.append(
                             f"{source}:{event}:{role} is registered under {event}; "
@@ -229,7 +247,7 @@ def _suppressed_global_registration(entry: HookEntry, entries: list[HookEntry]) 
     registrations, which remain a blocking duplicate and must fail closed.
     """
 
-    if entry.source != "global" or "global_hook_dispatch.py" not in entry.command:
+    if entry.source not in {"global", "global-dry-run"} or "global_hook_dispatch.py" not in entry.command:
         return False
     return any(
         other is not entry

@@ -34,8 +34,10 @@ from shared.convergent_store import (  # noqa: E402
     ConvergentStore,
 )
 from shared.decision_packet import AmendmentApproval, DecisionAmendment  # noqa: E402
+from shared.convergent_review import FindingLedger, ReviewFinding  # noqa: E402
 from shared.execution_lease import LeaseEvidence, acquire_execution_lease  # noqa: E402
 from shared.execution_policy import PolicyDriftError, load_execution_policy  # noqa: E402
+from shared.final_audit import AUDIT_CHECKS, run_final_audit  # noqa: E402
 from shared.goal_compiler import GOAL_IDS, PLAN_ID  # noqa: E402
 from shared.implementation_store import ImplementationStore, resolve_store_paths  # noqa: E402
 
@@ -105,7 +107,7 @@ def boundary_request(state: dict, operation_id: str = "op-boundary") -> Transiti
         model="gpt-5.6-sol",
         reasoning_effort="max",
         tools=("apply_patch", "exec_command"),
-        cwd=str(ROOT),
+        cwd="workspace-store",
         branch="codex/ralph-convergent-execution-v4",
         task_epoch="epoch-store",
         owner_role="sol-worker",
@@ -150,7 +152,7 @@ def epoch_candidate(epoch: str, objective: str, boundary_epoch: int, operation_i
         model="gpt-5.6-sol",
         reasoning_effort="max",
         tools=("apply_patch", "exec_command"),
-        cwd=str(ROOT),
+        cwd="workspace-store",
         branch="codex/ralph-convergent-execution-v4",
         task_epoch=epoch,
         owner_role="sol-worker",
@@ -297,7 +299,7 @@ def test_new_task_epoch_rotation_preserves_prior_state_and_publishes_cas_pointer
         model="gpt-5.6-sol",
         reasoning_effort="max",
         tools=("apply_patch", "exec_command"),
-        cwd=str(ROOT),
+        cwd="workspace-store",
         branch="codex/ralph-convergent-execution-v4",
         task_epoch="epoch-new",
         owner_role="sol-worker",
@@ -323,6 +325,47 @@ def test_new_task_epoch_rotation_preserves_prior_state_and_publishes_cas_pointer
     retry = store.rotate_epoch_and_transition(candidate, request)
     assert retry.changed is False
     assert retry.replayed is True
+
+
+@pytest.mark.parametrize("recovery", ["authoritative_read", "explicit_replay"])
+def test_stale_same_epoch_pointer_repairs_from_committed_journal(
+    tmp_path: Path, monkeypatch, recovery: str
+) -> None:
+    _root, store = make_store(tmp_path)
+    store.start(initial_state())
+    candidate, rotate = epoch_candidate("epoch-pointer", "pointer recovery", 2, "rotate-pointer")
+    rotated = store.rotate_epoch_and_transition(candidate, rotate)
+    assert rotated.state is not None
+    paths = store.paths(PLAN_ID)
+    stale_pointer = json.loads(paths.active_epoch.read_text(encoding="utf-8"))
+
+    def fail_pointer(*_args, **_kwargs):
+        raise RuntimeError("simulated pointer publication crash")
+
+    monkeypatch.setattr(store, "_publish_active_epoch", fail_pointer)
+    with pytest.raises(RuntimeError, match="pointer publication"):
+        store.transition(
+            PLAN_ID,
+            TransitionRequest(
+                operation_id="block-after-pointer",
+                transition="BLOCK",
+                expected_generation=rotated.state["generation"],
+                reason="bounded-block",
+            ),
+        )
+    monkeypatch.undo()
+    assert json.loads(paths.active_epoch.read_text(encoding="utf-8")) == stale_pointer
+    recovered = (
+        store.replay(PLAN_ID)
+        if recovery == "explicit_replay"
+        else store.read_current(PLAN_ID, authoritative=True)
+    )
+    assert recovered.changed is True
+    assert recovered.reason == "active epoch repaired"
+    assert recovered.state is not None and recovered.state["status"] == "blocked"
+    pointer = json.loads(paths.active_epoch.read_text(encoding="utf-8"))
+    assert pointer["state_generation"] == recovered.state["generation"]
+    assert pointer["state_hash"] == recovered.state["state_hash"]
 
 
 def test_pending_epoch_rotation_recovers_partial_archive_before_authoritative_read(tmp_path: Path) -> None:
@@ -499,6 +542,187 @@ def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_pat
     assert goals["goals"][0]["objective"] == "Validate a user-owned execution plan."
 
 
+def test_selected_non_rollout_goal_compiles_its_full_serial_prefix(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    active_plan = {
+        "plan_path": ".ralph/plans/custom.md",
+        "classification": "YELLOW",
+        "goals": [
+            {"goal_id": "G-FIRST", "objective": "First bounded goal."},
+            {"goal_id": "G-SECOND", "objective": "Second bounded goal."},
+            {"goal_id": "G-THIRD", "objective": "Third bounded goal."},
+        ],
+    }
+    artifact = store._compile_goal_artifact(
+        {
+            "plan_id": "custom-multi-goal",
+            "plan_version": 1,
+            "plan_digest": digest_value("custom-plan"),
+            "generation": 4,
+            "goal_id": "G-SECOND",
+        },
+        active_plan=active_plan,
+    )
+    assert [goal["goal_id"] for goal in artifact["goals"]] == ["G-FIRST", "G-SECOND", "G-THIRD"]
+    assert [goal["status"] for goal in artifact["goals"]] == ["complete", "ready", "pending"]
+
+
+def test_final_audit_requires_checkout_head_and_exact_persisted_finding_ledger(tmp_path: Path) -> None:
+    _root, unbound = make_store(tmp_path)
+    paths = unbound.paths(PLAN_ID)
+    unbound._ensure_layout(PLAN_ID)
+    finding = ReviewFinding(
+        finding_id="F-1",
+        severity="P1",
+        location="store.py:1",
+        root_cause="Missing binding",
+        impact="Incorrect close",
+        evidence_ids=("EV-1",),
+        recommendation="Bind the ledger",
+        triage_status="accepted",
+    )
+    ledger = FindingLedger.create(risk="material", review_pass=1, review_owner="reviewer", findings=(finding,))
+    ledger_payload = {
+        "risk": ledger.risk,
+        "review_pass": ledger.review_pass,
+        "review_owner": ledger.review_owner,
+        "findings": [item.as_dict() for item in ledger.findings],
+        "findings_digest": ledger.findings_digest,
+    }
+    paths.findings.write_text(json.dumps(ledger_payload), encoding="utf-8")
+    paths.findings.chmod(0o600)
+    evidence = {check: {"passed": True, "evidence_ids": [f"EV-{index}"]} for index, check in enumerate(AUDIT_CHECKS)}
+    audit = run_final_audit(evidence)
+    head_digest = digest_value("checkout-head")
+    current = {
+        "aristotle": {"decision_fingerprint": digest_value("packet")},
+        "plan_digest": PLAN_DIGEST,
+        "policy_hash": load_execution_policy().policy_hash,
+        "completion": {"evidence_manifest_digest": digest_value("manifest")},
+        "task_identity": {"branch": "codex/ralph-convergent-execution-v4", "worktree_id": digest_value("worktree")},
+        "review": {"findings_digest": ledger.findings_digest},
+    }
+    audit_payload = {
+        "evidence": evidence,
+        "audit_digest": audit.audit_digest,
+        "packet_fingerprint": current["aristotle"]["decision_fingerprint"],
+        "plan_digest": current["plan_digest"],
+        "policy_hash": current["policy_hash"],
+        "evidence_manifest_digest": current["completion"]["evidence_manifest_digest"],
+        "branch": current["task_identity"]["branch"],
+        "head_digest": head_digest,
+        "worktree_id": current["task_identity"]["worktree_id"],
+        "accepted_finding_ids": [],
+        "closed_finding_ids": [],
+    }
+    paths.final_audit.write_text(json.dumps(audit_payload), encoding="utf-8")
+    paths.final_audit.chmod(0o600)
+    with pytest.raises(store_module.ConvergentStoreError, match="resolved checkout HEAD"):
+        unbound._read_final_audit(paths.final_audit, current=current)
+    bound = ConvergentStore(unbound.progress, load_execution_policy(), checkout_head_digest=head_digest)
+    with pytest.raises(store_module.ConvergentStoreError, match="accepted findings differ"):
+        bound._read_final_audit(paths.final_audit, current=current)
+    audit_payload["accepted_finding_ids"] = ["F-1"]
+    audit_payload["closed_finding_ids"] = ["F-1"]
+    paths.final_audit.write_text(json.dumps(audit_payload), encoding="utf-8")
+    assert bound._read_final_audit(paths.final_audit, current=current).passed is True
+
+
+def test_completion_digests_require_task_bound_persisted_artifacts(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    paths = store.paths(PLAN_ID)
+    store._ensure_layout(PLAN_ID)
+    current = {
+        "task_id": digest_value("task"),
+        "task_epoch": "epoch-artifacts",
+        "plan_digest": PLAN_DIGEST,
+        "generation": 7,
+        "aristotle": {"decision_fingerprint": digest_value("packet")},
+    }
+    manifest = {
+        "schema_version": 1,
+        "task_id": current["task_id"],
+        "task_epoch": current["task_epoch"],
+        "plan_digest": current["plan_digest"],
+        "decision_fingerprint": current["aristotle"]["decision_fingerprint"],
+        "state_generation": current["generation"],
+        "evidence_ids": ["EV-1"],
+    }
+    manifest_digest = digest_value(manifest)
+    handoff = {
+        "schema_version": 1,
+        "task_id": current["task_id"],
+        "task_epoch": current["task_epoch"],
+        "plan_digest": current["plan_digest"],
+        "decision_fingerprint": current["aristotle"]["decision_fingerprint"],
+        "state_generation": current["generation"],
+        "evidence_manifest_digest": manifest_digest,
+    }
+    current["completion"] = {
+        "evidence_manifest_digest": manifest_digest,
+        "handoff_digest": digest_value(handoff),
+        "handoff_published": True,
+    }
+    with pytest.raises(store_module.ConvergentStoreError, match="no persisted manifest"):
+        store._require_completion_evidence(paths, current)
+    paths.evidence_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    paths.evidence_manifest.chmod(0o600)
+    paths.handoff.write_text(json.dumps(handoff), encoding="utf-8")
+    paths.handoff.chmod(0o600)
+    store._require_completion_evidence(paths, current)
+
+
+def test_amended_low_risk_decision_requires_packet_evidence(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    current = {
+        "task_epoch": "epoch-store",
+        "aristotle": {
+            "tier": "quick",
+            "amendments": 1,
+            "decision_fingerprint": digest_value("packet-v2"),
+            "decision_version": 2,
+        },
+    }
+    with pytest.raises(store_module.ConvergentStoreError, match="Decision Packet"):
+        store._require_decision_evidence(store.paths(PLAN_ID), current)
+
+
+def test_final_audit_rejects_amendment_append_and_packet_replacement(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    current = initial_state()
+    lease = boundary_request(current).lease
+    assert lease is not None
+    current["execution_lease"] = lease.as_dict()
+    current["phase"] = "final_audit"
+    current["aristotle"].update(
+        {"tier": "quick", "decision_version": 1, "decision_fingerprint": digest_value("packet-v1")}
+    )
+    current["state_hash"] = ""
+    current["state_hash"] = state_hash(current)
+    store.start(current)
+    amendment = DecisionAmendment.create(
+        amendment_id="AMD-final-audit",
+        task_epoch="epoch-store",
+        prior_decision_version=1,
+        new_decision_version=2,
+        prior_decision_fingerprint=digest_value("packet-v1"),
+        new_evidence=("EV-late",),
+        invalidated_assumption="Final audit found a late material change.",
+        affected_invariants=("Review finality",),
+        design_impact="Return to an amendment-eligible phase.",
+        changed_steps=("S-late",),
+        unchanged_steps=(),
+        verification_changes=("Re-run final audit",),
+        approval_required=True,
+        new_decision_fingerprint=digest_value("packet-v2"),
+    )
+
+    with pytest.raises(store_module.ConvergentStoreError, match="cannot commit from the current phase"):
+        store.append_amendment(PLAN_ID, amendment)
+    with pytest.raises(store_module.ConvergentStoreError, match="immutable without a material amendment"):
+        store.publish_artifact(PLAN_ID, "decision-packet", {"schema_version": 1})
+
+
 def test_plan_provenance_rejects_oversized_plan_before_reading(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     progress = ImplementationStore(resolve_store_paths(primary_root=root))
@@ -636,7 +860,7 @@ def test_machine_artifacts_are_immutable_after_close(tmp_path: Path) -> None:
             model="gpt-5.6-sol",
             reasoning_effort="max",
             tools=("apply_patch", "exec_command"),
-            cwd=str(ROOT),
+            cwd="workspace-store",
             branch="codex/ralph-convergent-execution-v4",
             task_epoch="epoch-store",
             owner_role="sol-worker",

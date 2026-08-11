@@ -696,7 +696,11 @@ def run(payload: Mapping[str, object]) -> str:
         proper_session = payload.get("hook_event_name") in (None, "", "SessionStart") and bool(
             payload.get("source") or payload.get("session_source") or payload.get("sessionSource")
         )
-        if explicit_progress or (proper_session and (progress_lookup.identity is not None or not explicit_identity)):
+        canonical_claimed = (
+            progress_lookup.identity is not None
+            or progress_lookup.resolution.reason != "state_unavailable"
+        )
+        if explicit_progress or (proper_session and (canonical_claimed or not explicit_identity)):
             return _run_progress_session(payload, context, profile, source, progress_lookup)
     with contextlib.suppress(Exception):
         enqueue_maintenance(context, reason_code=f"session_start_{source}", payload=payload)

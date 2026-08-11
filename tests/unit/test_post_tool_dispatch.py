@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / ".codex" / "hooks" / "post_tool_dispatch.py"
 if str(ROOT / ".codex" / "hooks") not in sys.path:
@@ -129,6 +131,38 @@ def test_enforced_successful_read_is_a_physical_noop(tmp_path: Path) -> None:
     assert runtime_files(tmp_path) == []
 
 
+def test_attached_transition_on_read_fast_path_is_rejected_before_noop() -> None:
+    data = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "exec_command",
+        "tool_input": {"cmd": "git status --short"},
+        "tool_response": {"exit_code": 0, "stdout": "clean"},
+        "success": True,
+        "convergent_transition": {"schema_version": 1},
+    }
+    handled, response = post_tool_dispatch._commit_convergent_transition(
+        data,
+        activation_mode="enforce",
+        tool=post_tool_dispatch.classify_tool(data),
+    )
+    assert handled is True
+    assert response == {"decision": "block", "reason": "convergent-post-tool-transition-invalid"}
+
+
+def test_event_identity_is_exact_and_cannot_be_supplied_by_tool_input() -> None:
+    data = {
+        "tool_use_id": "tool/runtime-1",
+        "tool_input": {"tool_use_id": "tool-spoofed"},
+        "tool_response": {"exit_code": 0},
+    }
+    assert post_tool_dispatch._event_identifier(data, "tool_use_id") == "tool/runtime-1"
+    assert post_tool_dispatch._event_identifier(
+        {"tool_input": {"tool_use_id": "tool-spoofed"}}, "tool_use_id"
+    ) == ""
+    with pytest.raises(Exception, match="identifier is invalid"):
+        post_tool_dispatch._event_identifier({"tool_use_id": " tool-1 "}, "tool_use_id")
+
+
 def test_enforced_mixed_read_and_mutation_does_not_take_fast_path(tmp_path: Path) -> None:
     target = tmp_path / "mixed.txt"
     result = run_dispatch(
@@ -150,7 +184,7 @@ def test_valid_v1_attestation_uses_runtime_digest_for_dispatcher_binding(monkeyp
         plan_id="fixture-plan",
         store=SimpleNamespace(transition=lambda plan_id, value: calls.append(plan_id)),
     )
-    monkeypatch.setattr(post_tool_dispatch, "request_from_attestation", lambda value: (request, "sha256:" + "b" * 64))
+    monkeypatch.setattr(post_tool_dispatch, "request_from_attestation", lambda value, **kwargs: (request, "sha256:" + "b" * 64))
     monkeypatch.setattr(post_tool_dispatch, "load_authoritative_state", lambda payload: (authority, {}))
     monkeypatch.setattr(
         post_tool_dispatch,
@@ -159,7 +193,9 @@ def test_valid_v1_attestation_uses_runtime_digest_for_dispatcher_binding(monkeyp
     )
 
     handled, response = post_tool_dispatch._commit_convergent_transition(
-        {"convergent_transition": {"schema_version": 1}}, activation_mode="enforce"
+        {"convergent_transition": {"schema_version": 1}},
+        activation_mode="enforce",
+        tool=post_tool_dispatch.classify_tool({"tool_name": "apply_patch", "success": True}),
     )
 
     assert handled is True

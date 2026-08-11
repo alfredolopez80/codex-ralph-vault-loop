@@ -15,6 +15,8 @@ from shared.active_context import ActiveContext, active_context_from_payload, pr
 from shared.checkpoint_io import update_checkpoint
 from shared.session_context_cache import state_path
 from shared.vault_io import write_handoff
+from shared.progress_hook import ProgressLookup, SourceResolution
+import session_start_dispatch
 from session_start_dispatch import run
 
 
@@ -68,6 +70,15 @@ def test_startup_without_state_is_silent_and_does_not_spawn(monkeypatch, tmp_pat
     monkeypatch.setattr("shared.active_context.run_git", fail_git)
     monkeypatch.setenv("RALPH_HOME", str(tmp_path / "ralph"))
     assert run(payload(context, "startup")) == ""
+
+
+def test_invalid_canonical_identity_never_falls_back_to_legacy_session(monkeypatch, tmp_path: Path) -> None:
+    context = context_for(tmp_path)
+    lookup = ProgressLookup(object(), None, SourceResolution(None, "state_invalid"))  # type: ignore[arg-type]
+    monkeypatch.setattr(session_start_dispatch, "cheap_lookup", lambda *_args, **_kwargs: lookup)
+    monkeypatch.setattr(session_start_dispatch, "_run_progress_session", lambda *_args, **_kwargs: "CANONICAL-SILENT")
+    monkeypatch.setattr(session_start_dispatch, "enqueue_maintenance", lambda *_args, **_kwargs: None)
+    assert run(payload(context, "startup")) == "CANONICAL-SILENT"
 
 
 def test_startup_emits_scoped_handoff_and_stays_within_luna_budget(monkeypatch, tmp_path: Path) -> None:

@@ -185,3 +185,71 @@ def test_caller_epoch_label_cannot_bypass_same_work_retry_guard(monkeypatch, tmp
 
     assert result == state
     assert rotate_calls == []
+
+
+@pytest.mark.parametrize("boundary_kind", ["continuation", "new_task"])
+def test_risky_same_work_boundary_requires_amendment_before_state_reuse(
+    monkeypatch, tmp_path: Path, boundary_kind: str
+) -> None:
+    policy = load_execution_policy()
+    identity = TaskIdentity.from_values(
+        session="writer-session",
+        project="project",
+        worktree=str(tmp_path),
+        branch="codex/ralph-convergent-execution-v4",
+        objective="same work item",
+        boundary_epoch=1,
+        sensitivity="GREEN",
+        plan="fixture-plan",
+        plan_version=1,
+        plan_digest="sha256:" + "a" * 64,
+    )
+    state = new_state(
+        policy=policy,
+        plan_id="fixture-plan",
+        plan_version=1,
+        plan_digest="sha256:" + "a" * 64,
+        task_identity=identity,
+        goal_id="G-BASELINE",
+        task_epoch="epoch-1",
+        boundary_epoch=1,
+        boundary_kind="new_task",
+        risk="low",
+        activation_mode="enforce",
+    )
+    authority = SimpleNamespace(
+        active=SimpleNamespace(
+            session_id="writer-session",
+            project_id="project",
+            workspace_root=tmp_path,
+            branch="codex/ralph-convergent-execution-v4",
+        ),
+        policy=policy,
+        plan_id="fixture-plan",
+        plan_version=1,
+        plan_digest="sha256:" + "a" * 64,
+        store=SimpleNamespace(read_current=lambda _plan_id: SimpleNamespace(state=state)),
+    )
+    monkeypatch.setattr(authority_module, "resolve_authority", lambda _payload: authority)
+    monkeypatch.setattr(authority_module, "_validate_binding", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(authority_module, "_require_runtime_attestation", lambda _authority: object())
+
+    with pytest.raises(AuthorityError, match="amendment-required"):
+        ensure_prompt_boundary(
+            {"cwd": str(tmp_path), "session_id": "writer-session", "objective": "same work item"},
+            prompt="continue with expanded approval scope",
+            boundary={
+                "boundary_kind": boundary_kind,
+                "risk": "material",
+                "complexity": 4,
+                "scope_delta": True,
+            },
+            mode="enforce",
+        )
+
+
+def test_git_sha_matching_accepts_sha256_and_rejects_non_prefixes() -> None:
+    actual = "a" * 64
+    assert authority_module._sha_matches(actual, actual)
+    assert authority_module._sha_matches(actual[:12], actual)
+    assert not authority_module._sha_matches("b" * 64, actual)
