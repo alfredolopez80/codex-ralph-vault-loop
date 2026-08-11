@@ -56,7 +56,7 @@ plan_id=ralph-convergent-execution-v4-20260811
 plan_version=1
 plan_digest=sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1
 branch=main
-entry_sha=a81541c920f5da64c557ff1005febf542b58cb83
+entry_sha=b889243ddc001430d7aafe7358eb80e75bb28822
 ```
 
 The canonical progress store is at

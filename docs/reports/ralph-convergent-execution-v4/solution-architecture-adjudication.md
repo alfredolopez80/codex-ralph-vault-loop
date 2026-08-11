@@ -86,7 +86,7 @@ is archived behind an active CAS pointer without resetting budgets; and
 PostTool commits only bounded, typed evidence through an evidence-only store
 transition. Their local evidence is recorded in
 `t14a-implementation-residual.json`. The explicitly authorized T15 global
-installation ran from `main` at `a81541c920f5da64c557ff1005febf542b58cb83`;
+installation ran from `main` at `b889243ddc001430d7aafe7358eb80e75bb28822`;
 backup, hook parity, effective doctor, model-visible skill discovery, smoke
 and isolated rollback rehearsal all passed. The manual activation amendment
 promotes the global wrapper to enforce; `off` remains the explicit rollback

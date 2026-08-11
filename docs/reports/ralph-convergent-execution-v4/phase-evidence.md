@@ -2,7 +2,7 @@
 
 Plan: `ralph-convergent-execution-v4-20260811`
 Plan digest: `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`
-Entry SHA: `a81541c920f5da64c557ff1005febf542b58cb83`
+Entry SHA: `b889243ddc001430d7aafe7358eb80e75bb28822`
 Branch: `main`
 Writable owner: real `gpt-5.6-sol`, reasoning `max`; authority: `codex-main`
 
@@ -28,7 +28,7 @@ No `UNKNOWN` metric is converted into zero or into a quality claim.
 | T13   | G-SHADOW-CANARY                    | SUPERSEDED BY MANUAL-ENFORCE AMENDMENT        | The original structural canary remains historical evidence only. Its unmeasured provider and quality fields are not reinterpreted. The approved manual-enforce amendment replaces the unavailable host attestation with a content-addressed Codex-main activation artifact.                                                                                         | No claim of provider savings or model-quality equivalence is inferred.                                                  |
 | T14   | G-ROLLOUT                          | PASS (REPO-LOCAL ENFORCE)                     | `config/convergent-execution-mode.toml` now rejects `shadow`, activates `enforce`, and binds the manual approval artifact to plan, policy, workspace, branch and HEAD. `off` remains the explicit rollback path. Focused authority, activation, loader and hook tests pass.                                                                                         | Manual activation is an explicit trust-model change and does not prove provider identity.                               |
 | T14A  | G-SOLUTION-ADJUDICATION-HARDENING  | PASS (REPO-LOCAL; GLOBAL PROMOTION VALIDATED) | The user approved `AM-001`; the content-safe adjudication and direct-fix batch are covered by the current full suite. Manual activation, atomic prompt initialization, epoch recovery, same-work idempotency and bounded PostTool evidence transitions are covered by focused tests. The immutable v1 plan digest is preserved.                                     | Provider credits and model-quality equivalence remain unmeasured; no claim is inferred from structural canary evidence. |
-| T15   | G-ROLLOUT                          | PASS (GLOBAL ENFORCE)                         | `main` at `a81541c920f5da64c557ff1005febf542b58cb83` is installed globally with the content-addressed manual approval bound to that HEAD. Backup, source parity, effective doctor, discovery, smoke and isolated install/uninstall rollback all pass; `off` is the only rollback mode.                                                                              | Provider credits, savings and live quality are not claimed without authoritative telemetry.                             |
+| T15   | G-ROLLOUT                          | PASS (GLOBAL ENFORCE)                         | `main` at `b889243ddc001430d7aafe7358eb80e75bb28822` is installed globally with the content-addressed manual approval bound to that HEAD. Backup, source parity, effective doctor, discovery, smoke and isolated install/uninstall rollback all pass; `off` is the only rollback mode.                                                                              | Provider credits, savings and live quality are not claimed without authoritative telemetry.                             |
 
 ## Structural canary metrics
 
@@ -112,9 +112,9 @@ contract; the repository no longer exposes `shadow` as an activation mode.
 
 ## T15 global installation evidence
 
-- Published `main` HEAD: `a81541c920f5da64c557ff1005febf542b58cb83`.
+- Published `main` HEAD: `b889243ddc001430d7aafe7358eb80e75bb28822`.
 - Installer: `bash scripts/setup/install-global.sh --install`.
-- Backup: `/Users/alfredolopez/.ralph-codex/backups/global-install/20260811T234023Z/`.
+- Backup: `/Users/alfredolopez/.ralph-codex/backups/global-install/20260811T234348Z/`.
 - Global smoke: `GLOBAL_HOOKS_SMOKE_PASS`.
 - Effective doctor and model-visible skill discovery: `GLOBAL_DOCTOR_PASS warnings=0`.
 - Isolated install/uninstall rollback fixture: `2 passed` in

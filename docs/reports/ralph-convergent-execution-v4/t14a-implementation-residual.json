@@ -6,7 +6,7 @@
   "plan_version": 1,
   "control_generation": 2,
   "immutable_prior_plan_digest": "sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1",
-  "entry_head": "a81541c920f5da64c557ff1005febf542b58cb83",
+  "entry_head": "b889243ddc001430d7aafe7358eb80e75bb28822",
   "merge_base": "78a314b47e6a1017b6d369358fda4c6c28450e06",
   "finding_set_digest": "sha256:437ffd3ed76f781214855bb0d3ad26eb5e511600fa9e255aedb1abbaf7aad0a6",
   "review_thread_counts": {
