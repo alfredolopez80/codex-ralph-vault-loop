@@ -289,22 +289,30 @@ def configured_activation_mode(env: Mapping[str, str] | None = None) -> str:
     retains the historical default used by hook unit tests.  Production calls
     read the repo-local, plan-bound activation file; a missing file is ``off``
     so a globally installed hook cannot activate v4 in an unrelated project.
-    An explicit environment value remains available for an operator-requested
-    rollback or bounded shadow/enforce exercise.
+    An explicit environment value may demote a validated repository rollout to
+    ``off`` or ``shadow`` for rollback.  It cannot promote a plan-bound
+    repository to ``enforce`` because that would bypass the checked-in
+    activation record.
     """
 
     if env is not None:
         value = str(env.get("RALPH_CONVERGENT_EXECUTION_MODE", "shadow")).strip().lower()
         return _validate_activation_mode(value, "RALPH_CONVERGENT_EXECUTION_MODE")
 
-    environment_value = os.environ.get("RALPH_CONVERGENT_EXECUTION_MODE")
-    if environment_value is not None:
-        return _validate_activation_mode(environment_value.strip().lower(), "RALPH_CONVERGENT_EXECUTION_MODE")
-
     config_path = Path(os.environ.get("RALPH_CONVERGENT_EXECUTION_CONFIG", str(ACTIVATION_CONFIG_PATH))).expanduser()
     if not config_path.exists():
-        return "off"
-    return _read_activation_config(config_path)
+        configured = "off"
+    else:
+        configured = _read_activation_config(config_path)
+    environment_value = os.environ.get("RALPH_CONVERGENT_EXECUTION_MODE")
+    if environment_value is None:
+        return configured
+    requested = _validate_activation_mode(environment_value.strip().lower(), "RALPH_CONVERGENT_EXECUTION_MODE")
+    if configured == "off" and requested != "off":
+        raise ExecutionPolicyError("RALPH_CONVERGENT_EXECUTION_MODE cannot promote an off rollout")
+    if configured == "shadow" and requested == "enforce":
+        raise ExecutionPolicyError("RALPH_CONVERGENT_EXECUTION_MODE cannot promote a shadow rollout to enforce")
+    return requested
 
 
 def _validate_activation_mode(value: str, source: str) -> str:

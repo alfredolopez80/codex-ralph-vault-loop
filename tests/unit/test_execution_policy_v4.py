@@ -83,6 +83,19 @@ def test_repo_local_activation_file_is_plan_and_policy_bound() -> None:
     assert configured_activation_mode() == "shadow"
 
 
+def test_environment_cannot_promote_repo_shadow_to_enforce(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "enforce")
+    with pytest.raises(ExecutionPolicyError, match="cannot promote"):
+        configured_activation_mode()
+
+
+def test_environment_cannot_promote_missing_rollout_to_shadow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_CONFIG", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "shadow")
+    with pytest.raises(ExecutionPolicyError, match="cannot promote"):
+        configured_activation_mode()
+
+
 def test_repo_local_activation_file_rejects_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "mode.toml"
     path.write_text(

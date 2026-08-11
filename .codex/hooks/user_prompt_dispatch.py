@@ -33,7 +33,8 @@ from shared.progress_hook import (
     progress_event_for_prompt,
     request_for,
 )
-from shared.execution_policy import configured_activation_mode
+from shared.convergence_authority import AuthorityError, ensure_prompt_boundary
+from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
 from shared.prompt_boundary import classify_boundary
 from shared.sol_advisor import executor_context, initialize, is_task_boundary, read_state
 from shared.task_signature import signature_from_prompt
@@ -164,8 +165,24 @@ def run(payload: dict[str, Any]) -> str:
     # risk, complexity, and obligation deltas are independent of prompt size.
     boundary_shadow = None
     try:
-        if configured_activation_mode() != "off":
-            boundary_shadow = classify_boundary(prompt, payload).as_dict()
+        activation_mode = configured_activation_mode()
+        if activation_mode != "off":
+            boundary = classify_boundary(prompt, payload)
+            boundary_shadow = boundary.as_dict()
+            runtime_candidate = ensure_prompt_boundary(
+                payload,
+                prompt=prompt,
+                boundary=boundary_shadow,
+                mode=activation_mode,
+            )
+            if runtime_candidate is not None:
+                boundary_shadow["authority_candidate"] = runtime_candidate
+    except ExecutionPolicyError:
+        output = json.dumps({"decision": "block", "reason": "convergent-activation-invalid"}, ensure_ascii=True, separators=(",", ":"))
+        return output
+    except AuthorityError:
+        if "activation_mode" in locals() and activation_mode == "enforce":
+            return json.dumps({"decision": "block", "reason": "convergent-authority-unavailable"}, ensure_ascii=True, separators=(",", ":"))
     except Exception:
         boundary_shadow = None
     generation = memory_generation(context, payload)

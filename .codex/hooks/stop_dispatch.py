@@ -8,6 +8,7 @@ import time
 from typing import Any, Mapping
 
 from shared.continuation_budget import Reservation, reserve
+from shared.convergence_authority import AuthorityError, load_authoritative_state
 from shared.convergent_stop_adapter import evaluate_convergent_stop
 from shared.convergent_stop import terminal_attempt_fingerprint
 from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
@@ -156,9 +157,9 @@ def main() -> int:
     if event not in (None, "", "Stop"):
         return 0
 
-    # The v4 snapshot is opt-in until the repo-local canary and rollout gates
-    # are approved.  Shadow evaluation is deliberately silent.  Enforce mode
-    # consumes only the bounded v4 decision and never falls through to the
+    # The repo-local activation record controls the rollout boundary.  Shadow
+    # evaluation is deliberately silent.  Enforce mode resolves canonical
+    # state through the implementation store and never falls through to the
     # legacy reducer, which could otherwise close an incomplete v4 task.
     try:
         activation_mode = configured_activation_mode()
@@ -169,13 +170,30 @@ def main() -> int:
         sys.stdout.write(_block_response("convergent-activation-invalid"))
         return 0
     if activation_mode == "enforce":
-        candidate = payload.get("convergence_state")
-        if not isinstance(candidate, Mapping):
-            sys.stdout.write(_block_response("convergent-state-required"))
-            return 0
         try:
-            scope = scope_from_payload(payload)
+            authority, candidate = load_authoritative_state(payload)
+            # Scope and task identity are rebound to the canonical state.  The
+            # payload's optional convergence snapshot and task signature are
+            # diagnostics only and cannot redirect the terminal marker.
+            canonical_scope_payload = dict(payload)
+            canonical_scope_payload.update(
+                {
+                    "cwd": str(authority.active.workspace_root),
+                    "branch": authority.active.branch,
+                    "sha": authority.active.sha,
+                    "task_signature": candidate["task_id"],
+                }
+            )
+            scope = scope_from_payload(canonical_scope_payload)
             attempt = terminal_attempt_fingerprint(candidate)
+        except AuthorityError as exc:
+            reason = str(exc)
+            if reason in {"convergent-authority-unavailable", "convergent-state-unavailable"}:
+                reason = "convergent-state-required"
+            elif not reason.startswith("convergent-"):
+                reason = "convergent-state-invalid"
+            sys.stdout.write(_block_response(reason))
+            return 0
         except (OSError, TypeError, ValueError):
             sys.stdout.write(_block_response("convergent-state-invalid"))
             return 0
@@ -188,8 +206,10 @@ def main() -> int:
             if not business.available:
                 sys.stdout.write(_block_response("terminal-state-unavailable"))
                 return 0
+            canonical_payload = dict(payload)
+            canonical_payload["convergence_state"] = candidate
             convergent = evaluate_convergent_stop(
-                payload,
+                canonical_payload,
                 trusted_previous_terminal_fingerprint=attempt if business.duplicate else "",
             )
             if convergent is None:
