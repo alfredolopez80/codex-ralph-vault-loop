@@ -1,6 +1,6 @@
 # Solution Architecture Adjudication — Anti-Loop Amendment
 
-Status: **APPROVED — T14A CLOSED; T15 GLOBAL ENFORCE PROMOTION IN PROGRESS**
+Status: **APPROVED — T14A CLOSED; T15 GLOBAL ENFORCE VALIDATED**
 
 Plan: `ralph-convergent-execution-v4-20260811`
 
@@ -86,8 +86,9 @@ is archived behind an active CAS pointer without resetting budgets; and
 PostTool commits only bounded, typed evidence through an evidence-only store
 transition. Their local evidence is recorded in
 `t14a-implementation-residual.json`. The explicitly authorized T15 global
-installation runs only after the final `main` HEAD is published and the manual
-approval is rebound to that exact HEAD. The manual activation amendment
+installation ran from `main` at `a81541c920f5da64c557ff1005febf542b58cb83`;
+backup, hook parity, effective doctor, model-visible skill discovery, smoke
+and isolated rollback rehearsal all passed. The manual activation amendment
 promotes the global wrapper to enforce; `off` remains the explicit rollback
 mode and `shadow` is retired.
 

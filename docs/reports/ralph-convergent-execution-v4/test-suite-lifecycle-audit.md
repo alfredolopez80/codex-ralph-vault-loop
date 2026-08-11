@@ -59,7 +59,7 @@ machine-local global profile. It is not deterministic repository evidence and
 should run only in an explicitly provisioned global lane; it is not deleted.
 
 The other 1,245 tests are not deprecated merely because v4 exists. They cover
-the active off/shadow rollback path, legacy memory/Recall compatibility,
+the active off rollback path, legacy memory/Recall compatibility,
 security boundaries, migrations, hooks, progress persistence, and current
 quality gates.
 

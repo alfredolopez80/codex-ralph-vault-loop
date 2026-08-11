@@ -55,8 +55,8 @@ The active plan remains:
 plan_id=ralph-convergent-execution-v4-20260811
 plan_version=1
 plan_digest=sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1
-branch=codex/ralph-convergent-execution-v4
-entry_sha=78a314b47e6a1017b6d369358fda4c6c28450e06
+branch=main
+entry_sha=a81541c920f5da64c557ff1005febf542b58cb83
 ```
 
 The canonical progress store is at

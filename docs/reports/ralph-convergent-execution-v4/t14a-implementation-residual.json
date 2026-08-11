@@ -6,7 +6,7 @@
   "plan_version": 1,
   "control_generation": 2,
   "immutable_prior_plan_digest": "sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1",
-  "entry_head": "c6f12550b1e0f684c963c915dc00c8674715debd",
+  "entry_head": "a81541c920f5da64c557ff1005febf542b58cb83",
   "merge_base": "78a314b47e6a1017b6d369358fda4c6c28450e06",
   "finding_set_digest": "sha256:437ffd3ed76f781214855bb0d3ad26eb5e511600fa9e255aedb1abbaf7aad0a6",
   "review_thread_counts": {
@@ -61,12 +61,12 @@
   ],
   "validation": {
     "focused_cross_owner": "161 passed",
-    "full_suite_for_current_batch": "1246 passed, 5 subtests passed",
+    "full_suite_for_current_batch": "1294 passed, 5 subtests passed",
     "minimal_gate": "passed (failed=0, passed=1, skipped=2)",
     "hook_smoke": "ALL_HOOK_TESTS_PASS",
     "memory_flow": "PASS (optional ruff/mypy unavailable)",
     "canary": "24/24 structural; live lifecycle/provider metrics not measured",
-    "global_install": "PASS (backup, parity, doctor, discovery, smoke and rollback rehearsal; enforce uses manual activation approval)"
+    "global_install": "PASS (a81541c backup, parity, doctor warnings=0, discovery, smoke and isolated install/uninstall rollback; enforce uses manual activation approval)"
   },
   "t15_allowed": true
 }
