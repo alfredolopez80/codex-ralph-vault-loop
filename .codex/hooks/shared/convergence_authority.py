@@ -9,7 +9,10 @@ pure Stop reducer.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import stat
 from typing import Any, Mapping
+from pathlib import Path
 
 from .active_context import ActiveContext, active_context_from_payload
 from .convergent_contracts import (
@@ -21,13 +24,7 @@ from .convergent_contracts import (
 )
 from .convergent_store import ConvergentStore, ConvergentStoreError
 from .execution_lease import LeaseError, acquire_execution_lease, evidence_from_payload
-from .execution_policy import (
-    ACTIVATION_PLAN_DIGEST,
-    ACTIVATION_PLAN_ID,
-    ExecutionPolicy,
-    assert_policy_compatible,
-    load_execution_policy,
-)
+from .execution_policy import ExecutionPolicy, assert_policy_compatible, load_execution_policy
 from .progress_hook import ProgressLookup, cheap_lookup
 from .convergent_reducer import TransitionRequest
 
@@ -43,6 +40,9 @@ class AuthorityContext:
     policy: ExecutionPolicy
     store: ConvergentStore
     plan_id: str
+    plan_version: int
+    plan_digest: str
+    plan_path: str
 
 
 def resolve_authority(payload: Mapping[str, object]) -> AuthorityContext:
@@ -50,16 +50,31 @@ def resolve_authority(payload: Mapping[str, object]) -> AuthorityContext:
 
     try:
         policy = load_execution_policy()
-        active = active_context_from_payload(dict(payload), resolve_git=True)
+        active = active_context_from_payload(dict(payload), resolve_git=True, trust_payload_identity=False)
+        supplied_branch = payload.get("branch") or payload.get("git_branch")
+        supplied_sha = payload.get("sha") or payload.get("git_sha")
+        if isinstance(supplied_branch, str) and supplied_branch.strip() and supplied_branch.strip() != active.branch:
+            raise AuthorityError("convergent-branch-mismatch")
+        if isinstance(supplied_sha, str) and supplied_sha.strip() and not _sha_matches(supplied_sha.strip(), active.sha):
+            raise AuthorityError("convergent-head-mismatch")
         lookup = cheap_lookup(active, payload)
+    except AuthorityError:
+        raise
     except Exception as exc:  # typed below at the public boundary
         raise AuthorityError("convergent-authority-unavailable") from exc
     if not lookup.available or lookup.store is None or lookup.identity is None:
         raise AuthorityError("convergent-state-unavailable")
-    if lookup.identity.plan_id != ACTIVATION_PLAN_ID:
-        raise AuthorityError("convergent-plan-identity-mismatch")
     store = ConvergentStore(lookup.store, policy)
-    return AuthorityContext(active, lookup, policy, store, lookup.identity.plan_id)
+    plan_id = lookup.identity.plan_id
+    plan_path = lookup.identity.plan_path
+    try:
+        registered = store.progress.read_state(plan_id) or {}
+        plan_path = str(plan_path or registered.get("plan_path") or "")
+        plan_version = int(registered.get("plan_version") or 1)
+        plan_digest = _plan_digest(store.progress.paths.primary_root, plan_path)
+    except (OSError, TypeError, ValueError, ConvergentStoreError) as exc:
+        raise AuthorityError("convergent-plan-provenance-unavailable") from exc
+    return AuthorityContext(active, lookup, policy, store, plan_id, plan_version, plan_digest, plan_path)
 
 
 def load_authoritative_state(payload: Mapping[str, object]) -> tuple[AuthorityContext, dict[str, Any]]:
@@ -67,7 +82,7 @@ def load_authoritative_state(payload: Mapping[str, object]) -> tuple[AuthorityCo
 
     authority = resolve_authority(payload)
     try:
-        result = authority.store.read_current(authority.plan_id)
+        result = authority.store.read_current(authority.plan_id, authoritative=True)
         if not result.state:
             raise AuthorityError("convergent-state-unavailable")
         state = validate_state(result.state)
@@ -124,6 +139,13 @@ def ensure_prompt_boundary(
     if current.state is not None:
         state = validate_state(current.state)
         _validate_binding(authority, state)
+        boundary_kind = str(boundary.get("boundary_kind") or "")
+        if boundary_kind in {"new-task", "material-change", "scope-extension", "user-override"}:
+            # Epoch rotation is a separate canonical operation. Reusing the
+            # immutable execution namespace would attribute new work to a
+            # closed/active task, so enforce fails closed until that archive
+            # operation is explicitly available.
+            raise AuthorityError("convergent-new-epoch-required")
         return state
 
     task_epoch = _task_epoch(payload, boundary)
@@ -137,26 +159,30 @@ def ensure_prompt_boundary(
         boundary_epoch=epoch,
         sensitivity=str(payload.get("sensitivity") or boundary.get("sensitivity") or "GREEN"),
         plan=authority.plan_id,
-        plan_version=1,
-        plan_digest=ACTIVATION_PLAN_DIGEST,
+        plan_version=authority.plan_version,
+        plan_digest=authority.plan_digest,
     )
     goal_id = str(payload.get("goal_id") or "G-BASELINE")
     state = new_state(
         policy=authority.policy,
         plan_id=authority.plan_id,
-        plan_version=1,
-        plan_digest=ACTIVATION_PLAN_DIGEST,
+        plan_version=authority.plan_version,
+        plan_digest=authority.plan_digest,
         task_identity=identity,
         goal_id=goal_id,
         task_epoch=task_epoch,
         boundary_epoch=epoch,
         boundary_kind=str(boundary.get("boundary_kind") or "new_task"),
+        risk=str(boundary.get("risk") or "low"),
         activation_mode="enforce",
     )
     evidence = evidence_from_payload(
         payload,
         task_epoch=task_epoch,
-        verified_source=str(payload.get("lease_source") or payload.get("leaseSource") or "payload"),
+        # The caller cannot promote its own metadata to a platform
+        # attestation.  A future trusted runtime adapter must call
+        # ``acquire_execution_lease`` directly with verified evidence.
+        verified_source="payload",
     )
     try:
         lease = acquire_execution_lease(evidence, policy=authority.policy, issued_generation=0)
@@ -178,7 +204,11 @@ def ensure_prompt_boundary(
 
 
 def _validate_binding(authority: AuthorityContext, state: Mapping[str, Any]) -> None:
-    if state.get("plan_id") != authority.plan_id or state.get("plan_digest") != ACTIVATION_PLAN_DIGEST:
+    if (
+        state.get("plan_id") != authority.plan_id
+        or state.get("plan_version") != authority.plan_version
+        or state.get("plan_digest") != authority.plan_digest
+    ):
         raise AuthorityError("convergent-plan-binding-mismatch")
     assert_policy_compatible(state.get("policy_hash"), authority.policy)
     identity = state.get("task_identity")
@@ -190,16 +220,26 @@ def _validate_binding(authority: AuthorityContext, state: Mapping[str, Any]) -> 
         raise AuthorityError("convergent-worktree-mismatch")
     if identity.get("project_id") != digest_text(authority.active.project_id):
         raise AuthorityError("convergent-project-mismatch")
-    if identity.get("session_id") != digest_text(authority.active.session_id):
-        raise AuthorityError("convergent-session-mismatch")
+    # A Codex session is writer provenance, not the task's authority boundary.
+    # Continuations may resume in a new CLI/App session while retaining the
+    # same plan, task epoch, worktree, branch, and lease.  The immutable
+    # session hash remains in TaskIdentity for audit provenance; it must not
+    # make a valid cross-session continuation unrecoverable.
     lease = state.get("execution_lease")
-    if state.get("phase") not in {"prompt_gate", "blocked", "user_decision"} and not isinstance(lease, Mapping):
+    if state.get("phase") not in {"prompt_gate", "blocked", "user_decision", "close"} and not isinstance(lease, Mapping):
         raise AuthorityError("convergent-lease-missing")
     if isinstance(lease, Mapping):
         if lease.get("branch_fingerprint") != digest_text(authority.active.branch):
             raise AuthorityError("convergent-lease-branch-mismatch")
         if lease.get("cwd_fingerprint") != digest_text(str(authority.active.workspace_root)):
             raise AuthorityError("convergent-lease-cwd-mismatch")
+        # A persisted lease is not self-authenticating.  The current hook
+        # payload is not a trusted platform attestation, so an enforce-time
+        # load must fail closed until such an adapter supplies verified
+        # runtime evidence.  This prevents stale model/toolset/epoch claims
+        # from authorizing a material or terminal transition.
+        if state.get("phase") not in {"prompt_gate", "blocked", "user_decision", "close"}:
+            raise AuthorityError("convergent-lease-attestation-required")
 
 
 def _boundary_epoch(payload: Mapping[str, object]) -> int:
@@ -222,6 +262,30 @@ def _objective(payload: Mapping[str, object], prompt: str) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()[:2_000]
     return prompt[:2_000]
+
+
+def _sha_matches(supplied: str, actual: str) -> bool:
+    if not supplied or not actual or any(character not in "0123456789abcdefABCDEF" for character in supplied + actual):
+        return False
+    supplied = supplied.lower()
+    actual = actual.lower()
+    if len(supplied) < 7 or len(supplied) > 40 or len(actual) < 7 or len(actual) > 40:
+        return False
+    return supplied == actual or supplied.startswith(actual) or actual.startswith(supplied)
+
+
+def _plan_digest(root: Path, relative_path: str) -> str:
+    relative = Path(relative_path)
+    if not relative_path or relative.is_absolute() or ".." in relative.parts:
+        raise AuthorityError("convergent-plan-provenance-unavailable")
+    candidate = root / relative
+    info = candidate.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise AuthorityError("convergent-plan-provenance-unavailable")
+    resolved_root = root.resolve()
+    resolved = candidate.resolve()
+    resolved.relative_to(resolved_root)
+    return "sha256:" + hashlib.sha256(resolved.read_bytes()).hexdigest()
 
 
 __all__ = ["AuthorityContext", "AuthorityError", "ensure_prompt_boundary", "load_authoritative_state", "resolve_authority"]

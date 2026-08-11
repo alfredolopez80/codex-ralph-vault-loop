@@ -21,6 +21,26 @@ def gates(*, passed: bool = True) -> list[AuditGate]:
     return [AuditGate(name, True, passed, True, digest(name)) for name in ("tests", "lint", "security")]
 
 
+def explicit_checks(**overrides: bool) -> dict[str, bool]:
+    values = {
+        "p0_p1_open": False,
+        "scope_clean": True,
+        "security_preserved": True,
+        "branch_correct": True,
+        "head_correct": True,
+        "worktree_correct": True,
+        "no_blockers": True,
+        "notes_valid": True,
+        "approvals_valid": True,
+        "plan_digest_match": True,
+        "policy_hash_match": True,
+        "amendment_valid": True,
+        "finding_ledger_valid": True,
+    }
+    values.update(overrides)
+    return values
+
+
 def test_deterministic_audit_requires_all_gates_and_closes_findings() -> None:
     result = deterministic_final_audit(
         packet_fingerprint=digest("packet"),
@@ -30,6 +50,7 @@ def test_deterministic_audit_requires_all_gates_and_closes_findings() -> None:
         gates=gates(),
         accepted_findings=["F-1"],
         closed_findings=["F-1"],
+        **explicit_checks(),
     )
     assert result.passed is True
     assert result.digest.startswith("sha256:")
@@ -42,6 +63,7 @@ def test_deterministic_audit_requires_all_gates_and_closes_findings() -> None:
         gates=gates(passed=False),
         accepted_findings=["F-1"],
         closed_findings=[],
+        **explicit_checks(),
     )
     assert failed.passed is False
     assert "accepted_findings_closed" in failed.failed_gates
@@ -51,6 +73,18 @@ def test_deterministic_audit_rejects_non_hex_sha256_values() -> None:
     with pytest.raises(FinalAuditError, match="sha256 digest"):
         deterministic_final_audit(
             packet_fingerprint="sha256:" + "z" * 64,
+            plan_digest=digest("plan"),
+            policy_hash=digest("policy"),
+            evidence_manifest_digest=digest("manifest"),
+            gates=gates(),
+            **explicit_checks(),
+        )
+
+
+def test_deterministic_audit_rejects_omitted_material_verdicts() -> None:
+    with pytest.raises(FinalAuditError, match="explicit boolean"):
+        deterministic_final_audit(
+            packet_fingerprint=digest("packet"),
             plan_digest=digest("plan"),
             policy_hash=digest("policy"),
             evidence_manifest_digest=digest("manifest"),
@@ -75,12 +109,14 @@ def test_deterministic_audit_keeps_head_blockers_and_hash_identity_explicit() ->
         policy_hash=digest("policy"),
         evidence_manifest_digest=digest("manifest"),
         gates=gates(),
-        head_correct=False,
-        no_blockers=False,
-        plan_digest_match=False,
-        policy_hash_match=False,
-        amendment_valid=False,
-        finding_ledger_valid=False,
+        **explicit_checks(
+            head_correct=False,
+            no_blockers=False,
+            plan_digest_match=False,
+            policy_hash_match=False,
+            amendment_valid=False,
+            finding_ledger_valid=False,
+        ),
     )
     assert result.passed is False
     assert {"head_correct", "no_blockers", "plan_digest_match", "policy_hash_match", "amendment_valid", "finding_ledger_valid"} <= set(result.failed_gates)

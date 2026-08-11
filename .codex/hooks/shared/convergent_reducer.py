@@ -70,6 +70,8 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
     before = validate_state(state)
     assert_policy_compatible(before["policy_hash"], policy)
     _validate_request(request)
+    if request.obligation_closures and request.transition != "EVIDENCE_RECORDED":
+        raise TransitionError("obligations may close only with recorded evidence")
     if request.expected_generation != before["generation"]:
         raise TransitionError("stale execution generation")
     if before["phase"] == "close" or before["status"] == "closed":
@@ -103,6 +105,13 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         _require_phase(before, "analyze")
         if request.tier not in {"micro", "quick", "full", "critical"}:
             raise TransitionError("Aristotle tier is invalid")
+        expected_tiers = {
+            "low": {"micro", "quick"},
+            "material": {"full"},
+            "critical": {"critical"},
+        }
+        if request.tier not in expected_tiers[before["risk"]]:
+            raise TransitionError("Aristotle tier does not match the persisted Prompt Boundary risk")
         aristotle = after["aristotle"]
         if request.tier in {"full", "critical"} and not request.decision_fingerprint:
             raise TransitionError("Full/Critical Aristotle requires a Decision Packet fingerprint")
@@ -149,20 +158,45 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         if not request.amendment_fingerprint or not request.decision_fingerprint:
             raise TransitionError("material amendment requires amendment and new decision fingerprints")
         _required_digest(request.amendment_fingerprint, "amendment fingerprint")
+        requested_risk = request.risk
+        if requested_risk not in {"low", "material", "critical"}:
+            raise TransitionError("material amendment risk is invalid")
+        rank = {"low": 0, "material": 1, "critical": 2}
+        if rank[requested_risk] < rank[before["risk"]]:
+            raise TransitionError("material amendment cannot downgrade Prompt Boundary risk")
+        if rank[requested_risk] > rank[before["risk"]]:
+            after["risk"] = requested_risk
+        elif requested_risk == "low" and before["risk"] != "low":
+            raise TransitionError("material amendment must preserve the existing risk")
         aristotle["amendments"] += 1
         aristotle["decision_version"] += 1
         aristotle["decision_fingerprint"] = _required_digest(request.decision_fingerprint, "decision fingerprint")
+        # The amendment carries the new, already-reviewed Decision Packet. It
+        # is therefore a packet replacement, not an automatic second Full
+        # Aristotle run.  A low-risk task promoted by the amendment consumes
+        # the one Full budget when it first becomes material/critical.
+        if before["risk"] == "low" and after["risk"] != "low":
+            if aristotle["full_runs"] >= policy.full_aristotle_budget:
+                return _user_decision(before, request, "full-aristotle-budget-exhausted")
+            aristotle["full_runs"] += 1
+            aristotle["tier"] = "critical" if after["risk"] == "critical" else "full"
+        elif after["risk"] == "critical":
+            aristotle["tier"] = "critical"
+        elif after["risk"] == "material":
+            aristotle["tier"] = "full"
         after["completion"]["final_audit_digest"] = ""
         after["completion"]["invalidation_reason"] = request.reason or "material-change"
-        after["phase"] = "analyze"
+        after["phase"] = "design_ready"
         after["status"] = "active"
         consumed_budget = True
     elif request.transition == "EVIDENCE_RECORDED":
         if not request.evidence_manifest_digest:
             raise TransitionError("evidence update requires a manifest digest")
-        after["completion"]["evidence_manifest_digest"] = _required_digest(
-            request.evidence_manifest_digest, "evidence manifest digest"
-        )
+        incoming_manifest = _required_digest(request.evidence_manifest_digest, "evidence manifest digest")
+        existing_audit = before["completion"]["final_audit_digest"]
+        if existing_audit:
+            raise TransitionError("evidence mutation after final audit requires a new audit")
+        after["completion"]["evidence_manifest_digest"] = incoming_manifest
         _close_obligations(after, request.obligation_closures)
         if request.handoff_digest:
             after["completion"]["handoff_digest"] = _required_digest(request.handoff_digest, "handoff digest")
@@ -201,11 +235,29 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         after["completion"]["terminal_reason"] = ""
         after["completion"]["invalidation_reason"] = ""
         if request.lease is not None:
-            after["execution_lease"] = request.lease.as_dict()
+            existing_lease = before.get("execution_lease")
+            incoming_lease = request.lease.as_dict()
+            if isinstance(existing_lease, Mapping):
+                immutable_fields = (
+                    "authority_owner",
+                    "implementation_owner",
+                    "model",
+                    "effort",
+                    "toolset_fingerprint",
+                    "cwd_fingerprint",
+                    "branch_fingerprint",
+                    "task_epoch_fingerprint",
+                    "issued_generation",
+                    "active",
+                )
+                if any(existing_lease.get(field) != incoming_lease.get(field) for field in immutable_fields):
+                    raise TransitionError("reopen cannot replace immutable execution lease evidence")
+            after["execution_lease"] = incoming_lease
         consumed_budget = True
     elif request.transition == "REVIEW_RECORDED":
         _require_phase(before, "review")
-        if request.risk not in {"material", "critical"}:
+        persisted_risk = _persisted_risk(before)
+        if request.risk != persisted_risk or persisted_risk not in {"material", "critical"}:
             raise TransitionError("low-risk work has zero generative review budget")
         review = after["review"]
         if review["passes"] >= policy.review_budget_material:
@@ -241,7 +293,7 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         else:
             if _repair_exhausted(after, request, policy=policy):
                 return _user_decision(before, request, "final-audit-repair-budget-exhausted")
-            consumed_budget = _apply_repair(after, before, request, policy=policy, final_target="mitigate")
+            consumed_budget = _apply_repair(after, before, request, policy=policy, final_target="verify")
     elif request.transition == "STOP_CONTINUATION":
         _require_phase(before, "stop")
         budgets = after["stop_budget"]
@@ -285,9 +337,6 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
 
     if request.transition not in {"BOUNDARY_CLASSIFIED", "BLOCK", "USER_DECISION", "REOPEN"}:
         _require_active_lease(after)
-    if request.obligation_closures and request.transition != "EVIDENCE_RECORDED":
-        _close_obligations(after, request.obligation_closures)
-
     progressed = after["phase"] != old_phase
     reduced = len(after["completion"]["open_obligations"]) < len(old_obligations)
     terminal = after["phase"] in {"close", "blocked", "user_decision"}
@@ -310,7 +359,18 @@ def _advance(after: dict[str, Any], before: Mapping[str, Any], request: Transiti
         target = "verify"
         after["status"] = "verifying"
     elif current == "verify":
-        material = request.risk in {"material", "critical"}
+        # A final-audit repair has already consumed the review budget.  Its
+        # focused verification must return directly to final_audit rather than
+        # silently requesting a second review or trusting a caller's default
+        # low-risk value.
+        if str(before["completion"].get("invalidation_reason") or "").startswith("final-audit"):
+            target = "final_audit"
+            after["status"] = "verifying"
+            if request.target_phase and request.target_phase != target:
+                raise TransitionError("target phase differs from deterministic lifecycle")
+            after["phase"] = target
+            return consumed, closed_findings
+        material = _persisted_risk(before) != "low"
         after["review"]["required"] = material
         target = "review" if material else "finding_triage"
     elif current == "mitigate":
@@ -336,6 +396,17 @@ def _advance(after: dict[str, Any], before: Mapping[str, Any], request: Transiti
     return consumed, closed_findings
 
 
+def _persisted_risk(state: Mapping[str, Any]) -> str:
+    risk = state.get("risk")
+    if risk not in {"low", "material", "critical"}:
+        raise TransitionError("persisted Prompt Boundary risk is required before review decisions")
+    tier = state["aristotle"].get("tier")
+    expected = {"low": {"micro", "quick"}, "material": {"full"}, "critical": {"critical"}}[risk]
+    if tier not in expected:
+        raise TransitionError("persisted Aristotle tier does not match Prompt Boundary risk")
+    return risk
+
+
 def _apply_repair(
     after: dict[str, Any],
     before: Mapping[str, Any],
@@ -355,7 +426,9 @@ def _apply_repair(
     budget["code_repair_cycles"] += 1
     after["phase"] = "implement" if before["phase"] == "verify" else final_target
     after["status"] = "active"
-    after["completion"]["invalidation_reason"] = request.reason or "deterministic-regression"
+    after["completion"]["invalidation_reason"] = request.reason or (
+        "final-audit-regression" if before["phase"] == "final_audit" else "deterministic-regression"
+    )
     after["completion"]["final_audit_digest"] = ""
     return True
 

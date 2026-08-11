@@ -187,3 +187,25 @@ def test_run_json_rejects_missing_results_key(monkeypatch: pytest.MonkeyPatch) -
     assert exit_code == 1
     assert results[0]["status"] == "failed"
     assert "omitted a results list" in results[0]["reason"]
+
+
+def test_run_json_rejects_empty_or_nonzero_passing_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_gates = load_gate_script(monkeypatch, "run-gates.py")
+
+    monkeypatch.setattr(
+        run_gates.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout='{"results": []}\n', stderr=""),
+    )
+    exit_code, results = run_gates.run_json(["empty-gate"])
+    assert exit_code == 1
+    assert "empty results" in results[0]["reason"]
+
+    monkeypatch.setattr(
+        run_gates.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, stdout='{"results": [{"name": "x", "status": "passed"}]}\n', stderr="failed"),
+    )
+    exit_code, results = run_gates.run_json(["failed-gate"])
+    assert exit_code == 1
+    assert any(item["status"] == "failed" for item in results)

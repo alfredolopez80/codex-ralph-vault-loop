@@ -29,7 +29,7 @@ from shared.post_tool_ledger import append_cost_event
 from shared.persistence_metrics import WriteAccumulator, WriteResult
 from shared.progress_hook import cheap_lookup
 from shared.progress_runtime import structured_validation, validation_transition
-from shared.convergent_hooks import successful_read_fast_path
+from shared.convergent_hooks import is_read_only_command, successful_read_fast_path
 from shared.execution_policy import configured_activation_mode
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
@@ -91,17 +91,7 @@ def _tokens(command: str) -> list[str]:
 
 
 def _command_is_read(command: str) -> bool:
-    tokens = _tokens(command)
-    if not tokens:
-        return False
-    if any(token in {"&&", "||", ";", "|", ">", ">>", "<", "2>", "2>>"} for token in tokens):
-        return False
-    executable = Path(tokens[0]).name.lower()
-    if executable in READ_WORDS:
-        return True
-    if executable == "git" and len(tokens) > 1:
-        return tokens[1].lower() in {"status", "diff", "log", "show", "branch", "rev-parse", "ls-files", "remote"}
-    return False
+    return is_read_only_command(command)
 
 
 def _command_is_test(command: str) -> bool:
@@ -230,18 +220,18 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
         return None
     started = time.perf_counter_ns()
     tool = classify_tool(payload)
+    context = active_context_from_payload(payload, resolve_git=False)
     # In enforce mode a proven successful, non-material read is a physical
     # no-op.  This return happens before context, ledger, checkpoint, memory,
     # advisor, or observability writers.  PreToolUse is a separate dispatcher
     # and remains active for the corresponding tool invocation.
     try:
-        if configured_activation_mode() == "enforce" and successful_read_fast_path(payload).eligible:
+        if configured_activation_mode(workspace_root=context.workspace_root) == "enforce" and successful_read_fast_path(payload).eligible:
             return None
     except Exception:
         # Invalid activation metadata must never create a bypass; retain the
         # existing conservative dispatcher behavior and let normal gates run.
         pass
-    context = active_context_from_payload(payload, resolve_git=False)
     stage = result_stage(payload)
     pending_stream = stage == "partial"
     persistence_allowed = _runtime_safe()

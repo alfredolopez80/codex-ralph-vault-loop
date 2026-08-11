@@ -62,6 +62,43 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "exit_code": completed.returncode or 1,
             }
         ]
+    if not results:
+        return completed.returncode or 1, [{
+            "name": "gate-subcommand",
+            "status": "failed",
+            "command": command,
+            "reason": "gate subcommand returned an empty results list",
+            "stdout": completed.stdout[-4_000:],
+            "stderr": completed.stderr[-4_000:],
+            "exit_code": completed.returncode or 1,
+        }]
+    allowed_statuses = {"passed", "failed", "skipped"}
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("name"), str)
+        or not item.get("name")
+        or item.get("status") not in allowed_statuses
+        for item in results
+    ):
+        return completed.returncode or 1, [{
+            "name": "gate-subcommand",
+            "status": "failed",
+            "command": command,
+            "reason": "gate subcommand returned an invalid result schema",
+            "stdout": completed.stdout[-4_000:],
+            "stderr": completed.stderr[-4_000:],
+            "exit_code": completed.returncode or 1,
+        }]
+    if completed.returncode != 0:
+        results = list(results) + [{
+            "name": "gate-subcommand.exit",
+            "status": "failed",
+            "command": command,
+            "reason": "gate subcommand returned a non-zero exit code",
+            "stdout": completed.stdout[-4_000:],
+            "stderr": completed.stderr[-4_000:],
+            "exit_code": completed.returncode,
+        }]
     return completed.returncode, results
 
 
@@ -76,9 +113,9 @@ def main() -> int:
     project = detect_project()
     results: list[dict] = []
 
-    _, test_results = run_json([sys.executable, "scripts/gates/run-tests.py", "--mode", mode])
+    test_rc, test_results = run_json([sys.executable, "scripts/gates/run-tests.py", "--mode", mode])
     results.extend(test_results)
-    _, security_results = run_json([sys.executable, "scripts/gates/run-security.py", "--mode", mode, *(["--strict"] if args.strict else [])])
+    security_rc, security_results = run_json([sys.executable, "scripts/gates/run-security.py", "--mode", mode, *(["--strict"] if args.strict else [])])
     results.extend(security_results)
 
     report = {
@@ -91,7 +128,7 @@ def main() -> int:
     }
     json_path, md_path = write_reports(report, REPORT_DIR)
     print(json.dumps({"json": str(json_path), "markdown": str(md_path), "summary": report["summary"]}, indent=2, sort_keys=True))
-    return 1 if report["summary"]["status"] == "failed" else 0
+    return 1 if report["summary"]["status"] == "failed" or test_rc != 0 or security_rc != 0 else 0
 
 
 if __name__ == "__main__":

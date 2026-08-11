@@ -675,8 +675,29 @@ def run(payload: Mapping[str, object]) -> str:
     # ``git`` or another child process; payload branch/HEAD metadata wins.
     context = active_context_from_payload(dict(payload), resolve_git=False)
     progress_lookup = cheap_lookup(context, payload)
-    if progress_lookup.available and _progress_session_requested(payload):
-        return _run_progress_session(payload, context, profile, source, progress_lookup)
+    # Once the canonical implementation store exists for this workspace it
+    # is authoritative even when identity selection is unavailable (ambiguous,
+    # corrupt, or future-schema).  Do not fall back to legacy handoff or
+    # checkpoint readers in that state: those surfaces can inject stale
+    # context precisely when the new store cannot be trusted.  A workspace
+    # without a store keeps the existing legacy/session behavior.
+    if progress_lookup.store is not None:
+        # A real SessionStart or an explicit progress request may use the
+        # canonical store even when its state is unavailable (corrupt/future
+        # schema). Legacy compatibility payloads, and payloads that
+        # explicitly identify a foreign branch/HEAD, retain their isolated
+        # local session surface rather than receiving an empty canonical
+        # capsule.
+        explicit_progress = _progress_session_requested(payload)
+        explicit_identity = any(
+            isinstance(payload.get(key), str) and str(payload.get(key)).strip()
+            for key in ("branch", "git_branch", "sha", "git_sha")
+        )
+        proper_session = payload.get("hook_event_name") in (None, "", "SessionStart") and bool(
+            payload.get("source") or payload.get("session_source") or payload.get("sessionSource")
+        )
+        if explicit_progress or (proper_session and not explicit_identity):
+            return _run_progress_session(payload, context, profile, source, progress_lookup)
     with contextlib.suppress(Exception):
         enqueue_maintenance(context, reason_code=f"session_start_{source}", payload=payload)
     if source == "clear":

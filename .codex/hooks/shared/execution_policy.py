@@ -282,7 +282,11 @@ def assert_policy_compatible(active_policy_hash: object, policy: ExecutionPolicy
         raise PolicyDriftError("execution policy changed during an active task epoch")
 
 
-def configured_activation_mode(env: Mapping[str, str] | None = None) -> str:
+def configured_activation_mode(
+    env: Mapping[str, str] | None = None,
+    *,
+    workspace_root: Path | str | None = None,
+) -> str:
     """Resolve the versioned repo-local rollout mode.
 
     A supplied mapping is an intentionally isolated test/rollback override and
@@ -299,7 +303,12 @@ def configured_activation_mode(env: Mapping[str, str] | None = None) -> str:
         value = str(env.get("RALPH_CONVERGENT_EXECUTION_MODE", "shadow")).strip().lower()
         return _validate_activation_mode(value, "RALPH_CONVERGENT_EXECUTION_MODE")
 
-    config_path = Path(os.environ.get("RALPH_CONVERGENT_EXECUTION_CONFIG", str(ACTIVATION_CONFIG_PATH))).expanduser()
+    workspace = Path(workspace_root or os.environ.get("RALPH_CONVERGENT_WORKSPACE_ROOT", str(REPO_ROOT))).expanduser().resolve()
+    expected_path = (workspace / "config" / "convergent-execution-mode.toml").resolve()
+    override = os.environ.get("RALPH_CONVERGENT_EXECUTION_CONFIG")
+    config_path = Path(override).expanduser().resolve() if override else expected_path
+    if config_path != expected_path:
+        raise ExecutionPolicyError("RALPH_CONVERGENT_EXECUTION_CONFIG must be the active workspace activation file")
     if not config_path.exists():
         configured = "off"
     else:

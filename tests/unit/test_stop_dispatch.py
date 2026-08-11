@@ -27,7 +27,8 @@ def run_dispatch(tmp_path: Path, payload: dict, *, extra_env: dict[str, str] | N
     if extra_env:
         env.update(extra_env)
     if env.get("RALPH_CONVERGENT_EXECUTION_MODE") == "enforce":
-        activation = tmp_path / "convergent-execution-mode.toml"
+        activation = tmp_path / "config" / "convergent-execution-mode.toml"
+        activation.parent.mkdir(parents=True, exist_ok=True)
         activation.write_text(
             "version = 1\n"
             "mode = \"enforce\"\n"
@@ -36,7 +37,6 @@ def run_dispatch(tmp_path: Path, payload: dict, *, extra_env: dict[str, str] | N
             "policy_hash = \"sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef\"\n",
             encoding="utf-8",
         )
-        env["RALPH_CONVERGENT_EXECUTION_CONFIG"] = str(activation)
     return subprocess.run(
         [sys.executable, str(HOOK)],
         cwd=ROOT,

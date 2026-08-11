@@ -153,9 +153,17 @@ def prepare_selection(
         status = str(row.get("status") or "selected").strip().lower()
         if status in _REJECTED_STATUSES:
             continue
-        row_project = str(row.get("project_id") or project_id)
-        row_worktree = str(row.get("worktree_id") or worktree_id)
-        row_branch = str(row.get("branch") or branch)
+        # A metadata row may not inherit caller scope.  Missing provenance is
+        # ambiguous and is rejected before it reaches the local selection
+        # cache; global rows need a separately validated producer path.
+        if any(
+            not isinstance(row.get(field), str) or not str(row.get(field)).strip()
+            for field in ("project_id", "worktree_id", "branch")
+        ):
+            continue
+        row_project = str(row["project_id"])
+        row_worktree = str(row["worktree_id"])
+        row_branch = str(row["branch"])
         if (row_project, row_worktree, row_branch) != (project_id, worktree_id, branch):
             continue
         sensitivity = str(row.get("sensitivity") or "GREEN").upper()

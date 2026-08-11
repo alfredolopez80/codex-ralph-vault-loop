@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .active_context import ActiveContext, local_git_identity
+from .active_context import ActiveContext, fast_git_metadata_for, local_git_identity
 from .implementation_store import FutureSchemaError, ImplementationStore, StorePathError, resolve_store_paths_local
 from .runtime_profile import RuntimeProfile
 
@@ -336,6 +336,13 @@ def _payload_provenance_matches(
     supplied_branch = str(payload.get("branch") or payload.get("git_branch") or "").strip()
     if not supplied_branch and context is not None:
         supplied_branch = str(context.branch or "").strip()
+    if context is not None:
+        _git_root, actual_branch, actual_sha = fast_git_metadata_for(context.workspace_root)
+        explicit_branch = str(payload.get("branch") or payload.get("git_branch") or "").strip()
+        if explicit_branch and actual_branch and explicit_branch != actual_branch:
+            return False
+    else:
+        actual_branch = actual_sha = ""
     recorded_branch = str(git.get("branch") or "").strip()
     if recorded_branch and (not supplied_branch or supplied_branch != recorded_branch):
         return False
@@ -343,7 +350,21 @@ def _payload_provenance_matches(
     if not supplied_sha and context is not None:
         supplied_sha = str(context.sha or "").strip()
     recorded_sha = str(git.get("commit") or git.get("sha") or "").strip()
-    if recorded_sha and (not supplied_sha or not (supplied_sha.startswith(recorded_sha) or recorded_sha.startswith(supplied_sha))):
+    # A commit advances during an implementation epoch. Recovery may still
+    # use the same canonical plan when branch/worktree identity is stable;
+    # completion and Stop retain the strict current-HEAD gate. An explicitly
+    # supplied SHA must nevertheless match the actual context, so a caller
+    # cannot redirect recovery to a foreign checkout.
+    explicit_sha = str(payload.get("sha") or payload.get("git_sha") or "").strip()
+    if explicit_sha and actual_sha and not (
+        explicit_sha.startswith(actual_sha) or actual_sha.startswith(explicit_sha)
+    ):
+        return False
+    if explicit_sha and supplied_sha and not (
+        supplied_sha.startswith(explicit_sha) or explicit_sha.startswith(supplied_sha)
+    ):
+        return False
+    if recorded_sha and not supplied_sha:
         return False
     return True
 

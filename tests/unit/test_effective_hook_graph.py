@@ -65,12 +65,12 @@ def test_role_parser_handles_quoted_project_commands() -> None:
     assert role_for_command('python3 "$(git rev-parse --show-toplevel)/.codex/hooks/user_prompt_dispatch.py"') == "user_prompt_dispatch"
 
 
-def test_plugin_hooks_are_visible_and_unclassified_plugins_warn() -> None:
+def test_plugin_hooks_are_visible_and_unclassified_guarded_plugins_fail_closed() -> None:
     project = _complete_config(["python3 /repo/.codex/hooks/stop_dispatch.py"])
     report = analyze_hook_graph(
         [("project", project), ("plugin:replayio", {"hooks": {"Stop": [{"hooks": [{"command": "./scripts/stop_close_and_upload.sh"}]}]}})]
     )
-    assert report.status == "WARN"
+    assert report.status == "FAIL"
     stop = next(item for item in report.domains if item.domain == "stop_completion")
     assert stop.blocking_owners == ("stop_dispatch",)
-    assert any("plugin:replayio" in warning for warning in report.warnings)
+    assert any("plugin:replayio" in error for error in report.errors)

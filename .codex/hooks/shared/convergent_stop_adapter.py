@@ -22,6 +22,8 @@ class ConvergentStopAdapterResult:
     reason: str
     physical_no_op: bool = False
     evidence_digest: str = ""
+    transition: str = ""
+    expected_generation: int = -1
 
 
 def evaluate_convergent_stop(
@@ -60,7 +62,7 @@ def evaluate_convergent_stop(
             policy=active_policy,
             attempt_fingerprint=attempt_fingerprint,
             previous_terminal_fingerprint=previous_fingerprint,
-            critical=bool(payload.get("critical")),
+            critical=str(candidate.get("risk") or "") == "critical",
         )
     except (ContractError, FutureExecutionSchemaError, StopContractError, ExecutionPolicyError, TypeError, ValueError):
         return ConvergentStopAdapterResult("block", "convergent-state-invalid")
@@ -71,12 +73,31 @@ def evaluate_convergent_stop(
             "duplicate-terminal-attempt",
             physical_no_op=True,
             evidence_digest=anti.evidence_digest,
+            expected_generation=int(candidate["generation"]),
         )
     if decision.action == "close" and anti.passed:
-        return ConvergentStopAdapterResult("allow", "objective-evidence-complete", evidence_digest=anti.evidence_digest)
+        return ConvergentStopAdapterResult(
+            "allow",
+            "objective-evidence-complete",
+            evidence_digest=anti.evidence_digest,
+            transition="CLOSE",
+            expected_generation=int(candidate["generation"]),
+        )
     if decision.action == "user-decision":
-        return ConvergentStopAdapterResult("block", "stop-continuation-budget-exhausted", evidence_digest=anti.evidence_digest)
-    return ConvergentStopAdapterResult("block", "objective-evidence-incomplete", evidence_digest=anti.evidence_digest)
+        return ConvergentStopAdapterResult(
+            "block",
+            "stop-continuation-budget-exhausted",
+            evidence_digest=anti.evidence_digest,
+            transition="USER_DECISION",
+            expected_generation=int(candidate["generation"]),
+        )
+    return ConvergentStopAdapterResult(
+        "block",
+        "objective-evidence-incomplete",
+        evidence_digest=anti.evidence_digest,
+        transition="STOP_CONTINUATION",
+        expected_generation=int(candidate["generation"]),
+    )
 
 
 __all__ = ["ConvergentStopAdapterResult", "evaluate_convergent_stop"]

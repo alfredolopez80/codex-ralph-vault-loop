@@ -43,7 +43,7 @@ def identity() -> TaskIdentity:
     )
 
 
-def initial(*, obligations: tuple[str, ...] = ()) -> dict:
+def initial(*, obligations: tuple[str, ...] = (), risk: str = "low") -> dict:
     return new_state(
         policy=load_execution_policy(),
         plan_id=PLAN_ID,
@@ -54,6 +54,7 @@ def initial(*, obligations: tuple[str, ...] = ()) -> dict:
         task_epoch="epoch-1",
         boundary_epoch=1,
         boundary_kind="new_task",
+        risk=risk,
         activation_mode="shadow",
         obligations=obligations,
     )
@@ -93,6 +94,8 @@ def activate(state: dict) -> dict:
 
 def design_ready(state: dict) -> dict:
     policy = load_execution_policy()
+    tier = "quick" if state["risk"] == "low" else "critical" if state["risk"] == "critical" else "full"
+    packet = digest_text("packet-v1")
     state = activate(state)
     return reduce_state(
         state,
@@ -100,8 +103,8 @@ def design_ready(state: dict) -> dict:
             state,
             "op-aristotle",
             "ARISTOTLE_RECORDED",
-            tier="full",
-            decision_fingerprint=digest_text("packet-v1"),
+            tier=tier,
+            decision_fingerprint=packet if tier in {"full", "critical"} else "",
         ),
         policy=policy,
     ).state
@@ -109,6 +112,8 @@ def design_ready(state: dict) -> dict:
 
 def verified_candidate(state: dict, *, risk: str = "low") -> dict:
     policy = load_execution_policy()
+    if state["risk"] != risk:
+        state = initial(obligations=tuple(state["completion"]["open_obligations"]), risk=risk)
     state = design_ready(state)
     for operation in ("op-approved", "op-implement", "op-verify", "op-candidate"):
         state = reduce_state(state, request(state, operation, "ADVANCE", risk=risk), policy=policy).state
@@ -430,6 +435,7 @@ def test_transient_rerun_and_material_amendment_exhaustion_require_user_decision
             amendment_fingerprint=digest_text("amendment-v1"),
             decision_fingerprint=digest_text("packet-v2"),
             reason="new-material-evidence",
+            risk="low",
         ),
         policy=policy,
     ).state
@@ -437,10 +443,8 @@ def test_transient_rerun_and_material_amendment_exhaustion_require_user_decision
         state,
         request(
             state,
-            "op-amended-analysis",
-            "ARISTOTLE_RECORDED",
-            tier="quick",
-            decision_fingerprint=digest_text("packet-v2"),
+            "op-amended-approval",
+            "ADVANCE",
         ),
         policy=policy,
     ).state
@@ -452,11 +456,36 @@ def test_transient_rerun_and_material_amendment_exhaustion_require_user_decision
             "AMEND",
             amendment_fingerprint=digest_text("amendment-v2"),
             decision_fingerprint=digest_text("packet-v3"),
+            risk="low",
         ),
         policy=policy,
     )
     assert exhausted_amendment.state["phase"] == "user_decision"
     assert exhausted_amendment.user_decision_reason == "material-amendment-budget-exhausted"
+
+
+def test_material_amendment_promotes_low_risk_without_second_full_aristotle_run() -> None:
+    policy = load_execution_policy()
+    state = design_ready(initial(risk="low"))
+    amended = reduce_state(
+        state,
+        request(
+            state,
+            "op-promote-material",
+            "AMEND",
+            risk="material",
+            amendment_fingerprint=digest_text("promotion-amendment"),
+            decision_fingerprint=digest_text("material-packet"),
+        ),
+        policy=policy,
+    ).state
+    assert amended["risk"] == "material"
+    assert amended["phase"] == "design_ready"
+    assert amended["aristotle"]["tier"] == "full"
+    assert amended["aristotle"]["full_runs"] == 1
+    for operation in ("op-promote-approved", "op-promote-implement", "op-promote-verify", "op-promote-review"):
+        amended = reduce_state(amended, request(amended, operation, "ADVANCE"), policy=policy).state
+    assert amended["phase"] == "review"
 
 
 def test_reopen_budget_is_preserved_and_exhaustion_stays_user_decision() -> None:

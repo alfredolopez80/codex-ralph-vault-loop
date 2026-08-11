@@ -272,7 +272,8 @@ def _declared_plan_id(path: Path) -> str | None:
     if not path.exists() or not path.is_file():
         return None
     try:
-        text = path.read_text(encoding="utf-8")[:16 * 1024]
+        raw, _info = _read_bounded_file(path, max_bytes=16 * 1024)
+        text = raw.decode("utf-8")
     except (OSError, UnicodeError) as exc:
         raise CliFailure("invalid_plan", "plan could not be read safely", 3) from exc
     match = re.search(r"(?m)^Plan ID:\s*`?([^`\s]+)`?\s*$", text)

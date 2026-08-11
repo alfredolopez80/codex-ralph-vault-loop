@@ -12,6 +12,7 @@ if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
 from shared.decision_packet import DecisionAmendment, DecisionPacket, DecisionPacketError  # noqa: E402
+from shared.convergent_contracts import digest_value  # noqa: E402
 from shared.convergent_aristotle import AristotleContractError, select_aristotle_tier, validate_aristotle_output  # noqa: E402
 from shared.execution_policy import load_execution_policy  # noqa: E402
 from shared.goal_compiler import GOAL_IDS, PLAN_ID, GoalCompileError, compile_goals, validate_goal  # noqa: E402
@@ -153,7 +154,7 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
     packet = DecisionPacket.create(**packet_values())
     amendment = DecisionAmendment.create(
         amendment_id="AMD-1",
-        prior_packet_fingerprint=packet.analysis_fingerprint,
+        prior_decision_fingerprint=packet.analysis_fingerprint,
         new_evidence=["EV-new"],
         invalidated_assumption="The original API shape is stable.",
         affected_invariants=["Public contract compatibility"],
@@ -161,10 +162,12 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
         changed_steps=["S-1"],
         unchanged_steps=["S-2"],
         verification_changes=["Add compatibility gate"],
-        approval_state="approved",
+        approval_required=True,
+        new_decision_fingerprint=digest_value("packet-v2"),
     )
     assert amendment.new_fingerprint.startswith("sha256:")
     assert amendment.prior_packet_fingerprint == packet.analysis_fingerprint
+    assert amendment.new_decision_fingerprint == digest_value("packet-v2")
     assert DecisionAmendment.from_mapping(amendment.as_dict()) == amendment
     tampered = amendment.as_dict()
     tampered["design_impact"] = "Different impact"
@@ -173,7 +176,7 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
     with pytest.raises(DecisionPacketError, match="sha256"):
         DecisionAmendment.create(
             amendment_id="AMD-bad-digest",
-            prior_packet_fingerprint="sha256:" + "z" * 64,
+            prior_decision_fingerprint="sha256:" + "z" * 64,
             new_evidence=["EV-new"],
             invalidated_assumption="The original API shape is stable.",
             affected_invariants=["Public contract compatibility"],
@@ -181,7 +184,8 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
             changed_steps=["S-1"],
             unchanged_steps=[],
             verification_changes=["Add compatibility gate"],
-            approval_state="approved",
+            approval_required=True,
+            new_decision_fingerprint=digest_value("packet-v2"),
         )
 
 

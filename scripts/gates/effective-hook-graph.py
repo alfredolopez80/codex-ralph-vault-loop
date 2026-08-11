@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,54 @@ def load_json(path: Path) -> dict[str, Any] | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _enabled_plugin_keys(config_path: Path | None = None) -> tuple[str, ...]:
+    """Return enabled plugin identities from the effective Codex config.
+
+    The cache contains more manifests than the runtime has enabled.  Treating
+    every cached file as effective produces false blockers for stale plugins;
+    conversely, a shallow scan misses the versioned cache layout used by the
+    runtime.  This resolver is deliberately read-only and bounded to the
+    config plus the managed cache root.
+    """
+
+    path = config_path or (Path.home() / ".codex" / "config.toml")
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        return ()
+    plugins = document.get("plugins")
+    if not isinstance(plugins, dict):
+        return ()
+    enabled: list[str] = []
+    for identity, value in plugins.items():
+        if isinstance(identity, str) and isinstance(value, dict) and value.get("enabled") is True:
+            enabled.append(identity)
+    return tuple(sorted(set(enabled)))
+
+
+def _managed_plugin_manifests(root: Path, identity: str) -> tuple[Path, ...]:
+    """Resolve active versioned manifests for ``name@marketplace``."""
+
+    if "@" not in identity:
+        return ()
+    name, marketplace = identity.split("@", 1)
+    if not name or not marketplace:
+        return ()
+    candidates: list[Path] = []
+    cache_parent = root / "cache" / marketplace / name
+    try:
+        if cache_parent.is_dir():
+            candidates.extend(sorted(cache_parent.glob("*/hooks.json")))
+        # Some older installations keep the marketplace/name tree directly
+        # under the plugin root.  Only the configured identity is eligible.
+        legacy_parent = root / marketplace / name
+        if legacy_parent.is_dir():
+            candidates.extend(sorted(legacy_parent.glob("*/hooks.json")))
+    except OSError:
+        return ()
+    return tuple(candidates[:32])
 
 
 def installer_snapshot() -> dict[str, Any] | None:
@@ -63,18 +112,30 @@ def plugin_snapshots() -> list[tuple[str, dict[str, Any]]]:
     for raw in configured.split(os.pathsep):
         if raw.strip():
             roots.append(Path(raw).expanduser())
-    roots.extend(
-        (
-            Path.home() / ".codex" / "plugins",
-            Path.home() / ".codex" / ".tmp" / "plugins" / "plugins",
-        )
-    )
+    managed_root = Path.home() / ".codex" / "plugins"
+    enabled = _enabled_plugin_keys()
     snapshots: list[tuple[str, dict[str, Any]]] = []
     seen: set[Path] = set()
+    # The managed cache is filtered by the effective enabled-plugin table;
+    # stale .tmp bundles and disabled versions never become hook owners.
+    for identity in enabled:
+        for path in _managed_plugin_manifests(managed_root, identity):
+            try:
+                resolved = path.resolve()
+                if resolved in seen or not resolved.is_file() or resolved.stat().st_size > 256 * 1024:
+                    continue
+                seen.add(resolved)
+                value = load_json(resolved)
+            except OSError:
+                value = None
+            snapshots.append((f"plugin:{identity}", value or {"hooks": {}}))
     for root in roots:
         try:
             resolved_root = root.resolve()
-            candidates = sorted(resolved_root.glob("*/hooks.json")) if resolved_root.is_dir() else []
+            # Explicit test/diagnostic roots are allowed to enumerate their
+            # bounded manifests.  They are caller-scoped and therefore do not
+            # change production discovery of the managed cache.
+            candidates = sorted(resolved_root.rglob("hooks.json"))[:256] if resolved_root.is_dir() else []
         except OSError:
             continue
         for path in candidates[:256]:

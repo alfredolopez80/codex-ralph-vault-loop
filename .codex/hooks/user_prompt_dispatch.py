@@ -165,12 +165,16 @@ def run(payload: dict[str, Any]) -> str:
     # risk, complexity, and obligation deltas are independent of prompt size.
     boundary_shadow = None
     try:
-        activation_mode = configured_activation_mode()
+        activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
         if activation_mode != "off":
             boundary = classify_boundary(prompt, payload)
             boundary_shadow = boundary.as_dict()
+            # Prompt sensitivity is classified before any recall or authority
+            # lookup.  Carry that canonical result into the v4 state builder;
+            # a payload omission must not silently downgrade YELLOW to GREEN.
+            authority_payload = {**payload, "sensitivity": sensitivity}
             runtime_candidate = ensure_prompt_boundary(
-                payload,
+                authority_payload,
                 prompt=prompt,
                 boundary=boundary_shadow,
                 mode=activation_mode,

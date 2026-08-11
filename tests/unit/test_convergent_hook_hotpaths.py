@@ -32,6 +32,30 @@ def test_external_agent_and_test_reads_are_never_fast_path() -> None:
     assert successful_read_fast_path(event(tool_name="mcp__catalog.read")).eligible is False
     assert successful_read_fast_path(event(tool_name="Agent")).eligible is False
     assert successful_read_fast_path(event(tool_input={"cmd": "pytest tests/unit -q"})).eligible is False
+    assert successful_read_fast_path(event(tool_name="web_search")).eligible is False
+    assert successful_read_fast_path(event(tool_name="google_drive_search")).eligible is False
+
+
+def test_truncated_output_is_not_materiality_safe() -> None:
+    result = successful_read_fast_path(event(tool_response={"exit_code": 0, "stdout": "x" * 2_001 + " P0"}))
+    assert result.reason == "materiality_unknown"
+
+
+def test_fast_path_rejects_structured_or_contradictory_results() -> None:
+    assert successful_read_fast_path(event(tool_response={"exit_code": 0, "content": [{"type": "text", "text": "P1 BLOCKER"}]})).eligible is False
+    assert successful_read_fast_path(event(success=True, tool_response={"exit_code": 1, "stdout": "failed"})).eligible is False
+    assert successful_read_fast_path(event(tool_input={"cmd": "cat " + ("x" * 4_100)})).eligible is False
+
+
+def test_fast_path_rejects_attached_sed_programs_and_path_aliases() -> None:
+    for command in (
+        "sed --expression='w /tmp/out' input.txt",
+        "sed -e'w /tmp/out' input.txt",
+        "./cat file",
+        "tools/sed -n 1p file",
+        "/tmp/git status --short",
+    ):
+        assert successful_read_fast_path(event(tool_input={"cmd": command})).eligible is False, command
 
 
 def test_read_executables_with_write_options_are_never_fast_path() -> None:
@@ -45,6 +69,30 @@ def test_read_executables_with_write_options_are_never_fast_path() -> None:
         "git remote add origin https://example.invalid/repo.git",
         "fd --exec rm {}",
         "fd --exec-batch rm {}",
+        "git branch -D victim",
+        "git branch -m old new",
+        "git branch new-branch",
+        "git diff --output=/tmp/leak",
+        "git log --output /tmp/leak",
+        "git show -o /tmp/leak HEAD",
+        "rg --pre 'touch /tmp/mutated' pattern .",
+        "rg --pre=python pattern .",
+        "git branch --set-upstream-to=origin/main",
+        "git diff --ext-diff",
+        "git show --textconv HEAD",
+        "sed -n '/x/w /tmp/out' file",
+        "less -o /tmp/out file",
+        'cat "$(touch /tmp/mutated)"',
+        "cat `touch /tmp/mutated`",
+        "cat file>/tmp/out",
+        "find . -fprint0 /tmp/out",
+        "file --compile -m magic",
+        'sed -n "1e touch /tmp/x" file',
+        "cat file & touch /tmp/mutated",
+        "cat $MUTATING_OPTION file",
+        "file -C -m magic",
+        "less -O /tmp/out file",
+        "rg --hostname-bin=touch pattern .",
     ):
         result = successful_read_fast_path(event(tool_input={"cmd": command}))
         assert result.eligible is False, command

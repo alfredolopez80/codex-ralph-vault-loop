@@ -35,7 +35,12 @@ def tool_input(payload: dict[str, Any]) -> Any:
     return payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
 
 
-def active_context_from_payload(payload: dict[str, Any] | None = None, *, resolve_git: bool = True) -> ActiveContext:
+def active_context_from_payload(
+    payload: dict[str, Any] | None = None,
+    *,
+    resolve_git: bool = True,
+    trust_payload_identity: bool = True,
+) -> ActiveContext:
     payload = payload or {}
     workspace = workspace_root(payload)
     git_root, branch, sha = git_metadata_for(workspace, use_subprocess=resolve_git)
@@ -45,8 +50,9 @@ def active_context_from_payload(payload: dict[str, Any] | None = None, *, resolv
         if git_root and resolve_git
         else fast_remote_url(identity_root) if git_root else ""
     )
-    branch = str(payload.get("branch") or payload.get("git_branch") or branch).strip()
-    sha = str(payload.get("sha") or payload.get("git_sha") or sha).strip()
+    if trust_payload_identity:
+        branch = str(payload.get("branch") or payload.get("git_branch") or branch).strip()
+        sha = str(payload.get("sha") or payload.get("git_sha") or sha).strip()
     project_slug = safe_slug(remote_repo_name(remote_url) or identity_root.name)
     workspace_instance_id = hash_text(str(workspace.resolve()))[:16]
     return ActiveContext(

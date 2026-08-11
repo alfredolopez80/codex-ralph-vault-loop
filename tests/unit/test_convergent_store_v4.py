@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -60,6 +62,8 @@ def make_repo(tmp_path: Path) -> Path:
 
 def make_store(tmp_path: Path) -> tuple[Path, ConvergentStore]:
     root = make_repo(tmp_path)
+    (root / ".ralph" / "plans").mkdir(parents=True)
+    shutil.copyfile(ROOT / ".ralph" / "plans" / "2026-08-11-ralph-convergent-execution-v4.md", root / ".ralph" / "plans" / "v4.md")
     progress = ImplementationStore(resolve_store_paths(primary_root=root))
     progress.register_plan(PLAN_ID, plan_path=".ralph/plans/v4.md", operation_id="op-register-v4")
     return root, ConvergentStore(progress, load_execution_policy())
@@ -192,7 +196,10 @@ def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_pat
     root = make_repo(tmp_path)
     progress = ImplementationStore(resolve_store_paths(primary_root=root))
     plan_id = "custom-plan-20260811"
-    plan_digest = digest_value("custom-plan-bytes")
+    plan_bytes = b"# custom plan\n"
+    plan_digest = "sha256:" + hashlib.sha256(plan_bytes).hexdigest()
+    (root / ".ralph" / "plans").mkdir(parents=True)
+    (root / ".ralph" / "plans" / "custom-plan.md").write_bytes(plan_bytes)
     progress.register_plan(
         plan_id,
         plan_path=".ralph/plans/custom-plan.md",
@@ -237,7 +244,7 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
     _root, store = make_store(tmp_path)
     amendment = DecisionAmendment.create(
         amendment_id="AMD-1",
-        prior_packet_fingerprint=digest_value("packet-v1"),
+        prior_decision_fingerprint=digest_value("packet-v1"),
         new_evidence=("EV-new",),
         invalidated_assumption="The original API remains stable.",
         affected_invariants=("Public compatibility",),
@@ -245,7 +252,8 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
         changed_steps=("S-1",),
         unchanged_steps=(),
         verification_changes=("Add compatibility coverage",),
-        approval_state="approved",
+        approval_required=True,
+        new_decision_fingerprint=digest_value("packet-v2"),
     )
     with pytest.raises(store_module.ConvergentStoreError, match="not initialized"):
         store.append_amendment(PLAN_ID, amendment)
@@ -257,7 +265,7 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
     assert store.append_amendment(PLAN_ID, amendment).changed is False
     conflicting = DecisionAmendment.create(
         amendment_id="AMD-1",
-        prior_packet_fingerprint=digest_value("packet-v1"),
+        prior_decision_fingerprint=digest_value("packet-v1"),
         new_evidence=("EV-different",),
         invalidated_assumption="The original API remains stable.",
         affected_invariants=("Public compatibility",),
@@ -265,13 +273,14 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
         changed_steps=("S-1",),
         unchanged_steps=(),
         verification_changes=("Add compatibility coverage",),
-        approval_state="approved",
+        approval_required=True,
+        new_decision_fingerprint=digest_value("packet-v2"),
     )
     with pytest.raises(ConvergentIdempotencyError, match="amendment ID conflicts"):
         store.append_amendment(PLAN_ID, conflicting)
     second = DecisionAmendment.create(
         amendment_id="AMD-2",
-        prior_packet_fingerprint=digest_value("packet-v2"),
+        prior_decision_fingerprint=digest_value("packet-v2"),
         new_evidence=("EV-second",),
         invalidated_assumption="A second assumption changed.",
         affected_invariants=("Scope stability",),
@@ -279,7 +288,8 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
         changed_steps=("S-2",),
         unchanged_steps=(),
         verification_changes=("Add another gate",),
-        approval_state="pending",
+        approval_required=True,
+        new_decision_fingerprint=digest_value("packet-v3"),
     )
     with pytest.raises(store_module.ConvergentStoreError, match="USER_DECISION"):
         store.append_amendment(PLAN_ID, second)

@@ -109,7 +109,6 @@ def terminal_attempt_fingerprint(state: Mapping[str, Any]) -> str:
         {
             "task_id": normalized["task_id"],
             "task_epoch": normalized["task_epoch"],
-            "state_hash": normalized["state_hash"],
             "final_audit_digest": normalized["completion"]["final_audit_digest"],
             "evidence_manifest_digest": normalized["completion"]["evidence_manifest_digest"],
         }

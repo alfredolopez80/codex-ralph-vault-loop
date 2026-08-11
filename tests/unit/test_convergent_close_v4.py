@@ -88,8 +88,7 @@ def _stop_state(*, complete: bool) -> dict:
             state,
             "op-design-close",
             "ARISTOTLE_RECORDED",
-            tier="full",
-            decision_fingerprint=digest_text("close-packet"),
+            tier="micro",
         ),
         policy=policy,
     ).state

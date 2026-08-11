@@ -222,15 +222,20 @@ class FindingLedger:
             raise ReviewContractError("material review must consume exactly one pass")
         if not isinstance(findings, (list, tuple)) or any(not isinstance(item, ReviewFinding) for item in findings):
             raise ReviewContractError("finding ledger items must be structured ReviewFinding values")
+        if len(findings) > 128:
+            raise ReviewContractError("finding ledger is unbounded")
         normalized = tuple(findings)
         if len({item.finding_id for item in normalized}) != len(normalized):
             raise ReviewContractError("finding ledger contains duplicate IDs")
+        normalized_owner = _text_id(review_owner, "review owner")
+        accepted_ids = tuple(sorted(item.finding_id for item in normalized if item.triage_status == "accepted"))
         return cls(
             risk,
             review_pass,
-            _text_id(review_owner, "review owner"),
+            normalized_owner,
             normalized,
-            digest_value({"risk": risk, "review_pass": review_pass, "review_owner": review_owner, "findings": [item.as_dict() for item in normalized]}),
+            digest_value({"risk": risk, "review_pass": review_pass, "review_owner": normalized_owner, "findings": [item.as_dict() for item in normalized]}),
+            accepted_ids,
         )
 
     def triage(self, decisions: Mapping[str, str]) -> "FindingLedger":

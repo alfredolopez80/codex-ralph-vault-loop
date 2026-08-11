@@ -73,19 +73,19 @@ def deterministic_final_audit(
     gates: Sequence[AuditGate],
     accepted_findings: Sequence[str] = (),
     closed_findings: Sequence[str] = (),
-    p0_p1_open: bool = False,
-    scope_clean: bool = True,
-    security_preserved: bool = True,
-    branch_correct: bool = True,
-    head_correct: bool = True,
-    worktree_correct: bool = True,
-    no_blockers: bool = True,
-    notes_valid: bool = True,
-    approvals_valid: bool = True,
-    plan_digest_match: bool = True,
-    policy_hash_match: bool = True,
-    amendment_valid: bool = True,
-    finding_ledger_valid: bool = True,
+    p0_p1_open: bool | None = None,
+    scope_clean: bool | None = None,
+    security_preserved: bool | None = None,
+    branch_correct: bool | None = None,
+    head_correct: bool | None = None,
+    worktree_correct: bool | None = None,
+    no_blockers: bool | None = None,
+    notes_valid: bool | None = None,
+    approvals_valid: bool | None = None,
+    plan_digest_match: bool | None = None,
+    policy_hash_match: bool | None = None,
+    amendment_valid: bool | None = None,
+    finding_ledger_valid: bool | None = None,
 ) -> FinalAuditResult:
     for label, value in (("packet_fingerprint", packet_fingerprint), ("plan_digest", plan_digest), ("policy_hash", policy_hash), ("evidence_manifest_digest", evidence_manifest_digest)):
         _digest(value, label)
@@ -105,7 +105,7 @@ def deterministic_final_audit(
         ("finding_ledger_valid", finding_ledger_valid),
     ):
         if not isinstance(value, bool):
-            raise FinalAuditError(f"{label} must be boolean")
+            raise FinalAuditError(f"{label} must be an explicit boolean verdict")
     if not isinstance(gates, (list, tuple)) or any(not isinstance(gate, AuditGate) for gate in gates):
         raise FinalAuditError("audit gates must be structured AuditGate values")
     if len(gates) > 256 or len({gate.gate_id for gate in gates}) != len(gates):
@@ -116,6 +116,10 @@ def deterministic_final_audit(
             raise FinalAuditError("audit gate ID is invalid")
         if not isinstance(gate.executed, bool) or not isinstance(gate.passed, bool) or not isinstance(gate.blocking, bool):
             raise FinalAuditError("audit gate booleans are invalid")
+        if gate.executed:
+            _digest(gate.evidence_digest, f"gate {gate.gate_id} evidence digest")
+        elif gate.evidence_digest:
+            _digest(gate.evidence_digest, f"gate {gate.gate_id} evidence digest")
         if gate.blocking and (not gate.executed or not gate.passed):
             failed.append(gate.gate_id)
     accepted = _identifiers(accepted_findings, "accepted_findings")

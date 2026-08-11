@@ -127,7 +127,7 @@ def validate_aristotle_output(decision: AristotleDecision, output: Mapping[str, 
         value = output[section]
         if value in (None, "", (), [], {}):
             raise AristotleContractError(f"Aristotle output section {section} is empty")
-        _validate_output_value(value, label=f"Aristotle output section {section}")
+        _validate_output_value(value, label=f"Aristotle output section {section}", top_level=True)
     if decision.produces_decision_packet:
         packet = output.get("decision_packet")
         if not isinstance(packet, Mapping):
@@ -138,7 +138,7 @@ def validate_aristotle_output(decision: AristotleDecision, output: Mapping[str, 
             raise AristotleContractError("Full/Critical Aristotle Decision Packet is invalid") from exc
 
 
-def _validate_output_value(value: object, *, label: str) -> None:
+def _validate_output_value(value: object, *, label: str, top_level: bool = False) -> None:
     if isinstance(value, str):
         if len(value.encode("utf-8")) > 8_192 or is_red(value):
             raise AristotleContractError(f"{label} is oversized or RED")
@@ -167,9 +167,9 @@ def _validate_output_value(value: object, *, label: str) -> None:
         for index, item in enumerate(value):
             _validate_output_value(item, label=f"{label}[{index}]")
         return
-    if value is None or isinstance(value, (bool, int, float)):
+    if not top_level and (value is None or isinstance(value, (bool, int, float))):
         return
-    raise AristotleContractError(f"{label} contains an unsupported value")
+    raise AristotleContractError(f"{label} must be non-empty text or structured evidence")
 
 
 __all__ = [

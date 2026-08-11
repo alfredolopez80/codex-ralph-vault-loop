@@ -27,14 +27,36 @@ from shared.recall_delta import RecallKey, compute_delta  # noqa: E402
 
 
 REPORT_VERSION = 1
+CORPUS_SCHEMA_VERSION = 1
+CORPUS_MANIFEST_DIGEST = "sha256:0402fed4b26cfa8dd68352a551642b29ec12a1f29a46aec320dd01e18ca2cd57"
+EXPECTED_SCENARIOS = (
+    ("C-01", "low-risk", "status"),
+    ("C-02", "low-risk", "continuation"),
+    ("C-03", "low-risk", "read-only"),
+    ("C-04", "low-risk", "metadata-recall-hit"),
+    ("C-05", "low-risk", "successful-read-fast-path"),
+    ("C-06", "low-risk", "mechanical-prompt"),
+    ("C-07", "material", "new-task"),
+    ("C-08", "material", "focused-verify"),
+    ("C-09", "material", "material-scope-change"),
+    ("C-10", "material", "decision-packet"),
+    ("C-11", "material", "single-review"),
+    ("C-12", "material", "batch-mitigation"),
+    ("C-13", "critical", "authorization"),
+    ("C-14", "critical", "security"),
+    ("C-15", "critical", "persistence"),
+    ("C-16", "critical", "migration"),
+    ("C-17", "critical", "concurrency"),
+    ("C-18", "critical", "public-contract"),
+    ("C-19", "failure", "transient-rerun"),
+    ("C-20", "failure", "repair-fingerprint"),
+    ("C-21", "failure", "budget-exhaustion"),
+    ("C-22", "failure", "duplicate-terminal"),
+    ("C-23", "failure", "state-replay"),
+    ("C-24", "failure", "rollback"),
+)
 DEFAULT_MANIFEST = ROOT / "docs" / "reports" / "ralph-convergent-execution-v4" / "corpus-manifest.json"
 DEFAULT_OUTPUT = ROOT / "docs" / "reports" / "ralph-convergent-execution-v4" / "canary-structural-report.json"
-
-
-def _improvement_percent(baseline: int, candidate: int) -> float:
-    if baseline <= 0:
-        return 0.0
-    return round(max(0.0, (baseline - candidate) * 100.0 / baseline), 2)
 
 
 def digest(value: object) -> str:
@@ -156,10 +178,12 @@ def _candidate_observation(
     )
     # The structural lane has no external worktree or RED payload.  If a
     # caller supplies either marker, it is evaluated rather than assumed safe.
-    red_leak = bool(payload.get("red_leak") or payload.get("red_output"))
-    wrong_worktree = bool(payload.get("wrong_worktree") or payload.get("worktree_mismatch"))
+    red_marker = payload.get("red_leak") if "red_leak" in payload else payload.get("red_output") if "red_output" in payload else None
+    worktree_marker = payload.get("wrong_worktree") if "wrong_worktree" in payload else payload.get("worktree_mismatch") if "worktree_mismatch" in payload else None
+    red_leak = bool(red_marker) if red_marker is not None else None
+    wrong_worktree = bool(worktree_marker) if worktree_marker is not None else None
     guardrail_bypass = bool(approval_delta and candidate not in {"user-decision", "rollback"})
-    false_close = candidate in {"close", "allow"} and kind not in {"duplicate-terminal"}
+    false_close = bool(payload.get("false_close")) if "false_close" in payload else None
     return {
         "decision": candidate,
         "reason": reason,
@@ -174,13 +198,31 @@ def _candidate_observation(
 
 
 def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(manifest, Mapping):
+        raise ValueError("canary manifest must be an object")
+    if manifest.get("schema_version") != CORPUS_SCHEMA_VERSION:
+        raise ValueError("canary manifest schema version is unsupported")
+    if manifest.get("plan_id") != "ralph-convergent-execution-v4-20260811":
+        raise ValueError("canary manifest plan identity is invalid")
+    if manifest.get("minimum_policy_tasks") != 20 or manifest.get("paired_task_count") != 24:
+        raise ValueError("canary manifest task counts are invalid")
+    if manifest.get("same_corpus_required") is not True:
+        raise ValueError("canary manifest must require a paired corpus")
+    if digest(manifest) != CORPUS_MANIFEST_DIGEST:
+        raise ValueError("canary manifest digest is not the approved corpus")
     scenarios = manifest.get("scenarios")
     if not isinstance(scenarios, list) or len(scenarios) != 24:
         raise ValueError("canary manifest must contain exactly 24 scenarios")
+    actual_scenarios = tuple(
+        (str(item.get("id")), str(item.get("class")), str(item.get("kind")))
+        for item in scenarios
+        if isinstance(item, Mapping)
+    )
+    if actual_scenarios != EXPECTED_SCENARIOS:
+        raise ValueError("canary manifest scenarios do not match the approved paired corpus")
     policy = load_execution_policy()
     results: list[dict[str, Any]] = []
-    successful_read_writes = 0
-    baseline_read_writes = 0
+    fast_path_eligible = 0
     unchanged_recall_injection = 0
     for scenario in scenarios:
         if not isinstance(scenario, Mapping) or not isinstance(scenario.get("id"), str) or not isinstance(scenario.get("kind"), str):
@@ -206,8 +248,7 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         if kind == "successful-read-fast-path":
             if observation["fast_eligible"] is not True:
                 raise ValueError("successful-read fixture failed its fast-path contract")
-            baseline_read_writes += 1
-            successful_read_writes += int(not bool(observation["fast_eligible"]))
+            fast_path_eligible += int(bool(observation["fast_eligible"]))
         if kind == "metadata-recall-hit":
             previous = RecallKey.create(
                 project_id="project",
@@ -235,59 +276,91 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
             "evidence_digest": digest({"id": scenario_id, "kind": kind, "boundary": boundary.as_dict()}),
         }
         results.append(result)
+    observed_false_closes = [item["candidate_observation"]["false_close"] for item in results if item["candidate_observation"]["false_close"] is not None]
+    observed_red_leaks = [item["candidate_observation"]["red_leak"] for item in results if item["candidate_observation"]["red_leak"] is not None]
+    observed_wrong_worktree = [item["candidate_observation"]["wrong_worktree"] for item in results if item["candidate_observation"]["wrong_worktree"] is not None]
     hard_gates = {
         "paired_scenarios_24_of_24": len(results) == 24,
-        "false_closes": all(item["candidate_observation"]["false_close"] is False for item in results),
-        "red_leaks": all(item["candidate_observation"]["red_leak"] is False for item in results),
-        "wrong_worktree_operations": all(item["candidate_observation"]["wrong_worktree"] is False for item in results),
         "guardrail_bypasses": all(item["candidate_observation"]["guardrail_bypass"] is False for item in results),
-        "automatic_subagents": policy.automatic_children == 0,
-        "second_review": max((int(item["candidate_observation"]["review_count"]) for item in results), default=0) <= 1,
+        "automatic_subagent_policy_zero": policy.automatic_children == 0,
+        "review_budget_policy_bound": max((int(item["candidate_observation"]["review_count"]) for item in results), default=0) <= 1,
         "unchanged_recall_injection": unchanged_recall_injection == 0,
-        "successful_read_writes": successful_read_writes == 0,
-        "budget_violations": all(item["candidate_observation"]["budget_valid"] is True for item in results),
+        "fast_path_predicate_eligible": fast_path_eligible == 1,
+        "budget_policy_valid": all(item["candidate_observation"]["budget_valid"] is True for item in results),
         "unexplained_divergences": all(item["divergence_explained"] is True for item in results),
     }
     structural_improvements = {
-        "successful_read_writes": {
-            "baseline": baseline_read_writes,
-            "candidate": successful_read_writes,
-            "improvement_percent": _improvement_percent(baseline_read_writes, successful_read_writes),
+        "successful_read_fast_path": {
+            "baseline": "UNKNOWN",
+            "candidate": "eligible" if fast_path_eligible == 1 else "not_eligible",
+            "improvement_percent": "UNKNOWN",
         },
-        "unchanged_recall_injection": {
-            "baseline": 1,
-            "candidate": unchanged_recall_injection,
-            "improvement_percent": _improvement_percent(1, unchanged_recall_injection),
+        "unchanged_recall_predicate": {
+            "baseline": "UNKNOWN",
+            "candidate": "zero_reads" if unchanged_recall_injection == 0 else "materiality_detected",
+            "improvement_percent": "UNKNOWN",
         },
     }
+    structural_pass = all(value is True for value in hard_gates.values())
     return {
         "report_version": REPORT_VERSION,
         "mode": "structural-fixture-only",
+        "result_scope": "STRUCTURAL_ONLY",
         "plan_id": manifest.get("plan_id"),
-        "paired_corpus": True,
+        "corpus_loaded_24_of_24": len(results) == 24,
+        "paired_corpus_manifest": True,
+        "paired_corpus_execution": "UNKNOWN",
+        "corpus_execution": "structural-fixture-only",
+        "baseline_execution": "UNKNOWN",
+        "candidate_execution": "deterministic-predicates-only",
         "scenario_results": results,
         "hard_gates": hard_gates,
+        "unmeasured_runtime_gates": {
+            "no_false_closes": not any(observed_false_closes) if observed_false_closes else "UNKNOWN",
+            "no_red_leaks": not any(observed_red_leaks) if observed_red_leaks else "UNKNOWN",
+            "no_wrong_worktree_operations": not any(observed_wrong_worktree) if observed_wrong_worktree else "UNKNOWN",
+            "lifecycle_runtime_execution": "UNKNOWN",
+            "baseline_equivalence": "UNKNOWN",
+        },
         "quality_gate": "UNKNOWN (no full model execution in this local harness)",
+        "measurement_status": {
+            "lifecycle_contract_execution": "UNKNOWN",
+            "provider_credits": "UNKNOWN",
+            "wall_time": "UNKNOWN",
+            "escaped_defects": "UNKNOWN",
+        },
         "metrics": {
             "subscription_credits": "UNKNOWN",
             "wall_time_p50": "UNKNOWN",
             "wall_time_p95": "UNKNOWN",
             "model_turns": "UNKNOWN",
             "reasoning_turns": "UNKNOWN",
-            "subagents": 0,
-            "reviews": 0,
-            "amendments": 0,
-            "repair_cycles": 0,
-            "stop_continuations": 0,
+            "subagents": "UNKNOWN",
+            "reviews": "UNKNOWN",
+            "amendments": "UNKNOWN",
+            "repair_cycles": "UNKNOWN",
+            "stop_continuations": "UNKNOWN",
             "context_bytes": "UNKNOWN",
-            "recall_body_reads": 0,
-            "hook_writes": successful_read_writes,
+            "recall_body_reads": "UNKNOWN",
+            "hook_writes": "UNKNOWN",
             "escaped_defects": "UNKNOWN",
         },
+        "structural_observations": {
+            "fast_path_predicate_eligible": fast_path_eligible == 1,
+            "unchanged_recall_predicate_zero_reads": unchanged_recall_injection == 0,
+            "candidate_runtime_hook_writes": "UNKNOWN",
+            "candidate_runtime_subagents": "UNKNOWN",
+            "candidate_runtime_recall_body_reads": "UNKNOWN",
+        },
         "structural_improvements": structural_improvements,
-        "efficiency_gate": "PASS (fixture structural metrics only; real credits/wall time remain UNKNOWN)",
-        "rollback_proof": {"off": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "off"}) == "off", "shadow": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "shadow"}) == "shadow"},
-        "pass": all(hard_gates.values()),
+        "efficiency_gate": "UNKNOWN (structural fixture lane does not measure live lifecycle or provider efficiency)",
+        "structural_pass": structural_pass,
+        "mode_selection_proof": {"off": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "off"}) == "off", "shadow": configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "shadow"}) == "shadow"},
+        "runtime_rollback": "UNKNOWN",
+        # Backward-compatible boolean for the CLI/test contract.  It means
+        # only ``structural_pass``; live baseline/candidate quality is kept
+        # explicitly UNKNOWN above.
+        "pass": structural_pass,
     }
 
 

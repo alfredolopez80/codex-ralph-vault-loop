@@ -125,7 +125,13 @@ def test_metadata_rows_with_raw_fields_are_not_selected() -> None:
         [
             {"id": "M-body", "body": "must not enter recall"},
             {"id": "M-content", "content": "must not enter recall"},
-            {"id": "M-good", "title": "bounded metadata"},
+            {
+                "id": "M-good",
+                "title": "bounded metadata",
+                "project_id": "project-1",
+                "worktree_id": "worktree-1",
+                "branch": "codex/v4",
+            },
         ],
         project_id="project-1",
         worktree_id="worktree-1",

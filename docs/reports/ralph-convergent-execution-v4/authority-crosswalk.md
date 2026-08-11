@@ -5,7 +5,7 @@ implementation plan. It is not a second plan and does not change the active
 `plan_digest`. The detailed constitutional source is preserved beside the
 plan at:
 
-`../../.ralph/plans/2026-08-11-ralph-convergent-execution-v4-constitution.md`
+`../../../.ralph/plans/2026-08-11-ralph-convergent-execution-v4-constitution.md`
 
 ## Authoritative inputs
 
@@ -20,7 +20,7 @@ plan at:
 ## Contract-to-evidence map
 
 | Contract                                                          | Implementation                                                                             | Evidence                                                                                                     |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ | -------- | -------------------------------------------------------------- |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
 | Closed-world TOML v4, exact hash and epoch drift                  | `.codex/hooks/shared/execution_policy.py`                                                  | `tests/unit/test_execution_policy_v4.py`                                                                     |
 | Seven-class Prompt Boundary and shadow silence                    | `.codex/hooks/shared/prompt_boundary.py`, `.codex/hooks/user_prompt_dispatch.py`           | `tests/unit/test_prompt_boundary.py`, `tests/unit/test_user_prompt_dispatch.py`                              |
 | Task identity, schema-v3 state/event and immutable aliases        | `.codex/hooks/shared/convergent_contracts.py`                                              | `tests/unit/test_convergence_contract.py`                                                                    |
@@ -33,7 +33,7 @@ plan at:
 | Review ledger, one mitigation batch and deterministic final audit | `.codex/hooks/shared/convergent_review.py`, `final_audit.py`                               | `tests/integration/test_convergent_review_mitigation.py`, `tests/unit/test_convergent_final_audit.py`        |
 | Effective hook ownership                                          | `scripts/gates/effective-hook-graph.py`                                                    | unit/integration doctor tests and JSON doctor report                                                         |
 | Shadow/canary contract and UNKNOWN cost handling                  | `scripts/evals/convergent_execution_canary.py`                                             | `canary-structural-report.json`, 24/24 structural scenarios                                                  |
-| Rollback and rollout boundary                                     | phase evidence plus feature mode `off                                                      | shadow                                                                                                       | enforce` | `docs/reports/ralph-convergent-execution-v4/phase-evidence.md` |
+| Rollback and rollout boundary                                     | phase evidence plus feature mode `off`, `shadow`, or `enforce`                             | `docs/reports/ralph-convergent-execution-v4/phase-evidence.md`                                               |
 
 The repo-local activation contract is versioned at
 `config/convergent-execution-mode.toml`. It is bound to the active plan and
@@ -59,3 +59,10 @@ Its execution boundary is T14 with an explicit user override recorded in
 `t13-user-decision.json`; that override permits only repo-local `shadow`
 execution. Enforce mode and global rollout are still not inferred from
 structural tests and remain separately approval-bound.
+
+The plan, notes, decision record and canonical progress state are ignored
+local artifacts. A clean clone of this branch therefore contains the runtime
+contracts and the immutable plan digest references, but not the active local
+ledger; deployment or continuation tooling must provision that ledger and
+verify its hashes before treating it as authoritative. The global hook wrapper
+is likewise outside this repo-local T14 proof and is not changed by this PR.

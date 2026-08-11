@@ -92,12 +92,13 @@ def test_environment_cannot_promote_repo_shadow_to_enforce(monkeypatch: pytest.M
 def test_environment_cannot_promote_missing_rollout_to_shadow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_CONFIG", str(tmp_path / "missing.toml"))
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "shadow")
-    with pytest.raises(ExecutionPolicyError, match="cannot promote"):
+    with pytest.raises(ExecutionPolicyError, match="active workspace activation file"):
         configured_activation_mode()
 
 
 def test_repo_local_activation_file_rejects_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    path = tmp_path / "mode.toml"
+    path = tmp_path / "config" / "convergent-execution-mode.toml"
+    path.parent.mkdir()
     path.write_text(
         "version = 1\n"
         "mode = \"shadow\"\n"
@@ -109,4 +110,12 @@ def test_repo_local_activation_file_rejects_drift(tmp_path: Path, monkeypatch: p
     monkeypatch.delenv("RALPH_CONVERGENT_EXECUTION_MODE", raising=False)
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_CONFIG", str(path))
     with pytest.raises(ExecutionPolicyError, match="plan_id"):
-        configured_activation_mode()
+        configured_activation_mode(workspace_root=tmp_path)
+
+
+def test_activation_override_cannot_point_at_an_unrelated_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "copied-enforce.toml"
+    path.write_text((ROOT / "config" / "convergent-execution-mode.toml").read_text(encoding="utf-8").replace('mode = "shadow"', 'mode = "enforce"'), encoding="utf-8")
+    monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_CONFIG", str(path))
+    with pytest.raises(ExecutionPolicyError, match="active workspace activation file"):
+        configured_activation_mode(workspace_root=ROOT)

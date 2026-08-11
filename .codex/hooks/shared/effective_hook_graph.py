@@ -32,6 +32,12 @@ REPORT_ONLY_ROLES: dict[str, frozenset[str]] = {
     "post_tool_persistence": frozenset({"post_tool_cost_ledger", "shaping_ripple", "sol_advisor_observer"}),
     "stop_completion": frozenset({"stop_route_decision_warn", "implementation_notes_guard", "sol_advisor_stop_guard", "stop_persist_memory", "stop_memory_promotion_review", "file_line_guard_stop"}),
 }
+REQUIRED_EVENTS: dict[str, str] = {
+    "prompt_boundary": "UserPromptSubmit",
+    "pre_tool_safety": "PreToolUse",
+    "post_tool_persistence": "PostToolUse",
+    "stop_completion": "Stop",
+}
 ROLE_RE = re.compile(r"global_hook_dispatch\.py\s+--event\s+\S+\s+--role\s+([A-Za-z0-9_-]+)")
 FILE_RE = re.compile(r"([A-Za-z0-9_.-]+\.(?:py|sh))")
 
@@ -113,13 +119,29 @@ def analyze_hook_graph(configs: Iterable[tuple[str, Mapping[str, Any]]]) -> Hook
                     command = str(child.get("command") or "")
                     role = role_for_command(command)
                     if not role:
-                        warnings.append(f"{source}:{event}: unclassified command")
+                        message = f"{source}:{event}: unclassified command"
+                        narrow_plugin = source.startswith("plugin:") and _plugin_matcher_is_narrow(group.get("matcher"))
+                        if source.startswith("plugin:") and event in set(REQUIRED_EVENTS.values()) and not narrow_plugin:
+                            errors.append(message + " may own a guarded domain; explicit classification is required")
+                        else:
+                            warnings.append(message + (" report-only narrow matcher" if narrow_plugin else ""))
                         continue
                     if source.startswith("plugin:") and domain_for_role(role) is None:
-                        warnings.append(f"{source}:{event}: plugin hook is unclassified report-only")
+                        message = f"{source}:{event}: plugin hook is unclassified"
+                        narrow_plugin = _plugin_matcher_is_narrow(group.get("matcher"))
+                        if event in set(REQUIRED_EVENTS.values()) and not narrow_plugin:
+                            errors.append(message + " may own a guarded domain; explicit classification is required")
+                        else:
+                            warnings.append(message + (" report-only narrow matcher" if narrow_plugin else " report-only"))
                     if role == "anti_rationalization_stop":
                         legacy_registered = True
                     domain = domain_for_role(role)
+                    if domain is not None and REQUIRED_EVENTS[domain] != event:
+                        errors.append(
+                            f"{source}:{event}:{role} is registered under {event}; "
+                            f"{domain} requires {REQUIRED_EVENTS[domain]}"
+                        )
+                        continue
                     blocking = domain is not None and role in set().union(*BLOCKING_ROLES.values())
                     entries.append(HookEntry(event, role, source, command, blocking, domain))
 
@@ -175,6 +197,13 @@ def domain_for_role(role: str) -> str | None:
         if role in roles:
             return domain
     return None
+
+
+def _plugin_matcher_is_narrow(matcher: object) -> bool:
+    if not isinstance(matcher, str) or not matcher.strip():
+        return False
+    normalized = matcher.strip().lower()
+    return normalized not in {".*", "*", "all", "always"}
 
 
 __all__ = ["DOMAINS", "DomainResult", "HookEntry", "HookGraphReport", "analyze_hook_graph", "domain_for_role", "role_for_command"]

@@ -23,6 +23,8 @@ def test_canary_executes_candidate_predicates_and_explains_divergence() -> None:
     canary = load_canary()
     report = canary.evaluate(json.loads(MANIFEST.read_text(encoding="utf-8")))
     assert report["pass"] is True
+    assert report["result_scope"] == "STRUCTURAL_ONLY"
+    assert report["paired_corpus_execution"] == "UNKNOWN"
     assert len(report["scenario_results"]) == 24
     assert any(item["different"] for item in report["scenario_results"])
     assert all("candidate_observation" in item for item in report["scenario_results"])
@@ -39,3 +41,11 @@ def test_canary_fails_closed_when_a_required_candidate_predicate_fails(monkeypat
     monkeypatch.setattr(canary, "successful_read_fast_path", lambda _payload: BrokenFastPath())
     with pytest.raises(ValueError, match="successful-read fixture"):
         canary.evaluate(json.loads(MANIFEST.read_text(encoding="utf-8")))
+
+
+def test_canary_rejects_a_duplicate_or_relabelled_corpus() -> None:
+    canary = load_canary()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest["scenarios"][-1] = dict(manifest["scenarios"][0])
+    with pytest.raises(ValueError, match="approved paired corpus|digest"):
+        canary.evaluate(manifest)

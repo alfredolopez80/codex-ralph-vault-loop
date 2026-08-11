@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import hashlib
 from math import isfinite
 from pathlib import Path
 import re
@@ -24,6 +25,8 @@ from .convergent_contracts import (
     state_hash,
     validate_event,
     validate_state,
+    digest_value,
+    SHA256_RE,
 )
 from .convergent_reducer import Reduction, TransitionRequest, reduce_state
 from .decision_packet import DecisionAmendment, DecisionPacketError
@@ -67,6 +70,7 @@ class ExecutionPaths:
     events: Path
     state_lock: Path
     goals: Path
+    decision_packet: Path
     findings: Path
     final_audit: Path
     amendments: Path
@@ -97,6 +101,7 @@ class ConvergentStore:
             events=root / "events.jsonl",
             state_lock=root / "state.lock",
             goals=root / "goals.json",
+            decision_packet=root / "decision-packet.json",
             findings=root / "findings.json",
             final_audit=root / "final-audit.json",
             amendments=root / "amendments.jsonl",
@@ -112,6 +117,7 @@ class ConvergentStore:
         active_plan = self.progress.read_state(plan_id)
         if active_plan is None:
             raise ConvergentStoreError("canonical implementation plan must be registered before execution state")
+        self._validate_plan_provenance(candidate, active_plan)
         goals = self._compile_goal_artifact(candidate, active_plan=active_plan)
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
@@ -142,7 +148,7 @@ class ConvergentStore:
             metadata = metadata.plus(self._ensure_goal_artifact(paths, goals))
             return ConvergentStoreResult(True, candidate, metadata=metadata, reason="execution state initialized")
 
-    def read_current(self, plan_id: str) -> ConvergentStoreResult:
+    def read_current(self, plan_id: str, *, authoritative: bool = False) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
         initial = self._read_state_file(paths.initial, label="execution initial")
         snapshot = self._read_state_file(paths.state, label="execution state")
@@ -150,8 +156,9 @@ class ConvergentStore:
             if snapshot is not None or paths.events.exists():
                 raise ConvergentIntegrityError("execution state lacks immutable initial evidence")
             return ConvergentStoreResult(False, reason="execution state missing")
-        events = self._read_events(paths, reject_partial=False)
+        events = self._read_events(paths, reject_partial=authoritative)
         replayed, snapshot_current = self._replay(initial, snapshot, events)
+        self._validate_current_plan_provenance(replayed)
         return ConvergentStoreResult(False, replayed, reason="read-only replay", replayed=not snapshot_current)
 
     def transition(self, plan_id: str, request: TransitionRequest) -> ConvergentStoreResult:
@@ -165,6 +172,7 @@ class ConvergentStore:
             events = self._read_events(paths, reject_partial=True)
             current, snapshot_current = self._replay(initial, snapshot, events)
             assert_policy_compatible(current["policy_hash"], self.policy)
+            self._validate_current_plan_provenance(current)
             operation_digest = request.operation_digest()
             previous_operation = next((event for event in events if event["operation_id"] == request.operation_id), None)
             if previous_operation is not None:
@@ -181,6 +189,13 @@ class ConvergentStore:
                     reason="idempotent retry",
                     replayed=not snapshot_current,
                 )
+
+            # Idempotent retries are answered from the journal before checking
+            # mutable artifacts.  A later, legitimate packet/triage artifact
+            # replacement must not make the already-committed operation look
+            # invalid; only a genuinely new operation is bound to the current
+            # artifact generation.
+            self._validate_transition_artifacts(paths, current, request)
 
             reduction = reduce_state(current, request, policy=self.policy)
             event = make_event(
@@ -207,6 +222,216 @@ class ConvergentStore:
             metadata = metadata.plus(publish_json(paths.state, reduction.state, hard_limit=MAX_STATE_BYTES))
             return ConvergentStoreResult(True, reduction.state, event, metadata=metadata, reason="transition committed")
 
+    def _validate_transition_artifacts(
+        self,
+        paths: ExecutionPaths,
+        current: Mapping[str, Any],
+        request: TransitionRequest,
+    ) -> None:
+        """Bind material state transitions to their persisted machine artifact."""
+
+        if request.transition == "AMEND":
+            records = self._read_amendment_records(paths)
+            matching = [row for row in records if row.get("amendment_fingerprint") == request.amendment_fingerprint]
+            if not matching:
+                raise ConvergentStoreError("material amendment artifact is missing or unbound")
+            if matching[0].get("prior_decision_fingerprint") != current["aristotle"].get("decision_fingerprint"):
+                raise ConvergentStoreError("material amendment prior packet fingerprint is stale")
+            if matching[0].get("new_decision_fingerprint") != request.decision_fingerprint:
+                raise ConvergentStoreError("material amendment does not bind the replacement Decision Packet")
+            self._require_packet_digest(paths.decision_packet, request.decision_fingerprint, current=current)
+        elif request.transition == "ARISTOTLE_RECORDED":
+            if request.decision_fingerprint:
+                self._require_packet_digest(paths.decision_packet, request.decision_fingerprint, current=current)
+        elif request.transition == "REVIEW_RECORDED":
+            ledger = self._read_finding_ledger(paths.findings)
+            if ledger.findings_digest != request.findings_digest or ledger.risk != current["risk"]:
+                raise ConvergentStoreError("findings ledger does not match the canonical review risk or digest")
+            if tuple(sorted(ledger.accepted_ids)) != tuple(sorted(request.accepted_finding_ids)):
+                raise ConvergentStoreError("accepted findings do not match the persisted review ledger")
+        elif request.transition == "FINDINGS_TRIAGED":
+            ledger = self._read_finding_ledger(paths.findings)
+            if ledger.findings_digest != request.findings_digest:
+                raise ConvergentStoreError("triage findings ledger digest is stale")
+            if tuple(sorted(ledger.accepted_ids)) != tuple(sorted(request.accepted_finding_ids)):
+                raise ConvergentStoreError("triage accepted findings do not match the persisted ledger")
+        elif request.transition == "FINAL_AUDIT_RECORDED":
+            audit = self._read_final_audit(paths.final_audit, current=current)
+            if audit.audit_digest != request.final_audit_digest:
+                raise ConvergentStoreError("final audit artifact digest is not bound to the transition")
+            if request.audit_pass is not audit.passed:
+                raise ConvergentStoreError("final audit verdict does not match the typed audit artifact")
+            if request.hard_gates_pass is not audit.passed:
+                raise ConvergentStoreError("final audit hard-gate verdict does not match the typed audit artifact")
+            self._require_decision_evidence(paths, current)
+            if current["review"].get("findings_digest"):
+                ledger = self._read_finding_ledger(paths.findings)
+                if ledger.findings_digest != current["review"]["findings_digest"]:
+                    raise ConvergentStoreError("final audit findings ledger is stale")
+
+    @staticmethod
+    def _read_final_audit(path: Path, *, current: Mapping[str, Any] | None = None):
+        try:
+            from .final_audit import run_final_audit
+
+            payload = read_json(path, lambda value: deepcopy(dict(value)), label="execution final audit", hard_limit=MAX_STATE_BYTES)
+            if not isinstance(payload, Mapping):
+                raise ConvergentStoreError("final audit artifact is not a typed deterministic audit")
+            required = {
+                "evidence",
+                "audit_digest",
+                "packet_fingerprint",
+                "plan_digest",
+                "policy_hash",
+                "evidence_manifest_digest",
+                "branch",
+                "head_digest",
+                "worktree_id",
+                "accepted_finding_ids",
+                "closed_finding_ids",
+            }
+            if set(payload) != required:
+                raise ConvergentStoreError("final audit artifact metadata is incomplete")
+            evidence = payload.get("evidence")
+            result = run_final_audit(evidence) if isinstance(evidence, Mapping) else None
+            if result is None or payload.get("audit_digest") != result.audit_digest:
+                raise ConvergentStoreError("final audit artifact is not a typed deterministic audit")
+            for label in ("packet_fingerprint", "plan_digest", "policy_hash", "evidence_manifest_digest", "head_digest"):
+                value = payload.get(label)
+                if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+                    raise ConvergentStoreError(f"final audit {label} is not a sha256 digest")
+            if not isinstance(payload.get("branch"), str) or not payload["branch"]:
+                raise ConvergentStoreError("final audit branch evidence is missing")
+            if not isinstance(payload.get("worktree_id"), str) or not SHA256_RE.fullmatch(payload["worktree_id"]):
+                raise ConvergentStoreError("final audit worktree evidence is missing")
+            for label in ("accepted_finding_ids", "closed_finding_ids"):
+                values = payload.get(label)
+                if not isinstance(values, list) or any(not isinstance(item, str) or not item for item in values):
+                    raise ConvergentStoreError(f"final audit {label} is invalid")
+            if current is not None:
+                identity = current.get("task_identity") if isinstance(current.get("task_identity"), Mapping) else {}
+                expected = {
+                    "packet_fingerprint": current.get("aristotle", {}).get("decision_fingerprint"),
+                    "plan_digest": current.get("plan_digest"),
+                    "policy_hash": current.get("policy_hash"),
+                    "evidence_manifest_digest": current.get("completion", {}).get("evidence_manifest_digest"),
+                    "branch": identity.get("branch"),
+                    "worktree_id": identity.get("worktree_id"),
+                }
+                if any(payload.get(label) != value for label, value in expected.items()):
+                    raise ConvergentStoreError("final audit artifact is not bound to the canonical state")
+                accepted = tuple(sorted(payload.get("accepted_finding_ids", [])))
+                closed = tuple(sorted(payload.get("closed_finding_ids", [])))
+                if set(accepted) - set(closed):
+                    raise ConvergentStoreError("final audit leaves accepted findings open")
+            return result
+        except (CorruptRecordError, TypeError, ValueError, KeyError) as exc:
+            raise ConvergentStoreError("final audit artifact is not a typed deterministic audit") from exc
+
+    @staticmethod
+    def _read_finding_ledger(path: Path):
+        try:
+            from .convergent_review import FindingLedger, ReviewFinding
+
+            payload = read_json(path, lambda value: deepcopy(dict(value)), label="execution findings", hard_limit=MAX_STATE_BYTES)
+            rows = payload.get("findings") if isinstance(payload, Mapping) else None
+            if not isinstance(payload, Mapping) or not isinstance(rows, list):
+                raise ConvergentStoreError("findings artifact is not a typed review ledger")
+            return FindingLedger.create(
+                risk=str(payload.get("risk") or ""),
+                review_pass=int(payload.get("review_pass")),
+                review_owner=str(payload.get("review_owner") or ""),
+                findings=tuple(ReviewFinding.from_mapping(row) for row in rows),
+            )
+        except (CorruptRecordError, TypeError, ValueError, KeyError) as exc:
+            raise ConvergentStoreError("findings artifact is not a typed review ledger") from exc
+
+    def _read_amendment_records(self, paths: ExecutionPaths) -> tuple[dict[str, Any], ...]:
+        try:
+            result = read_jsonl(
+                paths.amendments,
+                lambda value: DecisionAmendment.from_mapping(value).as_dict(),
+                label="execution amendments",
+                total_hard_limit=MAX_STATE_BYTES,
+                max_records=self.policy.amendment_budget,
+            )
+        except (CorruptRecordError, DecisionPacketError) as exc:
+            raise ConvergentIntegrityError("execution amendment journal is invalid") from exc
+        if result.partial_final_line:
+            raise ConvergentIntegrityError("execution amendment journal has an incomplete final line")
+        return result.records
+
+    @staticmethod
+    def _require_packet_digest(path: Path, expected: str, *, current: Mapping[str, Any] | None = None) -> None:
+        try:
+            from .decision_packet import DecisionPacket
+
+            payload = read_json(path, lambda value: deepcopy(dict(value)), label="execution decision packet", hard_limit=MAX_STATE_BYTES)
+            packet = DecisionPacket.from_mapping(payload) if isinstance(payload, Mapping) else None
+        except (CorruptRecordError, DecisionPacketError, TypeError, ValueError) as exc:
+            raise ConvergentStoreError("Decision Packet artifact is missing or invalid") from exc
+        if packet is None or packet.analysis_fingerprint != expected:
+            raise ConvergentStoreError("Decision Packet fingerprint is not bound to the transition")
+        if current is not None and packet.task_epoch != current.get("task_epoch"):
+            raise ConvergentStoreError("Decision Packet task epoch is not bound to the transition")
+
+    @staticmethod
+    def _require_decision_evidence(paths: ExecutionPaths, current: Mapping[str, Any]) -> None:
+        """Validate either a typed packet or the deterministic low-risk record."""
+
+        aristotle = current.get("aristotle") if isinstance(current.get("aristotle"), Mapping) else {}
+        tier = str(aristotle.get("tier") or "")
+        expected = str(aristotle.get("decision_fingerprint") or "")
+        if tier in {"full", "critical"}:
+            ConvergentStore._require_packet_digest(paths.decision_packet, expected, current=current)
+            return
+        synthetic = digest_value(
+            {
+                "task_id": current.get("task_id"),
+                "tier": tier,
+                "decision_version": aristotle.get("decision_version"),
+            }
+        )
+        if tier not in {"micro", "quick"} or expected != synthetic:
+            raise ConvergentStoreError("low-risk Aristotle evidence is missing or invalid")
+
+    @staticmethod
+    def _require_artifact_digest(path: Path, expected: str, label: str) -> None:
+        try:
+            payload = read_json(path, lambda value: deepcopy(dict(value)), label=f"execution {label}", hard_limit=MAX_STATE_BYTES)
+        except CorruptRecordError as exc:
+            raise ConvergentIntegrityError(str(exc)) from exc
+        if not isinstance(payload, Mapping):
+            raise ConvergentStoreError(f"{label} artifact is missing")
+        if label == "findings":
+            try:
+                from .convergent_review import FindingLedger, ReviewFinding
+
+                rows = payload.get("findings")
+                ledger = FindingLedger.create(
+                    risk=str(payload.get("risk") or ""),
+                    review_pass=int(payload.get("review_pass")),
+                    review_owner=str(payload.get("review_owner") or ""),
+                    findings=tuple(ReviewFinding.from_mapping(row) for row in rows) if isinstance(rows, list) else (),
+                )
+            except (TypeError, ValueError, KeyError) as exc:
+                raise ConvergentStoreError("findings artifact is not a typed review ledger") from exc
+            if ledger.findings_digest != expected or payload.get("findings_digest") != ledger.findings_digest:
+                raise ConvergentStoreError("findings artifact digest is not bound to the transition")
+            return
+        if label == "final audit":
+            try:
+                from .final_audit import run_final_audit
+
+                evidence = payload.get("evidence")
+                result = run_final_audit(evidence) if isinstance(evidence, Mapping) else None
+            except (TypeError, ValueError, KeyError) as exc:
+                raise ConvergentStoreError("final audit artifact is not a typed deterministic audit") from exc
+            if result is None or result.audit_digest != expected or payload.get("audit_digest") != result.audit_digest:
+                raise ConvergentStoreError("final audit artifact digest is not bound to the transition")
+            return
+        raise ConvergentStoreError(f"unsupported transition artifact {label}")
+
     def replay(self, plan_id: str) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
@@ -227,7 +452,11 @@ class ConvergentStore:
 
         paths = self.paths(plan_id)
         # goals.json has a single owner: the deterministic compiler in start().
-        allowed = {"findings": paths.findings, "final-audit": paths.final_audit}
+        allowed = {
+            "decision-packet": paths.decision_packet,
+            "findings": paths.findings,
+            "final-audit": paths.final_audit,
+        }
         if name not in allowed:
             raise ConvergentStoreError("unsupported execution artifact")
         self._ensure_layout(plan_id)
@@ -240,9 +469,69 @@ class ConvergentStore:
             snapshot = self._read_state_file(paths.state, label="execution state")
             events = self._read_events(paths, reject_partial=True)
             current, _snapshot_current = self._replay(initial, snapshot, events)
+            self._validate_current_plan_provenance(current)
             if current["phase"] == "close" or current["status"] == "closed":
                 raise ConvergentStoreError("execution artifacts are immutable after close")
+            if name == "decision-packet" and current["aristotle"].get("decision_fingerprint"):
+                # A packet is frozen once Aristotle has been recorded.  The
+                # only legal replacement is the one amendment already
+                # appended for the current packet, under the same state lock.
+                amendments = self._read_amendment_records(paths)
+                pending_amendment = any(
+                    row.get("prior_decision_fingerprint") == current["aristotle"].get("decision_fingerprint")
+                    and row.get("new_decision_fingerprint")
+                    for row in amendments
+                )
+                if not pending_amendment:
+                    raise ConvergentStoreError("Decision Packet artifact is immutable without a material amendment")
+            if name == "findings" and current["review"].get("findings_digest"):
+                # Review records the pending ledger before triage. Exactly one
+                # CAS-bound replacement is allowed while the state is in
+                # finding_triage, and only when the replacement preserves all
+                # finding identity/metadata while resolving every status.
+                if current["phase"] != "finding_triage":
+                    raise ConvergentStoreError("findings artifact is immutable after review recording")
+                self._validate_triaged_finding_replacement(paths.findings, encoded, current["review"]["findings_digest"])
+            if name == "final-audit" and current["completion"].get("final_audit_digest"):
+                raise ConvergentStoreError("final-audit artifact is immutable after audit recording")
             return publish_json(allowed[name], encoded, hard_limit=MAX_STATE_BYTES)
+
+    @staticmethod
+    def _validate_triaged_finding_replacement(path: Path, encoded: Mapping[str, Any], prior_digest: str) -> None:
+        try:
+            from .convergent_review import FindingLedger, ReviewFinding
+
+            old_payload = read_json(path, lambda value: deepcopy(dict(value)), label="execution findings", hard_limit=MAX_STATE_BYTES)
+            old_rows = old_payload.get("findings") if isinstance(old_payload, Mapping) else None
+            new_rows = encoded.get("findings") if isinstance(encoded, Mapping) else None
+            old_ledger = FindingLedger.create(
+                risk=str(old_payload.get("risk") or ""),
+                review_pass=int(old_payload.get("review_pass")),
+                review_owner=str(old_payload.get("review_owner") or ""),
+                findings=tuple(ReviewFinding.from_mapping(row) for row in old_rows) if isinstance(old_rows, list) else (),
+            )
+            new_ledger = FindingLedger.create(
+                risk=str(encoded.get("risk") or ""),
+                review_pass=int(encoded.get("review_pass")),
+                review_owner=str(encoded.get("review_owner") or ""),
+                findings=tuple(ReviewFinding.from_mapping(row) for row in new_rows) if isinstance(new_rows, list) else (),
+            )
+        except (CorruptRecordError, TypeError, ValueError, KeyError) as exc:
+            raise ConvergentStoreError("triaged findings replacement is not a typed review ledger") from exc
+        if old_ledger.findings_digest != prior_digest:
+            raise ConvergentStoreError("triaged findings replacement prior digest is stale")
+        if len(old_ledger.findings) != len(new_ledger.findings):
+            raise ConvergentStoreError("triaged findings replacement changed finding cardinality")
+        old_by_id = {item.finding_id: item for item in old_ledger.findings}
+        new_by_id = {item.finding_id: item for item in new_ledger.findings}
+        if set(old_by_id) != set(new_by_id) or any(
+            (old_by_id[item].severity, old_by_id[item].location, old_by_id[item].root_cause, old_by_id[item].impact, old_by_id[item].evidence_ids, old_by_id[item].recommendation)
+            != (new_by_id[item].severity, new_by_id[item].location, new_by_id[item].root_cause, new_by_id[item].impact, new_by_id[item].evidence_ids, new_by_id[item].recommendation)
+            for item in old_by_id
+        ):
+            raise ConvergentStoreError("triaged findings replacement changed finding identity")
+        if any(item.triage_status == "pending" for item in new_ledger.findings):
+            raise ConvergentStoreError("triaged findings replacement must resolve every finding")
 
     def append_amendment(self, plan_id: str, amendment: DecisionAmendment) -> WriteMetadata:
         """Append the single budgeted material amendment with ID idempotency."""
@@ -260,6 +549,9 @@ class ConvergentStore:
             events = self._read_events(paths, reject_partial=True)
             current, _snapshot_current = self._replay(initial, snapshot, events)
             assert_policy_compatible(current["policy_hash"], self.policy)
+            self._validate_current_plan_provenance(current)
+            if current["phase"] == "close" or current["status"] == "closed":
+                raise ConvergentStoreError("execution amendments are immutable after close")
             try:
                 result = read_jsonl(
                     paths.amendments,
@@ -289,6 +581,46 @@ class ConvergentStore:
                 max_records=self.policy.amendment_budget,
                 existing_records=len(result.records),
             )
+
+    def _validate_plan_provenance(self, state: Mapping[str, Any], active_plan: Mapping[str, Any]) -> None:
+        """Bind the task digest to the registered plan bytes before mutation."""
+
+        raw_path = active_plan.get("plan_path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ConvergentStoreError("canonical implementation plan path is required")
+        relative = Path(raw_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ConvergentStoreError("canonical implementation plan path escapes the checkout")
+        candidate = self.progress.paths.primary_root / relative
+        try:
+            info = candidate.lstat()
+            if candidate.is_symlink():
+                raise ConvergentStoreError("canonical implementation plan must be a regular non-aliased file")
+            target = candidate.resolve()
+            target.relative_to(self.progress.paths.primary_root.resolve())
+        except (OSError, ValueError) as exc:
+            raise ConvergentStoreError("canonical implementation plan bytes are unavailable") from exc
+        if not target.is_file() or info.st_nlink != 1:
+            raise ConvergentStoreError("canonical implementation plan must be a regular non-aliased file")
+        try:
+            actual = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise ConvergentStoreError("canonical implementation plan bytes are unavailable") from exc
+        if actual != state["plan_digest"]:
+            raise ConvergentStoreError("execution plan_digest does not match canonical plan bytes")
+
+    def _validate_current_plan_provenance(self, state: Mapping[str, Any]) -> None:
+        """Recheck the registered plan bytes before authority or mutation.
+
+        The plan is an immutable input to the state machine.  Revalidating it
+        after startup prevents an ignored/local plan edit from silently
+        changing the design that an existing execution state claims to use.
+        """
+
+        active_plan = self.progress.read_state(str(state["plan_id"]))
+        if active_plan is None:
+            raise ConvergentStoreError("canonical implementation plan is unavailable")
+        self._validate_plan_provenance(state, active_plan)
 
     def _compile_goal_artifact(self, state: Mapping[str, Any], *, active_plan: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
