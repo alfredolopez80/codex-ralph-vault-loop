@@ -115,6 +115,8 @@ def analyze_hook_graph(configs: Iterable[tuple[str, Mapping[str, Any]]]) -> Hook
                     if not role:
                         warnings.append(f"{source}:{event}: unclassified command")
                         continue
+                    if source.startswith("plugin:") and domain_for_role(role) is None:
+                        warnings.append(f"{source}:{event}: plugin hook is unclassified report-only")
                     if role == "anti_rationalization_stop":
                         legacy_registered = True
                     domain = domain_for_role(role)
