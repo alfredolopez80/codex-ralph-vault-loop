@@ -15,10 +15,12 @@ Audited candidate: current PR working tree before publication
 | `DELETE`                | 0 test nodes | No pytest node has sufficient evidence for deletion                                  |
 | Final pytest collection |        1,246 | Plus 5 subtests                                                                      |
 
-The branch adds 116 v4 tests relative to the exact base and removes no active
-pytest contract coverage. The 108 additions map to explicit plan obligations
-and stay in the suite. Legacy tests remain necessary while `off` and `shadow`
-preserve rollback to the current runtime.
+Compared with the exact base, the candidate collects 1,246 pytest nodes versus
+1,143: 121 node IDs are added and 18 are removed, for a net increase of 103.
+The 18 removals are the retired slop-guard bundle; no active pytest contract
+coverage is removed. The added nodes map to explicit plan obligations and stay
+in the suite. Legacy tests remain necessary while `off` and `shadow` preserve
+rollback to the current runtime.
 
 ## Retired bundles
 
