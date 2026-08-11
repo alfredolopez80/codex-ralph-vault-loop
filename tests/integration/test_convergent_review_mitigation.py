@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.convergent_review import Finding, ReviewContractError, ReviewLedger, triage_findings  # noqa: E402
+from shared.convergent_review import Finding, FindingLedger, ReviewContractError, ReviewLedger, triage_findings  # noqa: E402
 
 
 def finding(identifier: str, root: str, status: str = "ACCEPT") -> Finding:
@@ -39,6 +39,11 @@ def test_low_risk_and_second_review_are_blocked() -> None:
     first = ReviewLedger.create(risk="critical", findings=[finding("F-1", "root")])
     with pytest.raises(ReviewContractError, match="exhausted"):
         ReviewLedger.create(risk="critical", findings=[], prior_passes=first.pass_number)
+
+
+def test_compatibility_finding_ledger_rejects_low_risk_review_pass() -> None:
+    with pytest.raises(ReviewContractError, match="zero automatic review"):
+        FindingLedger.create(risk="low", review_pass=1, review_owner="reviewer", findings=[])
 
 
 def test_review_ledger_rejects_unstructured_or_evidence_free_findings() -> None:

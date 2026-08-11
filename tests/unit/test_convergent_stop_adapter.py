@@ -83,6 +83,36 @@ def test_incomplete_snapshot_is_authoritatively_blocked() -> None:
 
 def test_duplicate_terminal_attempt_is_a_physical_noop() -> None:
     state = _state()
+    state["aristotle"]["tier"] = "full"
+    state["aristotle"]["decision_version"] = 1
+    state["aristotle"]["decision_fingerprint"] = state_hash(state)
+    state["completion"].update(
+        {
+            "hard_gates_pass": True,
+            "handoff_published": True,
+            "handoff_digest": state_hash(state),
+            "evidence_manifest_digest": state_hash(state),
+            "final_audit_digest": state_hash(state),
+        }
+    )
+    state["final_audit_digest"] = state["completion"]["final_audit_digest"]
+    state["state_hash"] = state_hash(state)
+    fingerprint = terminal_attempt_fingerprint(state)
+    result = evaluate_convergent_stop(
+        {
+            "convergence_state": state,
+            "terminal_attempt_fingerprint": fingerprint,
+            "previous_terminal_fingerprint": fingerprint,
+        },
+        trusted_previous_terminal_fingerprint=fingerprint,
+    )
+    assert result is not None
+    assert result.action == "physical-no-op"
+    assert result.physical_no_op is True
+
+
+def test_caller_supplied_duplicate_fields_cannot_bypass_incomplete_evidence() -> None:
+    state = _state()
     fingerprint = terminal_attempt_fingerprint(state)
     result = evaluate_convergent_stop(
         {
@@ -92,5 +122,5 @@ def test_duplicate_terminal_attempt_is_a_physical_noop() -> None:
         }
     )
     assert result is not None
-    assert result.action == "physical-no-op"
-    assert result.physical_no_op is True
+    assert result.action == "block"
+    assert result.physical_no_op is False

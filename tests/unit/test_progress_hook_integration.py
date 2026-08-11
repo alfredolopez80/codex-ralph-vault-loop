@@ -14,7 +14,7 @@ if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
 from shared.implementation_store import ImplementationStore, resolve_store_paths_local
-from shared.progress_hook import cheap_lookup
+from shared.progress_hook import _payload_provenance_matches, cheap_lookup
 from shared.runtime_profile import profile_from_payload
 from shared.active_context import active_context_from_payload
 from shared.context_delta import CacheClaim
@@ -59,6 +59,12 @@ def _session_payload(root: Path, *, source: str, session: str = "session-a", mod
         "branch": "main",
         "sha": "abc123",
     }
+
+
+def test_implicit_lookup_rejects_missing_recorded_branch_and_sha() -> None:
+    state = {"git": {"branch": "main", "commit": "abc123"}}
+    assert _payload_provenance_matches(state, {}) is False
+    assert _payload_provenance_matches(state, {"branch": "main", "sha": "abc1234"}) is True
 
 
 def test_session_start_new_store_matrix_is_ledger_owned_and_local_only(monkeypatch, tmp_path: Path) -> None:

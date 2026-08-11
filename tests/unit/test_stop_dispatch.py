@@ -78,6 +78,17 @@ def test_no_active_state_allows_with_empty_stdout(tmp_path: Path) -> None:
     assert parse_output(result) is None
 
 
+def test_enforce_requires_v4_snapshot_instead_of_falling_through_to_legacy(tmp_path: Path) -> None:
+    result = run_dispatch(
+        tmp_path,
+        payload(tmp_path),
+        extra_env={"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"},
+    )
+    decision = parse_output(result)
+    assert decision is not None
+    assert decision["reason"] == "convergent-state-required"
+
+
 def test_invalid_payload_fails_open_with_sanitized_stderr(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.update({"RALPH_HOME": str(tmp_path / "ralph")})

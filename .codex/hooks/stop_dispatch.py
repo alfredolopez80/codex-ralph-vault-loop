@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from shared.continuation_budget import Reservation, reserve
 from shared.convergent_stop_adapter import evaluate_convergent_stop
+from shared.convergent_stop import terminal_attempt_fingerprint
 from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
 from shared.objective_gates import (
     GateFinding,
@@ -162,12 +163,47 @@ def main() -> int:
     try:
         activation_mode = configured_activation_mode()
     except ExecutionPolicyError:
-        activation_mode = "invalid"
-    convergent = evaluate_convergent_stop(payload) if activation_mode in {"shadow", "enforce"} else None
-    if activation_mode == "enforce" and convergent is not None:
-        if convergent.action == "block":
-            sys.stdout.write(_block_response(convergent.reason))
+        # A malformed activation contract must not silently select the legacy
+        # reducer: that would make a v4 Stop appear successful without v4
+        # evidence.  Keep the response bounded and supported.
+        sys.stdout.write(_block_response("convergent-activation-invalid"))
         return 0
+    if activation_mode == "enforce":
+        candidate = payload.get("convergence_state")
+        if not isinstance(candidate, Mapping):
+            sys.stdout.write(_block_response("convergent-state-required"))
+            return 0
+        try:
+            scope = scope_from_payload(payload)
+            attempt = terminal_attempt_fingerprint(candidate)
+        except (OSError, TypeError, ValueError):
+            sys.stdout.write(_block_response("convergent-state-invalid"))
+            return 0
+        # The marker is the only trusted source for a duplicate terminal
+        # acknowledgement.  Caller-supplied attempt/prior fields are ignored.
+        # The legacy terminal marker stores the raw 64-hex digest; the v4
+        # contract retains the ``sha256:`` envelope in the trusted adapter.
+        marker_fingerprint = attempt.removeprefix("sha256:")
+        with terminal_business_claim(scope, marker_fingerprint) as business:
+            if not business.available:
+                sys.stdout.write(_block_response("terminal-state-unavailable"))
+                return 0
+            convergent = evaluate_convergent_stop(
+                payload,
+                trusted_previous_terminal_fingerprint=attempt if business.duplicate else "",
+            )
+            if convergent is None:
+                sys.stdout.write(_block_response("convergent-state-required"))
+                return 0
+            if convergent.action == "block":
+                sys.stdout.write(_block_response(convergent.reason))
+                return 0
+            if convergent.action == "allow":
+                business.commit()
+            # Both allow and a duplicate terminal no-op are silent.  The
+            # context manager publishes the marker only for the first allow.
+        return 0
+    convergent = evaluate_convergent_stop(payload) if activation_mode == "shadow" else None
 
     try:
         scope = scope_from_payload(payload)

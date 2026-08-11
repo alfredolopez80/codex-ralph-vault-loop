@@ -104,17 +104,30 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         if request.tier not in {"micro", "quick", "full", "critical"}:
             raise TransitionError("Aristotle tier is invalid")
         aristotle = after["aristotle"]
+        if request.tier in {"full", "critical"} and not request.decision_fingerprint:
+            raise TransitionError("Full/Critical Aristotle requires a Decision Packet fingerprint")
         if request.tier in {"full", "critical"}:
             if aristotle["full_runs"] >= policy.full_aristotle_budget:
                 return _user_decision(before, request, "full-aristotle-budget-exhausted")
             aristotle["full_runs"] += 1
             consumed_budget = True
-        if request.tier in {"full", "critical"} and not request.decision_fingerprint:
-            raise TransitionError("Full/Critical Aristotle requires a Decision Packet fingerprint")
         aristotle["tier"] = request.tier
         aristotle["decision_version"] = max(1, aristotle["decision_version"])
         if request.decision_fingerprint:
             aristotle["decision_fingerprint"] = _required_digest(request.decision_fingerprint, "decision fingerprint")
+        else:
+            # Micro and Quick tiers do not emit a full Decision Packet, but all
+            # later lifecycle phases still need immutable evidence that the
+            # tiered analysis was recorded.  Freeze a content-free digest from
+            # the task identity, tier, and decision version rather than making
+            # every downstream gate guess which tiers are exempt.
+            aristotle["decision_fingerprint"] = digest_value(
+                {
+                    "task_id": before["task_id"],
+                    "tier": request.tier,
+                    "decision_version": aristotle["decision_version"],
+                }
+            )
         after["phase"] = "design_ready"
     elif request.transition == "ADVANCE":
         consumed_budget, closed_findings = _advance(after, before, request)

@@ -167,6 +167,7 @@ def test_stop_close_duplicate_and_ordinary_budget_are_finite() -> None:
         incomplete,
         policy=policy,
         attempt_fingerprint=terminal_attempt_fingerprint(incomplete),
+        previous_terminal_fingerprint=terminal_attempt_fingerprint(incomplete),
     )
     assert decision.transition == "STOP_CONTINUATION"
     incomplete = reduce_state(

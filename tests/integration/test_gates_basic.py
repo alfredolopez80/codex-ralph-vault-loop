@@ -174,3 +174,16 @@ def test_security_minimal_skips_without_failure() -> None:
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["results"][0]["status"] == "skipped"
+
+
+def test_run_json_rejects_missing_results_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_gates = load_gate_script(monkeypatch, "run-gates.py")
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args[0], 0, stdout="{}\n", stderr="")
+
+    monkeypatch.setattr(run_gates.subprocess, "run", fake_run)
+    exit_code, results = run_gates.run_json(["malformed-gate"])
+    assert exit_code == 1
+    assert results[0]["status"] == "failed"
+    assert "omitted a results list" in results[0]["reason"]

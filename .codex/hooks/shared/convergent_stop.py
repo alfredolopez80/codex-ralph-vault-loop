@@ -75,15 +75,26 @@ def plan_stop_attempt(
     normalized = validate_state(state)
     assert_policy_compatible(normalized["policy_hash"], policy)
     fingerprint = _digest(attempt_fingerprint, "attempt_fingerprint")
-    if previous_terminal_fingerprint:
-        prior = _digest(previous_terminal_fingerprint, "previous_terminal_fingerprint")
-        if prior == fingerprint:
-            return StopDecision("physical-no-op", "", "duplicate-terminal-attempt", True)
     if normalized["phase"] == "close":
+        # A closed snapshot is terminal.  It may only be acknowledged when a
+        # trusted persisted marker proves that this exact attempt was already
+        # committed; caller-provided fingerprints are never sufficient.
+        if previous_terminal_fingerprint:
+            prior = _digest(previous_terminal_fingerprint, "previous_terminal_fingerprint")
+            if prior == fingerprint:
+                return StopDecision("physical-no-op", "", "duplicate-terminal-attempt", True)
         raise StopContractError("a closed task accepts only an identified duplicate terminal attempt")
     if normalized["phase"] != "stop":
         raise StopContractError("Stop planning requires the stop phase")
-    if not _completion_failures(normalized):
+    failures = _completion_failures(normalized)
+    # Duplicate suppression is deliberately after completion validation.  A
+    # malicious caller must not turn an incomplete state into a terminal
+    # physical no-op by supplying the same arbitrary value twice.
+    if not failures and previous_terminal_fingerprint:
+        prior = _digest(previous_terminal_fingerprint, "previous_terminal_fingerprint")
+        if prior == fingerprint:
+            return StopDecision("physical-no-op", "", "duplicate-terminal-attempt", True)
+    if not failures:
         return StopDecision("close", "CLOSE", "objective-evidence-complete", False)
     counter = "critical_continuations" if critical else "ordinary_continuations"
     maximum = policy.critical_stop_budget if critical else policy.ordinary_stop_budget

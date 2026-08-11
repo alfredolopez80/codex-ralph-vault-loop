@@ -28,7 +28,7 @@ from .convergent_contracts import (
 from .convergent_reducer import Reduction, TransitionRequest, reduce_state
 from .decision_packet import DecisionAmendment, DecisionPacketError
 from .execution_policy import ExecutionPolicy, assert_policy_compatible
-from .goal_compiler import GOAL_IDS, GoalCompileError, compile_goals
+from .goal_compiler import GOAL_IDS, PLAN_ID, GoalCompileError, compile_goals
 from .implementation_store import ImplementationStore
 from .implementation_store.io import (
     CorruptRecordError,
@@ -108,10 +108,11 @@ class ConvergentStore:
         except ContractError as exc:
             raise ConvergentStoreError("execution state cannot compile the approved serial goal set") from exc
         assert_policy_compatible(candidate["policy_hash"], self.policy)
-        goals = self._compile_goal_artifact(candidate)
         plan_id = candidate["plan_id"]
-        if self.progress.read_state(plan_id) is None:
+        active_plan = self.progress.read_state(plan_id)
+        if active_plan is None:
             raise ConvergentStoreError("canonical implementation plan must be registered before execution state")
+        goals = self._compile_goal_artifact(candidate, active_plan=active_plan)
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
         with locked_file(paths.state_lock):
@@ -238,7 +239,9 @@ class ConvergentStore:
                 raise ConvergentStoreError("execution state is not initialized")
             snapshot = self._read_state_file(paths.state, label="execution state")
             events = self._read_events(paths, reject_partial=True)
-            self._replay(initial, snapshot, events)
+            current, _snapshot_current = self._replay(initial, snapshot, events)
+            if current["phase"] == "close" or current["status"] == "closed":
+                raise ConvergentStoreError("execution artifacts are immutable after close")
             return publish_json(allowed[name], encoded, hard_limit=MAX_STATE_BYTES)
 
     def append_amendment(self, plan_id: str, amendment: DecisionAmendment) -> WriteMetadata:
@@ -287,15 +290,20 @@ class ConvergentStore:
                 existing_records=len(result.records),
             )
 
-    def _compile_goal_artifact(self, state: Mapping[str, Any]) -> dict[str, Any]:
+    def _compile_goal_artifact(self, state: Mapping[str, Any], *, active_plan: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
-            goal_index = GOAL_IDS.index(str(state["goal_id"]))
+            goal_id = str(state["goal_id"])
+            known_goal_ids = GOAL_IDS if state["plan_id"] == PLAN_ID else (goal_id,)
+            goal_index = known_goal_ids.index(goal_id)
             goals = compile_goals(
                 plan_id=str(state["plan_id"]),
                 plan_version=int(state["plan_version"]),
                 plan_digest=str(state["plan_digest"]),
                 state_generation=int(state["generation"]),
-                completed=GOAL_IDS[:goal_index],
+                completed=known_goal_ids[:goal_index],
+                active_plan=active_plan,
+                decision_packet=active_plan.get("latest_decision") if isinstance(active_plan, Mapping) else None,
+                goal_id=goal_id,
             )
         except (GoalCompileError, ValueError) as exc:
             raise ConvergentStoreError("execution state cannot compile the approved serial goal set") from exc

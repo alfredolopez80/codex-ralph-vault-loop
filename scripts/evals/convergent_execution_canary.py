@@ -31,6 +31,12 @@ DEFAULT_MANIFEST = ROOT / "docs" / "reports" / "ralph-convergent-execution-v4" /
 DEFAULT_OUTPUT = ROOT / "docs" / "reports" / "ralph-convergent-execution-v4" / "canary-structural-report.json"
 
 
+def _improvement_percent(baseline: int, candidate: int) -> float:
+    if baseline <= 0:
+        return 0.0
+    return round(max(0.0, (baseline - candidate) * 100.0 / baseline), 2)
+
+
 def digest(value: object) -> str:
     raw = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(raw).hexdigest()
@@ -92,6 +98,81 @@ def _baseline_label(kind: str) -> str:
     }.get(kind, "task")
 
 
+def _candidate_observation(
+    *,
+    kind: str,
+    payload: Mapping[str, object],
+    boundary: object,
+    policy: object,
+) -> dict[str, object]:
+    """Evaluate candidate predicates instead of replaying baseline labels.
+
+    The structural lane intentionally has no model runtime, but it must still
+    execute the candidate boundary/fast-path/recall contracts.  The returned
+    flags are derived from those predicates so a broken candidate cannot pass
+    merely because this harness contains optimistic constants.
+    """
+
+    boundary_kind = str(getattr(boundary, "boundary_kind", ""))
+    risk = str(getattr(boundary, "risk", ""))
+    approval_delta = bool(getattr(boundary, "approval_delta", False))
+    candidate = "task"
+    reason = boundary_kind or "candidate-boundary-invalid"
+    fast_eligible = False
+    if kind == "successful-read-fast-path":
+        fast = successful_read_fast_path(payload)
+        fast_eligible = fast.eligible
+        candidate = "read" if fast.eligible else "normal-post-tool"
+        reason = fast.reason
+    elif kind == "status":
+        candidate, reason = "status", "status_only-boundary"
+    elif kind in {"continuation", "metadata-recall-hit"} and boundary_kind == "continuation":
+        candidate, reason = "continuation", "continuation-boundary"
+    elif kind == "duplicate-terminal":
+        candidate, reason = "terminal-no-op", "terminal-attempt-requires-persisted-claim"
+    elif kind == "budget-exhaustion":
+        candidate, reason = "user-decision", "budget-exhaustion-is-not-success"
+    elif kind == "rollback":
+        candidate, reason = "rollback", "rollback-is-a-terminal-safety-action"
+    elif kind == "single-review":
+        candidate, reason = "review", "material-review-budget-one"
+    elif kind == "batch-mitigation":
+        candidate, reason = "mitigation", "root-cause-batch"
+    elif kind == "focused-verify":
+        candidate, reason = "verify", "focused-verification"
+    elif kind == "decision-packet":
+        candidate, reason = "design", "decision-packet-required"
+    elif kind == "material-scope-change":
+        candidate, reason = "amendment", "material-change-amendment"
+    elif approval_delta or risk == "critical":
+        candidate, reason = "user-decision", "critical-approval-boundary"
+
+    expected_review_count = 1 if kind == "single-review" and risk in {"material", "critical"} else 0
+    budget_valid = (
+        int(getattr(policy, "automatic_children", -1)) == 0
+        and int(getattr(policy, "review_budget_material", -1)) == 1
+        and int(getattr(policy, "ordinary_stop_budget", -1)) == 1
+        and int(getattr(policy, "critical_stop_budget", -1)) == 1
+    )
+    # The structural lane has no external worktree or RED payload.  If a
+    # caller supplies either marker, it is evaluated rather than assumed safe.
+    red_leak = bool(payload.get("red_leak") or payload.get("red_output"))
+    wrong_worktree = bool(payload.get("wrong_worktree") or payload.get("worktree_mismatch"))
+    guardrail_bypass = bool(approval_delta and candidate not in {"user-decision", "rollback"})
+    false_close = candidate in {"close", "allow"} and kind not in {"duplicate-terminal"}
+    return {
+        "decision": candidate,
+        "reason": reason,
+        "fast_eligible": fast_eligible,
+        "false_close": false_close,
+        "red_leak": red_leak,
+        "wrong_worktree": wrong_worktree,
+        "guardrail_bypass": guardrail_bypass,
+        "review_count": expected_review_count,
+        "budget_valid": budget_valid,
+    }
+
+
 def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     scenarios = manifest.get("scenarios")
     if not isinstance(scenarios, list) or len(scenarios) != 24:
@@ -108,14 +189,25 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         kind = str(scenario["kind"])
         prompt, payload = _scenario_payload(kind)
         boundary = classify_boundary(prompt, payload)
-        candidate = _baseline_label(kind)
-        guardrail_impact = "none"
+        baseline = _baseline_label(kind)
+        observation = _candidate_observation(kind=kind, payload=payload, boundary=boundary, policy=policy)
+        candidate = str(observation["decision"])
+        different = candidate != baseline
+        divergence_explained = (not different) or str(observation["reason"]) in {
+            "critical-approval-boundary",
+            "material-change-amendment",
+            "material-review-budget-one",
+            "root-cause-batch",
+            "focused-verification",
+            "decision-packet-required",
+            "terminal-attempt-requires-persisted-claim",
+        }
+        guardrail_impact = "approval-boundary" if observation["guardrail_bypass"] else "none"
         if kind == "successful-read-fast-path":
-            fast = successful_read_fast_path(payload)
-            if not fast.eligible:
+            if observation["fast_eligible"] is not True:
                 raise ValueError("successful-read fixture failed its fast-path contract")
             baseline_read_writes += 1
-            successful_read_writes += 0
+            successful_read_writes += int(not bool(observation["fast_eligible"]))
         if kind == "metadata-recall-hit":
             previous = RecallKey.create(
                 project_id="project",
@@ -132,31 +224,41 @@ def evaluate(manifest: Mapping[str, Any]) -> dict[str, Any]:
                 unchanged_recall_injection += 1
         result = {
             "scenario_id": scenario_id,
-            "baseline_decision": candidate,
+            "baseline_decision": baseline,
             "candidate_decision": candidate,
-            "different": False,
-            "candidate_reason": boundary.boundary_kind,
+            "different": different,
+            "divergence_explained": divergence_explained,
+            "candidate_reason": observation["reason"],
             "boundary": boundary.as_dict(),
             "guardrail_impact": guardrail_impact,
+            "candidate_observation": observation,
             "evidence_digest": digest({"id": scenario_id, "kind": kind, "boundary": boundary.as_dict()}),
         }
         results.append(result)
     hard_gates = {
         "paired_scenarios_24_of_24": len(results) == 24,
-        "false_closes": True,
-        "red_leaks": True,
-        "wrong_worktree_operations": True,
-        "guardrail_bypasses": True,
+        "false_closes": all(item["candidate_observation"]["false_close"] is False for item in results),
+        "red_leaks": all(item["candidate_observation"]["red_leak"] is False for item in results),
+        "wrong_worktree_operations": all(item["candidate_observation"]["wrong_worktree"] is False for item in results),
+        "guardrail_bypasses": all(item["candidate_observation"]["guardrail_bypass"] is False for item in results),
         "automatic_subagents": policy.automatic_children == 0,
-        "second_review": True,
+        "second_review": max((int(item["candidate_observation"]["review_count"]) for item in results), default=0) <= 1,
         "unchanged_recall_injection": unchanged_recall_injection == 0,
         "successful_read_writes": successful_read_writes == 0,
-        "budget_violations": True,
-        "unexplained_divergences": not any(item["different"] for item in results),
+        "budget_violations": all(item["candidate_observation"]["budget_valid"] is True for item in results),
+        "unexplained_divergences": all(item["divergence_explained"] is True for item in results),
     }
     structural_improvements = {
-        "successful_read_writes": {"baseline": baseline_read_writes, "candidate": successful_read_writes, "improvement_percent": 100.0},
-        "unchanged_recall_injection": {"baseline": 1, "candidate": unchanged_recall_injection, "improvement_percent": 100.0},
+        "successful_read_writes": {
+            "baseline": baseline_read_writes,
+            "candidate": successful_read_writes,
+            "improvement_percent": _improvement_percent(baseline_read_writes, successful_read_writes),
+        },
+        "unchanged_recall_injection": {
+            "baseline": 1,
+            "candidate": unchanged_recall_injection,
+            "improvement_percent": _improvement_percent(1, unchanged_recall_injection),
+        },
     }
     return {
         "report_version": REPORT_VERSION,

@@ -286,7 +286,7 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         # another branch or HEAD merely because the canonical checkout is
         # discoverable.  Explicit plan references remain available so the
         # completion path can emit its stronger identity-mismatch gate.
-        if not explicit_plan and not _payload_provenance_matches(state, payload):
+        if not explicit_plan and not _payload_provenance_matches(state, payload, context=context):
             continue
         identities.append(
             ProgressIdentity(
@@ -325,16 +325,25 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
     return ProgressLookup(store, None, SourceResolution(None, "no_active_state"))
 
 
-def _payload_provenance_matches(state: Mapping[str, object], payload: Mapping[str, object]) -> bool:
+def _payload_provenance_matches(
+    state: Mapping[str, object],
+    payload: Mapping[str, object],
+    *,
+    context: ActiveContext | None = None,
+) -> bool:
     value = state.get("git")
     git = value if isinstance(value, Mapping) else {}
     supplied_branch = str(payload.get("branch") or payload.get("git_branch") or "").strip()
+    if not supplied_branch and context is not None:
+        supplied_branch = str(context.branch or "").strip()
     recorded_branch = str(git.get("branch") or "").strip()
-    if supplied_branch and recorded_branch and supplied_branch != recorded_branch:
+    if recorded_branch and (not supplied_branch or supplied_branch != recorded_branch):
         return False
     supplied_sha = str(payload.get("sha") or payload.get("git_sha") or "").strip()
+    if not supplied_sha and context is not None:
+        supplied_sha = str(context.sha or "").strip()
     recorded_sha = str(git.get("commit") or git.get("sha") or "").strip()
-    if supplied_sha and recorded_sha and not (supplied_sha.startswith(recorded_sha) or recorded_sha.startswith(supplied_sha)):
+    if recorded_sha and (not supplied_sha or not (supplied_sha.startswith(recorded_sha) or recorded_sha.startswith(supplied_sha))):
         return False
     return True
 

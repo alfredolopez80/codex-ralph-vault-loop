@@ -216,7 +216,7 @@ class FindingLedger:
         risk = _enum(risk, REVIEW_RISKS, "review risk")
         if isinstance(review_pass, bool) or not isinstance(review_pass, int) or review_pass < 0:
             raise ReviewContractError("review pass is invalid")
-        if risk == "low" and findings:
+        if risk == "low" and review_pass != 0:
             raise ReviewContractError("low-risk work has zero automatic review")
         if risk != "low" and review_pass != 1:
             raise ReviewContractError("material review must consume exactly one pass")

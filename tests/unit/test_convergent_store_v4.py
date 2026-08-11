@@ -188,6 +188,51 @@ def test_start_rejects_goal_artifact_tampering_and_wrong_valid_plan_digest(tmp_p
         store.start(wrong)
 
 
+def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    progress = ImplementationStore(resolve_store_paths(primary_root=root))
+    plan_id = "custom-plan-20260811"
+    plan_digest = digest_value("custom-plan-bytes")
+    progress.register_plan(
+        plan_id,
+        plan_path=".ralph/plans/custom-plan.md",
+        objective="Validate a user-owned execution plan.",
+        phase="verification",
+        next_action="Run the bounded verification gates.",
+        operation_id="op-register-custom",
+    )
+    identity = TaskIdentity.from_values(
+        session="session-custom",
+        project="project-custom",
+        worktree="workspace-custom",
+        branch="codex/custom-plan",
+        objective="Validate a user-owned execution plan.",
+        boundary_epoch=1,
+        sensitivity="GREEN",
+        plan=plan_id,
+        plan_version=1,
+        plan_digest=plan_digest,
+    )
+    state = new_state(
+        policy=load_execution_policy(),
+        plan_id=plan_id,
+        plan_version=1,
+        plan_digest=plan_digest,
+        task_identity=identity,
+        goal_id="G-CUSTOM",
+        task_epoch="epoch-custom",
+        boundary_epoch=1,
+        boundary_kind="new_task",
+        activation_mode="shadow",
+    )
+    custom_store = ConvergentStore(progress, load_execution_policy())
+    started = custom_store.start(state)
+    assert started.changed is True
+    goals = json.loads(custom_store.paths(plan_id).goals.read_text(encoding="utf-8"))
+    assert [goal["goal_id"] for goal in goals["goals"]] == ["G-CUSTOM"]
+    assert goals["goals"][0]["objective"] == "Validate a user-owned execution plan."
+
+
 def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_path: Path) -> None:
     _root, store = make_store(tmp_path)
     amendment = DecisionAmendment.create(
@@ -265,6 +310,48 @@ def test_machine_artifacts_reject_nested_raw_and_red_material(tmp_path: Path) ->
             "final-audit",
             {"checks": [{"label": "api_key" + "=fixture-value"}]},
         )
+
+
+def test_machine_artifacts_are_immutable_after_close(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    closed = initial_state()
+    closed["phase"] = "close"
+    closed["status"] = "closed"
+    closed["execution_lease"] = acquire_execution_lease(
+        LeaseEvidence(
+            model="gpt-5.6-sol",
+            reasoning_effort="max",
+            tools=("apply_patch", "exec_command"),
+            cwd=str(ROOT),
+            branch="codex/ralph-convergent-execution-v4",
+            task_epoch="epoch-store",
+            owner_role="sol-worker",
+            authority_role="codex-main",
+            source="verified-runtime",
+        ),
+        policy=load_execution_policy(),
+        issued_generation=0,
+    ).as_dict()
+    closed["aristotle"]["tier"] = "full"
+    closed["aristotle"]["decision_version"] = 1
+    closed["aristotle"]["decision_fingerprint"] = digest_value("closed-packet")
+    closed["completion"].update(
+        {
+            "hard_gates_pass": True,
+            "handoff_published": True,
+            "handoff_digest": digest_value("handoff"),
+            "evidence_manifest_digest": digest_value("manifest"),
+            "final_audit_digest": digest_value("audit"),
+        }
+    )
+    closed["final_audit_digest"] = closed["completion"]["final_audit_digest"]
+    closed["state_hash"] = state_hash(closed)
+    store.start(closed)
+    path = store.paths(PLAN_ID).findings
+    path.write_text('{"sentinel":"prior"}\n', encoding="utf-8")
+    with pytest.raises(store_module.ConvergentStoreError, match="immutable after close"):
+        store.publish_artifact(PLAN_ID, "findings", {"findings": []})
+    assert path.read_text(encoding="utf-8") == '{"sentinel":"prior"}\n'
 
 
 def test_policy_drift_blocks_reads_replay_and_machine_artifact_mutation(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, Final, Iterable, Mapping
 
-from .convergent_contracts import SHA256_RE, digest_value
+from .convergent_contracts import IDENTIFIER_RE, SHA256_RE, digest_value
 from .execution_policy import AUTHORITY_ROLE, IMPLEMENTATION_ROLE, REQUIRED_IMPLEMENTATION_MODEL, REQUIRED_REASONING_EFFORT
 
 
@@ -195,30 +195,44 @@ def compile_goals(
     plan_digest: str,
     state_generation: int,
     completed: Iterable[str] = (),
+    active_plan: Mapping[str, Any] | None = None,
+    decision_packet: Mapping[str, Any] | None = None,
+    goal_id: str | None = None,
 ) -> tuple[GoalRecord, ...]:
-    if plan_id != PLAN_ID or plan_version != PLAN_VERSION:
-        raise GoalCompileError("goal compiler is bound to the approved logical plan ID/version")
-    _digest(plan_digest, "plan_digest")
-    if plan_digest != PLAN_DIGEST:
+    canonical_rollout = plan_id == PLAN_ID and plan_version == PLAN_VERSION
+    if canonical_rollout and plan_digest != PLAN_DIGEST:
+        _digest(plan_digest, "plan_digest")
         raise GoalCompileError("goal compiler plan_digest differs from the immutable approved plan")
+    if not canonical_rollout and active_plan is None:
+        raise GoalCompileError("goal compiler requires active plan metadata for a non-rollout logical plan")
+    _digest(plan_digest, "plan_digest")
     if isinstance(state_generation, bool) or not isinstance(state_generation, int) or state_generation < 0:
         raise GoalCompileError("state_generation must be nonnegative")
+    templates = TEMPLATES if canonical_rollout else _templates_from_active_plan(
+        plan_id=plan_id,
+        active_plan=active_plan or {},
+        decision_packet=decision_packet,
+        goal_id=goal_id,
+    )
+    goal_ids = tuple(template.goal_id for template in templates)
+    if not goal_ids:
+        raise GoalCompileError("active plan must compile at least one serial goal")
     completed_values = tuple(completed)
     completed_set = set(completed_values)
     if len(completed_values) != len(completed_set):
         raise GoalCompileError("completed goals contain duplicate goal IDs")
-    if completed_set - set(GOAL_IDS):
+    if completed_set - set(goal_ids):
         raise GoalCompileError("completed goals contain an unknown goal ID")
-    indexes = [GOAL_IDS.index(item) for item in completed_set]
+    indexes = [goal_ids.index(item) for item in completed_set]
     if indexes and set(indexes) != set(range(max(indexes) + 1)):
         raise GoalCompileError("completed goals must form a serial prefix")
 
     owner = dict(OWNER_RECORD)
     records: list[GoalRecord] = []
     first_unfinished = len(completed_set)
-    for index, template in enumerate(TEMPLATES):
+    for index, template in enumerate(templates):
         status = "complete" if index < first_unfinished else "ready" if index == first_unfinished else "pending"
-        prerequisites = () if index == 0 else (TEMPLATES[index - 1].goal_id,)
+        prerequisites = () if index == 0 else (templates[index - 1].goal_id,)
         material = {
             "goal_id": template.goal_id,
             "plan_id": plan_id,
@@ -254,21 +268,22 @@ def compile_goals(
             status=status,
             goal_digest=digest_value(material),
         )
-        validate_goal(record)
+        validate_goal(record, templates=templates if canonical_rollout else None)
         records.append(record)
     return tuple(records)
 
 
-def validate_goal(goal: GoalRecord) -> None:
-    if goal.goal_id not in GOAL_IDS or goal.status not in GOAL_STATUSES or goal.risk not in {"low", "material", "critical"}:
+def validate_goal(goal: GoalRecord, *, templates: Iterable[_GoalTemplate] | None = None) -> None:
+    if not isinstance(goal.goal_id, str) or not IDENTIFIER_RE.fullmatch(goal.goal_id) or goal.status not in GOAL_STATUSES or goal.risk not in {"low", "material", "critical"}:
         raise GoalCompileError("goal enum is invalid")
     if not goal.done_when or not goal.required_evidence or not goal.allowed_paths:
         raise GoalCompileError("goal omits required scope or completion evidence")
-    if goal.plan_id != PLAN_ID or goal.plan_version != PLAN_VERSION or goal.plan_digest != PLAN_DIGEST:
+    if goal.plan_id == PLAN_ID and goal.plan_version == PLAN_VERSION and goal.plan_digest != PLAN_DIGEST:
         raise GoalCompileError("goal plan identity differs from the immutable approved plan")
+    _digest(goal.plan_digest, "goal.plan_digest")
     if isinstance(goal.state_generation, bool) or not isinstance(goal.state_generation, int) or goal.state_generation < 0:
         raise GoalCompileError("goal state generation is invalid")
-    if not goal.goal_digest.startswith("sha256:") or len(goal.goal_digest) != 71:
+    if not SHA256_RE.fullmatch(goal.goal_digest):
         raise GoalCompileError("goal digest is invalid")
     required_owner = {
         "authority": AUTHORITY_ROLE,
@@ -282,23 +297,93 @@ def validate_goal(goal: GoalRecord) -> None:
         raise GoalCompileError("goal owner contains unknown or missing fields")
     _paths(goal.allowed_paths, "allowed_paths")
     _paths(goal.forbidden_paths, "forbidden_paths")
-    template = TEMPLATES[GOAL_IDS.index(goal.goal_id)]
-    expected_prerequisites = () if goal.goal_id == GOAL_IDS[0] else (GOAL_IDS[GOAL_IDS.index(goal.goal_id) - 1],)
-    if (
-        goal.phase_id != template.phase_id
-        or goal.objective != template.objective
-        or goal.allowed_paths != template.allowed_paths
-        or goal.forbidden_paths != DEFAULT_FORBIDDEN
-        or goal.prerequisites != expected_prerequisites
-        or goal.done_when != template.done_when
-        or goal.required_evidence != template.required_evidence
-        or goal.risk != template.risk
-    ):
-        raise GoalCompileError("goal scope differs from its approved deterministic template")
+    expected_templates = tuple(templates) if templates is not None else TEMPLATES if goal.plan_id == PLAN_ID and goal.plan_version == PLAN_VERSION and goal.plan_digest == PLAN_DIGEST else ()
+    if expected_templates:
+        template_by_id = {template.goal_id: template for template in expected_templates}
+        template = template_by_id.get(goal.goal_id)
+        if template is None:
+            raise GoalCompileError("goal scope differs from its approved deterministic template")
+        ordered_ids = tuple(item.goal_id for item in expected_templates)
+        expected_prerequisites = () if goal.goal_id == ordered_ids[0] else (ordered_ids[ordered_ids.index(goal.goal_id) - 1],)
+        if (
+            goal.phase_id != template.phase_id
+            or goal.objective != template.objective
+            or goal.allowed_paths != template.allowed_paths
+            or goal.forbidden_paths != DEFAULT_FORBIDDEN
+            or goal.prerequisites != expected_prerequisites
+            or goal.done_when != template.done_when
+            or goal.required_evidence != template.required_evidence
+            or goal.risk != template.risk
+        ):
+            raise GoalCompileError("goal scope differs from its approved deterministic template")
     material = goal.as_dict()
     material.pop("goal_digest")
     if goal.goal_digest != digest_value(material):
         raise GoalCompileError("goal digest does not match its record")
+
+
+def _templates_from_active_plan(
+    *,
+    plan_id: str,
+    active_plan: Mapping[str, Any],
+    decision_packet: Mapping[str, Any] | None,
+    goal_id: str | None,
+) -> tuple[_GoalTemplate, ...]:
+    """Compile a bounded serial goal set from the registered active plan.
+
+    The v4 rollout templates remain immutable and are selected only by their
+    exact plan identity.  Ordinary plans use their validated implementation
+    store metadata, optionally enriched by a Decision Packet sequence.
+    """
+
+    packet = decision_packet if isinstance(decision_packet, Mapping) else {}
+    sequence = packet.get("implementation_sequence")
+    rows = sequence if isinstance(sequence, (list, tuple)) else ()
+    if not rows:
+        rows = active_plan.get("goals") if isinstance(active_plan.get("goals"), (list, tuple)) else ()
+    fallback_id = goal_id or active_plan.get("goal_id") or f"G-{plan_id}"
+    candidates: list[Mapping[str, Any]] = [row for row in rows if isinstance(row, Mapping)]
+    if not candidates:
+        candidates = [{"goal_id": fallback_id}]
+    templates: list[_GoalTemplate] = []
+    for index, row in enumerate(candidates):
+        raw_id = row.get("goal_id") or (fallback_id if index == 0 else f"{fallback_id}-{index + 1}")
+        if not isinstance(raw_id, str) or not IDENTIFIER_RE.fullmatch(raw_id):
+            raise GoalCompileError("active plan goal_id is not a bounded identifier")
+        raw_paths = _sequence_value(row.get("allowed_paths") or active_plan.get("active_files") or ())
+        allowed = tuple(item for item in raw_paths if isinstance(item, str) and item.strip())
+        if not allowed:
+            plan_path = active_plan.get("plan_path")
+            allowed = (str(plan_path),) if isinstance(plan_path, str) and plan_path else (".ralph/plans/**",)
+        objective = row.get("objective") or packet.get("objective") or active_plan.get("objective") or f"Execute active plan {plan_id}."
+        phase = row.get("phase_id") or active_plan.get("phase") or "active-plan"
+        done = row.get("done_when") or packet.get("done_when") or ("The active plan objective has bounded verification evidence.",)
+        done = _sequence_value(done)
+        evidence = _sequence_value(row.get("required_evidence") or packet.get("verification_matrix") or ())
+        if evidence:
+            required = tuple(
+                item if isinstance(item, str) else str(item.get("gate") or item.get("evidence_path") or "verification")
+                for item in evidence
+                if isinstance(item, (str, Mapping))
+            )
+        else:
+            required = ("plan_state", "focused_verification")
+        classification = str(active_plan.get("classification") or "GREEN").upper()
+        risk = {"GREEN": "low", "YELLOW": "material", "RED": "critical"}.get(classification, "material")
+        templates.append(
+            _GoalTemplate(
+                raw_id,
+                str(phase)[:64],
+                str(objective)[:480],
+                _paths(allowed, "allowed_paths"),
+                _nonempty(done, "done_when"),
+                _nonempty(required, "required_evidence"),
+                risk,
+            )
+        )
+    if len({template.goal_id for template in templates}) != len(templates):
+        raise GoalCompileError("active plan goals contain duplicate goal IDs")
+    return tuple(templates)
 
 
 def _paths(values: Iterable[str], label: str) -> tuple[str, ...]:
@@ -317,6 +402,15 @@ def _nonempty(values: Iterable[str], label: str) -> tuple[str, ...]:
     if not result or len(set(result)) != len(result):
         raise GoalCompileError(f"{label} must be non-empty and unique")
     return result
+
+
+def _sequence_value(value: object) -> tuple[object, ...]:
+    """Normalize scalar plan metadata without iterating its characters."""
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    return ()
 
 
 def _digest(value: object, label: str) -> str:

@@ -42,6 +42,9 @@ def test_read_executables_with_write_options_are_never_fast_path() -> None:
         "rg --replace replacement pattern file.txt",
         "rg -r replacement pattern file.txt",
         "sed -n '1w output.txt' file.txt",
+        "git remote add origin https://example.invalid/repo.git",
+        "fd --exec rm {}",
+        "fd --exec-batch rm {}",
     ):
         result = successful_read_fast_path(event(tool_input={"cmd": command}))
         assert result.eligible is False, command

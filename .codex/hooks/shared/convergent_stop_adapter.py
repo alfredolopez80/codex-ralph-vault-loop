@@ -28,6 +28,7 @@ def evaluate_convergent_stop(
     payload: Mapping[str, object],
     *,
     policy: ExecutionPolicy | None = None,
+    trusted_previous_terminal_fingerprint: str = "",
 ) -> ConvergentStopAdapterResult | None:
     """Evaluate an explicitly supplied v4 state snapshot.
 
@@ -48,10 +49,12 @@ def evaluate_convergent_stop(
             stage="stop",
             assistant_text=str(payload.get("last_assistant_message") or "")[:8_000],
         )
-        attempt = payload.get("terminal_attempt_fingerprint")
-        attempt_fingerprint = attempt if isinstance(attempt, str) and attempt else terminal_attempt_fingerprint(candidate)
-        previous = payload.get("previous_terminal_fingerprint")
-        previous_fingerprint = previous if isinstance(previous, str) else ""
+        # Attempt identity is derived from the validated snapshot.  Payload
+        # fields are untrusted and cannot manufacture a duplicate terminal
+        # result.  The optional prior fingerprint is accepted only from the
+        # lock-held persisted terminal marker in the Stop dispatcher.
+        attempt_fingerprint = terminal_attempt_fingerprint(candidate)
+        previous_fingerprint = trusted_previous_terminal_fingerprint if isinstance(trusted_previous_terminal_fingerprint, str) else ""
         decision = plan_stop_attempt(
             candidate,
             policy=active_policy,

@@ -47,6 +47,17 @@ def test_deterministic_audit_requires_all_gates_and_closes_findings() -> None:
     assert "accepted_findings_closed" in failed.failed_gates
 
 
+def test_deterministic_audit_rejects_non_hex_sha256_values() -> None:
+    with pytest.raises(FinalAuditError, match="sha256 digest"):
+        deterministic_final_audit(
+            packet_fingerprint="sha256:" + "z" * 64,
+            plan_digest=digest("plan"),
+            policy_hash=digest("policy"),
+            evidence_manifest_digest=digest("manifest"),
+            gates=gates(),
+        )
+
+
 def test_critical_generative_audit_requires_explicit_approval() -> None:
     with pytest.raises(FinalAuditError, match="approval"):
         validate_generative_audit_request(critical=True, approved=False, mode="generative")

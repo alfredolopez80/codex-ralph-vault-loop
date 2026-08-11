@@ -101,9 +101,9 @@ def _tokens(command: str) -> list[str]:
 
 def _is_read(name: str, command: str) -> bool:
     components = set(re.split(r"[^a-z0-9]+", name))
-    if components & READ_TOOL_WORDS:
-        return True
     tokens = _tokens(command)
+    if not command and components & READ_TOOL_WORDS:
+        return True
     if not tokens or any(token in {"&&", "||", ";", "|", ">", ">>", "<", "2>", "2>>"} for token in tokens):
         return False
     executable = Path(tokens[0]).name.lower()
@@ -111,7 +111,14 @@ def _is_read(name: str, command: str) -> bool:
         return False
     if executable in READ_EXECUTABLES:
         return True
-    return executable == "git" and len(tokens) > 1 and tokens[1].lower() in {"status", "diff", "log", "show", "branch", "rev-parse", "ls-files", "remote"}
+    if executable != "git" or len(tokens) < 2 or tokens[1].startswith("-"):
+        return False
+    subcommand = tokens[1].lower()
+    if subcommand in {"status", "diff", "log", "show", "branch", "rev-parse", "ls-files"}:
+        return True
+    if subcommand == "remote":
+        return len(tokens) == 2 or tokens[2].lower() in {"-v", "--verbose", "show", "get-url"}
+    return False
 
 
 def _has_mutating_option(executable: str, arguments: list[str]) -> bool:
@@ -122,7 +129,24 @@ def _has_mutating_option(executable: str, arguments: list[str]) -> bool:
         # also a write.  The ``w`` command writes from inside a sed program.
         return any(argument == "--in-place" or argument.startswith("-i") or _sed_program_writes(argument) for argument in arguments)
     if executable in {"find", "fd"}:
-        return any(argument in {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fls", "-fprintf"} for argument in arguments)
+        return any(
+            argument in {
+                "-delete",
+                "--delete",
+                "-d",
+                "-exec",
+                "-execdir",
+                "-ok",
+                "-okdir",
+                "-fprint",
+                "-fls",
+                "-fprintf",
+                "-x",
+                "-X",
+            }
+            or argument.startswith("--exec")
+            for argument in arguments
+        )
     if executable == "rg":
         return any(argument in {"--replace", "-r"} for argument in arguments)
     return False

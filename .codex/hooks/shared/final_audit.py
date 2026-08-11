@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .convergent_contracts import digest_value
+from .convergent_contracts import SHA256_RE, digest_value
 
 
 class FinalAuditError(ValueError):
@@ -215,7 +215,7 @@ def authorize_critical_generative_audit(*, risk: str, explicitly_approved: bool,
 
 
 def _digest(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.startswith("sha256:") or len(value) != 71:
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
         raise FinalAuditError(f"{label} must be a sha256 digest")
     return value
 

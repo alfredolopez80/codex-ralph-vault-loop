@@ -37,7 +37,19 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "exit_code": completed.returncode or 1,
             }
         ]
-    results = payload.get("results", [])
+    if not isinstance(payload, dict) or "results" not in payload:
+        return completed.returncode or 1, [
+            {
+                "name": "gate-subcommand",
+                "status": "failed",
+                "command": command,
+                "reason": "gate subcommand JSON omitted a results list",
+                "stdout": completed.stdout[-4_000:],
+                "stderr": completed.stderr[-4_000:],
+                "exit_code": completed.returncode or 1,
+            }
+        ]
+    results = payload["results"]
     if not isinstance(results, list):
         return completed.returncode or 1, [
             {
