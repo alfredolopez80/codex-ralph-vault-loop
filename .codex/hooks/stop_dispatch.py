@@ -11,6 +11,7 @@ from shared.continuation_budget import Reservation, reserve
 from shared.convergence_authority import AuthorityError, load_authoritative_state
 from shared.convergent_stop_adapter import evaluate_convergent_stop
 from shared.convergent_reducer import TransitionRequest
+from shared.convergent_store import ConvergentIntegrityError, ConvergentStoreError
 from shared.convergent_stop import terminal_attempt_fingerprint
 from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
 from shared.objective_gates import (
@@ -182,20 +183,6 @@ def main() -> int:
     if activation_mode == "enforce":
         try:
             authority, candidate = load_authoritative_state(payload)
-            # A crash between the budget-consuming STOP_CONTINUATION journal
-            # append and its phase-return edge must be recoverable.  The
-            # reducer records anti_rationalization as the durable checkpoint;
-            # replay the deterministic return edge before evaluating Stop.
-            if candidate.get("phase") == "anti_rationalization" and candidate.get("status") == "verifying":
-                recovery = authority.store.transition(
-                    authority.plan_id,
-                    TransitionRequest(
-                        operation_id=f"stop-recover-{candidate['generation']}",
-                        transition="ADVANCE",
-                        expected_generation=int(candidate["generation"]),
-                    ),
-                )
-                candidate = dict(recovery.state or candidate)
             # Scope and task identity are rebound to the canonical state.  The
             # payload's optional convergence snapshot and task signature are
             # diagnostics only and cannot redirect the terminal marker.
@@ -217,7 +204,7 @@ def main() -> int:
                 reason = "convergent-state-invalid"
             sys.stdout.write(_block_response(reason))
             return 0
-        except (OSError, TypeError, ValueError):
+        except (ConvergentStoreError, ConvergentIntegrityError, OSError, TypeError, ValueError):
             sys.stdout.write(_block_response("convergent-state-invalid"))
             return 0
         # The marker is the only trusted source for a duplicate terminal
@@ -255,20 +242,12 @@ def main() -> int:
                             operation_id=("stop-" + convergent.transition.lower() + "-" + operation_suffix),
                             transition=convergent.transition,
                             expected_generation=convergent.expected_generation,
+                            target_phase=convergent.repair_phase,
                             actor_role="deterministic-runtime",
                             critical=str(candidate.get("risk") or "") == "critical",
                             reason=convergent.reason,
                         ),
                     )
-                    if convergent.transition == "STOP_CONTINUATION" and transition.state and transition.state.get("phase") == "anti_rationalization":
-                        authority.store.transition(
-                            authority.plan_id,
-                            TransitionRequest(
-                                operation_id=("stop-return-" + operation_suffix),
-                                transition="ADVANCE",
-                                expected_generation=int(transition.state["generation"]),
-                            ),
-                        )
                 except Exception:
                     sys.stdout.write(_block_response("convergent-state-transition-failed"))
                     return 0

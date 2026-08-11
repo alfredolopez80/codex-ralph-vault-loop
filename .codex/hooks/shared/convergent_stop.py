@@ -35,6 +35,7 @@ class StopDecision:
     transition: str
     reason: str
     physical_no_op: bool
+    repair_phase: str = ""
 
 
 def evaluate_anti_rationalization(
@@ -100,7 +101,13 @@ def plan_stop_attempt(
     maximum = policy.critical_stop_budget if critical else policy.ordinary_stop_budget
     if normalized["stop_budget"][counter] >= maximum:
         return StopDecision("user-decision", "USER_DECISION", "stop-continuation-budget-exhausted", False)
-    return StopDecision("continue", "STOP_CONTINUATION", "objective-evidence-incomplete", False)
+    return StopDecision(
+        "continue",
+        "STOP_CONTINUATION",
+        "objective-evidence-incomplete",
+        False,
+        _repair_phase_for(failures),
+    )
 
 
 def terminal_attempt_fingerprint(state: Mapping[str, Any]) -> str:
@@ -136,6 +143,20 @@ def _completion_failures(state: Mapping[str, Any]) -> tuple[str, ...]:
     if not isinstance(lease, Mapping) or lease.get("active") is not True:
         failures.append("execution-lease")
     return tuple(failures)
+
+
+def _repair_phase_for(failures: tuple[str, ...]) -> str:
+    """Choose the earliest concrete phase that can repair every failure."""
+
+    if "decision-packet" in failures:
+        return "analyze"
+    if "open-obligations" in failures:
+        return "implement"
+    if "accepted-findings" in failures:
+        return "mitigate"
+    if "hard-gates" in failures or "evidence-manifest" in failures or "handoff" in failures:
+        return "verify"
+    return "final_audit"
 
 
 def _digest(value: object, label: str) -> str:

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
-READ_EXECUTABLES = frozenset({"cat", "head", "tail", "rg", "grep", "find", "fd", "ls", "pwd", "stat", "file", "wc"})
+READ_EXECUTABLES = frozenset({"cat", "head", "tail", "rg", "grep", "find", "fd", "fdfind", "ls", "pwd", "stat", "file", "wc"})
 MAX_COMMAND_BYTES = 4_096
 READ_TOOL_WORDS = frozenset({"read", "search", "find", "list", "glob", "get", "stat", "inspect", "status", "diff", "log", "show"})
 LOCAL_READ_TOOL_NAMES = frozenset({"read", "grep", "glob", "list", "find", "stat", "inspect", "status", "git_status", "git_diff", "git_log", "git_show"})
@@ -242,7 +242,7 @@ def _has_mutating_option(executable: str, arguments: list[str]) -> bool:
             ):
                 return True
         return False
-    if executable in {"find", "fd"}:
+    if executable in {"find", "fd", "fdfind"}:
         return any(
             argument in {
                 "-delete",
@@ -259,6 +259,7 @@ def _has_mutating_option(executable: str, arguments: list[str]) -> bool:
                 "-X",
             }
             or argument.startswith("--exec")
+            or (executable in {"fd", "fdfind"} and argument.startswith(("-x", "-X")))
             or argument.startswith("-fprint")
             for argument in arguments
         )

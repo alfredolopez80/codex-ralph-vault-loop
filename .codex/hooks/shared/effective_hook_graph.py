@@ -185,7 +185,20 @@ def analyze_hook_graph(
 
     domains: list[DomainResult] = []
     for domain in DOMAINS:
-        blocking = sorted({entry.role for entry in entries if entry.domain == domain and entry.blocking})
+        blocking_entries = sorted(
+            (
+                entry
+                for entry in entries
+                if entry.domain == domain
+                and entry.blocking
+                and not _suppressed_global_registration(entry, entries)
+            ),
+            key=lambda entry: (entry.source, entry.event, entry.role, entry.command),
+        )
+        # Ownership is a property of registrations, not distinct role names.
+        # A project and global registration of the same dispatcher still run
+        # twice and therefore constitute two blocking owners.
+        blocking = [entry.role for entry in blocking_entries]
         report_only = sorted({entry.role for entry in entries if entry.domain == domain and not entry.blocking})
         evidence = tuple(f"{entry.source}:{entry.event}:{entry.role}" for entry in entries if entry.domain == domain)
         if len(blocking) == 1:
@@ -195,7 +208,10 @@ def analyze_hook_graph(
             errors.append(f"{domain}: no blocking semantic owner")
         else:
             status = "FAIL"
-            errors.append(f"{domain}: duplicate blocking owners {','.join(blocking)}")
+            registrations = ",".join(
+                f"{entry.source}:{entry.event}:{entry.role}" for entry in blocking_entries
+            )
+            errors.append(f"{domain}: duplicate blocking registrations {registrations}")
         if report_only:
             warnings.append(f"{domain}: report-only roles {','.join(report_only)}")
         domains.append(DomainResult(domain, tuple(blocking), tuple(report_only), status, evidence))
@@ -203,6 +219,26 @@ def analyze_hook_graph(
         errors.append("legacy anti-rationalization-stop.sh is registered")
     status = "FAIL" if errors else "WARN" if warnings else "PASS"
     return HookGraphReport(status, tuple(domains), tuple(entries), legacy_registered, tuple(sorted(set(warnings))), tuple(sorted(set(errors))))
+
+
+def _suppressed_global_registration(entry: HookEntry, entries: list[HookEntry]) -> bool:
+    """Exclude only the known global wrapper suppressed by a project owner.
+
+    The global dispatcher checks whether the project already owns the same
+    semantic role before invoking its child. This is different from two direct
+    registrations, which remain a blocking duplicate and must fail closed.
+    """
+
+    if entry.source != "global" or "global_hook_dispatch.py" not in entry.command:
+        return False
+    return any(
+        other is not entry
+        and other.source == "project"
+        and other.event == entry.event
+        and other.role == entry.role
+        and other.blocking
+        for other in entries
+    )
 
 
 def role_for_command(command: str) -> str:

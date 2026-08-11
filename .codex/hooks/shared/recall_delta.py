@@ -19,7 +19,7 @@ from .redaction import is_red
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,179}$")
 _DIGEST_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
-_REJECTED_STATUSES = frozenset({"red", "stale", "deprecated", "conflicting", "wrong_scope", "oversized"})
+_ELIGIBLE_STATUSES = frozenset({"selected", "active", "recalled", "eligible"})
 MAX_SELECTED_IDS = 64
 _FORBIDDEN_METADATA_KEYS = frozenset(
     {"prompt", "raw_prompt", "body", "content", "stdout", "stderr", "log", "reviewer_output", "secret", "token", "credential"}
@@ -150,8 +150,8 @@ def prepare_selection(
         identifier = row.get("id") or row.get("memory_id")
         if not isinstance(identifier, str) or not _ID_RE.fullmatch(identifier) or is_red(identifier):
             continue
-        status = str(row.get("status") or "selected").strip().lower()
-        if status in _REJECTED_STATUSES:
+        status = str(row.get("status") or "").strip().lower()
+        if status not in _ELIGIBLE_STATUSES:
             continue
         # A metadata row may not inherit caller scope.  Missing provenance is
         # ambiguous and is rejected before it reaches the local selection

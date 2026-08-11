@@ -66,6 +66,7 @@ TRANSITIONS: Final[frozenset[str]] = frozenset(
         "ADVANCE",
         "AMEND",
         "EVIDENCE_RECORDED",
+        "POST_TOOL_RESULT_RECORDED",
         "TRANSIENT_RERUN",
         "REPAIR",
         "REOPEN",
@@ -372,6 +373,8 @@ def new_state(
             "code_repair_cycles": 0,
             "fingerprints": {},
             "reopens": 0,
+            "repair_origin": "",
+            "terminal_origin": "",
         },
         "stop_budget": {"ordinary_continuations": 0, "critical_continuations": 0},
         "invalidation_reason": "",
@@ -833,7 +836,9 @@ def _review(value: object) -> dict[str, Any]:
 
 def _failure_budget(value: object) -> dict[str, Any]:
     obj = _mapping(value, "failure_budget")
-    fields = frozenset({"transient_reruns", "code_repair_cycles", "fingerprints", "reopens"})
+    fields = frozenset(
+        {"transient_reruns", "code_repair_cycles", "fingerprints", "reopens", "repair_origin", "terminal_origin"}
+    )
     _closed_keys(obj, fields, "failure_budget")
     fingerprints = _mapping(obj.get("fingerprints"), "failure_budget.fingerprints")
     if len(fingerprints) > 64:
@@ -843,6 +848,12 @@ def _failure_budget(value: object) -> dict[str, Any]:
         "code_repair_cycles": _nonnegative_int(obj.get("code_repair_cycles"), "failure_budget.code_repair_cycles"),
         "fingerprints": {_digest(key, "failure fingerprint"): _nonnegative_int(count, "failure count") for key, count in fingerprints.items()},
         "reopens": _nonnegative_int(obj.get("reopens"), "failure_budget.reopens"),
+        "repair_origin": _enum(
+            obj.get("repair_origin"), {"", "verify", "final_audit", "stop"}, "failure_budget.repair_origin"
+        ),
+        "terminal_origin": _enum(
+            obj.get("terminal_origin"), (set(PHASES) - {"close"}) | {""}, "failure_budget.terminal_origin"
+        ),
     }
     repair = POLICY_SPEC["repair"]
     if result["transient_reruns"] > int(repair["transient_identical_reruns"]):
@@ -932,6 +943,7 @@ def _validate_state_patch(value: object) -> dict[str, Any]:
     validators = {
         "phase": lambda item: _enum(item, set(PHASES), "state_patch.phase"),
         "status": lambda item: _enum(item, STATUSES, "state_patch.status"),
+        "risk": lambda item: _enum(item, {"low", "material", "critical"}, "state_patch.risk"),
         "execution_lease": _lease,
         "previous_state_hash": lambda item: _digest(item, "state_patch.previous_state_hash"),
         "generation": lambda item: _positive_int(item, "state_patch.generation"),

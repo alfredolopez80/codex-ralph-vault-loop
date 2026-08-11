@@ -8,19 +8,19 @@ Audited candidate: current PR working tree before publication
 
 ## Result
 
-| Classification          |         Count | Decision                                                                             |
-| ----------------------- | ------------: | ------------------------------------------------------------------------------------ |
-| `KEEP`                  |         1,232 | Active v4 contracts, rollback, compatibility, security and existing runtime behavior |
-| `REFACTOR`              |   1 test node | Keep, but move to an explicit global/T15 profile lane                                |
-| `DELETE`                | 18 test nodes | Retired with the obsolete slop-guard implementation and smoke block                  |
-| Final pytest collection |         1,233 | Plus 5 subtests                                                                      |
+| Classification          |        Count | Decision                                                                             |
+| ----------------------- | -----------: | ------------------------------------------------------------------------------------ |
+| `KEEP`                  |        1,237 | Active v4 contracts, rollback, compatibility, security and existing runtime behavior |
+| `REFACTOR`              |  1 test node | Keep, but move to an explicit global/T15 profile lane                                |
+| `DELETE`                | 0 test nodes | No pytest node has sufficient evidence for deletion                                  |
+| Final pytest collection |        1,238 | Plus 5 subtests                                                                      |
 
 The branch adds 108 v4 tests relative to the exact base and removes no active
-contract coverage. The 108 additions map to explicit plan obligations and stay
-in the suite. Legacy tests remain necessary while `off` and `shadow` preserve
-rollback to the current runtime.
+pytest contract coverage. The 108 additions map to explicit plan obligations
+and stay in the suite. Legacy tests remain necessary while `off` and `shadow`
+preserve rollback to the current runtime.
 
-## Retired bundle
+## Retired bundles
 
 The following files were removed together because they represent one product
 capability that was explicitly removed by commit `71792c6` (`Remove slop guard
@@ -36,6 +36,18 @@ hook is not copied, registered, or reintroduced. The v4 evidence gate and
 finite Stop budget are the current replacement semantics; phrases remain
 signal-only and cannot authorize closure.
 
+The standalone Aristotle display shell bundle was also retired after a
+separate SOL Max compatibility audit:
+
+- `.codex/hooks/aristotle-analysis-display.sh`
+- its syntax-check entry and three direct fixture invocations in
+  `.codex/tests/run-hook-tests.sh`
+
+It had no active registration, installer role, or documentation reference;
+the active universal classifier and tiered Aristotle tests provide the current
+coverage. This removes unreachable shell work only; it removes no pytest
+nodes and does not affect the active Aristotle contract.
+
 ## Keep, but isolate from ordinary CI
 
 `tests/integration/test_global_model_routing_e2e.py::test_global_dispatcher_routes_the_same_policy_in_a_neutral_workspace`
@@ -44,7 +56,7 @@ remains useful evidence for T15/global installation. It reads the real
 machine-local global profile. It is not deterministic repository evidence and
 should run only in an explicitly provisioned global lane; it is not deleted.
 
-The other 1,232 tests are not deprecated merely because v4 exists. They cover
+The other 1,237 tests are not deprecated merely because v4 exists. They cover
 the active off/shadow rollback path, legacy memory/Recall compatibility,
 security boundaries, migrations, hooks, progress persistence, and current
 quality gates.
@@ -60,10 +72,10 @@ the redundant regression rerun.
 
 ## Verification
 
-After retiring the bundle:
+After retiring the bundles:
 
 ```text
-1233 passed, 5 subtests passed
+1238 passed, 5 subtests passed
 ALL_HOOK_TESTS_PASS
 ```
 

@@ -50,7 +50,6 @@ printf '{"blocks":0}\n' > "$STATE/fixture-stop-verified/quality-blocks.json"
 
 for script in \
   universal-prompt-classifier.sh \
-  aristotle-analysis-display.sh \
   anti-rationalization-stop.sh \
   ralph-stop-quality-gate.sh; do
   bash -n "$HOOKS/$script" || fail "bash -n $script"
@@ -79,9 +78,6 @@ pass "implementation notes python syntax"
 simple_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-simple.json)"
 assert_json "$simple_classifier"
 printf '%s' "$simple_classifier" | jq -e '.continue == true' > /dev/null || fail "simple classifier did not continue"
-simple_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-simple.json)"
-assert_json "$simple_aristotle"
-printf '%s' "$simple_aristotle" | jq -e 'has("hookSpecificOutput") | not' > /dev/null || fail "simple prompt injected Aristotle noise"
 pass "prompt simple"
 
 rm -rf "$STATE/unknown" "$STATE/turn-only"
@@ -95,18 +91,12 @@ pass "prompt metadata empty fields"
 complex_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-complex.json)"
 assert_json "$complex_classifier"
 printf '%s' "$complex_classifier" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "complex classifier missing Aristotle context"
-complex_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-complex.json)"
-assert_json "$complex_aristotle"
-printf '%s' "$complex_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "complex prompt missing Aristotle context"
 pass "prompt complex Aristotle"
 
 spanish_classifier="$(run_hook universal-prompt-classifier.sh user-prompt-spanish-plan.json)"
 assert_json "$spanish_classifier"
 printf '%s' "$spanish_classifier" | jq -e '.hookSpecificOutput.additionalContext | contains("PLAN_REQUIRED") or contains("QUICK_ARISTOTLE") or contains("DECOMPOSE_AND_VALIDATE")' > /dev/null || fail "spanish planning prompt did not escalate"
 printf '%s' "$spanish_classifier" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "spanish classifier missing Aristotle context"
-spanish_aristotle="$(run_hook aristotle-analysis-display.sh user-prompt-spanish-plan.json)"
-assert_json "$spanish_aristotle"
-printf '%s' "$spanish_aristotle" | jq -e '.hookSpecificOutput.additionalContext | contains("Autopsia de Suposiciones")' > /dev/null || fail "spanish planning prompt missing Aristotle context"
 pass "prompt spanish Aristotle"
 
 improve_prompt="$(run_python_hook user_prompt_improve.py user-prompt-simple.json)"

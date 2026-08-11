@@ -11,9 +11,9 @@ HOOKS = ROOT / ".codex" / "hooks"
 if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
-from shared.decision_packet import DecisionAmendment, DecisionPacket, DecisionPacketError  # noqa: E402
+from shared.decision_packet import AmendmentApproval, DecisionAmendment, DecisionPacket, DecisionPacketError  # noqa: E402
 from shared.convergent_contracts import digest_value  # noqa: E402
-from shared.convergent_aristotle import AristotleContractError, select_aristotle_tier, validate_aristotle_output  # noqa: E402
+from shared.convergent_aristotle import AristotleContractError, select_aristotle_tier, validate_aristotle_output, validated_aristotle_evidence  # noqa: E402
 from shared.execution_policy import load_execution_policy  # noqa: E402
 from shared.goal_compiler import GOAL_IDS, PLAN_ID, GoalCompileError, compile_goals, validate_goal  # noqa: E402
 
@@ -66,6 +66,16 @@ def test_tiered_aristotle_is_deterministic_and_critical_domains_win() -> None:
     whitespace_output = {section: "   \n\t" for section in micro.required_sections}
     with pytest.raises(AristotleContractError, match="empty"):
         validate_aristotle_output(micro, whitespace_output)
+
+    low_output = {section: f"bounded {section}" for section in micro.required_sections}
+    evidence = validated_aristotle_evidence(
+        micro,
+        low_output,
+        task_epoch="epoch-1",
+        decision_version=1,
+    )
+    assert evidence.evidence_digest.startswith("sha256:")
+    assert set(evidence.section_digests) == set(micro.required_sections)
 
 
 def packet_values() -> dict[str, object]:
@@ -158,6 +168,9 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
     packet = DecisionPacket.create(**packet_values())
     amendment = DecisionAmendment.create(
         amendment_id="AMD-1",
+        task_epoch="epoch-1",
+        prior_decision_version=1,
+        new_decision_version=2,
         prior_decision_fingerprint=packet.analysis_fingerprint,
         new_evidence=["EV-new"],
         invalidated_assumption="The original API shape is stable.",
@@ -180,6 +193,9 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
     with pytest.raises(DecisionPacketError, match="sha256"):
         DecisionAmendment.create(
             amendment_id="AMD-bad-digest",
+            task_epoch="epoch-1",
+            prior_decision_version=1,
+            new_decision_version=2,
             prior_decision_fingerprint="sha256:" + "z" * 64,
             new_evidence=["EV-new"],
             invalidated_assumption="The original API shape is stable.",
@@ -190,6 +206,45 @@ def test_material_amendment_is_deterministic_and_append_only_shaped() -> None:
             verification_changes=["Add compatibility gate"],
             approval_required=True,
             new_decision_fingerprint=digest_value("packet-v2"),
+        )
+
+    approval = AmendmentApproval.create(
+        amendment_id=amendment.amendment_id,
+        task_epoch=amendment.task_epoch,
+        prior_decision_version=amendment.prior_decision_version,
+        new_decision_version=amendment.new_decision_version,
+        amendment_fingerprint=amendment.amendment_fingerprint,
+        actor_role="codex-main",
+        approval_evidence_digest=digest_value("user-approved-amendment"),
+    )
+    assert AmendmentApproval.from_mapping(approval.as_dict()) == approval
+    with pytest.raises(DecisionPacketError, match="Codex main"):
+        AmendmentApproval.create(
+            amendment_id=amendment.amendment_id,
+            task_epoch=amendment.task_epoch,
+            prior_decision_version=1,
+            new_decision_version=2,
+            amendment_fingerprint=amendment.amendment_fingerprint,
+            actor_role="sol-worker",
+            approval_evidence_digest=digest_value("user-approved-amendment"),
+        )
+
+    with pytest.raises(DecisionPacketError, match="must change"):
+        DecisionAmendment.create(
+            amendment_id="AMD-noop",
+            task_epoch="epoch-1",
+            prior_decision_version=1,
+            new_decision_version=2,
+            prior_decision_fingerprint=packet.analysis_fingerprint,
+            new_evidence=["EV-new"],
+            invalidated_assumption="The original API shape is stable.",
+            affected_invariants=["Public contract compatibility"],
+            design_impact="Add a versioned adapter.",
+            changed_steps=["S-1"],
+            unchanged_steps=[],
+            verification_changes=["Add compatibility gate"],
+            approval_required=True,
+            new_decision_fingerprint=packet.analysis_fingerprint,
         )
 
 

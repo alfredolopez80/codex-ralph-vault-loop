@@ -1,6 +1,6 @@
 # Solution Architecture Adjudication — Anti-Loop Amendment
 
-Status: **PROPOSED — non-authoritative until explicit USER_DECISION**
+Status: **APPROVED — REPO-LOCAL T14A CLOSED; T15 GLOBAL ROLLOUT PENDING**
 
 Plan: `ralph-convergent-execution-v4-20260811`
 
@@ -69,16 +69,25 @@ The record is append-only, content-safe, immutable per finding-set digest, and
 idempotent: the same operation and payload is a no-op; the same operation with
 different payload is a conflict.
 
-## Current PR boundary
+## Current PR boundary and outcome
 
-This proposal governs the remaining PR review and prevents the observed
-eleven-commit patch loop. It describes the direct local hardening already
-determined by the v4 contracts (bounded finding iteration, canonical boundary
-wire values, fail-closed unknown guarded plugins, bounded plan hashing, and
-non-empty Aristotle evidence). It does **not** authorize wiring the full
-PostTool material lifecycle, trusted runtime attestation, global installation,
-or production rollout. Those are material design changes and remain separate
-goals requiring a new approved plan generation or explicit user decision.
+The user approved this adjudication and the material control-plane changes
+needed to close the current review surface. One content-safe adjudication was
+frozen for the 28 current threads at reviewed HEAD
+`5b25553e7327c81f6e2ae772837c42cb23fd70ad`, with finding-set digest
+`sha256:437ffd3ed76f781214855bb0d3ad26eb5e511600fa9e255aedb1abbaf7aad0a6`.
+The implementation then applied one coherent correction batch for the direct
+contracts and core guards.
+
+The batch closes the three repo-local control-plane surfaces: authority now
+binds enforce decisions to the prepared runtime attestation, the actual full
+checkout HEAD and the atomic initialization operation; a distinct task epoch
+is archived behind an active CAS pointer without resetting budgets; and
+PostTool commits only bounded, typed evidence through an evidence-only store
+transition. Their local evidence and the remaining live rollout boundary are
+recorded in `t14a-implementation-residual.json`. Global installation and
+production rollout were neither part of this correction batch nor attempted;
+T15 remains pending its own backup, parity, smoke and rollback proof.
 
 The canary remains structural-only. Provider credits, live SOL/model turns,
 wall time, escaped defects, full lifecycle equivalence, and global hook writes
@@ -93,5 +102,7 @@ this PR.
 - no automatic re-review or budget reset occurs;
 - architectural boundaries are recorded rather than papered over with
   patches;
-- fresh-clone CI and the local gates pass on one published SHA; and
-- the final SOL Max validation names any remaining `USER_DECISION` boundary.
+- focused local gates pass for the published batch and fresh-clone CI remains
+  a Codex-main publication gate; and
+- the final SOL Max validation separates repo-local closure from the live T15
+  rollout evidence rather than reopening the correction batch.

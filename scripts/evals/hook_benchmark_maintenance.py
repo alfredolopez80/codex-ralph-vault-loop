@@ -115,7 +115,14 @@ def measure_maintenance(root: Path, iterations: int) -> dict[str, object]:
                     raise RuntimeError(f"maintenance enqueue failed: {scenario}")
                 enqueue_outputs.append(len(enqueue.stdout.encode("utf-8")))
                 try:
-                    output = json.loads(enqueue.stdout) if enqueue.stdout.strip() else {}
+                    # SessionStart may legitimately emit a bounded canonical
+                    # progress capsule. Stop is the only maintenance scenario
+                    # whose stdout is a supported JSON block decision.
+                    output = (
+                        json.loads(enqueue.stdout)
+                        if scenario != "session_start_backlog" and enqueue.stdout.strip()
+                        else {}
+                    )
                 except json.JSONDecodeError as exc:
                     raise RuntimeError("maintenance hook emitted malformed output") from exc
                 blocks += int(isinstance(output, dict) and output.get("decision") == "block")

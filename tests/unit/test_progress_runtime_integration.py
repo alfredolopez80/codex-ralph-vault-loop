@@ -218,6 +218,7 @@ def test_stop_completion_rejects_corrupt_state_and_survives_deleted_worktree(tmp
         "session_id": "progress-session",
         "progress_plan_id": "progress",
         "progress_complete": True,
+        "repository_id": store.read_manifest()["canonical_repo_identity"],
     }
     context = active_context_from_payload(payload, resolve_git=False)
     state.write_text('{"schema_version":99}', encoding="utf-8")

@@ -22,14 +22,16 @@ POLICY_VERSION: Final[int] = 4
 EXPECTED_POLICY_SHA256: Final[str] = "aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef"
 DEFAULT_POLICY_PATH: Final[Path] = REPO_ROOT / "config" / "execution-policy.toml"
 MAX_POLICY_BYTES: Final[int] = 64 * 1024
+MAX_ACTIVATION_CONFIG_BYTES: Final[int] = 8 * 1024
 REQUIRED_IMPLEMENTATION_MODEL: Final[str] = "gpt-5.6-sol"
 REQUIRED_REASONING_EFFORT: Final[str] = "max"
 AUTHORITY_ROLE: Final[str] = "codex-main"
 IMPLEMENTATION_ROLE: Final[str] = "sol-worker"
 ACTIVATION_CONFIG_PATH: Final[Path] = REPO_ROOT / "config" / "convergent-execution-mode.toml"
-ACTIVATION_CONFIG_VERSION: Final[int] = 1
+ACTIVATION_CONFIG_VERSION: Final[int] = 2
 ACTIVATION_PLAN_ID: Final[str] = "ralph-convergent-execution-v4-20260811"
 ACTIVATION_PLAN_DIGEST: Final[str] = "sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1"
+ACTIVATION_ATTESTATION_RELATIVE_PATH: Final[str] = ".local-notes/ralph/convergent-runtime-attestation.toml"
 
 BOUNDARY_CLASSES: Final[tuple[str, ...]] = (
     "status",
@@ -331,17 +333,16 @@ def _validate_activation_mode(value: str, source: str) -> str:
 
 
 def _read_activation_config(path: Path) -> str:
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise ExecutionPolicyError("convergent activation config cannot be read") from exc
-    if len(raw) > 8 * 1024:
-        raise ExecutionPolicyError("convergent activation config exceeds its byte limit")
+    raw = _read_bounded_regular_file(
+        path,
+        hard_limit=MAX_ACTIVATION_CONFIG_BYTES,
+        label="convergent activation config",
+    )
     try:
         decoded = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise ExecutionPolicyError("convergent activation config is not valid UTF-8 TOML") from exc
-    expected_keys = {"version", "mode", "plan_id", "plan_digest", "policy_hash"}
+    expected_keys = {"version", "mode", "plan_id", "plan_digest", "policy_hash", "runtime_attestation"}
     if not isinstance(decoded, dict) or set(decoded) != expected_keys:
         raise ExecutionPolicyError("convergent activation config has unknown or missing keys")
     if decoded.get("version") != ACTIVATION_CONFIG_VERSION:
@@ -354,6 +355,8 @@ def _read_activation_config(path: Path) -> str:
         raise ExecutionPolicyError("convergent activation config plan_id does not match the approved plan")
     if decoded.get("plan_digest") != ACTIVATION_PLAN_DIGEST:
         raise ExecutionPolicyError("convergent activation config plan_digest does not match the approved plan")
+    if decoded.get("runtime_attestation") != ACTIVATION_ATTESTATION_RELATIVE_PATH:
+        raise ExecutionPolicyError("convergent activation config runtime_attestation path is unsupported")
     policy_hash = "sha256:" + EXPECTED_POLICY_SHA256
     if decoded.get("policy_hash") != policy_hash:
         raise ExecutionPolicyError("convergent activation config policy_hash does not match execution policy")
@@ -361,34 +364,40 @@ def _read_activation_config(path: Path) -> str:
 
 
 def _read_policy(path: Path) -> bytes:
+    return _read_bounded_regular_file(path, hard_limit=MAX_POLICY_BYTES, label="execution policy")
+
+
+def _read_bounded_regular_file(path: Path, *, hard_limit: int, label: str) -> bytes:
+    """Read one stable, regular, single-link descriptor through ``O_NOFOLLOW``."""
+
     try:
         before = path.lstat()
         if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
-            raise ExecutionPolicyError("execution policy must be a regular non-aliased file")
-        if before.st_size > MAX_POLICY_BYTES:
-            raise ExecutionPolicyError("execution policy exceeds its byte limit")
+            raise ExecutionPolicyError(f"{label} must be a regular non-aliased file")
+        if before.st_size > hard_limit:
+            raise ExecutionPolicyError(f"{label} exceeds its byte limit")
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except OSError as exc:
-        raise ExecutionPolicyError("execution policy could not be opened safely") from exc
+        raise ExecutionPolicyError(f"{label} could not be opened safely") from exc
     try:
         opened = os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or opened.st_size > MAX_POLICY_BYTES:
-            raise ExecutionPolicyError("execution policy changed to an unsafe file")
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or opened.st_size > hard_limit:
+            raise ExecutionPolicyError(f"{label} changed to an unsafe file")
         if (opened.st_dev, opened.st_ino, opened.st_size) != (before.st_dev, before.st_ino, before.st_size):
-            raise ExecutionPolicyError("execution policy changed before it could be opened")
+            raise ExecutionPolicyError(f"{label} changed before it could be opened")
         chunks: list[bytes] = []
         total = 0
         while True:
-            chunk = os.read(fd, min(16 * 1024, MAX_POLICY_BYTES - total + 1))
+            chunk = os.read(fd, min(16 * 1024, hard_limit - total + 1))
             if not chunk:
                 break
             chunks.append(chunk)
             total += len(chunk)
-            if total > MAX_POLICY_BYTES:
-                raise ExecutionPolicyError("execution policy exceeds its byte limit")
+            if total > hard_limit:
+                raise ExecutionPolicyError(f"{label} exceeds its byte limit")
         final = os.fstat(fd)
         if (final.st_dev, final.st_ino, final.st_size) != (opened.st_dev, opened.st_ino, total):
-            raise ExecutionPolicyError("execution policy changed during read")
+            raise ExecutionPolicyError(f"{label} changed during read")
         return b"".join(chunks)
     finally:
         os.close(fd)
@@ -433,6 +442,7 @@ def _freeze_values(values: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "AUTHORITY_ROLE",
+    "ACTIVATION_ATTESTATION_RELATIVE_PATH",
     "BOUNDARY_CLASSES",
     "DEFAULT_POLICY_PATH",
     "EXPECTED_POLICY_SHA256",

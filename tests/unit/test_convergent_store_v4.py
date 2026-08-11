@@ -33,7 +33,7 @@ from shared.convergent_store import (  # noqa: E402
     ConvergentIntegrityError,
     ConvergentStore,
 )
-from shared.decision_packet import DecisionAmendment  # noqa: E402
+from shared.decision_packet import AmendmentApproval, DecisionAmendment  # noqa: E402
 from shared.execution_lease import LeaseEvidence, acquire_execution_lease  # noqa: E402
 from shared.execution_policy import PolicyDriftError, load_execution_policy  # noqa: E402
 from shared.goal_compiler import GOAL_IDS, PLAN_ID  # noqa: E402
@@ -151,6 +151,12 @@ def test_start_transition_idempotency_and_conflict(tmp_path: Path) -> None:
     invalid_patch_type["event_hash"] = event_hash(invalid_patch_type)
     with pytest.raises(ValueError, match="state_patch.phase"):
         validate_event(invalid_patch_type)
+    invalid_risk = dict(first.event)
+    invalid_risk["state_patch"] = {**first.event["state_patch"], "risk": "unbounded"}
+    invalid_risk["event_hash"] = ""
+    invalid_risk["event_hash"] = event_hash(invalid_risk)
+    with pytest.raises(ValueError, match="state_patch.risk"):
+        validate_event(invalid_risk)
     immutable_patch = dict(first.event)
     immutable_patch["state_patch"] = {**first.event["state_patch"], "boundary_epoch": 2}
     immutable_patch["event_hash"] = ""
@@ -194,6 +200,81 @@ def test_start_rejects_goal_artifact_tampering_and_wrong_valid_plan_digest(tmp_p
     wrong["state_hash"] = state_hash(wrong)
     with pytest.raises(store_module.ConvergentStoreError, match="approved serial goal set"):
         store.start(wrong)
+
+
+def test_atomic_start_and_prompt_classification_is_retry_safe(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    state = initial_state()
+    request = boundary_request(state, operation_id="op-atomic-boundary")
+    first = store.start_and_transition(state, request)
+    assert first.changed is True
+    assert first.state["phase"] == "analyze"
+    assert first.state["generation"] == 1
+    retry = store.start_and_transition(state, request)
+    assert retry.changed is False
+    assert retry.reason == "idempotent atomic start"
+    assert store.read_current(PLAN_ID).state == first.state
+
+
+def test_new_task_epoch_rotation_preserves_prior_state_and_publishes_cas_pointer(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    previous = initial_state()
+    store.start(previous)
+
+    identity = TaskIdentity.from_values(
+        session="session-new",
+        project="project-store",
+        worktree="workspace-store",
+        branch="codex/ralph-convergent-execution-v4",
+        objective="A genuinely new work item",
+        boundary_epoch=2,
+        sensitivity="GREEN",
+        plan=PLAN_ID,
+        plan_version=1,
+        plan_digest=PLAN_DIGEST,
+    )
+    candidate = new_state(
+        policy=load_execution_policy(),
+        plan_id=PLAN_ID,
+        plan_version=1,
+        plan_digest=PLAN_DIGEST,
+        task_identity=identity,
+        goal_id="G-BASELINE",
+        task_epoch="epoch-new",
+        boundary_epoch=2,
+        boundary_kind="new_task",
+        activation_mode="shadow",
+    )
+    evidence = LeaseEvidence(
+        model="gpt-5.6-sol",
+        reasoning_effort="max",
+        tools=("apply_patch", "exec_command"),
+        cwd=str(ROOT),
+        branch="codex/ralph-convergent-execution-v4",
+        task_epoch="epoch-new",
+        owner_role="sol-worker",
+        authority_role="codex-main",
+        source="verified-runtime",
+    )
+    lease = acquire_execution_lease(evidence, policy=load_execution_policy(), issued_generation=0)
+    request = TransitionRequest(
+        operation_id="rotate-epoch-new",
+        transition="BOUNDARY_CLASSIFIED",
+        expected_generation=0,
+        evidence_ids=("epoch-rotation",),
+        lease=lease,
+    )
+    result = store.rotate_epoch_and_transition(candidate, request)
+    assert result.state is not None and result.state["task_epoch"] == "epoch-new"
+    paths = store.paths(PLAN_ID)
+    pointer = json.loads(paths.active_epoch.read_text(encoding="utf-8"))
+    assert pointer["epoch_id"] == "epoch-new"
+    assert pointer["state_hash"] == result.state["state_hash"]
+    assert list((paths.root / "epochs").iterdir())
+    assert store.read_current(PLAN_ID, authoritative=True).state["task_epoch"] == "epoch-new"
+    retry = store.rotate_epoch_and_transition(candidate, request)
+    assert retry.changed is False
+    assert retry.replayed is True
 
 
 def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_path: Path) -> None:
@@ -263,6 +344,9 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
     _root, store = make_store(tmp_path)
     amendment = DecisionAmendment.create(
         amendment_id="AMD-1",
+        task_epoch="epoch-store",
+        prior_decision_version=1,
+        new_decision_version=2,
         prior_decision_fingerprint=digest_value("packet-v1"),
         new_evidence=("EV-new",),
         invalidated_assumption="The original API remains stable.",
@@ -277,13 +361,37 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
     with pytest.raises(store_module.ConvergentStoreError, match="not initialized"):
         store.append_amendment(PLAN_ID, amendment)
 
-    store.start(initial_state())
+    amendable = initial_state()
+    lease = boundary_request(amendable).lease
+    assert lease is not None
+    amendable["execution_lease"] = lease.as_dict()
+    amendable["phase"] = "design_ready"
+    amendable["aristotle"].update(
+        {"tier": "quick", "decision_version": 1, "decision_fingerprint": digest_value("packet-v1")}
+    )
+    amendable["state_hash"] = ""
+    amendable["state_hash"] = state_hash(amendable)
+    store.start(amendable)
     with pytest.raises(store_module.ConvergentStoreError, match="DecisionAmendment contract"):
         store.append_amendment(PLAN_ID, amendment.as_dict())  # type: ignore[arg-type]
     assert store.append_amendment(PLAN_ID, amendment).changed is True
     assert store.append_amendment(PLAN_ID, amendment).changed is False
+    approval = AmendmentApproval.create(
+        amendment_id=amendment.amendment_id,
+        task_epoch=amendment.task_epoch,
+        prior_decision_version=amendment.prior_decision_version,
+        new_decision_version=amendment.new_decision_version,
+        amendment_fingerprint=amendment.amendment_fingerprint,
+        actor_role="codex-main",
+        approval_evidence_digest=digest_value("approved-by-user"),
+    )
+    assert store.append_amendment_approval(PLAN_ID, approval).changed is True
+    assert store.append_amendment_approval(PLAN_ID, approval).changed is False
     conflicting = DecisionAmendment.create(
         amendment_id="AMD-1",
+        task_epoch="epoch-store",
+        prior_decision_version=1,
+        new_decision_version=2,
         prior_decision_fingerprint=digest_value("packet-v1"),
         new_evidence=("EV-different",),
         invalidated_assumption="The original API remains stable.",
@@ -299,7 +407,10 @@ def test_material_amendment_journal_is_append_only_idempotent_and_budgeted(tmp_p
         store.append_amendment(PLAN_ID, conflicting)
     second = DecisionAmendment.create(
         amendment_id="AMD-2",
-        prior_decision_fingerprint=digest_value("packet-v2"),
+        task_epoch="epoch-store",
+        prior_decision_version=1,
+        new_decision_version=2,
+        prior_decision_fingerprint=digest_value("packet-v1"),
         new_evidence=("EV-second",),
         invalidated_assumption="A second assumption changed.",
         affected_invariants=("Scope stability",),

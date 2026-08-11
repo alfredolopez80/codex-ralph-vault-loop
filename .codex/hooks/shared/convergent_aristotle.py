@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .convergent_contracts import digest_value
+from .convergent_contracts import SHA256_RE, digest_value
 from .decision_packet import DecisionPacket, DecisionPacketError
 from .execution_policy import ExecutionPolicy
 from .redaction import is_red
@@ -59,6 +59,71 @@ class AristotleDecision:
             "produces_decision_packet": self.produces_decision_packet,
             "decision_digest": self.decision_digest,
         }
+
+
+@dataclass(frozen=True)
+class AristotleEvidence:
+    schema_version: int
+    task_epoch: str
+    tier: str
+    decision_version: int
+    tier_decision_digest: str
+    section_digests: Mapping[str, str]
+    evidence_digest: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "task_epoch": self.task_epoch,
+            "tier": self.tier,
+            "decision_version": self.decision_version,
+            "tier_decision_digest": self.tier_decision_digest,
+            "section_digests": dict(self.section_digests),
+            "evidence_digest": self.evidence_digest,
+        }
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "AristotleEvidence":
+        expected = {
+            "schema_version",
+            "task_epoch",
+            "tier",
+            "decision_version",
+            "tier_decision_digest",
+            "section_digests",
+            "evidence_digest",
+        }
+        if not isinstance(value, Mapping) or set(value) != expected:
+            raise AristotleContractError("Aristotle evidence key mismatch")
+        version = value.get("decision_version")
+        sections = value.get("section_digests")
+        if value.get("schema_version") != 1 or isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise AristotleContractError("Aristotle evidence version is invalid")
+        if not isinstance(value.get("task_epoch"), str) or not value["task_epoch"]:
+            raise AristotleContractError("Aristotle evidence task epoch is invalid")
+        if value.get("tier") not in {"micro", "quick", "full", "critical"}:
+            raise AristotleContractError("Aristotle evidence tier is invalid")
+        if not isinstance(sections, Mapping) or not sections or any(
+            not isinstance(key, str) or not isinstance(item, str) or not SHA256_RE.fullmatch(item)
+            for key, item in sections.items()
+        ):
+            raise AristotleContractError("Aristotle evidence section digests are invalid")
+        if not isinstance(value.get("tier_decision_digest"), str) or not SHA256_RE.fullmatch(
+            str(value["tier_decision_digest"])
+        ):
+            raise AristotleContractError("Aristotle tier decision digest is invalid")
+        material = {key: value[key] for key in expected - {"evidence_digest"}}
+        if value.get("evidence_digest") != digest_value(material):
+            raise AristotleContractError("Aristotle evidence digest mismatch")
+        return cls(
+            schema_version=1,
+            task_epoch=str(value["task_epoch"]),
+            tier=str(value["tier"]),
+            decision_version=version,
+            tier_decision_digest=str(value["tier_decision_digest"]),
+            section_digests=dict(sections),
+            evidence_digest=str(value["evidence_digest"]),
+        )
 
 
 def select_aristotle_tier(
@@ -138,6 +203,29 @@ def validate_aristotle_output(decision: AristotleDecision, output: Mapping[str, 
             raise AristotleContractError("Full/Critical Aristotle Decision Packet is invalid") from exc
 
 
+def validated_aristotle_evidence(
+    decision: AristotleDecision,
+    output: Mapping[str, object],
+    *,
+    task_epoch: str,
+    decision_version: int,
+) -> AristotleEvidence:
+    """Validate output and freeze a bounded, content-free evidence artifact."""
+
+    validate_aristotle_output(decision, output)
+    if not task_epoch or len(task_epoch) > 180 or isinstance(decision_version, bool) or decision_version < 1:
+        raise AristotleContractError("Aristotle evidence binding is invalid")
+    material: dict[str, Any] = {
+        "schema_version": 1,
+        "task_epoch": task_epoch,
+        "tier": decision.tier,
+        "decision_version": decision_version,
+        "tier_decision_digest": decision.decision_digest,
+        "section_digests": {section: digest_value(output[section]) for section in decision.required_sections},
+    }
+    return AristotleEvidence.from_mapping({**material, "evidence_digest": digest_value(material)})
+
+
 def _validate_output_value(value: object, *, label: str, top_level: bool = False) -> None:
     if isinstance(value, str):
         if not value.strip() or len(value.encode("utf-8")) > 8_192 or is_red(value):
@@ -176,6 +264,8 @@ __all__ = [
     "CRITICAL_DOMAINS",
     "AristotleContractError",
     "AristotleDecision",
+    "AristotleEvidence",
     "select_aristotle_tier",
     "validate_aristotle_output",
+    "validated_aristotle_evidence",
 ]

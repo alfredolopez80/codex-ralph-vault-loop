@@ -30,11 +30,12 @@ def run_dispatch(tmp_path: Path, payload: dict, *, extra_env: dict[str, str] | N
         activation = tmp_path / "config" / "convergent-execution-mode.toml"
         activation.parent.mkdir(parents=True, exist_ok=True)
         activation.write_text(
-            "version = 1\n"
+            "version = 2\n"
             "mode = \"enforce\"\n"
             "plan_id = \"ralph-convergent-execution-v4-20260811\"\n"
             "plan_digest = \"sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1\"\n"
-            "policy_hash = \"sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef\"\n",
+            "policy_hash = \"sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef\"\n"
+            "runtime_attestation = \".local-notes/ralph/convergent-runtime-attestation.toml\"\n",
             encoding="utf-8",
         )
     return subprocess.run(

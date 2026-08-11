@@ -14,7 +14,7 @@ import stat
 from typing import Any, Mapping
 from pathlib import Path
 
-from .active_context import ActiveContext, active_context_from_payload
+from .active_context import ActiveContext, active_context_from_payload, fast_git_head_for
 from .convergent_contracts import (
     ContractError,
     TaskIdentity,
@@ -23,10 +23,11 @@ from .convergent_contracts import (
     validate_state,
 )
 from .convergent_store import MAX_PLAN_BYTES, ConvergentStore, ConvergentStoreError
-from .execution_lease import LeaseError, acquire_execution_lease, evidence_from_payload
+from .execution_lease import LeaseError, acquire_execution_lease, assert_lease_stable
 from .execution_policy import ExecutionPolicy, assert_policy_compatible, load_execution_policy
 from .progress_hook import ProgressLookup, cheap_lookup
 from .convergent_reducer import TransitionRequest
+from .runtime_attestation import RuntimeAttestation, RuntimeAttestationError, load_runtime_attestation
 
 
 class AuthorityError(RuntimeError):
@@ -43,14 +44,15 @@ class AuthorityContext:
     plan_version: int
     plan_digest: str
     plan_path: str
+    checkout_head_sha: str
 
 
-def resolve_authority(payload: Mapping[str, object]) -> AuthorityContext:
+def resolve_authority(payload: Mapping[str, object], *, resolve_git: bool = True) -> AuthorityContext:
     """Resolve the exact plan/store identity for the active worktree."""
 
     try:
         policy = load_execution_policy()
-        active = active_context_from_payload(dict(payload), resolve_git=True, trust_payload_identity=False)
+        active = active_context_from_payload(dict(payload), resolve_git=resolve_git, trust_payload_identity=False)
         supplied_branch = payload.get("branch") or payload.get("git_branch")
         supplied_sha = payload.get("sha") or payload.get("git_sha")
         if isinstance(supplied_branch, str) and supplied_branch.strip() and supplied_branch.strip() != active.branch:
@@ -74,7 +76,14 @@ def resolve_authority(payload: Mapping[str, object]) -> AuthorityContext:
         plan_digest = _plan_digest(store.progress.paths.primary_root, plan_path)
     except (OSError, TypeError, ValueError, ConvergentStoreError) as exc:
         raise AuthorityError("convergent-plan-provenance-unavailable") from exc
-    return AuthorityContext(active, lookup, policy, store, plan_id, plan_version, plan_digest, plan_path)
+    if resolve_git:
+        _git_root, _branch, checkout_head_sha = fast_git_head_for(active.workspace_root)
+    else:
+        checkout_head_sha = ""
+    checkout_head_sha = checkout_head_sha.strip().lower()
+    checkout_head_digest = digest_text(checkout_head_sha) if checkout_head_sha else ""
+    store = ConvergentStore(lookup.store, policy, checkout_head_digest=checkout_head_digest)
+    return AuthorityContext(active, lookup, policy, store, plan_id, plan_version, plan_digest, plan_path, checkout_head_sha)
 
 
 def load_authoritative_state(payload: Mapping[str, object]) -> tuple[AuthorityContext, dict[str, Any]]:
@@ -82,11 +91,12 @@ def load_authoritative_state(payload: Mapping[str, object]) -> tuple[AuthorityCo
 
     authority = resolve_authority(payload)
     try:
+        attestation = _require_runtime_attestation(authority)
         result = authority.store.read_current(authority.plan_id, authoritative=True)
         if not result.state:
             raise AuthorityError("convergent-state-unavailable")
         state = validate_state(result.state)
-        _validate_binding(authority, state)
+        _validate_binding(authority, state, attestation=attestation)
         return authority, state
     except AuthorityError:
         raise
@@ -112,7 +122,7 @@ def ensure_prompt_boundary(
         return None
     if mode == "shadow":
         try:
-            authority = resolve_authority(payload)
+            authority = resolve_authority(payload, resolve_git=False)
         except AuthorityError:
             # Shadow is report-only when no approved plan is active.  It must
             # still return a bounded candidate record rather than inventing a
@@ -134,18 +144,38 @@ def ensure_prompt_boundary(
             "state_available": authority.store.read_current(authority.plan_id).state is not None,
         }
     authority = resolve_authority(payload)
+    attestation = _require_runtime_attestation(authority)
 
     current = authority.store.read_current(authority.plan_id)
     if current.state is not None:
         state = validate_state(current.state)
-        _validate_binding(authority, state)
+        _validate_binding(authority, state, attestation=attestation)
         boundary_kind = _wire_boundary_kind(boundary.get("boundary_kind"))
-        if boundary_kind in {"new_task", "material_change", "scope_extension", "user_override"}:
-            # Epoch rotation is a separate canonical operation. Reusing the
-            # immutable execution namespace would attribute new work to a
-            # closed/active task, so enforce fails closed until that archive
-            # operation is explicitly available.
-            raise AuthorityError("convergent-new-epoch-required")
+        if boundary_kind == "new_task":
+            candidate = _new_epoch_state(authority, payload, prompt, boundary, state)
+            evidence = attestation.lease_evidence(
+                cwd=str(authority.active.workspace_root),
+                branch=authority.active.branch,
+                task_epoch=str(candidate["task_epoch"]),
+            )
+            try:
+                lease = acquire_execution_lease(evidence, policy=authority.policy, issued_generation=0)
+                result = authority.store.rotate_epoch_and_transition(
+                    candidate,
+                    TransitionRequest(
+                        operation_id="prompt-boundary-" + candidate["task_id"][7:39],
+                        transition="BOUNDARY_CLASSIFIED",
+                        expected_generation=0,
+                        evidence_ids=("prompt-boundary", "epoch-rotation"),
+                        actor_role="deterministic-runtime",
+                        lease=lease,
+                    ),
+                )
+                return dict(result.state or candidate)
+            except (LeaseError, ConvergentStoreError, ContractError, TypeError, ValueError) as exc:
+                raise AuthorityError("convergent-new-epoch-cannot-be-committed") from exc
+        if boundary_kind in {"material_change", "scope_extension", "user_override"}:
+            raise AuthorityError("convergent-amendment-required")
         return state
 
     task_epoch = _task_epoch(payload, boundary)
@@ -176,19 +206,15 @@ def ensure_prompt_boundary(
         risk=str(boundary.get("risk") or "low"),
         activation_mode="enforce",
     )
-    evidence = evidence_from_payload(
-        payload,
+    evidence = attestation.lease_evidence(
+        cwd=str(authority.active.workspace_root),
+        branch=authority.active.branch,
         task_epoch=task_epoch,
-        # The caller cannot promote its own metadata to a platform
-        # attestation.  A future trusted runtime adapter must call
-        # ``acquire_execution_lease`` directly with verified evidence.
-        verified_source="payload",
     )
     try:
         lease = acquire_execution_lease(evidence, policy=authority.policy, issued_generation=0)
-        result = authority.store.start(state)
-        transition = authority.store.transition(
-            authority.plan_id,
+        result = authority.store.start_and_transition(
+            state,
             TransitionRequest(
                 operation_id="prompt-boundary-" + state["task_id"][7:39],
                 transition="BOUNDARY_CLASSIFIED",
@@ -198,12 +224,17 @@ def ensure_prompt_boundary(
                 lease=lease,
             ),
         )
-        return dict(transition.state or result.state or state)
+        return dict(result.state or state)
     except (LeaseError, ConvergentStoreError, ContractError, TypeError, ValueError) as exc:
         raise AuthorityError("convergent-boundary-cannot-be-committed") from exc
 
 
-def _validate_binding(authority: AuthorityContext, state: Mapping[str, Any]) -> None:
+def _validate_binding(
+    authority: AuthorityContext,
+    state: Mapping[str, Any],
+    *,
+    attestation: RuntimeAttestation | None = None,
+) -> None:
     if (
         state.get("plan_id") != authority.plan_id
         or state.get("plan_version") != authority.plan_version
@@ -239,7 +270,32 @@ def _validate_binding(authority: AuthorityContext, state: Mapping[str, Any]) -> 
         # runtime evidence.  This prevents stale model/toolset/epoch claims
         # from authorizing a material or terminal transition.
         if state.get("phase") not in {"prompt_gate", "blocked", "user_decision", "close"}:
-            raise AuthorityError("convergent-lease-attestation-required")
+            verified = attestation or _require_runtime_attestation(authority)
+            try:
+                evidence = verified.lease_evidence(
+                    cwd=str(authority.active.workspace_root),
+                    branch=authority.active.branch,
+                    task_epoch=str(state.get("task_epoch") or ""),
+                )
+                assert_lease_stable(lease, evidence, policy=authority.policy)
+            except LeaseError as exc:
+                raise AuthorityError("convergent-lease-attestation-required") from exc
+
+
+def _require_runtime_attestation(authority: AuthorityContext) -> RuntimeAttestation:
+    """Require an independently materialized runtime identity in enforce."""
+
+    if not authority.checkout_head_sha:
+        raise AuthorityError("convergent-runtime-attestation-unavailable")
+    try:
+        return load_runtime_attestation(
+            authority.active.workspace_root,
+            branch=authority.active.branch,
+            head_sha=authority.checkout_head_sha,
+            policy=authority.policy,
+        )
+    except (RuntimeAttestationError, OSError, ValueError, TypeError) as exc:
+        raise AuthorityError("convergent-runtime-attestation-unavailable") from exc
 
 
 def _boundary_epoch(payload: Mapping[str, object]) -> int:
@@ -260,6 +316,51 @@ def _task_epoch(payload: Mapping[str, object], boundary: Mapping[str, object]) -
     if not isinstance(value, str) or not value.strip():
         value = "epoch-" + str(_boundary_epoch(payload))
     return value.strip()[:180]
+
+
+def _new_epoch_state(
+    authority: AuthorityContext,
+    payload: Mapping[str, object],
+    prompt: str,
+    boundary: Mapping[str, object],
+    previous: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build a fresh task identity without reusing the prior epoch."""
+
+    previous_epoch = str(previous.get("task_epoch") or "")
+    previous_boundary_epoch = int(previous.get("boundary_epoch") or 0)
+    requested_epoch = _task_epoch(payload, boundary)
+    task_epoch = requested_epoch if requested_epoch and requested_epoch != previous_epoch else f"epoch-{previous_boundary_epoch + 1}"
+    boundary_epoch = max(_boundary_epoch(payload), previous_boundary_epoch + 1)
+    rank = {"low": 0, "material": 1, "critical": 2}
+    previous_risk = str(previous.get("risk") or "low")
+    requested_risk = str(boundary.get("risk") or previous_risk)
+    risk = requested_risk if rank.get(requested_risk, -1) >= rank.get(previous_risk, 0) else previous_risk
+    identity = TaskIdentity.from_values(
+        session=authority.active.session_id,
+        project=authority.active.project_id,
+        worktree=str(authority.active.workspace_root),
+        branch=authority.active.branch,
+        objective=_objective(payload, prompt),
+        boundary_epoch=boundary_epoch,
+        sensitivity=str(payload.get("sensitivity") or boundary.get("sensitivity") or "GREEN"),
+        plan=authority.plan_id,
+        plan_version=authority.plan_version,
+        plan_digest=authority.plan_digest,
+    )
+    return new_state(
+        policy=authority.policy,
+        plan_id=authority.plan_id,
+        plan_version=authority.plan_version,
+        plan_digest=authority.plan_digest,
+        task_identity=identity,
+        goal_id=str(payload.get("goal_id") or "G-BASELINE"),
+        task_epoch=task_epoch,
+        boundary_epoch=boundary_epoch,
+        boundary_kind=_wire_boundary_kind(boundary.get("boundary_kind")) or "new_task",
+        risk=risk,
+        activation_mode="enforce",
+    )
 
 
 def _objective(payload: Mapping[str, object], prompt: str) -> str:

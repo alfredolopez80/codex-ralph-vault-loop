@@ -11,7 +11,7 @@ HOOKS = ROOT / ".codex" / "hooks"
 if str(HOOKS) not in sys.path:
     sys.path.insert(0, str(HOOKS))
 
-from shared.convergent_contracts import TaskIdentity, digest_text, new_state  # noqa: E402
+from shared.convergent_contracts import TaskIdentity, digest_text, new_state, state_hash  # noqa: E402
 from shared.convergent_reducer import TransitionRequest, reduce_state  # noqa: E402
 from shared.convergent_stop import (  # noqa: E402
     evaluate_anti_rationalization,
@@ -89,6 +89,8 @@ def _stop_state(*, complete: bool) -> dict:
             "op-design-close",
             "ARISTOTLE_RECORDED",
             tier="micro",
+            decision_fingerprint=digest_text("micro-evidence"),
+            decision_version=1,
         ),
         policy=policy,
     ).state
@@ -169,12 +171,22 @@ def test_stop_close_duplicate_and_ordinary_budget_are_finite() -> None:
         previous_terminal_fingerprint=terminal_attempt_fingerprint(incomplete),
     )
     assert decision.transition == "STOP_CONTINUATION"
+    assert decision.repair_phase == "verify"
     incomplete = reduce_state(
         incomplete,
-        _request(incomplete, "op-ordinary-continuation", "STOP_CONTINUATION", reason="missing-evidence"),
+        _request(
+            incomplete,
+            "op-ordinary-continuation",
+            "STOP_CONTINUATION",
+            target_phase=decision.repair_phase,
+            reason="missing-evidence",
+        ),
         policy=policy,
     ).state
-    incomplete = reduce_state(incomplete, _request(incomplete, "op-ordinary-return-stop", "ADVANCE"), policy=policy).state
+    assert incomplete["phase"] == "verify"
+    incomplete["phase"] = "stop"
+    incomplete["state_hash"] = ""
+    incomplete["state_hash"] = state_hash(incomplete)
     exhausted = plan_stop_attempt(
         incomplete,
         policy=policy,
@@ -186,25 +198,29 @@ def test_stop_close_duplicate_and_ordinary_budget_are_finite() -> None:
 def test_distinct_critical_stop_budget_is_independent_and_finite() -> None:
     policy = load_execution_policy()
     state = _stop_state(complete=False)
-    assert plan_stop_attempt(
+    first = plan_stop_attempt(
         state,
         policy=policy,
         attempt_fingerprint=terminal_attempt_fingerprint(state),
         critical=True,
-    ).transition == "STOP_CONTINUATION"
+    )
+    assert first.transition == "STOP_CONTINUATION"
     state = reduce_state(
         state,
         _request(
             state,
             "op-critical-continuation",
             "STOP_CONTINUATION",
+            target_phase=first.repair_phase,
             critical=True,
             reason="distinct-critical-evidence",
         ),
         policy=policy,
     ).state
     assert state["stop_budget"] == {"ordinary_continuations": 0, "critical_continuations": 1}
-    state = reduce_state(state, _request(state, "op-critical-return-stop", "ADVANCE"), policy=policy).state
+    state["phase"] = "stop"
+    state["state_hash"] = ""
+    state["state_hash"] = state_hash(state)
     exhausted = plan_stop_attempt(
         state,
         policy=policy,

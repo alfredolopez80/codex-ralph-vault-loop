@@ -72,19 +72,70 @@ def _verified_bundle(path: Path, manifest: Mapping[str, Any]) -> dict[str, Any] 
                         if not isinstance(child, dict) or not isinstance(child.get("command"), str):
                             continue
                         tokens = shlex.split(child["command"])
-                        if not tokens or not tokens[0].startswith("."):
-                            continue
-                        candidate = bundle_root / tokens[0]
+                        operand = _bundle_script_operand(tokens)
+                        if operand is None:
+                            # Trusted report-only classification must bind the
+                            # executable script bytes. Interpreter commands
+                            # without a resolvable bundle operand (for example
+                            # ``python -c`` or ``sh -c``) are not attestable.
+                            return None
+                        candidate = bundle_root / operand
                         if candidate.is_symlink():
                             return None
                         target = candidate.resolve()
                         target.relative_to(bundle_root.resolve())
                         digest = _sha256(target)
-                        if digest is not None:
-                            script_digests[tokens[0]] = digest
+                        if digest is None:
+                            return None
+                        script_digests[operand] = digest
         return {"bundle_id": bundle_root.name, "manifest_digest": manifest_digest, "script_digests": script_digests}
     except (OSError, ValueError, UnicodeError):
         return None
+
+
+_INTERPRETERS = frozenset({"python", "python3", "bash", "sh", "zsh"})
+
+
+def _bundle_script_operand(tokens: list[str]) -> str | None:
+    """Resolve the bundle-owned executable operand for a hook command."""
+
+    if not tokens:
+        return None
+    index = 0
+    if Path(tokens[0]).name == "env":
+        index = 1
+        while index < len(tokens) and (tokens[index].startswith("-") or "=" in tokens[index]):
+            index += 1
+        if index >= len(tokens):
+            return None
+    executable = Path(tokens[index]).name
+    if executable in _INTERPRETERS:
+        index += 1
+        while index < len(tokens):
+            argument = tokens[index]
+            if argument in {"-c", "-m", "--command"} or argument.startswith("--command="):
+                return None
+            if argument == "--":
+                index += 1
+                break
+            if argument.startswith("-"):
+                index += 1
+                continue
+            break
+        if index >= len(tokens):
+            return None
+        operand = tokens[index]
+    else:
+        operand = tokens[index]
+    for prefix in ("${CLAUDE_PLUGIN_ROOT}/", "$CLAUDE_PLUGIN_ROOT/"):
+        if operand.startswith(prefix):
+            operand = operand[len(prefix) :]
+            break
+    candidate = Path(operand)
+    if candidate.is_absolute() or not operand or ".." in candidate.parts:
+        return None
+    normalized = candidate.as_posix()
+    return normalized if normalized.startswith("./") else "./" + normalized
 
 
 def _enabled_plugin_keys(config_path: Path | None = None) -> tuple[str, ...]:

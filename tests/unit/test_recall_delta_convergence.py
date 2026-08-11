@@ -64,7 +64,7 @@ def test_selection_change_emits_only_new_ids_and_never_bodies() -> None:
 def test_selection_filters_red_stale_wrong_scope_and_conflicting_rows() -> None:
     selected, fingerprint = prepare_selection(
         [
-            {"id": "M-good", "project_id": "project-1", "worktree_id": "worktree-1", "branch": "codex/v4"},
+            {"id": "M-good", "status": "selected", "project_id": "project-1", "worktree_id": "worktree-1", "branch": "codex/v4"},
             {"id": "M-red", "sensitivity": "RED"},
             {"id": "M-stale", "status": "stale"},
             {"id": "M-wrong", "project_id": "other"},
@@ -127,6 +127,7 @@ def test_metadata_rows_with_raw_fields_are_not_selected() -> None:
             {"id": "M-content", "content": "must not enter recall"},
             {
                 "id": "M-good",
+                "status": "eligible",
                 "title": "bounded metadata",
                 "project_id": "project-1",
                 "worktree_id": "worktree-1",

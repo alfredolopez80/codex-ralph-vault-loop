@@ -190,6 +190,13 @@ def _common_git_dir(git_dir: Path) -> Path:
 
 
 def fast_git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
+    git_root, branch, sha = fast_git_head_for(path)
+    return git_root, branch, sha[:12]
+
+
+def fast_git_head_for(path: Path) -> tuple[Path | None, str, str]:
+    """Return the independently read full checkout HEAD without spawning Git."""
+
     git_root, git_dir = _git_dir_for(path)
     if git_root is None or git_dir is None:
         return None, "", ""
@@ -204,7 +211,7 @@ def fast_git_metadata_for(path: Path) -> tuple[Path | None, str, str]:
     else:
         branch = "HEAD"
         sha = head
-    return git_root, branch, sha[:12]
+    return git_root, branch, sha
 
 
 def local_git_identity(path: Path) -> tuple[Path, Path, Path] | None:

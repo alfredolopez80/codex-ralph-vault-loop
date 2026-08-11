@@ -682,12 +682,12 @@ def run(payload: Mapping[str, object]) -> str:
     # context precisely when the new store cannot be trusted.  A workspace
     # without a store keeps the existing legacy/session behavior.
     if progress_lookup.store is not None:
-        # A real SessionStart or an explicit progress request may use the
-        # canonical store even when its state is unavailable (corrupt/future
-        # schema). Legacy compatibility payloads, and payloads that
-        # explicitly identify a foreign branch/HEAD, retain their isolated
-        # local session surface rather than receiving an empty canonical
-        # capsule.
+        # A real SessionStart is always routed through the canonical store
+        # once that store exists. Explicit identity is a constraint to check,
+        # never a reason to fall back when a matching active plan exists. A
+        # store layout without an active identity is still a legacy-compatible
+        # workspace fixture; routing it through the canonical surface would
+        # suppress the existing SessionStart cache without providing recovery.
         explicit_progress = _progress_session_requested(payload)
         explicit_identity = any(
             isinstance(payload.get(key), str) and str(payload.get(key)).strip()
@@ -696,7 +696,7 @@ def run(payload: Mapping[str, object]) -> str:
         proper_session = payload.get("hook_event_name") in (None, "", "SessionStart") and bool(
             payload.get("source") or payload.get("session_source") or payload.get("sessionSource")
         )
-        if explicit_progress or (proper_session and not explicit_identity):
+        if explicit_progress or (proper_session and (progress_lookup.identity is not None or not explicit_identity)):
             return _run_progress_session(payload, context, profile, source, progress_lookup)
     with contextlib.suppress(Exception):
         enqueue_maintenance(context, reason_code=f"session_start_{source}", payload=payload)

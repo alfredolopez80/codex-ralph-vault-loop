@@ -108,6 +108,9 @@ class DecisionPacket:
 @dataclass(frozen=True)
 class DecisionAmendment:
     amendment_id: str
+    task_epoch: str
+    prior_decision_version: int
+    new_decision_version: int
     prior_decision_fingerprint: str
     new_evidence: tuple[str, ...]
     invalidated_assumption: str
@@ -137,6 +140,9 @@ class DecisionAmendment:
         cls,
         *,
         amendment_id: str,
+        task_epoch: str,
+        prior_decision_version: int,
+        new_decision_version: int,
         prior_decision_fingerprint: str,
         new_evidence: Sequence[str],
         invalidated_assumption: str,
@@ -151,6 +157,9 @@ class DecisionAmendment:
         normalized = _normalize_amendment(
             {
                 "amendment_id": amendment_id,
+                "task_epoch": task_epoch,
+                "prior_decision_version": prior_decision_version,
+                "new_decision_version": new_decision_version,
                 "prior_decision_fingerprint": prior_decision_fingerprint,
                 "new_evidence": new_evidence,
                 "invalidated_assumption": invalidated_assumption,
@@ -169,6 +178,9 @@ class DecisionAmendment:
     def from_mapping(cls, value: Mapping[str, Any]) -> "DecisionAmendment":
         expected = {
             "amendment_id",
+            "task_epoch",
+            "prior_decision_version",
+            "new_decision_version",
             "prior_decision_fingerprint",
             "new_evidence",
             "invalidated_assumption",
@@ -193,6 +205,9 @@ class DecisionAmendment:
     def _from_normalized(cls, normalized: Mapping[str, Any], fingerprint: str) -> "DecisionAmendment":
         return cls(
             amendment_id=str(normalized["amendment_id"]),
+            task_epoch=str(normalized["task_epoch"]),
+            prior_decision_version=int(normalized["prior_decision_version"]),
+            new_decision_version=int(normalized["new_decision_version"]),
             prior_decision_fingerprint=str(normalized["prior_decision_fingerprint"]),
             new_evidence=tuple(normalized["new_evidence"]),
             invalidated_assumption=str(normalized["invalidated_assumption"]),
@@ -209,6 +224,9 @@ class DecisionAmendment:
     def as_dict(self) -> dict[str, Any]:
         return {
             "amendment_id": self.amendment_id,
+            "task_epoch": self.task_epoch,
+            "prior_decision_version": self.prior_decision_version,
+            "new_decision_version": self.new_decision_version,
             "prior_decision_fingerprint": self.prior_decision_fingerprint,
             "new_evidence": list(self.new_evidence),
             "invalidated_assumption": self.invalidated_assumption,
@@ -220,6 +238,75 @@ class DecisionAmendment:
             "approval_required": self.approval_required,
             "new_decision_fingerprint": self.new_decision_fingerprint,
             "amendment_fingerprint": self.amendment_fingerprint,
+        }
+
+
+@dataclass(frozen=True)
+class AmendmentApproval:
+    amendment_id: str
+    task_epoch: str
+    prior_decision_version: int
+    new_decision_version: int
+    amendment_fingerprint: str
+    actor_role: str
+    approval_evidence_digest: str
+    approval_fingerprint: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        amendment_id: str,
+        task_epoch: str,
+        prior_decision_version: int,
+        new_decision_version: int,
+        amendment_fingerprint: str,
+        actor_role: str,
+        approval_evidence_digest: str,
+    ) -> "AmendmentApproval":
+        normalized = _normalize_approval(
+            {
+                "amendment_id": amendment_id,
+                "task_epoch": task_epoch,
+                "prior_decision_version": prior_decision_version,
+                "new_decision_version": new_decision_version,
+                "amendment_fingerprint": amendment_fingerprint,
+                "actor_role": actor_role,
+                "approval_evidence_digest": approval_evidence_digest,
+            }
+        )
+        return cls(**normalized, approval_fingerprint=digest_value(normalized))
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "AmendmentApproval":
+        expected = {
+            "amendment_id",
+            "task_epoch",
+            "prior_decision_version",
+            "new_decision_version",
+            "amendment_fingerprint",
+            "actor_role",
+            "approval_evidence_digest",
+            "approval_fingerprint",
+        }
+        if set(value) != expected:
+            raise DecisionPacketError("Decision Amendment approval key mismatch")
+        normalized = _normalize_approval({key: value[key] for key in expected - {"approval_fingerprint"}})
+        fingerprint = _digest(value.get("approval_fingerprint"), "approval_fingerprint")
+        if fingerprint != digest_value(normalized):
+            raise DecisionPacketError("Decision Amendment approval fingerprint mismatch")
+        return cls(**normalized, approval_fingerprint=fingerprint)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "amendment_id": self.amendment_id,
+            "task_epoch": self.task_epoch,
+            "prior_decision_version": self.prior_decision_version,
+            "new_decision_version": self.new_decision_version,
+            "amendment_fingerprint": self.amendment_fingerprint,
+            "actor_role": self.actor_role,
+            "approval_evidence_digest": self.approval_evidence_digest,
+            "approval_fingerprint": self.approval_fingerprint,
         }
 
 
@@ -259,6 +346,9 @@ def _normalize_packet(values: Mapping[str, Any]) -> dict[str, Any]:
 def _normalize_amendment(values: Mapping[str, Any]) -> dict[str, Any]:
     expected = {
         "amendment_id",
+        "task_epoch",
+        "prior_decision_version",
+        "new_decision_version",
         "prior_decision_fingerprint",
         "new_evidence",
         "invalidated_assumption",
@@ -272,9 +362,20 @@ def _normalize_amendment(values: Mapping[str, Any]) -> dict[str, Any]:
     }
     if set(values) != expected:
         raise DecisionPacketError("Decision Amendment key mismatch")
+    prior_fingerprint = _digest(values.get("prior_decision_fingerprint"), "prior_decision_fingerprint")
+    new_fingerprint = _digest(values.get("new_decision_fingerprint"), "new_decision_fingerprint")
+    if prior_fingerprint == new_fingerprint:
+        raise DecisionPacketError("Decision Amendment must change the decision fingerprint")
+    prior_version = _version(values.get("prior_decision_version"), "prior_decision_version")
+    new_version = _version(values.get("new_decision_version"), "new_decision_version")
+    if new_version != prior_version + 1:
+        raise DecisionPacketError("Decision Amendment version must advance exactly once")
     return {
         "amendment_id": _identifier(values.get("amendment_id"), "amendment_id"),
-        "prior_decision_fingerprint": _digest(values.get("prior_decision_fingerprint"), "prior_decision_fingerprint"),
+        "task_epoch": _identifier(values.get("task_epoch"), "task_epoch"),
+        "prior_decision_version": prior_version,
+        "new_decision_version": new_version,
+        "prior_decision_fingerprint": prior_fingerprint,
         "new_evidence": list(_items(values.get("new_evidence"), "new_evidence")),
         "invalidated_assumption": _text(values.get("invalidated_assumption"), "invalidated_assumption"),
         "affected_invariants": list(_items(values.get("affected_invariants"), "affected_invariants")),
@@ -283,7 +384,37 @@ def _normalize_amendment(values: Mapping[str, Any]) -> dict[str, Any]:
         "unchanged_steps": list(_items(values.get("unchanged_steps"), "unchanged_steps", allow_empty=True)),
         "verification_changes": list(_items(values.get("verification_changes"), "verification_changes")),
         "approval_required": _bool(values.get("approval_required"), "approval_required"),
-        "new_decision_fingerprint": _digest(values.get("new_decision_fingerprint"), "new_decision_fingerprint"),
+        "new_decision_fingerprint": new_fingerprint,
+    }
+
+
+def _normalize_approval(values: Mapping[str, Any]) -> dict[str, Any]:
+    expected = {
+        "amendment_id",
+        "task_epoch",
+        "prior_decision_version",
+        "new_decision_version",
+        "amendment_fingerprint",
+        "actor_role",
+        "approval_evidence_digest",
+    }
+    if set(values) != expected:
+        raise DecisionPacketError("Decision Amendment approval key mismatch")
+    prior_version = _version(values.get("prior_decision_version"), "prior_decision_version")
+    new_version = _version(values.get("new_decision_version"), "new_decision_version")
+    if new_version != prior_version + 1:
+        raise DecisionPacketError("Decision Amendment approval version must advance exactly once")
+    actor = _identifier(values.get("actor_role"), "actor_role")
+    if actor != "codex-main":
+        raise DecisionPacketError("Decision Amendment approval requires Codex main")
+    return {
+        "amendment_id": _identifier(values.get("amendment_id"), "amendment_id"),
+        "task_epoch": _identifier(values.get("task_epoch"), "task_epoch"),
+        "prior_decision_version": prior_version,
+        "new_decision_version": new_version,
+        "amendment_fingerprint": _digest(values.get("amendment_fingerprint"), "amendment_fingerprint"),
+        "actor_role": actor,
+        "approval_evidence_digest": _digest(values.get("approval_evidence_digest"), "approval_evidence_digest"),
     }
 
 
@@ -474,4 +605,10 @@ def _bool(value: object, label: str) -> bool:
     return value
 
 
-__all__ = ["DecisionAmendment", "DecisionPacket", "DecisionPacketError", "PACKET_FIELDS"]
+def _version(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise DecisionPacketError(f"{label} must be positive")
+    return value
+
+
+__all__ = ["AmendmentApproval", "DecisionAmendment", "DecisionPacket", "DecisionPacketError", "PACKET_FIELDS"]

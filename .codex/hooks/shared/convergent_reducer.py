@@ -23,6 +23,11 @@ class TransitionError(ContractError):
     """Raised for stale, invalid, non-convergent, or budget-breaking actions."""
 
 
+AMEND_ELIGIBLE_PHASES = frozenset(
+    {"design_ready", "approved", "implement", "verify", "review", "finding_triage", "mitigate", "final_audit"}
+)
+
+
 @dataclass(frozen=True)
 class TransitionRequest:
     operation_id: str
@@ -37,7 +42,9 @@ class TransitionRequest:
     tier: str = ""
     risk: str = "low"
     decision_fingerprint: str = ""
+    decision_version: int = 0
     amendment_fingerprint: str = ""
+    approval_fingerprint: str = ""
     evidence_manifest_digest: str = ""
     findings_digest: str = ""
     final_audit_digest: str = ""
@@ -49,6 +56,13 @@ class TransitionRequest:
     lease: ExecutionLease | None = None
     handoff_digest: str = ""
     recall: Mapping[str, Any] = field(default_factory=dict)
+    task_id: str = ""
+    task_epoch: str = ""
+    epoch_id: str = ""
+    head_digest: str = ""
+    runtime_attestation_digest: str = ""
+    tool_use_id: str = ""
+    tool_kind: str = ""
 
     def operation_digest(self) -> str:
         value = asdict(self)
@@ -72,8 +86,19 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
     _validate_request(request)
     if request.obligation_closures and request.transition != "EVIDENCE_RECORDED":
         raise TransitionError("obligations may close only with recorded evidence")
+    if request.transition == "POST_TOOL_RESULT_RECORDED" and (
+        request.obligation_closures or request.finding_closures or request.accepted_finding_ids
+    ):
+        raise TransitionError("PostTool evidence cannot close obligations or findings")
     if request.expected_generation != before["generation"]:
         raise TransitionError("stale execution generation")
+    if request.transition == "POST_TOOL_RESULT_RECORDED":
+        if request.task_id != before["task_id"] or request.task_epoch != before["task_epoch"] or request.epoch_id != before["task_epoch"]:
+            raise TransitionError("PostTool attestation task/epoch is not bound to the active state")
+        if not request.tool_use_id or request.tool_kind not in {"implementation_write", "validation_gate"}:
+            raise TransitionError("PostTool attestation tool identity is incomplete")
+        if not request.runtime_attestation_digest or request.head_digest == "":
+            raise TransitionError("PostTool attestation runtime/head binding is incomplete")
     if before["phase"] == "close" or before["status"] == "closed":
         raise TransitionError("closed tasks cannot become active")
     if before["status"] in {"blocked", "user-decision"} and request.transition != "REOPEN":
@@ -113,45 +138,26 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         if request.tier not in expected_tiers[before["risk"]]:
             raise TransitionError("Aristotle tier does not match the persisted Prompt Boundary risk")
         aristotle = after["aristotle"]
-        if request.tier in {"full", "critical"} and not request.decision_fingerprint:
-            raise TransitionError("Full/Critical Aristotle requires a Decision Packet fingerprint")
+        if not request.decision_fingerprint:
+            raise TransitionError("Aristotle requires validated typed evidence")
+        if request.decision_version != aristotle["decision_version"] + 1:
+            raise TransitionError("Aristotle decision version must advance exactly once")
         if request.tier in {"full", "critical"}:
             if aristotle["full_runs"] >= policy.full_aristotle_budget:
                 return _user_decision(before, request, "full-aristotle-budget-exhausted")
             aristotle["full_runs"] += 1
             consumed_budget = True
         aristotle["tier"] = request.tier
-        aristotle["decision_version"] = max(1, aristotle["decision_version"])
-        if request.decision_fingerprint:
-            aristotle["decision_fingerprint"] = _required_digest(request.decision_fingerprint, "decision fingerprint")
-        else:
-            # Micro and Quick tiers do not emit a full Decision Packet, but all
-            # later lifecycle phases still need immutable evidence that the
-            # tiered analysis was recorded.  Freeze a content-free digest from
-            # the task identity, tier, and decision version rather than making
-            # every downstream gate guess which tiers are exempt.
-            aristotle["decision_fingerprint"] = digest_value(
-                {
-                    "task_id": before["task_id"],
-                    "tier": request.tier,
-                    "decision_version": aristotle["decision_version"],
-                }
-            )
+        aristotle["decision_version"] = request.decision_version
+        aristotle["decision_fingerprint"] = _required_digest(request.decision_fingerprint, "decision fingerprint")
         after["phase"] = "design_ready"
     elif request.transition == "ADVANCE":
         consumed_budget, closed_findings = _advance(after, before, request)
     elif request.transition == "AMEND":
-        if before["phase"] not in {
-            "design_ready",
-            "approved",
-            "implement",
-            "verify",
-            "review",
-            "finding_triage",
-            "mitigate",
-            "final_audit",
-        }:
+        if before["phase"] not in AMEND_ELIGIBLE_PHASES:
             raise TransitionError("material amendment is not allowed from this phase")
+        if request.actor_role != "codex-main" or not request.approval_fingerprint:
+            raise TransitionError("material amendment requires a Codex main approval artifact")
         aristotle = after["aristotle"]
         if aristotle["amendments"] >= policy.amendment_budget:
             return _user_decision(before, request, "material-amendment-budget-exhausted")
@@ -168,8 +174,10 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
             after["risk"] = requested_risk
         elif requested_risk == "low" and before["risk"] != "low":
             raise TransitionError("material amendment must preserve the existing risk")
+        if request.decision_version != aristotle["decision_version"] + 1:
+            raise TransitionError("material amendment decision version must advance exactly once")
         aristotle["amendments"] += 1
-        aristotle["decision_version"] += 1
+        aristotle["decision_version"] = request.decision_version
         aristotle["decision_fingerprint"] = _required_digest(request.decision_fingerprint, "decision fingerprint")
         # The amendment carries the new, already-reviewed Decision Packet. It
         # is therefore a packet replacement, not an automatic second Full
@@ -186,10 +194,11 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
             aristotle["tier"] = "full"
         after["completion"]["final_audit_digest"] = ""
         after["completion"]["invalidation_reason"] = request.reason or "material-change"
+        after["failure_budget"]["repair_origin"] = ""
         after["phase"] = "design_ready"
         after["status"] = "active"
         consumed_budget = True
-    elif request.transition == "EVIDENCE_RECORDED":
+    elif request.transition in {"EVIDENCE_RECORDED", "POST_TOOL_RESULT_RECORDED"}:
         if not request.evidence_manifest_digest:
             raise TransitionError("evidence update requires a manifest digest")
         incoming_manifest = _required_digest(request.evidence_manifest_digest, "evidence manifest digest")
@@ -230,10 +239,17 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         if budget["reopens"] >= maximum:
             return _user_decision(before, request, "task-reopen-budget-exhausted")
         budget["reopens"] += 1
-        after["phase"] = "prompt_gate"
+        frozen = str(before["aristotle"].get("decision_fingerprint") or "")
+        if before["risk"] in {"material", "critical"}:
+            if not request.decision_fingerprint or request.decision_fingerprint != frozen:
+                raise TransitionError("material reopen must bind the frozen Decision Packet")
+            after["phase"] = "design_ready"
+        else:
+            after["phase"] = "design_ready" if frozen else "prompt_gate"
         after["status"] = "active"
         after["completion"]["terminal_reason"] = ""
         after["completion"]["invalidation_reason"] = ""
+        budget["terminal_origin"] = ""
         if request.lease is not None:
             existing_lease = before.get("execution_lease")
             incoming_lease = request.lease.as_dict()
@@ -302,17 +318,24 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
         if budgets[counter] >= maximum:
             return _user_decision(before, request, "stop-continuation-budget-exhausted")
         budgets[counter] += 1
-        after["phase"] = "anti_rationalization"
-        after["status"] = "verifying"
+        if request.target_phase not in {"analyze", "implement", "verify", "mitigate", "final_audit"}:
+            raise TransitionError("Stop continuation requires a concrete repair phase")
+        after["phase"] = request.target_phase
+        after["status"] = "verifying" if request.target_phase in {"verify", "final_audit"} else "active"
+        after["failure_budget"]["repair_origin"] = "stop"
+        after["completion"]["final_audit_digest"] = ""
+        after["completion"]["hard_gates_pass"] = False
         after["completion"]["invalidation_reason"] = request.reason or (
             "critical-stop-evidence" if request.critical else "stop-evidence"
         )
         consumed_budget = True
     elif request.transition == "BLOCK":
+        after["failure_budget"]["terminal_origin"] = old_phase
         after["phase"] = "blocked"
         after["status"] = "blocked"
         after["completion"]["terminal_reason"] = request.reason or "blocked"
     elif request.transition == "USER_DECISION":
+        after["failure_budget"]["terminal_origin"] = old_phase
         after["phase"] = "user_decision"
         after["status"] = "user-decision"
         after["completion"]["terminal_reason"] = request.reason or "user-decision-required"
@@ -363,16 +386,18 @@ def _advance(after: dict[str, Any], before: Mapping[str, Any], request: Transiti
         # focused verification must return directly to final_audit rather than
         # silently requesting a second review or trusting a caller's default
         # low-risk value.
-        if str(before["completion"].get("invalidation_reason") or "").startswith("final-audit"):
+        if before["failure_budget"].get("repair_origin") == "final_audit":
             target = "final_audit"
             after["status"] = "verifying"
             if request.target_phase and request.target_phase != target:
                 raise TransitionError("target phase differs from deterministic lifecycle")
             after["phase"] = target
+            after["failure_budget"]["repair_origin"] = ""
             return consumed, closed_findings
         material = _persisted_risk(before) != "low"
         after["review"]["required"] = material
         target = "review" if material else "finding_triage"
+        after["failure_budget"]["repair_origin"] = ""
     elif current == "mitigate":
         accepted = tuple(after["review"]["accepted_findings"])
         if not accepted:
@@ -430,6 +455,7 @@ def _apply_repair(
         "final-audit-regression" if before["phase"] == "final_audit" else "deterministic-regression"
     )
     after["completion"]["final_audit_digest"] = ""
+    after["failure_budget"]["repair_origin"] = before["phase"]
     return True
 
 
@@ -444,6 +470,7 @@ def _repair_exhausted(state: Mapping[str, Any], request: TransitionRequest, *, p
 
 def _user_decision(before: Mapping[str, Any], request: TransitionRequest, reason: str) -> Reduction:
     after = deepcopy(dict(before))
+    after["failure_budget"]["terminal_origin"] = str(before["phase"])
     after["phase"] = "user_decision"
     after["status"] = "user-decision"
     after["completion"]["terminal_reason"] = reason
@@ -540,4 +567,4 @@ def _unique_ids(values: tuple[str, ...], label: str) -> list[str]:
     return list(values)
 
 
-__all__ = ["Reduction", "TransitionError", "TransitionRequest", "reduce_state"]
+__all__ = ["AMEND_ELIGIBLE_PHASES", "Reduction", "TransitionError", "TransitionRequest", "reduce_state"]

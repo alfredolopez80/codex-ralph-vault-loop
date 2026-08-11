@@ -16,6 +16,8 @@ from pre_tool_guard import _guard_main
 from sol_advisor_pretool_guard import _advisor_main
 from subagent_routing_pretool_guard import _routing_main
 from shared.active_context import active_context_from_payload
+from shared.convergence_authority import AuthorityError, load_authoritative_state
+from shared.execution_policy import configured_activation_mode
 from shared.redaction import is_red, safe_preview
 from shared.runtime_observability import record_event
 
@@ -141,6 +143,33 @@ def _deny(reason: object) -> dict[str, str]:
     return {"decision": "block", "reason": text}
 
 
+def _convergent_phase_gate(payload: dict[str, Any], tool: str) -> dict[str, str] | None:
+    """Apply the narrow v4 write-phase gate after the existing safety owners.
+
+    Reads remain on the established path.  Only explicit write tools are
+    gated here so a missing v4 state cannot turn ordinary report-only reads
+    into a new blocker; an enforce write must have an authoritative state and
+    the phase that can legally receive a PostTool evidence record.
+    """
+
+    if tool not in WRITE_TOOLS:
+        return None
+    context = active_context_from_payload(payload, resolve_git=False)
+    try:
+        mode = configured_activation_mode(workspace_root=context.workspace_root)
+    except Exception:
+        return _deny("Convergent activation configuration is invalid.")
+    if mode != "enforce":
+        return None
+    try:
+        _authority, state = load_authoritative_state(payload)
+    except AuthorityError:
+        return _deny("Convergent authority and runtime attestation are required for a write.")
+    if state.get("phase") not in {"implement", "mitigate"}:
+        return _deny("The active convergent phase does not accept implementation writes.")
+    return None
+
+
 def dispatch(payload: dict[str, Any]) -> tuple[dict[str, str] | None, list[str]]:
     tool = _tool_name(payload)
     if not tool:
@@ -159,6 +188,10 @@ def dispatch(payload: dict[str, Any]) -> tuple[dict[str, str] | None, list[str]]
     workspace = _workspace_denial(payload, tool)
     if workspace:
         return workspace, executed
+    executed.append("convergent_phase_gate")
+    phase_gate = _convergent_phase_gate(payload, tool)
+    if phase_gate:
+        return phase_gate, executed
     if tool in SPAWN_TOOLS:
         executed.append("subagent_routing")
         routing, failed = _component(_routing_main, payload)

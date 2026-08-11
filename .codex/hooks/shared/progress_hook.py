@@ -247,6 +247,17 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
     if not manifest:
         return ProgressLookup(store, None, SourceResolution(None, "state_unavailable"))
 
+    # A deleted worktree has no independently readable .git identity. The
+    # caller must therefore bind recovery to the canonical repository ID
+    # stored in the manifest; an explicit primary path alone is insufficient.
+    if not context.workspace_root.exists():
+        supplied_repository_id = str(
+            payload.get("repository_id") or payload.get("repositoryId") or ""
+        ).strip()
+        manifest_repository_id = str(manifest.get("canonical_repo_identity") or "").strip()
+        if not supplied_repository_id or supplied_repository_id != manifest_repository_id:
+            return ProgressLookup(store, None, SourceResolution(None, "repository_identity_mismatch"))
+
     expected_workspace = _safe_identifier(
         payload.get("workspace_instance_id") or payload.get("workspaceInstanceId") or context.workspace_instance_id,
         context.workspace_instance_id,
@@ -286,7 +297,11 @@ def cheap_lookup(context: ActiveContext, payload: Mapping[str, object]) -> Progr
         # another branch or HEAD merely because the canonical checkout is
         # discoverable.  Explicit plan references remain available so the
         # completion path can emit its stronger identity-mismatch gate.
-        if not explicit_plan and not _payload_provenance_matches(state, payload, context=context):
+        event_name = str(payload.get("hook_event_name") or "")
+        must_route_canonically = event_name in {"SessionStart", "UserPromptSubmit"}
+        if (not explicit_plan or must_route_canonically) and not _payload_provenance_matches(
+            state, payload, context=context
+        ):
             continue
         identities.append(
             ProgressIdentity(

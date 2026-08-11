@@ -27,7 +27,7 @@ def _complete_config(stop_commands: list[str]) -> dict[str, object]:
     }
 
 
-def test_project_and_global_same_dispatcher_are_one_semantic_owner() -> None:
+def test_project_and_global_wrapper_share_one_effective_owner() -> None:
     report = analyze_hook_graph(
         [
             ("project", _complete_config(['python3 "/repo/.codex/hooks/stop_dispatch.py"'])),
@@ -46,7 +46,9 @@ def test_project_and_global_same_dispatcher_are_one_semantic_owner() -> None:
     )
     stop = next(item for item in report.domains if item.domain == "stop_completion")
     assert report.status == "PASS"
+    assert stop.status == "PASS"
     assert stop.blocking_owners == ("stop_dispatch",)
+    assert not any("duplicate blocking registrations" in error for error in report.errors)
     assert len(stop.evidence) == 2
 
 

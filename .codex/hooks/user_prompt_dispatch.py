@@ -164,6 +164,7 @@ def run(payload: dict[str, Any]) -> str:
     # repository rollout phase; computing it here proves that task boundary,
     # risk, complexity, and obligation deltas are independent of prompt size.
     boundary_shadow = None
+    activation_mode = "off"
     try:
         activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
         if activation_mode != "off":
@@ -185,9 +186,11 @@ def run(payload: dict[str, Any]) -> str:
         output = json.dumps({"decision": "block", "reason": "convergent-activation-invalid"}, ensure_ascii=True, separators=(",", ":"))
         return output
     except AuthorityError:
-        if "activation_mode" in locals() and activation_mode == "enforce":
+        if activation_mode == "enforce":
             return json.dumps({"decision": "block", "reason": "convergent-authority-unavailable"}, ensure_ascii=True, separators=(",", ":"))
     except Exception:
+        if activation_mode == "enforce":
+            return json.dumps({"decision": "block", "reason": "convergent-authority-invalid"}, ensure_ascii=True, separators=(",", ":"))
         boundary_shadow = None
     generation = memory_generation(context, payload)
     # Only a file-stat marker is consulted before the cache claim.  The
@@ -311,7 +314,8 @@ def run(payload: dict[str, Any]) -> str:
         return output
     except Exception:
         if cache.status == "miss":
-            discard(context, signature)
+            with contextlib.suppress(Exception):
+                discard(context, signature)
         _record(
             context,
             payload,
@@ -322,6 +326,12 @@ def run(payload: dict[str, Any]) -> str:
             success=False,
             skipped=["operational_failure"],
         )
+        if activation_mode == "enforce":
+            return json.dumps(
+                {"decision": "block", "reason": "convergent-prompt-initialization-failed"},
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
         return ""
 
 

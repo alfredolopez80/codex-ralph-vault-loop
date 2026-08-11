@@ -100,11 +100,12 @@ def test_repo_local_activation_file_rejects_drift(tmp_path: Path, monkeypatch: p
     path = tmp_path / "config" / "convergent-execution-mode.toml"
     path.parent.mkdir()
     path.write_text(
-        "version = 1\n"
+        "version = 2\n"
         "mode = \"shadow\"\n"
         "plan_id = \"wrong\"\n"
         "plan_digest = \"sha256:" + "0" * 64 + "\"\n"
-        "policy_hash = \"sha256:" + "0" * 64 + "\"\n",
+        "policy_hash = \"sha256:" + "0" * 64 + "\"\n"
+        "runtime_attestation = \".local-notes/ralph/convergent-runtime-attestation.toml\"\n",
         encoding="utf-8",
     )
     monkeypatch.delenv("RALPH_CONVERGENT_EXECUTION_MODE", raising=False)

@@ -31,6 +31,10 @@ from shared.progress_hook import cheap_lookup
 from shared.progress_runtime import structured_validation, validation_transition
 from shared.convergent_hooks import is_read_only_command, successful_read_fast_path
 from shared.execution_policy import configured_activation_mode
+from shared.convergence_authority import AuthorityError, load_authoritative_state
+from shared.convergent_store import ConvergentStoreError, ConvergentIntegrityError
+from shared.runtime_attestation import RuntimeAttestationError, load_runtime_attestation
+from shared.tool_result_attestation import ToolResultAttestationError, request_from_attestation
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
@@ -195,6 +199,41 @@ def _response_bytes(response: dict[str, Any] | None) -> int:
     return len(json.dumps(response, ensure_ascii=True, sort_keys=True).encode("utf-8")) if response else 0
 
 
+def _commit_convergent_transition(
+    payload: dict[str, Any],
+    *,
+    activation_mode: str,
+) -> tuple[bool, dict[str, str] | None]:
+    """Commit one explicitly attested material PostTool transition.
+
+    The hook never derives a transition from free-form output. A transition
+    is handled only when the runtime supplies the closed, content-safe
+    attestation contract and the canonical authority/store accepts its CAS
+    request. Shadow/off remain non-mutating compatibility modes.
+    """
+
+    candidate = payload.get("convergent_transition")
+    if candidate is None:
+        return False, None
+    if activation_mode != "enforce":
+        return False, None
+    try:
+        request, attestation_digest = request_from_attestation(candidate)
+        authority, _state = load_authoritative_state(payload)
+        runtime = load_runtime_attestation(
+            authority.active.workspace_root,
+            branch=authority.active.branch,
+            head_sha=authority.checkout_head_sha,
+            policy=authority.policy,
+        )
+        if attestation_digest != runtime.attestation_digest:
+            raise RuntimeAttestationError("PostTool attestation digest does not match the active runtime")
+        authority.store.transition(authority.plan_id, request)
+        return True, None
+    except (ToolResultAttestationError, AuthorityError, RuntimeAttestationError, ConvergentStoreError, ConvergentIntegrityError, ValueError, TypeError):
+        return True, {"decision": "block", "reason": "convergent-post-tool-transition-invalid"}
+
+
 def _runtime_safe() -> bool:
     configured = ralph_home()
     return not configured.is_symlink()
@@ -235,12 +274,16 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     # advisor, or observability writers.  PreToolUse is a separate dispatcher
     # and remains active for the corresponding tool invocation.
     try:
-        if configured_activation_mode(workspace_root=context.workspace_root) == "enforce" and successful_read_fast_path(payload).eligible:
+        activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
+        handled, transition_response = _commit_convergent_transition(payload, activation_mode=activation_mode)
+        if transition_response is not None:
+            return transition_response
+        if handled:
+            return None
+        if activation_mode == "enforce" and successful_read_fast_path(payload).eligible:
             return None
     except Exception:
-        # Invalid activation metadata must never create a bypass; retain the
-        # existing conservative dispatcher behavior and let normal gates run.
-        pass
+        return {"decision": "block", "reason": "convergent-activation-invalid"}
     stage = result_stage(payload)
     pending_stream = stage == "partial"
     persistence_allowed = _runtime_safe()

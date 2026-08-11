@@ -27,7 +27,7 @@ No `UNKNOWN` metric is converted into zero or into a quality claim.
 | T12   | G-SHADOW-CANARY                    | PASS (structural)                              | The structural harness executes the candidate boundary, recall and hot-path predicates for the fixed 24-case fixture and derives its boolean structural gates from those observations. It does not execute a baseline or the full reducer/store/Stop lifecycle.                                                                                                                                                                                                                                                                                            | It does not invoke a model or claim credits, wall time, escaped defects or full lifecycle equivalence.                                                                                        |
 | T13   | G-SHADOW-CANARY                    | PASS WITH EXPLICIT USER OVERRIDE (SHADOW-ONLY) | The user explicitly authorized proceeding without inventing a model-quality or subscription-cost claim. The fixed structural fixture is `24/24`; lifecycle execution, baseline equivalence, false-close/RED/worktree outcomes without explicit markers, credits, wall time, escaped defects and full model-quality comparison remain `UNKNOWN`. Evidence is the append-only progress journal (`question_opened` seq 21, `question_resolved` seq 23, validation seq 24) plus implementation-notes operation `ralph-v4-t13-user-override-shadow-activation`. | This is an amendment to the activation decision, not a waiver of safety gates. Enforce remains fail-closed until a trusted runtime attestation and material-transition adapter are available. |
 | T14   | G-ROLLOUT                          | PASS (REPO-LOCAL SHADOW)                       | The versioned `config/convergent-execution-mode.toml` binds `shadow` to this plan and policy; the effective-hook doctor is `WARN` only for the enabled Figma declaration digest explicitly trusted as report-only, while unknown guarded plugins fail closed; the complete minimal gate, hook smoke, memory-flow checks and rollback mode checks are green. No global configuration is changed.                                                                                                                                                            | Repo-local shadow execution is allowed by the explicit decision; enforce activation and global install remain separate approval boundaries.                                                   |
-| T14A  | G-SOLUTION-ADJUDICATION-HARDENING  | PROPOSED (USER_DECISION REQUIRED)              | `docs/reports/ralph-convergent-execution-v4/solution-architecture-adjudication.md` and local append-only `AM-001` record the SOL Max autopsy, direct-fix classification, finite correction budgets, impact/verification requirements and explicit material-change boundary.                                                                                                                                                                                                                                                                                | This proposal prevents patch loops; it does not authorize PostTool material lifecycle wiring, trusted runtime attestation, global install or production rollout.                              |
+| T14A  | G-SOLUTION-ADJUDICATION-HARDENING  | PASS (REPO-LOCAL; LIVE T15 PENDING)            | The user approved `AM-001`; the content-safe 28-thread adjudication is frozen at reviewed HEAD `5b25553e7327c81f6e2ae772837c42cb23fd70ad`. One coherent batch wires enforce authority to RuntimeAttestation/full HEAD and atomic prompt initialization, archives distinct task epochs behind an active CAS pointer, and commits bounded PostTool evidence-only transitions. The immutable v1 plan digest is preserved.                                                                                                                                     | Repo-local structural proof is complete. T15 still must prove a real global attestation, parity, backup, smoke and rollback; no global configuration was changed.                             |
 | T15   | G-ROLLOUT                          | BLOCKED                                        | Global install/backup/parity/rollback has not been attempted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Requires explicit user approval and a completed repo-default gate.                                                                                                                            |
 
 ## Structural canary metrics
@@ -56,8 +56,8 @@ production-quality claims.
 
 ## Final local verification snapshot
 
-- v4 focused/cross-owner matrix: `127 passed`.
-- Complete repository pytest lane after retiring the obsolete slop-guard bundle: `1233 passed, 5 subtests passed` in 204.92 s.
+- v4 focused/cross-owner matrix: `153 passed`.
+- Complete repository pytest lane for the current batch: `1238 passed, 5 subtests passed` (aggregate minimal gate; no failures).
 - Implementation-notes and progress compatibility suite: `55 passed`.
 - Complete repository minimal gate: `passed` (`passed=1`, `failed=0`, `skipped=2`).
 - Hook smoke: `ALL_HOOK_TESTS_PASS`.
@@ -67,7 +67,9 @@ production-quality claims.
 - Versioned repo-local activation flag tests: `PASS`; aggregate gate timeout/error propagation tests: `PASS`.
 - Diagram validation: all seven SVGs valid; all seven PNGs are 1920px wide.
 - Plan bytes remain `sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1`.
-- Test lifecycle audit: `docs/reports/ralph-convergent-execution-v4/test-suite-lifecycle-audit.md`; 1,232 tests kept, one global lane test retained for refactor, 18 obsolete slop-guard tests retired.
+- Test lifecycle audit: `docs/reports/ralph-convergent-execution-v4/test-suite-lifecycle-audit.md`; 1,237 tests kept, one global lane test retained for refactor, zero pytest nodes deleted. The obsolete Aristotle display shell bundle was removed separately; the two Stop compatibility aliases remain active.
+- T14A correction snapshot: focused authority/store/epoch/PostTool matrix green;
+  the aggregate gate is the promoted full-suite evidence for this batch.
 
 The plan, implementation notes and progress state are canonical local artifacts
 under ignored `.ralph/`/`.local-notes/` paths. T13 approval is evidenced by the
@@ -80,6 +82,6 @@ public branch alone contains the complete local ledger.
 
 This snapshot closes local T0–T12 verification, records the explicit T13 user
 override that permits T14 repo-local shadow execution, and records T14A as a
-proposed governance amendment pending USER_DECISION. It does not authorize global T15 installation,
-claim full model-quality improvement, or claim that enforce-mode material
-lifecycle transitions are wired in this repo-local shadow lane.
+repo-local completed amendment. It does not authorize global T15 installation,
+claim full model-quality improvement, or convert structural canary evidence
+into live provider/credit metrics.

@@ -24,6 +24,7 @@ class ConvergentStopAdapterResult:
     evidence_digest: str = ""
     transition: str = ""
     expected_generation: int = -1
+    repair_phase: str = ""
 
 
 def evaluate_convergent_stop(
@@ -97,6 +98,7 @@ def evaluate_convergent_stop(
         evidence_digest=anti.evidence_digest,
         transition="STOP_CONTINUATION",
         expected_generation=int(candidate["generation"]),
+        repair_phase=decision.repair_phase,
     )
 
 
