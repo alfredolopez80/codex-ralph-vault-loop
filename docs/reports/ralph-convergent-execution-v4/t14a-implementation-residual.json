@@ -60,8 +60,8 @@
     }
   ],
   "validation": {
-    "focused_cross_owner": "158 passed",
-    "full_suite_for_current_batch": "1243 passed, 5 subtests passed",
+    "focused_cross_owner": "161 passed",
+    "full_suite_for_current_batch": "1246 passed, 5 subtests passed",
     "minimal_gate": "passed (failed=0, passed=1, skipped=2)",
     "hook_smoke": "ALL_HOOK_TESTS_PASS",
     "memory_flow": "PASS (optional ruff/mypy unavailable)",

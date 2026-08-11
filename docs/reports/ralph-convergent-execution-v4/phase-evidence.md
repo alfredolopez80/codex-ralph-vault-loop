@@ -56,8 +56,8 @@ production-quality claims.
 
 ## Final local verification snapshot
 
-- v4 focused/cross-owner matrix: `158 passed`.
-- Complete repository pytest lane for the current batch: `1243 passed, 5 subtests passed` (aggregate minimal gate; no failures).
+- v4 focused/cross-owner matrix: `161 passed`.
+- Complete repository pytest lane for the current batch: `1246 passed, 5 subtests passed` (aggregate minimal gate; no failures).
 - Implementation-notes and progress compatibility suite: `55 passed`.
 - Complete repository minimal gate: `passed` (`passed=1`, `failed=0`, `skipped=2`).
 - Hook smoke: `ALL_HOOK_TESTS_PASS`.

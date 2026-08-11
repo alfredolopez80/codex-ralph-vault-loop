@@ -157,10 +157,11 @@ def ensure_prompt_boundary(
             # retry/continuation, even when the caller supplies a new session
             # or omits task_epoch.  Rotating here would mint fresh budgets for
             # the same work and make a retry non-idempotent.
-            requested_epoch = _explicit_task_epoch(payload)
             same_work_item = _work_item_fingerprint(candidate) == _work_item_fingerprint(state)
-            explicit_distinct_epoch = bool(requested_epoch and requested_epoch != str(state.get("task_epoch") or ""))
-            if same_work_item and not explicit_distinct_epoch:
+            # A caller-supplied task_epoch is only a candidate label.  It is
+            # not an attestation of new work and therefore cannot mint fresh
+            # budgets for an otherwise identical work item.
+            if same_work_item:
                 return state
             evidence = attestation.lease_evidence(
                 cwd=str(authority.active.workspace_root),

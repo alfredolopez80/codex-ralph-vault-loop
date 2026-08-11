@@ -38,6 +38,9 @@ def _attestation() -> dict[str, object]:
         "operation_digest": "",
         "attestation_digest": "",
     }
+    value["attestation_digest"] = digest_value(
+        {key: value[key] for key in sorted(value) if key not in {"operation_digest", "attestation_digest"}}
+    )
     request = TransitionRequest(
         operation_id=str(value["operation_id"]),
         transition="POST_TOOL_RESULT_RECORDED",
@@ -51,12 +54,11 @@ def _attestation() -> dict[str, object]:
         epoch_id=str(value["epoch_id"]),
         head_digest=str(value["head_digest"]),
         runtime_attestation_digest=str(value["runtime_attestation_digest"]),
+        attestation_digest=str(value["attestation_digest"]),
         tool_use_id=str(value["tool_use_id"]),
         tool_kind=str(value["tool_kind"]),
     )
     value["operation_digest"] = request.operation_digest()
-    material = {key: value[key] for key in sorted(value) if key != "attestation_digest"}
-    value["attestation_digest"] = digest_value(material)
     return value
 
 
@@ -71,6 +73,16 @@ def test_structural_attestation_rejects_operation_or_result_drift() -> None:
     value = _attestation()
     value["outcome"] = "failure"
     with pytest.raises(ToolResultAttestationError, match="operation digest|attestation digest"):
+        request_from_attestation(value)
+
+
+def test_structural_attestation_digest_is_part_of_operation_binding() -> None:
+    value = _attestation()
+    value["tool_name"] = "different-tool"
+    value["attestation_digest"] = digest_value(
+        {key: value[key] for key in sorted(value) if key not in {"operation_digest", "attestation_digest"}}
+    )
+    with pytest.raises(ToolResultAttestationError, match="operation digest"):
         request_from_attestation(value)
 
 

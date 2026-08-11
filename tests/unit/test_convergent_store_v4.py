@@ -337,10 +337,12 @@ def test_pending_epoch_rotation_recovers_partial_archive_before_authoritative_re
     archive_name = "prepared-recovery"
     archive = paths.root / "epochs" / archive_name
     archive.mkdir(mode=0o700)
+    copied_names: list[str] = []
     for name in store._epoch_movable_names():
         source = paths.root / name
         if source.exists():
             shutil.copy2(source, archive / name)
+            copied_names.append(name)
     paths.state.unlink()
     marker = {
         "schema_version": 1,
@@ -351,6 +353,7 @@ def test_pending_epoch_rotation_recovers_partial_archive_before_authoritative_re
         "operation_digest": digest_value("rotate-recovery"),
         "previous_state_hash": current["state_hash"],
         "files": list(store._epoch_movable_names()),
+        "present_files": copied_names,
     }
     store_module.publish_json(paths.rotation_pending, marker, hard_limit=store_module.MAX_STATE_BYTES)
 
@@ -391,6 +394,61 @@ def test_epoch_rotation_failure_after_pointer_publication_restores_previous_epoc
     retried = store.rotate_epoch_and_transition(second_candidate, second_request)
     assert retried.state is not None and retried.state["task_epoch"] == "epoch-second"
     assert store.read_current(PLAN_ID, authoritative=True).state == retried.state
+
+
+def test_first_epoch_rotation_failure_removes_candidate_only_files(tmp_path: Path, monkeypatch) -> None:
+    _root, store = make_store(tmp_path)
+    previous = initial_state()
+    store.start(previous)
+    candidate, request = epoch_candidate("epoch-first", "first work", 2, "rotate-first")
+    original_publish = store._publish_active_epoch
+
+    def publish_then_fail(*args, **kwargs):
+        original_publish(*args, **kwargs)
+        raise RuntimeError("simulated first rotation crash")
+
+    monkeypatch.setattr(store, "_publish_active_epoch", publish_then_fail)
+    with pytest.raises(RuntimeError, match="simulated first rotation crash"):
+        store.rotate_epoch_and_transition(candidate, request)
+
+    paths = store.paths(PLAN_ID)
+    restored = store.read_current(PLAN_ID, authoritative=True).state
+    assert restored == previous
+    assert not paths.active_epoch.exists()
+    assert not paths.events.exists()
+    assert not paths.rotation_pending.exists()
+    assert not list((paths.root / "epochs").iterdir())
+
+
+def test_pending_epoch_rotation_rejects_symlinked_archive_without_following_it(tmp_path: Path) -> None:
+    _root, store = make_store(tmp_path)
+    previous = initial_state()
+    store.start(previous)
+    paths = store.paths(PLAN_ID)
+    external = tmp_path / "external-archive"
+    external.mkdir(mode=0o700)
+    sentinel = external / "state.json"
+    sentinel.write_text("outside", encoding="utf-8")
+    (paths.root / "epochs").mkdir(mode=0o700)
+    archive = paths.root / "epochs" / "evil-archive"
+    os.symlink(external, archive)
+    present_files = [name for name in store._epoch_movable_names() if (paths.root / name).exists()]
+    marker = {
+        "schema_version": 1,
+        "archive_name": "evil-archive",
+        "candidate_epoch_id": "epoch-evil",
+        "candidate_task_id": "sha256:" + "e" * 64,
+        "operation_id": "rotate-evil",
+        "operation_digest": digest_value("rotate-evil"),
+        "previous_state_hash": previous["state_hash"],
+        "files": list(store._epoch_movable_names()),
+        "present_files": present_files,
+    }
+    store_module.publish_json(paths.rotation_pending, marker, hard_limit=store_module.MAX_STATE_BYTES)
+
+    with pytest.raises(ConvergentIntegrityError, match="archive"):
+        store.read_current(PLAN_ID, authoritative=True)
+    assert sentinel.read_text(encoding="utf-8") == "outside"
 
 
 def test_start_compiles_registered_non_rollout_plan_from_active_metadata(tmp_path: Path) -> None:

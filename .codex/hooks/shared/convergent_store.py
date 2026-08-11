@@ -7,14 +7,15 @@ snapshot publication.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from contextlib import contextmanager
 import hashlib
 from math import isfinite
 import os
 from pathlib import Path
 import re
+import stat
 from typing import Any, Mapping
 
 from .convergent_contracts import (
@@ -320,8 +321,28 @@ class ConvergentStore:
                 return self._initialize_boundary_locked(paths, candidate, request, goals, events=events, current=current)
             archive_name = str(candidate["task_id"]).replace(":", "-")
             archive = paths.root / "epochs" / archive_name
-            if archive.exists():
-                raise ConvergentIdempotencyError("task epoch archive already exists")
+            try:
+                archive_info = archive.lstat()
+            except FileNotFoundError:
+                archive_info = None
+            if archive_info is not None:
+                if (
+                    stat.S_ISLNK(archive_info.st_mode)
+                    or not stat.S_ISDIR(archive_info.st_mode)
+                    or archive_info.st_mode & 0o077
+                ):
+                    raise ConvergentIntegrityError("task epoch archive is unsafe")
+                try:
+                    empty_archive = not any(archive.iterdir())
+                except OSError as exc:
+                    raise ConvergentIntegrityError("task epoch archive cannot be inspected") from exc
+                if not empty_archive:
+                    raise ConvergentIdempotencyError("task epoch archive already exists")
+                # A prior process may have removed the pending marker after
+                # restoring the predecessor but before removing this empty
+                # directory.  Empty private archives carry no authority and
+                # are safe to clean before retrying the same rotation.
+                os.rmdir(archive)
             ensure_directory_chain(archive, mode=0o700)
             movable = (
                 paths.initial,
@@ -337,6 +358,7 @@ class ConvergentStore:
                 paths.tool_results,
                 paths.active_epoch,
             )
+            present_names = {source.name for source in movable if source.exists()}
             marker = {
                 "schema_version": 1,
                 "archive_name": archive_name,
@@ -346,6 +368,7 @@ class ConvergentStore:
                 "operation_digest": request.operation_digest(),
                 "previous_state_hash": str(current["state_hash"]),
                 "files": list(self._epoch_movable_names()),
+                "present_files": sorted(present_names),
             }
             publish_json(paths.rotation_pending, marker, hard_limit=MAX_STATE_BYTES)
             moved: list[tuple[Path, Path]] = []
@@ -385,10 +408,17 @@ class ConvergentStore:
                         if source.exists():
                             os.unlink(source)
                         os.replace(target, source)
-                if paths.rotation_pending.exists():
-                    os.unlink(paths.rotation_pending)
+                for source in movable:
+                    if source.name not in present_names and source.exists():
+                        # The predecessor did not contain this file.  It can
+                        # only be a candidate-only publication from the
+                        # failed rotation and must not leak into the restored
+                        # epoch.
+                        os.unlink(source)
                 if archive.exists() and not any(archive.iterdir()):
                     os.rmdir(archive)
+                if paths.rotation_pending.exists():
+                    os.unlink(paths.rotation_pending)
                 raise
 
     def _initialize_boundary_locked(
@@ -442,10 +472,14 @@ class ConvergentStore:
 
     def read_current(self, plan_id: str, *, authoritative: bool = False) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
-        if authoritative:
-            with self._epoch_state_lock(paths):
-                return self._read_current_unlocked(paths, authoritative=True)
-        return self._read_current_unlocked(paths, authoritative=False)
+        self._ensure_layout(plan_id)
+        # Reads participate in the same namespace protocol as mutations.  In
+        # particular, a non-authoritative shadow read must not observe the
+        # half-moved files of an epoch rotation or race recovery with a
+        # writer.  The ``authoritative`` bit only controls partial-tail
+        # handling; it does not weaken the lock/recovery boundary.
+        with self._epoch_state_lock(paths):
+            return self._read_current_unlocked(paths, authoritative=authoritative)
 
     def _read_current_unlocked(self, paths: ExecutionPaths, *, authoritative: bool) -> ConvergentStoreResult:
         initial = self._read_state_file(paths.initial, label="execution initial")
@@ -851,7 +885,7 @@ class ConvergentStore:
     def replay(self, plan_id: str) -> ConvergentStoreResult:
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             initial = self._read_state_file(paths.initial, label="execution initial")
             if initial is None:
                 return ConvergentStoreResult(False, reason="execution state missing")
@@ -879,7 +913,7 @@ class ConvergentStore:
         self._ensure_layout(plan_id)
         encoded = deepcopy(dict(payload))
         _assert_safe_artifact(encoded)
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             initial = self._read_state_file(paths.initial, label="execution initial")
             if initial is None:
                 raise ConvergentStoreError("execution state is not initialized")
@@ -968,7 +1002,7 @@ class ConvergentStore:
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
         candidate = amendment.as_dict()
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             initial = self._read_state_file(paths.initial, label="execution initial")
             if initial is None:
                 raise ConvergentStoreError("execution state is not initialized")
@@ -1026,7 +1060,7 @@ class ConvergentStore:
         paths = self.paths(plan_id)
         self._ensure_layout(plan_id)
         candidate = approval.as_dict()
-        with locked_file(paths.state_lock):
+        with self._epoch_state_lock(paths):
             initial = self._read_state_file(paths.initial, label="execution initial")
             if initial is None:
                 raise ConvergentStoreError("execution state is not initialized")
@@ -1205,11 +1239,16 @@ class ConvergentStore:
             "operation_digest",
             "previous_state_hash",
             "files",
+            "present_files",
         }
         if not isinstance(marker, Mapping) or set(marker) != required:
             raise ConvergentIntegrityError("pending epoch rotation marker schema is invalid")
         if marker.get("schema_version") != 1 or tuple(marker.get("files") or ()) != self._epoch_movable_names():
             raise ConvergentIntegrityError("pending epoch rotation marker is invalid")
+        present_files = marker.get("present_files")
+        if not isinstance(present_files, list) or any(name not in self._epoch_movable_names() for name in present_files):
+            raise ConvergentIntegrityError("pending epoch rotation present-file set is invalid")
+        present_set = set(present_files)
         archive_name = str(marker.get("archive_name") or "")
         if not archive_name or "/" in archive_name or "\\" in archive_name or archive_name in {".", ".."}:
             raise ConvergentIntegrityError("pending epoch rotation archive is unsafe")
@@ -1233,27 +1272,96 @@ class ConvergentStore:
             os.unlink(paths.rotation_pending)
             return
         archive = paths.root / "epochs" / archive_name
-        if not archive.is_dir():
-            raise ConvergentIntegrityError("pending epoch rotation archive is missing")
+        try:
+            archive_info = archive.lstat()
+        except OSError as exc:
+            if isinstance(exc, FileNotFoundError) and self._predecessor_is_restored(paths, marker["previous_state_hash"]):
+                os.unlink(paths.rotation_pending)
+                return
+            raise ConvergentIntegrityError("pending epoch rotation archive is missing") from exc
+        if (
+            stat.S_ISLNK(archive_info.st_mode)
+            or not stat.S_ISDIR(archive_info.st_mode)
+            or archive_info.st_mode & 0o077
+        ):
+            raise ConvergentIntegrityError("pending epoch rotation archive is not a private regular directory")
+        try:
+            archive_entries = tuple(archive.iterdir())
+        except OSError as exc:
+            raise ConvergentIntegrityError("pending epoch rotation archive cannot be inspected") from exc
+        if any(entry.name not in self._epoch_movable_names() for entry in archive_entries):
+            raise ConvergentIntegrityError("pending epoch rotation archive contains an unexpected entry")
+        for entry in archive_entries:
+            try:
+                entry_info = entry.lstat()
+            except OSError as exc:
+                raise ConvergentIntegrityError("pending epoch rotation archive entry cannot be inspected") from exc
+            if stat.S_ISLNK(entry_info.st_mode) or not stat.S_ISREG(entry_info.st_mode) or entry_info.st_nlink != 1 or entry_info.st_mode & 0o077:
+                raise ConvergentIntegrityError("pending epoch rotation archive entry is unsafe")
         for name in self._epoch_movable_names():
             source = paths.root / name
             target = archive / name
+            for path in (source, target):
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    raise ConvergentIntegrityError("pending epoch rotation file cannot be inspected") from exc
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o077:
+                    raise ConvergentIntegrityError("pending epoch rotation file is unsafe")
+            if name not in present_set:
+                # This file did not exist in the predecessor.  If the
+                # candidate created it before the crash, it must not survive
+                # when the predecessor is restored.
+                if target.exists():
+                    raise ConvergentIntegrityError("pending epoch rotation archive contains an unexpected file")
+                if source.exists():
+                    os.unlink(source)
+                continue
             if source.exists() and target.exists():
                 os.unlink(source)
             if not source.exists() and target.exists():
                 os.replace(target, source)
+            if not source.exists() and not target.exists():
+                raise ConvergentIntegrityError("pending epoch rotation predecessor file is missing")
         if any((archive / name).exists() for name in self._epoch_movable_names()):
             raise ConvergentIntegrityError("pending epoch rotation archive could not be restored")
+        if not self._predecessor_is_restored(paths, marker["previous_state_hash"]):
+            raise ConvergentIntegrityError("pending epoch rotation predecessor is not restored")
         os.rmdir(archive)
         os.unlink(paths.rotation_pending)
+
+    def _predecessor_is_restored(self, paths: ExecutionPaths, expected_state_hash: object) -> bool:
+        if not isinstance(expected_state_hash, str) or not SHA256_RE.fullmatch(expected_state_hash):
+            raise ConvergentIntegrityError("pending epoch rotation predecessor hash is invalid")
+        state = self._read_state_file(paths.state, label="execution predecessor state")
+        if state is None or state.get("state_hash") != expected_state_hash:
+            return False
+        if not paths.active_epoch.exists():
+            return True
+        try:
+            pointer = read_json(
+                paths.active_epoch,
+                lambda value: deepcopy(dict(value)),
+                label="execution predecessor epoch pointer",
+                hard_limit=MAX_STATE_BYTES,
+            )
+        except CorruptRecordError as exc:
+            raise ConvergentIntegrityError(str(exc)) from exc
+        return isinstance(pointer, Mapping) and pointer.get("state_hash") == expected_state_hash
 
     @contextmanager
     def _epoch_state_lock(self, paths: ExecutionPaths):
         """Acquire locks in the one allowed epoch-then-state order."""
 
         with locked_file(paths.epoch_lock):
-            self._recover_pending_rotation(paths)
             with locked_file(paths.state_lock):
+                # Recovery mutates the same namespace as every other
+                # operation and therefore must run while both locks are held.
+                # This prevents a reader/writer holding state.lock from
+                # observing or accepting candidate files during rollback.
+                self._recover_pending_rotation(paths)
                 yield
 
     def _publish_active_epoch(
@@ -1355,6 +1463,7 @@ class ConvergentStore:
             "tool_kind": request.tool_kind,
             "head_digest": request.head_digest,
             "runtime_attestation_digest": request.runtime_attestation_digest,
+            "attestation_digest": request.attestation_digest,
             "evidence_manifest_digest": request.evidence_manifest_digest,
         }
 
@@ -1487,6 +1596,7 @@ def _validate_tool_result_record(value: object) -> dict[str, Any]:
         "tool_kind",
         "head_digest",
         "runtime_attestation_digest",
+        "attestation_digest",
         "evidence_manifest_digest",
     }
     if set(value) != required or value.get("schema_version") != 1:
@@ -1496,6 +1606,7 @@ def _validate_tool_result_record(value: object) -> dict[str, Any]:
         "task_id",
         "head_digest",
         "runtime_attestation_digest",
+        "attestation_digest",
         "evidence_manifest_digest",
     ):
         item = value.get(field)

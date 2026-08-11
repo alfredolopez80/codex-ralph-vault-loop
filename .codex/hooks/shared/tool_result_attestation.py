@@ -117,6 +117,9 @@ def request_from_attestation(value: object) -> tuple[TransitionRequest, str]:
     obligation_closures = _bounded_strings(value.get("obligation_closures", ()), "obligation_closures")
     finding_closures = _bounded_strings(value.get("finding_closures", ()), "finding_closures")
     accepted_finding_ids = _bounded_strings(value.get("accepted_finding_ids", ()), "accepted_finding_ids")
+    attestation_digest = value.get("attestation_digest")
+    if not isinstance(attestation_digest, str) or not SHA256_RE.fullmatch(attestation_digest):
+        raise ToolResultAttestationError("PostTool runtime attestation digest is invalid")
     request = TransitionRequest(
         operation_id=operation_id,
         transition=transition,
@@ -140,10 +143,8 @@ def request_from_attestation(value: object) -> tuple[TransitionRequest, str]:
         hard_gates_pass=value.get("hard_gates_pass") if isinstance(value.get("hard_gates_pass"), bool) else None,
         reason=str(value.get("reason") or "")[:512],
         handoff_digest=str(value.get("handoff_digest") or ""),
+        attestation_digest=attestation_digest,
     )
-    attestation_digest = value.get("attestation_digest")
-    if not isinstance(attestation_digest, str) or not SHA256_RE.fullmatch(attestation_digest):
-        raise ToolResultAttestationError("PostTool runtime attestation digest is invalid")
     return request, attestation_digest
 
 
@@ -188,6 +189,11 @@ def _request_from_v1(value: Mapping[str, object]) -> tuple[TransitionRequest, st
     operation_id = value["operation_id"]
     if not isinstance(operation_id, str) or not operation_id or len(operation_id) > 180:
         raise ToolResultAttestationError("PostTool operation_id is invalid")
+    structural_material = {
+        key: value[key] for key in sorted(_V1_FIELDS - {"operation_digest", "attestation_digest"})
+    }
+    if digest_value(structural_material) != value["attestation_digest"]:
+        raise ToolResultAttestationError("PostTool attestation digest is not bound")
     expected_transition = "POST_TOOL_RESULT_RECORDED"
     request = TransitionRequest(
         operation_id=operation_id,
@@ -202,17 +208,12 @@ def _request_from_v1(value: Mapping[str, object]) -> tuple[TransitionRequest, st
         epoch_id=epoch_id,
         head_digest=value["head_digest"],
         runtime_attestation_digest=value["runtime_attestation_digest"],
+        attestation_digest=value["attestation_digest"],
         tool_use_id=value["tool_use_id"],
         tool_kind=value["tool_kind"],
     )
     if request.operation_digest() != value["operation_digest"]:
         raise ToolResultAttestationError("PostTool operation digest is not bound")
-    # Bind every structural field, not only the operation request.  This
-    # prevents a valid request digest from being replayed with a different
-    # tool/path/result envelope.
-    material = {key: value[key] for key in sorted(_V1_FIELDS - {"attestation_digest"})}
-    if digest_value(material) != value["attestation_digest"]:
-        raise ToolResultAttestationError("PostTool attestation digest is not bound")
     return request, value["attestation_digest"]
 
 

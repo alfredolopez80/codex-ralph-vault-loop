@@ -61,6 +61,7 @@ class TransitionRequest:
     epoch_id: str = ""
     head_digest: str = ""
     runtime_attestation_digest: str = ""
+    attestation_digest: str = ""
     tool_use_id: str = ""
     tool_kind: str = ""
 
@@ -97,7 +98,7 @@ def reduce_state(state: Mapping[str, Any], request: TransitionRequest, *, policy
             raise TransitionError("PostTool attestation task/epoch is not bound to the active state")
         if not request.tool_use_id or request.tool_kind not in {"implementation_write", "validation_gate"}:
             raise TransitionError("PostTool attestation tool identity is incomplete")
-        if not request.runtime_attestation_digest or request.head_digest == "":
+        if not request.runtime_attestation_digest or not request.attestation_digest or request.head_digest == "":
             raise TransitionError("PostTool attestation runtime/head binding is incomplete")
     if before["phase"] == "close" or before["status"] == "closed":
         raise TransitionError("closed tasks cannot become active")

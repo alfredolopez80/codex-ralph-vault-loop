@@ -121,7 +121,7 @@ def test_repeated_new_task_boundary_for_same_work_item_is_idempotent(monkeypatch
     assert rotate_calls == []
 
 
-def test_explicit_distinct_task_epoch_is_not_collapsed_to_retry(monkeypatch, tmp_path: Path) -> None:
+def test_caller_epoch_label_cannot_bypass_same_work_retry_guard(monkeypatch, tmp_path: Path) -> None:
     policy = load_execution_policy()
     identity = TaskIdentity.from_values(
         session="writer-session",
@@ -162,12 +162,7 @@ def test_explicit_distinct_task_epoch_is_not_collapsed_to_retry(monkeypatch, tmp
     )
     monkeypatch.setattr(authority_module, "resolve_authority", lambda _payload: authority)
     monkeypatch.setattr(authority_module, "_validate_binding", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        authority_module,
-        "_require_runtime_attestation",
-        lambda _authority: SimpleNamespace(lease_evidence=lambda **_kwargs: object()),
-    )
-    monkeypatch.setattr(authority_module, "acquire_execution_lease", lambda *args, **kwargs: object())
+    monkeypatch.setattr(authority_module, "_require_runtime_attestation", lambda _authority: object())
     rotate_calls: list[object] = []
     monkeypatch.setattr(
         authority.store,
@@ -188,5 +183,5 @@ def test_explicit_distinct_task_epoch_is_not_collapsed_to_retry(monkeypatch, tmp
         mode="enforce",
     )
 
-    assert result["task_epoch"] == "epoch-2"
-    assert len(rotate_calls) == 1
+    assert result == state
+    assert rotate_calls == []
