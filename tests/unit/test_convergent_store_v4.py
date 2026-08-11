@@ -41,6 +41,7 @@ from shared.implementation_store import ImplementationStore, resolve_store_paths
 
 
 PLAN_DIGEST = "sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1"
+PLAN_FIXTURE = ROOT / "tests" / "fixtures" / "ralph-convergent-execution-v4-plan.md"
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -63,7 +64,10 @@ def make_repo(tmp_path: Path) -> Path:
 def make_store(tmp_path: Path) -> tuple[Path, ConvergentStore]:
     root = make_repo(tmp_path)
     (root / ".ralph" / "plans").mkdir(parents=True)
-    shutil.copyfile(ROOT / ".ralph" / "plans" / "2026-08-11-ralph-convergent-execution-v4.md", root / ".ralph" / "plans" / "v4.md")
+    # The canonical local plan is intentionally ignored and is not present in
+    # a fresh PR checkout.  Tests use the byte-identical, versioned fixture so
+    # plan provenance remains reproducible without depending on local ledgers.
+    shutil.copyfile(PLAN_FIXTURE, root / ".ralph" / "plans" / "v4.md")
     progress = ImplementationStore(resolve_store_paths(primary_root=root))
     progress.register_plan(PLAN_ID, plan_path=".ralph/plans/v4.md", operation_id="op-register-v4")
     return root, ConvergentStore(progress, load_execution_policy())
