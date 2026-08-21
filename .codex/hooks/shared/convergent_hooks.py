@@ -13,7 +13,31 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
-READ_EXECUTABLES = frozenset({"cat", "head", "tail", "rg", "grep", "find", "fd", "fdfind", "ls", "pwd", "stat", "file", "wc"})
+READ_EXECUTABLES = frozenset(
+    {
+        "cat",
+        "cut",
+        "file",
+        "find",
+        "fd",
+        "fdfind",
+        "grep",
+        "head",
+        "jq",
+        "less",
+        "ls",
+        "more",
+        "nl",
+        "pwd",
+        "rg",
+        "sed",
+        "sort",
+        "stat",
+        "tail",
+        "tr",
+        "wc",
+    }
+)
 MAX_COMMAND_BYTES = 4_096
 READ_TOOL_WORDS = frozenset({"read", "search", "find", "list", "glob", "get", "stat", "inspect", "status", "diff", "log", "show"})
 LOCAL_READ_TOOL_NAMES = frozenset({"read", "grep", "glob", "list", "find", "stat", "inspect", "status", "git_status", "git_diff", "git_log", "git_show"})
@@ -98,15 +122,65 @@ def _command(payload: Mapping[str, object]) -> str:
     return ""
 
 
-def _tokens(command: str) -> list[str]:
+def _shell_words(command: str) -> list[str]:
+    """Split shell control syntax while preserving quoted punctuation."""
+
     try:
-        return shlex.split(command)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars="|;&<>")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return list(lexer)
     except ValueError:
         return []
 
 
+def _read_segments(command: str) -> list[list[str]] | None:
+    """Return pure-read pipeline segments or ``None`` for unsafe syntax."""
+
+    if chr(36) in command or any(marker in command for marker in ("`", "\n", "\r")):
+        return None
+    words = _shell_words(command)
+    if not words:
+        return None
+    segments: list[list[str]] = [[]]
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if index + 2 < len(words) and word in {"0", "1", "2"} and words[index + 1] == ">&" and words[index + 2] in {"0", "1", "2"}:
+            index += 3
+            continue
+        if word == "|":
+            if not segments[-1]:
+                return None
+            segments.append([])
+            index += 1
+            continue
+        if word in {"&&", "||", ";", "&", "|&", "<", "<<", ">", ">>", ">&", "<>"}:
+            return None
+        segments[-1].append(word)
+        index += 1
+    return segments if segments[-1] else None
+
+
+def _is_read_argv(words: list[str]) -> bool:
+    if not words or "/" in words[0] or "\\" in words[0]:
+        return False
+    executable = words[0].lower()
+    if executable in READ_EXECUTABLES:
+        return not _has_mutating_option(executable, words[1:])
+    if executable != "git" or len(words) < 2 or words[1].startswith("-"):
+        return False
+    subcommand = words[1].lower()
+    if subcommand in {"status", "diff", "log", "show", "rev-parse", "ls-files"}:
+        return not _git_output_or_mutation(words[2:])
+    if subcommand == "branch":
+        return _git_branch_read_only(words[2:])
+    if subcommand == "remote":
+        return len(words) == 2 or words[2].lower() in {"-v", "--verbose", "get-url"}
+    return False
+
+
 def _is_read(name: str, command: str) -> bool:
-    components = set(re.split(r"[^a-z0-9]+", name))
     # A command-shaped payload from a non-local tool is still external.  Do
     # not let a web/app/plugin tool smuggle a safe-looking shell command into
     # the physical no-op path.
@@ -114,37 +188,10 @@ def _is_read(name: str, command: str) -> bool:
         return False
     if len(command.encode("utf-8", errors="replace")) > MAX_COMMAND_BYTES:
         return False
-    if any(marker in command for marker in ("$(", "`", "\n", "\r", ">", "<", "|", ";", "&", "$")):
-        return False
-    tokens = _tokens(command)
     if not command:
         return name in LOCAL_READ_TOOL_NAMES
-    if not tokens or any(token in {"&&", "||", ";", "|", ">", ">>", "<", "2>", "2>>"} for token in tokens):
-        return False
-    # Basename allowlisting is unsafe: ``./cat`` or a repo-local ``git`` can
-    # be an arbitrary mutator.  Only the exact bare executable token is
-    # eligible; trusted absolute paths can be added deliberately to this
-    # closed-world list later without accepting arbitrary path aliases.
-    if "/" in tokens[0] or "\\" in tokens[0]:
-        return False
-    executable = tokens[0].lower()
-    if executable in READ_EXECUTABLES and _has_mutating_option(executable, tokens[1:]):
-        return False
-    if executable in READ_EXECUTABLES:
-        return True
-    if executable != "git" or len(tokens) < 2 or tokens[1].startswith("-"):
-        return False
-    subcommand = tokens[1].lower()
-    if subcommand in {"status", "diff", "log", "show", "rev-parse", "ls-files"}:
-        return not _git_output_or_mutation(tokens[2:])
-    if subcommand == "branch":
-        return _git_branch_read_only(tokens[2:])
-    if subcommand == "remote":
-        # ``remote show`` may contact the remote and is not a physical
-        # no-op-safe local read.  Listing remotes and reading a configured URL
-        # remain bounded local metadata operations.
-        return len(tokens) == 2 or tokens[2].lower() in {"-v", "--verbose", "get-url"}
-    return False
+    segments = _read_segments(command)
+    return bool(segments) and all(_is_read_argv(segment) for segment in segments)
 
 
 def is_read_only_command(command: str) -> bool:
@@ -158,6 +205,7 @@ def _git_output_or_mutation(arguments: list[str]) -> bool:
 
     return any(
         argument in {"--output", "-o", "--edit", "--apply", "--cached", "--index"}
+        or (argument.startswith("-o") and not argument.startswith("--") and argument != "-o")
         or argument.startswith("--output=")
         or argument in {"--ext-diff", "--textconv"}
         for argument in arguments
@@ -236,6 +284,9 @@ def _has_mutating_option(executable: str, arguments: list[str]) -> bool:
             if (
                 argument == "--in-place"
                 or argument.startswith("-i")
+                or argument in {"-f", "--file"}
+                or (argument.startswith("-f") and argument != "-f")
+                or argument.startswith("--file=")
                 or _sed_program_writes(argument)
                 or _sed_program_executes(argument)
                 or (script and (_sed_program_writes(script) or _sed_program_executes(script)))
@@ -281,6 +332,19 @@ def _has_mutating_option(executable: str, arguments: list[str]) -> bool:
             or argument.startswith("--hostname-bin=")
             for argument in arguments
         )
+    if executable == "less":
+        return any(
+            argument in {"-o", "-O", "--log-file", "--LOG-FILE"}
+            or argument.startswith(("-o", "-O", "--log-file=", "--LOG-FILE="))
+            for argument in arguments
+        )
+    if executable == "sort":
+        return any(
+            argument in {"-o", "--output"}
+            or (argument.startswith("-o") and argument != "-o")
+            or argument.startswith("--output=")
+            for argument in arguments
+        )
     return False
 
 
@@ -302,12 +366,14 @@ def _is_write(name: str, command: str) -> bool:
     components = set(re.split(r"[^a-z0-9]+", name))
     if components & WRITE_WORDS or "*** begin patch" in command.lower():
         return True
-    tokens = _tokens(command)
-    if any(token in {"&&", "||", ";", "|"} for token in tokens):
+    if command and _is_read("", command):
+        return False
+    words = _shell_words(command)
+    if any(word in {"&&", "||", ";", "|", "&", "|&"} for word in words):
         # Mixed shell syntax is not provably a successful read-only action;
         # keep it out of the physical no-op path.
         return True
-    return any(token in {">", ">>", "2>", "2>>", "<"} for token in tokens)
+    return any(word in {">", ">>", ">&", "<", "<<", "<>"} for word in words)
 
 
 def _is_agent_or_external(name: str) -> bool:

@@ -280,7 +280,7 @@ def test_writer_reported_bytes_are_present_and_unknown_is_not_zero(tmp_path: Pat
         "turn_id": "writer-turn",
         "tool_use_id": "writer-tool",
         "tool_name": "exec_command",
-        "tool_input": {"cmd": "git status --short"},
+        "tool_input": {"cmd": "printf changed"},
         "tool_response": {"exit_code": 0, "stdout": "ok"},
         "success": True,
     }

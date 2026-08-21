@@ -184,9 +184,8 @@ def scenario_steps(scenario: str, profile: str, workspace: Path, identity: str) 
             "complexity": 7,
             "task_signature": f"task-{identity}",
             "tool_input": {
-                "agent_type": "explorer",
-                "task_name": "benchmark_route",
-                "fork_turns": "none",
+                "agent_type": "default",
+                "fork_context": False,
                 "message": "Inspect one bounded fixture and return evidence only.",
                 "invocation_id": f"spawn-{identity}",
             },

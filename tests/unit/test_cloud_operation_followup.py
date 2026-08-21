@@ -92,3 +92,42 @@ def test_slashless_cloud_tool_uses_path_not_cwd_file(tmp_path: Path) -> None:
     assessment = assess_command("aws ec2 terminate-instances --instance-ids i-example", tmp_path)
     assert assessment.action == "approval"
     assert assessment.tool == "aws"
+
+
+def test_literal_cloud_tool_search_in_diagnostic_script_is_not_execution(tmp_path: Path) -> None:
+    script = tmp_path / "doctor.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        'grep -q "Require explicit \\`--context\\` on every \\`kubectl\\` command" policy.md\n',
+        encoding="utf-8",
+    )
+
+    assessment = assess_command(f"bash {script}", tmp_path)
+
+    assert assessment.action == "allow"
+
+
+def test_command_substitution_inside_search_literal_remains_gated(tmp_path: Path) -> None:
+    script = tmp_path / "unsafe-doctor.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        'grep -q "$(kubectl delete namespace production)" policy.md\n',
+        encoding="utf-8",
+    )
+
+    assessment = assess_command(f"bash {script}", tmp_path)
+
+    assert assessment.action != "allow"
+
+
+def test_backtick_substitution_inside_search_literal_remains_gated(tmp_path: Path) -> None:
+    script = tmp_path / "unsafe-backtick-doctor.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        'grep -q "`kubectl delete namespace production`" policy.md\n',
+        encoding="utf-8",
+    )
+
+    assessment = assess_command(f"bash {script}", tmp_path)
+
+    assert assessment.action != "allow"

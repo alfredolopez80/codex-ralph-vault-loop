@@ -10,6 +10,39 @@ The global installer preserves Codex's numeric schema: every hook `timeout` and
 number or boolean). The installer and global smoke check reject invalid numeric
 types before a global configuration is published.
 
+## Effective event set in ChatGPT Desktop for macOS
+
+ChatGPT Desktop runs every matching global, project, and plugin hook, and
+same-event command hooks may run concurrently. This repository therefore
+registers one composing dispatcher per active event instead of the older
+fan-out of many scripts. Fewer registrations improve determinism and startup
+cost without removing policy coverage.
+
+| Current event       | Repository owner                  | Registration decision                                                                             |
+| ------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `SessionStart`      | `session_start_dispatch.py`       | Active; one compact startup/resume/clear/compact capsule.                                         |
+| `UserPromptSubmit`  | `user_prompt_dispatch.py`         | Active; one safety-first, delta-cached context composer. Matchers are ignored.                    |
+| `PreToolUse`        | `pre_tool_dispatch.py`            | Active; RED, destructive, egress, workspace, context-budget, and fresh-subagent checks.           |
+| `PermissionRequest` | Native sandbox                    | No custom process; approval UX and escalation remain platform-owned.                              |
+| `PostToolUse`       | `post_tool_dispatch.py`           | Active; successful local reads are physical no-ops in every activation mode.                      |
+| `SubagentStart`     | `sol_advisor_subagent_context.py` | Active; compact by default, with 16,384 units of explicit context capacity for complex subagents. |
+| `SubagentStop`      | `sol_advisor_subagent_stop.py`    | Active for bounded completion/accounting state.                                                   |
+| `PreCompact`        | Platform lifecycle                | Not registered; no proven custom work is needed before compaction.                                |
+| `PostCompact`       | Platform lifecycle                | Not registered; `SessionStart(source=compact)` owns bounded recovery.                             |
+| `Stop`              | `stop_dispatch.py`                | Active; one reducer and one bounded continuation decision. Matchers are ignored.                  |
+| `SessionEnd`        | Platform lifecycle                | Not registered; cleanup must not add exit latency or become a completion gate.                    |
+
+Unified exec is matched as a command/Bash tool and native subagent creation is
+matched through `spawn_agent`/Agent aliases. Generated subagents use the
+current native shape: `agent_type=default`, explicit `fork_context=false`, a
+supported `model`/`reasoning_effort`, and a bounded initial brief. Legacy
+history fields such as `fork_turns` are rejected. `task_name` is not generated;
+older lifecycle callback envelopes may still be recognized during migration.
+The automatic advisor packet remains capped at 4,096 bytes. An explicitly
+provided native brief may use up to 16,384 aggregate UTF-8 bytes when the task
+needs more evidence; larger material should be supplied through scoped file
+references instead of copied history.
+
 ## Hooks
 
 - `.codex/hooks/universal-prompt-classifier.sh`
@@ -114,6 +147,12 @@ existing hook chain rather than installed as a separate hook system.
     roots, and toxic patch payloads.
   - Uses `suggested_command` for bounded reads such as `sed -n '1,160p' <file>`
     instead of rewriting commands.
+  - Recognizes `max_output_tokens` up to 10,000 when a runtime includes it in
+    the hook payload. ChatGPT Desktop build 26.818.31338 keeps that orchestration
+    field outside the hook payload, so potentially verbose helpers still use an
+    explicit shell byte cap on that build.
+  - Recognizes current native `apply_patch` bodies in `tool_input.command` as
+    patches, never as shell commands, while retaining workspace-path checks.
   - Keeps normal targeted searches and small text reads allowed.
   - Allows static `apply_patch` envelopes that only create or update untracked
     `.local-notes` artifacts. Creation is not treated as execution.
@@ -128,6 +167,8 @@ existing hook chain rather than installed as a separate hook system.
     approval. The canonical minikube runner prints the verified profile and
     context before execution.
 - `PostToolUse` via `.codex/hooks/post_tool_dispatch.py` and shared observers
+  - Returns immediately for a proven successful, non-material local read in
+    every activation mode; no ledger, dedupe, checkpoint, or telemetry write.
   - Skips checkpoint and learning persistence when output metadata contains
     RED-sensitive or context-toxic material.
   - Reads and resolves the payload once, deduplicates by project/session/turn/tool-use identity, and invokes only the relevant policy components.

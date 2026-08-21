@@ -357,10 +357,9 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     started = time.perf_counter_ns()
     tool = classify_tool(payload)
     context = active_context_from_payload(payload, resolve_git=False)
-    # In enforce mode a proven successful, non-material read is a physical
-    # no-op.  This return happens before context, ledger, checkpoint, memory,
-    # advisor, or observability writers.  PreToolUse is a separate dispatcher
-    # and remains active for the corresponding tool invocation.
+    # A proven successful, non-material local read is a physical no-op in
+    # every activation mode. This optimization is independent of convergent
+    # governance: PreToolUse already enforced safety before the tool ran.
     try:
         activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
         handled, transition_response = _commit_convergent_transition(payload, activation_mode=activation_mode, tool=tool)
@@ -368,7 +367,7 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
             return transition_response
         if handled:
             return None
-        if activation_mode == "enforce" and successful_read_fast_path(payload).eligible:
+        if successful_read_fast_path(payload).eligible:
             return None
     except Exception:
         return {"decision": "block", "reason": "convergent-activation-invalid"}

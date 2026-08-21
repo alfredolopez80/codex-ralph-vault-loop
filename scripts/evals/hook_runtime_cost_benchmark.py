@@ -178,7 +178,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.markdown_out:
         args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
         args.markdown_out.write_text(markdown_report(report), encoding="utf-8")
-    print(json.dumps(report, indent=2, sort_keys=True))
+    if args.json_out or args.markdown_out:
+        destinations = []
+        if args.json_out:
+            destinations.append(f"json={args.json_out}")
+        if args.markdown_out:
+            destinations.append(f"markdown={args.markdown_out}")
+        print("HOOK_BENCHMARK_REPORT " + " ".join(destinations))
+    else:
+        print(json.dumps(report, indent=2, sort_keys=True))
     print(f"METRIC hook_cost_score={report['hook_cost_score']}")
     print(f"METRIC hook_total_p50_ms={report['total_p50_ms']}")
     print(f"METRIC hook_output_context_units={report['estimated_context_units']}")

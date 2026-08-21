@@ -80,12 +80,12 @@ def test_activation_mode_is_internal_and_strict() -> None:
         configured_activation_mode({"RALPH_CONVERGENT_EXECUTION_MODE": "maybe"})
 
 
-def test_repo_local_activation_file_is_plan_and_policy_bound() -> None:
+def test_repo_local_activation_file_defaults_to_non_blocking_off() -> None:
     assert ACTIVATION_CONFIG_PATH.is_file()
-    assert configured_activation_mode() == "enforce"
+    assert configured_activation_mode() == "off"
 
 
-def test_environment_can_only_demote_repo_enforce_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_environment_can_keep_repo_activation_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RALPH_CONVERGENT_EXECUTION_MODE", "off")
     assert configured_activation_mode() == "off"
 

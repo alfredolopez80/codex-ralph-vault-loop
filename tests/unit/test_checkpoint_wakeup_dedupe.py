@@ -13,6 +13,8 @@ def run_memory(ralph_home: Path, name: str, *args: str, session_id: str = "") ->
     env["RALPH_HOME"] = str(ralph_home)
     env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    env.pop("CODEX_SESSION_ID", None)
+    env.pop("RALPH_SESSION_ID", None)
     if session_id:
         env["CODEX_SESSION_ID"] = session_id
     return subprocess.run(

@@ -10,7 +10,16 @@ from _gate_common import REPORT_DIR, detect_project, now_iso, summarize, write_r
 
 
 def run_json(command: list[str]) -> tuple[int, list[dict]]:
-    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    # Subcommands reserve stdout for their JSON protocol and relay long-running
+    # test progress through inherited stderr, so callers never wait blindly.
+    completed = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        check=False,
+    )
+    captured_stderr = completed.stderr or ""
     if not completed.stdout.strip():
         return completed.returncode, [
             {
@@ -19,7 +28,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand returned no JSON result",
                 "stdout": "",
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode,
             }
         ]
@@ -33,7 +42,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand returned malformed JSON",
                 "stdout": completed.stdout[-4_000:],
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode or 1,
             }
         ]
@@ -45,7 +54,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand JSON omitted a results list",
                 "stdout": completed.stdout[-4_000:],
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode or 1,
             }
         ]
@@ -58,7 +67,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand JSON omitted a results list",
                 "stdout": completed.stdout[-4_000:],
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode or 1,
             }
         ]
@@ -69,7 +78,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
             "command": command,
             "reason": "gate subcommand returned an empty results list",
             "stdout": completed.stdout[-4_000:],
-            "stderr": completed.stderr[-4_000:],
+            "stderr": captured_stderr[-4_000:],
             "exit_code": completed.returncode or 1,
         }]
     allowed_statuses = {"passed", "failed", "skipped"}
@@ -86,7 +95,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
             "command": command,
             "reason": "gate subcommand returned an invalid result schema",
             "stdout": completed.stdout[-4_000:],
-            "stderr": completed.stderr[-4_000:],
+            "stderr": captured_stderr[-4_000:],
             "exit_code": completed.returncode or 1,
         }]
     if completed.returncode != 0:
@@ -96,7 +105,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
             "command": command,
             "reason": "gate subcommand returned a non-zero exit code",
             "stdout": completed.stdout[-4_000:],
-            "stderr": completed.stderr[-4_000:],
+            "stderr": captured_stderr[-4_000:],
             "exit_code": completed.returncode,
         }]
     return completed.returncode, results

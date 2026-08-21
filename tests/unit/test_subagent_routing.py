@@ -28,6 +28,7 @@ from shared.runtime_profile import (
     PROGRESS_REASON_CODE,
 )
 import subagent_routing_pretool_guard as routing_guard
+from shared.agent_budget import MAX_SUBAGENT_BRIEF_BYTES
 
 REPOSITORY_DEFAULT = ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT)
 
@@ -171,11 +172,10 @@ def test_terra_route_exposes_only_real_spawn_arguments() -> None:
     decision = resolve(raw_complexity=4, intent="implementation", independent_block=True)
 
     assert dict(decision.spawn_arguments) == {
-        "agent_type": "ralph-coder",
-        "fork_turns": "none",
+        "agent_type": "default",
+        "fork_context": False,
         "model": TERRA_MODEL,
         "reasoning_effort": "high",
-        "task_name": "terra_implementation",
     }
     with pytest.raises(TypeError):
         decision.spawn_arguments["model"] = SOL_MODEL  # type: ignore[index]
@@ -337,7 +337,12 @@ def test_active_analysis_override_is_limited_to_gated_nine_and_ten() -> None:
     assert accepted.subagent_mode == "active-analysis"
     assert accepted.subagent_model == SOL_MODEL
     assert accepted.subagent_effort == "xhigh"
-    assert dict(accepted.spawn_arguments)["task_name"] == "sol_advisor"
+    assert dict(accepted.spawn_arguments) == {
+        "agent_type": "default",
+        "fork_context": False,
+        "model": SOL_MODEL,
+        "reasoning_effort": "xhigh",
+    }
     assert "subagent_route" not in accepted.spawn_arguments
     assert blocked.active_analysis_eligible is False
     assert blocked.active_analysis_rejection_reason == "active-analysis-requires-hard-gates"
@@ -405,18 +410,62 @@ def test_native_spawn_guard_fails_closed_when_validation_raises(monkeypatch: pyt
         lambda: {
             "tool_name": "spawn_agent",
             "tool_input": {
-                "task_name": "sol_advisor",
+                "agent_type": "default",
                 "model": SOL_MODEL,
                 "reasoning_effort": "high",
-                "fork_turns": "none",
+                "fork_context": False,
+                "message": "Review one bounded decision.",
             },
         },
     )
-    monkeypatch.setattr(routing_guard, "read_state", lambda _payload: (_ for _ in ()).throw(RuntimeError("state read")))
+    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: (_ for _ in ()).throw(RuntimeError("state read")))
     monkeypatch.setattr(routing_guard, "write_json", output.append)
 
     assert routing_guard.main() == 0
     assert output == [{"decision": "block", "reason": "Subagent routing validation failed; the spawn was blocked for safety."}]
+
+
+def test_native_spawn_guard_allows_an_expanded_but_bounded_brief(monkeypatch: pytest.MonkeyPatch) -> None:
+    output: list[dict[str, object]] = []
+    payload = {
+        "tool_name": "spawn_agent",
+        "tool_input": {
+            "agent_type": "default",
+            "model": SOL_MODEL,
+            "reasoning_effort": "high",
+            "fork_context": False,
+            "message": "x" * 12_000,
+        },
+    }
+    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: ("missing", {}))
+    monkeypatch.setattr(routing_guard, "write_json", output.append)
+
+    assert routing_guard._routing_main(payload) == 0
+    assert output == []
+
+
+def test_native_spawn_guard_blocks_a_brief_above_the_expanded_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    output: list[dict[str, object]] = []
+    payload = {
+        "tool_name": "spawn_agent",
+        "tool_input": {
+            "agent_type": "default",
+            "model": SOL_MODEL,
+            "reasoning_effort": "high",
+            "fork_context": False,
+            "message": "x" * (MAX_SUBAGENT_BRIEF_BYTES + 1),
+        },
+    }
+    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: ("missing", {}))
+    monkeypatch.setattr(routing_guard, "write_json", output.append)
+
+    assert routing_guard._routing_main(payload) == 0
+    assert output == [
+        {
+            "decision": "block",
+            "reason": "Subagent brief exceeds the bounded context limit; do not forward full history.",
+        }
+    ]
 
 
 @pytest.mark.parametrize("model", [TERRA_MODEL, SOL_MODEL])
@@ -432,12 +481,12 @@ def test_native_spawn_guard_blocks_progress_contract_for_every_model(
             "origin": "implementation-progress",
             "intent": "progress-maintenance",
             "model": model,
-            "task_name": "sol_advisor" if model == SOL_MODEL else "terra_implementation",
+            "agent_type": "default",
             "reasoning_effort": "max" if model == SOL_MODEL else "high",
-            "fork_turns": "none",
+            "fork_context": False,
         },
     )
-    monkeypatch.setattr(routing_guard, "read_state", lambda _payload: {})
+    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: ("missing", {}))
     monkeypatch.setattr(routing_guard, "write_json", output.append)
 
     assert routing_guard.main() == 0

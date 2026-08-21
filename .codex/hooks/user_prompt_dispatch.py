@@ -36,7 +36,7 @@ from shared.progress_hook import (
 from shared.convergence_authority import AuthorityError, ensure_prompt_boundary
 from shared.execution_policy import ExecutionPolicyError, configured_activation_mode
 from shared.prompt_boundary import classify_boundary
-from shared.sol_advisor import executor_context, initialize, is_task_boundary, read_state
+from shared.sol_advisor import executor_context, initialize, is_task_boundary, read_state, read_state_status
 from shared.task_signature import signature_from_prompt
 from sol_advisor_prompt_state import routing_context
 from user_prompt_capture import capture_safe_prompt
@@ -232,6 +232,20 @@ def run(payload: dict[str, Any]) -> str:
         checkpoint_hash=checkpoint,
     )
     if cache.status in {"hit", "inflight"}:
+        # A global/project cache hit can outlive worktree-local routing state.
+        # Repair only that missing operational record; the normal hit remains
+        # silent and performs no recall or model-visible context generation.
+        with contextlib.suppress(Exception):
+            cached_status, _ = read_state_status(payload)
+            if cached_status == "missing":
+                initialize(
+                    {
+                        **payload,
+                        "complexity": complexity_for_prompt(prompt),
+                        "sensitivity": sensitivity,
+                        "task_signature": signature.value,
+                    }
+                )
         _record(
             context,
             payload,

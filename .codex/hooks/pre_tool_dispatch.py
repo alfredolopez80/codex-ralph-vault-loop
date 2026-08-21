@@ -69,7 +69,8 @@ def _parse_input() -> dict[str, Any] | None:
 
 def _tool_name(payload: dict[str, Any]) -> str:
     value = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
-    return value.strip().lower().replace("-", "_").rsplit(".", 1)[-1]
+    normalized = value.strip().lower().replace("-", "_").rsplit(".", 1)[-1]
+    return normalized.rsplit("__", 1)[-1]
 
 
 def _tool_input(payload: dict[str, Any]) -> dict[str, Any]:
@@ -143,7 +144,7 @@ def _raw_paths(payload: dict[str, Any], tool: str) -> list[str]:
     data = _tool_input(payload)
     values = [str(data[key]).strip() for key in PATH_KEYS if isinstance(data.get(key), str) and str(data[key]).strip()]
     if tool == "apply_patch":
-        patch = data.get("patch") or data.get("input") or payload.get("patch")
+        patch = data.get("patch") or data.get("input") or data.get("command") or payload.get("patch")
         if isinstance(patch, str):
             values.extend(match.group("path").strip() for match in PATCH_PATH_RE.finditer(patch))
     return list(dict.fromkeys(values))
@@ -285,6 +286,11 @@ def main() -> int:
         response = _deny("Pre-tool validation failed for the identified action.") if _tool_name(payload) else None
     if response:
         sys.stdout.write(json.dumps(response, ensure_ascii=True, separators=(",", ":")) + "\n")
+    tool = _tool_name(payload)
+    # Successful local reads are already protected by the deny-first checks
+    # above. Avoid turning routine inspection into a durable telemetry write.
+    if response is None and tool in COMMAND_TOOLS and is_read_only_command(_command(payload)):
+        return 0
     try:
         context = active_context_from_payload(payload, resolve_git=False)
         record_event(
@@ -295,7 +301,7 @@ def main() -> int:
             duration_ns=time.perf_counter_ns() - started,
             process_count=1,
             child_process_count=0,
-            tool_family=_tool_name(payload) or "unknown",
+            tool_family=tool or "unknown",
             components_considered=["safety", "egress", "workspace_integrity", "subagent_routing", "sol_advisor_eligibility"],
             components_executed=executed,
             output_bytes=len(json.dumps(response).encode("utf-8")) if response else 0,

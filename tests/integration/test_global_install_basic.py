@@ -375,7 +375,7 @@ def test_pre_global_audit_reports_global_doctor_failure_without_passing(tmp_path
     assert "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL" in audit.stdout
     latest = json.loads((report_dir / "latest.json").read_text(encoding="utf-8"))
     assert latest["pass"] is False
-    assert latest["blockers"] == ["doctor-global"]
+    assert latest["blockers"] == ["installer-source-guard", "doctor-global"]
     doctor = json.loads((report_dir / "doctor-global.json").read_text(encoding="utf-8"))
     assert doctor["pass"] is False
 
@@ -654,7 +654,13 @@ def test_global_hooks_refuse_direct_source_migration(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    direct = run_python_script(tmp_path, "install-global-hooks.py", "--migration-manifest", str(manifest))
+    direct = run_python_script(
+        tmp_path,
+        "install-global-hooks.py",
+        "--migration-manifest",
+        str(manifest),
+        "--allow-worktree-source",
+    )
 
     assert direct.returncode != 0
     assert "GLOBAL_HOOKS_REFUSED_INCOMPLETE_MIGRATION" in direct.stderr

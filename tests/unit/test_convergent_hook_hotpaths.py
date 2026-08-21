@@ -28,6 +28,16 @@ def test_successful_read_is_eligible_and_material_signals_are_not() -> None:
     assert successful_read_fast_path(event(tool_input={"cmd": "git status --short && touch file"})).reason == "write_signal"
 
 
+def test_quoted_patterns_ranges_and_read_only_pipelines_are_fast_path() -> None:
+    for command in (
+        "rg 'allow|block' docs",
+        "sed -n '1,80p' docs/codex-hooks.md",
+        "nl -ba docs/codex-hooks.md | head -n 40",
+        "rg -n hooks docs 2>&1 | head -c 6000",
+    ):
+        assert successful_read_fast_path(event(tool_input={"cmd": command})).eligible is True, command
+
+
 def test_external_agent_and_test_reads_are_never_fast_path() -> None:
     assert successful_read_fast_path(event(tool_name="mcp__catalog.read")).eligible is False
     assert successful_read_fast_path(event(tool_name="Agent")).eligible is False
@@ -77,6 +87,7 @@ def test_read_executables_with_write_options_are_never_fast_path() -> None:
         "git branch -m old new",
         "git branch new-branch",
         "git diff --output=/tmp/leak",
+        "git diff -o/tmp/leak",
         "git log --output /tmp/leak",
         "git show -o /tmp/leak HEAD",
         "rg --pre 'touch /tmp/mutated' pattern .",
@@ -86,6 +97,10 @@ def test_read_executables_with_write_options_are_never_fast_path() -> None:
         "git show --textconv HEAD",
         "sed -n '/x/w /tmp/out' file",
         "less -o /tmp/out file",
+        "sort -o/tmp/out input.txt",
+        "sort --output=/tmp/out input.txt",
+        "sed -f rules.sed input.txt",
+        "sed --file=rules.sed input.txt",
         'cat "$(touch /tmp/mutated)"',
         "cat `touch /tmp/mutated`",
         "cat file>/tmp/out",

@@ -103,6 +103,22 @@ def test_python_gate_disables_pytest_plugin_autoload(monkeypatch: pytest.MonkeyP
     ]
 
 
+def test_gate_command_relays_progress_and_retains_bounded_evidence(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    gate_common = load_gate_script(monkeypatch, "_gate_common.py")
+
+    outcome = gate_common.run_command(
+        "progress-fixture",
+        [sys.executable, "-c", "print('gate-progress-visible')"],
+        timeout=5,
+    )
+
+    assert outcome["status"] == "passed"
+    assert "gate-progress-visible" in outcome["stdout"]
+    assert "gate-progress-visible" in capsys.readouterr().err
+
+
 def test_shell_file_detection_uses_git_repo_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     gate_common = load_gate_script(monkeypatch, "_gate_common.py")
     local_env_script = tmp_path / ".venv-model-router" / "lib" / "completion.sh"

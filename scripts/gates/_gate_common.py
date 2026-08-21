@@ -4,6 +4,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import threading
+from collections import deque
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -107,17 +110,52 @@ def run_command(
     if env is not None:
         command_env = os.environ.copy()
         command_env.update(env)
-    completed = subprocess.run(
+    process = subprocess.Popen(
         command,
         cwd=REPO_ROOT,
         env=command_env,
         text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
     )
-    status = "passed" if completed.returncode == 0 else "failed"
-    return result(name, status, command, stdout=completed.stdout, stderr=completed.stderr, exit_code=completed.returncode)
+    stdout_tail: deque[str] = deque(maxlen=200)
+    stderr_tail: deque[str] = deque(maxlen=200)
+
+    def relay(stream: Any, target: deque[str]) -> None:
+        if stream is None:
+            return
+        for line in iter(stream.readline, ""):
+            target.append(line)
+            print(line, end="", file=sys.stderr, flush=True)
+        stream.close()
+
+    readers = [
+        threading.Thread(target=relay, args=(process.stdout, stdout_tail), daemon=True),
+        threading.Thread(target=relay, args=(process.stderr, stderr_tail), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+    timed_out = False
+    try:
+        return_code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.kill()
+        return_code = process.wait()
+    for reader in readers:
+        reader.join(timeout=5)
+
+    status = "passed" if return_code == 0 and not timed_out else "failed"
+    return result(
+        name,
+        status,
+        command,
+        reason=f"command timed out after {timeout}s" if timed_out else "",
+        stdout="".join(stdout_tail),
+        stderr="".join(stderr_tail),
+        exit_code=return_code,
+    )
 
 
 def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:

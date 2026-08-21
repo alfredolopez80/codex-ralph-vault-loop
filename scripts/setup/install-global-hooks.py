@@ -122,13 +122,11 @@ def validate_codex_hook_config(config: dict) -> None:
 
 
 def is_codex_worktree(path: Path) -> bool:
-    try:
-        resolved = path.resolve()
-        codex_worktrees = (Path.home() / ".codex" / "worktrees").resolve()
-        resolved.relative_to(codex_worktrees)
-        return True
-    except ValueError:
-        return False
+    # Source identity must not depend on HOME: installer tests and managed
+    # launchers may intentionally isolate it while the script still executes
+    # from a real Codex worktree.
+    parts = path.resolve().parts
+    return any(parts[index : index + 2] == (".codex", "worktrees") for index in range(len(parts) - 1))
 
 
 def validate_source_repo(allow_worktree_source: bool) -> None:

@@ -92,8 +92,8 @@ while a previously explicit failure remains sticky through continuations.
 constants. It is non-authoritative context only: it keeps the configured
 Luna/Max executor unchanged, contains no task history, and does not trigger a
 spawn. Complexity-specific routing is still recalculated by the Aristotle
-intake hook for each prompt. Complexity 10 is capped at Sol/Max; `ultra` is
-not part of the supported model catalog.
+intake hook for each prompt. The policy caps automatic complexity-10 routing
+at Sol/Max even when a newer native runtime also exposes `ultra`.
 
 Explicit continuations may raise the persisted Aristotle complexity
 monotonically and refresh the route; an explicit task boundary is required to
@@ -110,22 +110,22 @@ The recommendation records the route, model, effort, mode, budget, expiry,
 reason code, and decision fingerprint separately from the current executor.
 The native spawn arguments use real model IDs and effort fields:
 
-| Route                | Spawn identity                                     | Model and effort                         |
-| -------------------- | -------------------------------------------------- | ---------------------------------------- |
-| Terra implementation | `task_name=terra_implementation`                   | `gpt-5.6-terra`, `high`                  |
-| Sol advisor          | `task_name=sol_advisor`                            | `gpt-5.6-sol`, `high`, `xhigh`, or `max` |
-| Sol active analysis  | `task_name=sol_advisor` plus persisted active mode | `gpt-5.6-sol`, gated effort              |
+| Route                | Native spawn shape                           | Model and effort                         |
+| -------------------- | -------------------------------------------- | ---------------------------------------- |
+| Terra implementation | `agent_type=default`, `fork_context=false`   | `gpt-5.6-terra`, `high`                  |
+| Sol advisor          | `agent_type=default`, `fork_context=false`   | `gpt-5.6-sol`, `high`, `xhigh`, or `max` |
+| Sol active analysis  | same native shape plus persisted active mode | `gpt-5.6-sol`, gated effort              |
 
-All routed subagents use `fork_turns=none` and receive a minimized brief. The
+All routed subagents use explicit `fork_context=false` and receive a minimized brief. The
 persisted route/mode, rather than an invented spawn field, distinguishes active
 analysis from advisory Sol work.
 
-The pre-tool guard owns only this managed Terra/Sol boundary: a supported model,
-managed task name, supported `subagent_route`, or the typed `sol-advisor` profile
-marks a spawn for strict routing validation. Existing reviewer, tester, security,
-explorer, and custom native profiles remain under their existing controls when
-they do not request a managed Terra/Sol lane. A managed spawn with missing or
-inconsistent state is blocked rather than silently delegated.
+The pre-tool guard owns the security boundary for every native spawn: RED stays
+local, the brief is non-empty and bounded, and fresh context is explicit. A
+policy-generated Terra/Sol spawn additionally matches persisted route and budget
+state. A direct current-schema override using `agent_type=default`, a supported
+model/effort, and `fork_context=false` may proceed when valid routing state is
+absent; corrupt or unreadable state still fails closed.
 
 Precedence is: safety, sensitivity, and platform constraints; task override;
 session override; Aristotle result; repository default; global default. Task
@@ -160,8 +160,10 @@ live consultation allowance changes; the pre-tool guard rechecks the current
 `consultation_budget`, `consultation_count`, and `budget_remaining` before each
 managed Sol spawn.
 The guard also rejects a second Sol spawn in an already consulted lifecycle
-phase and applies the 4,096-byte bound to the aggregate native brief,
-not just to one alias at a time. A pre-tool reservation is a 15-minute lease:
+phase. The generated advisor packet remains capped at 4,096 bytes, while an
+explicit native brief can use up to 16,384 aggregate UTF-8 bytes across all
+aliases. This preserves the compact default but leaves room for complex,
+necessary evidence without forwarding full history. A pre-tool reservation is a 15-minute lease:
 matching start/failure callbacks release it earlier, while a missing callback
 eventually permits a bounded retry instead of permanently poisoning the phase.
 This is an availability recovery trade-off; a call that remains live beyond
@@ -172,18 +174,14 @@ Sensitivity candidates are merged monotonically across intake envelopes, and a
 failure transition refreshes the persisted routing decision before a `stuck`
 consultation is considered eligible.
 
-Every managed Terra/Sol spawn must include a non-empty native decision brief;
-the guard rejects an omitted brief or one over the bounded context limit. The
-same pre-tool boundary blocks any native profile while the persisted task is
-RED, including a generic profile that would otherwise inherit full history.
-An explicit inherited-history request is blocked. If a supported Codex runtime
-omits fork metadata, the guard accepts the otherwise validated bounded spawn;
-the generated route still includes `fork_turns=none` whenever the native schema
-accepts that field. When no task classification exists, inherited history is
-blocked and generic profiles must still provide an explicit `fork_turns=none`
-value before the bounded pass-through path is allowed. The managed route
-remains compatible with runtimes that omit fork metadata because its generated
-contract and typed-route checks establish the fresh-fork requirement separately.
+Every native spawn must include a non-empty decision brief within the packet
+limit and must explicitly set `fork_context=false`; omission and inherited
+history are blocked. Persisted RED state and RED content in any brief source
+remain fail-closed. Legacy history fields such as `fork_turns` are rejected;
+generated and accepted direct arguments use the current desktop schema.
+Operational state may be absent after a worktree/cache transition, but
+only the closed current native shape described above receives the bounded
+pass-through. State corruption never receives that compatibility treatment.
 
 The advisor packet contains only a concrete question, compact local evidence,
 relevant file identifiers, constraints, and the required output headings.

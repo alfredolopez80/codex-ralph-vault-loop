@@ -89,13 +89,17 @@ Give Sol only:
 Never include restricted material. Do not send a conversation dump.
 
 Codex main creates the native `sol-advisor` subagent with a fresh, no-history
-fork and puts this brief directly in its invocation. The packet is hard-capped
-at 4,096 bytes and contains only a concrete question, compact local evidence,
-file identifiers, constraints, and output headings. Use the compact, validated
-spawn contract: `task_name=sol_advisor`, `model=gpt-5.6-sol`, the routing
-decision's `reasoning_effort`, and `fork_turns=none`. The contract may include
-the typed `sol-advisor` agent profile after compatibility validation. Do not use
-a full-history fork: the advisor needs only the minimized brief.
+fork and puts this brief directly in its invocation. The generated packet is
+hard-capped at 4,096 bytes and contains only a concrete question, compact local
+evidence, file identifiers, constraints, and output headings. When a complex
+task genuinely needs more evidence, an explicit native brief may expand to
+16,384 aggregate UTF-8 bytes; use scoped file references beyond that limit.
+Use the compact, validated
+spawn contract: `agent_type=default`, `model=gpt-5.6-sol`, the routing
+decision's `reasoning_effort`, and explicit `fork_context=false`. Named roles
+pin their own model/effort in the current desktop runtime, so they are not used
+when the route supplies overrides. Do not use a full-history fork: the advisor
+needs only the minimized brief.
 
 Every Sol invocation uses a fresh, no-history fork.
 
@@ -103,8 +107,10 @@ Hooks may classify, persist bounded routing metadata, annotate, and guard those
 arguments. The native pre-tool guard applies strict checks only to a spawn that
 requests the managed Terra/Sol model, task, route, or typed Sol profile; generic
 reviewer, tester, security, explorer, and custom profiles remain under their
-existing controls. Managed calls with missing or inconsistent state are blocked.
-Hooks never initiate a spawn or silently repair unsupported arguments.
+existing controls. Policy-generated calls still match route/budget state; a
+current-schema direct override may tolerate absent state only after the RED,
+brief-size, model/effort, and fresh-context checks pass. Corrupt state remains
+fail-closed. Hooks never initiate a spawn or silently repair unsupported arguments.
 Managed calls also require a non-empty bounded native brief. Any native spawn
 is blocked while the persisted task sensitivity is RED, even when the caller
 uses a generic profile that could inherit conversation history.

@@ -4,11 +4,30 @@ Hooks provide lifecycle checks for Codex App and Codex CLI. Project hook scripts
 
 Events:
 
-- `SessionStart` loads compact memory.
-- `UserPromptSubmit` captures safe prompt metadata.
-- `PreToolUse` blocks destructive or unsafe operations.
-- `PostToolUse` runs through the consolidated `post_tool_dispatch.py`, which gates the existing line, shaping, memory, checkpoint, advisor, and ledger policies by tool/result class. A structured test/build/lint/typecheck result may produce one semantic validation transition in the canonical implementation-progress store; ordinary reads/writes and unchanged results are no-ops.
+- `SessionStart` loads one compact recovery capsule.
+- `UserPromptSubmit` composes one safety-first, delta-cached context response.
+- `PreToolUse` blocks RED egress, destructive operations, inherited subagent
+  context, and writes outside the active workspace. Operational routing state
+  cannot block a current-schema direct spawn when valid state is absent.
+- `PermissionRequest` remains owned by the native ChatGPT/Codex sandbox; Ralph
+  does not add a competing approval process.
+- `PostToolUse` runs through the consolidated `post_tool_dispatch.py`. A
+  successful non-material local read is a physical no-op in every activation
+  mode; material writes, failures, validations, agents, and external calls run
+  only their relevant bounded components.
+- `SubagentStart` and `SubagentStop` maintain bounded lifecycle/accounting data.
+  `SubagentStart` has 16,384 units of context capacity, while the automatic
+  advisor packet stays at 4,096 bytes so unused capacity costs no tokens.
+- `PreCompact`, `PostCompact`, and `SessionEnd` are intentionally unregistered;
+  compact recovery is handled by `SessionStart(source=compact)` and cleanup is
+  never a completion gate.
 - `Stop` runs through the single `stop_dispatch.py` reducer. It evaluates scoped objective evidence, preserves the file-line and implementation-notes hard gates, and, for an explicit approved progress completion, verifies canonical ownership, provenance, material evidence, validation gates, and current commit/workspace before one terminal store transition. It records route and phrase observations as report-only telemetry, writes a lightweight handoff, and enforces one bounded continuation budget. Heavy memory promotion is marked for later processing and is not run on the critical path.
+
+The seven active registrations are deliberate. ChatGPT Desktop executes all
+matching global, project, and plugin hooks, with same-event command hooks able
+to overlap. One dispatcher per active event prevents duplicate context,
+competing blocks, extra Python startups, and write amplification while retaining
+the component policies inside each dispatcher.
 
 Ralph Convergent Execution v4 adds a policy-hashed, task-local lifecycle above
 these dispatchers. `UserPromptSubmit` owns Prompt Boundary classification and

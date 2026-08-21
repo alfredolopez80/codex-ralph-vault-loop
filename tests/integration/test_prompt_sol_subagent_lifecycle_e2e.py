@@ -39,11 +39,10 @@ def test_configured_lifecycle_routes_sol_advisor_and_releases_completion(tmp_pat
 
     state, decision = routing_state(env, session_id)
     expected_spawn_arguments = {
-        "agent_type": "sol-advisor",
-        "fork_turns": "none",
+        "agent_type": "default",
+        "fork_context": False,
         "model": "gpt-5.6-sol",
         "reasoning_effort": "high",
-        "task_name": "sol_advisor",
     }
     assert_decision_fields(
         decision,
@@ -451,8 +450,8 @@ def test_routing_guard_blocks_conflicting_spawn_envelope_fields(tmp_path: Path) 
             "session_id": session_id,
             "cwd": str(ROOT),
             "tool_name": "spawn_agent",
-            "fork_turns": "none",
-            "tool_input": {**spawn, "message": "Return a bounded verdict.", "fork_turns": "all"},
+            "fork_context": False,
+            "tool_input": {**spawn, "message": "Return a bounded verdict.", "fork_context": True},
         },
         env,
     )
@@ -502,7 +501,7 @@ def test_routing_guard_allows_unmanaged_native_spawns_when_managed_route_pending
                 "tool_input": {
                     "agent_type": agent_type,
                     "task_name": "unclassified_lane",
-                    "fork_turns": "none",
+                    "fork_context": False,
                     "route": "other",
                     "message": "Review this bounded, unrelated task.",
                 },
@@ -532,7 +531,7 @@ def test_routing_guard_blocks_unmanaged_history_even_with_green_task_state(tmp_p
             "tool_input": {
                 "agent_type": "ralph-reviewer",
                 "task_name": "unclassified_lane",
-                "fork_turns": "all",
+                "fork_context": True,
                 "message": "The brief is benign, but history must not be inherited.",
             },
         },
@@ -541,7 +540,7 @@ def test_routing_guard_blocks_unmanaged_history_even_with_green_task_state(tmp_p
 
     block = blocking_payload(result.stdout)
     assert block is not None
-    assert "fork_turns=none" in str(block["reason"])
+    assert "fork_context=false" in str(block["reason"])
 
 
 def test_routing_guard_blocks_unmanaged_spawn_without_fork_metadata(tmp_path: Path) -> None:
@@ -566,7 +565,7 @@ def test_routing_guard_blocks_unmanaged_spawn_without_fork_metadata(tmp_path: Pa
 
     block = blocking_payload(result.stdout)
     assert block is not None
-    assert "fork_turns=none" in str(block["reason"])
+    assert "fork_context=false" in str(block["reason"])
 
 
 def test_routing_guard_blocks_managed_spawn_without_routing_state(tmp_path: Path) -> None:
@@ -584,13 +583,139 @@ def test_routing_guard_blocks_managed_spawn_without_routing_state(tmp_path: Path
                 "task_name": "sol_advisor",
                 "model": "gpt-5.6-sol",
                 "reasoning_effort": "high",
-                "fork_turns": "none",
+                "fork_context": False,
+                "message": "Review one bounded decision.",
             },
         },
         env,
     )
 
     assert result.returncode == 0, result.stderr
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "routing state" in str(block["reason"])
+
+
+def test_routing_guard_allows_current_native_direct_spawn_without_state(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "current-native-spawn-without-state",
+            "cwd": str(ROOT),
+            "tool_name": "multi_agent_v1__spawn_agent",
+            "tool_input": {
+                "agent_type": "default",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "max",
+                "fork_context": False,
+                "message": "Review one bounded hook architecture decision.",
+            },
+        },
+        env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert blocking_payload(result.stdout) is None
+
+
+def test_routing_guard_rejects_legacy_history_and_missing_default_role(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    guard = configured_command("PreToolUse", "subagent_routing_pretool_guard.py")
+    base = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "strict-current-native-contract",
+        "cwd": str(ROOT),
+        "tool_name": "spawn_agent",
+    }
+    legacy = run_command(
+        guard,
+        {
+            **base,
+            "tool_input": {
+                "agent_type": "default",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "max",
+                "fork_turns": "none",
+                "message": "Review one bounded decision.",
+            },
+        },
+        env,
+    )
+    omitted_role = run_command(
+        guard,
+        {
+            **base,
+            "tool_input": {
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "max",
+                "fork_context": False,
+                "message": "Review one bounded decision.",
+            },
+        },
+        env,
+    )
+
+    assert blocking_payload(legacy.stdout) is not None
+    omitted_block = blocking_payload(omitted_role.stdout)
+    assert omitted_block is not None
+    assert "routing state" in str(omitted_block["reason"])
+
+
+def test_routing_guard_blocks_current_direct_spawn_with_corrupt_state(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "current-native-spawn-corrupt-state"
+    path = state_path(env, session_id)
+    path.parent.mkdir(parents=True)
+    path.write_text("not-json", encoding="utf-8")
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "agent_type": "default",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "max",
+                "fork_context": False,
+                "message": "Review one bounded decision.",
+            },
+        },
+        env,
+    )
+
+    block = blocking_payload(result.stdout)
+    assert block is not None
+    assert "corrupt or unreadable" in str(block["reason"])
+
+
+def test_routing_guard_does_not_treat_valid_empty_state_as_missing(tmp_path: Path) -> None:
+    env = isolated_env(tmp_path)
+    session_id = "current-native-spawn-valid-empty-state"
+    path = state_path(env, session_id)
+    path.parent.mkdir(parents=True)
+    path.write_text("{}", encoding="utf-8")
+    result = run_command(
+        configured_command("PreToolUse", "subagent_routing_pretool_guard.py"),
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": session_id,
+            "cwd": str(ROOT),
+            "tool_name": "spawn_agent",
+            "tool_input": {
+                "agent_type": "default",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "max",
+                "fork_context": False,
+                "message": "Review one bounded decision.",
+            },
+        },
+        env,
+    )
+
     block = blocking_payload(result.stdout)
     assert block is not None
     assert "routing state" in str(block["reason"])
@@ -679,7 +804,7 @@ def test_configured_lifecycle_rejects_active_sol_below_effective_nine(tmp_path: 
             "task_name": "sol_advisor",
             "model": "gpt-5.6-sol",
             "reasoning_effort": "xhigh",
-            "fork_turns": "none",
+            "fork_context": False,
             "message": "Perform bounded active analysis.",
         },
     }
@@ -743,7 +868,7 @@ def test_routing_guard_blocks_omitted_fork_metadata_for_managed_spawn(tmp_path: 
     run_configured_event("UserPromptSubmit", prompt_payload(session_id, high_complexity_prompt()), env)
     _, decision = routing_state(env, session_id)
     spawn = dict(decision["spawn_arguments"])
-    spawn.pop("fork_turns", None)
+    spawn.pop("fork_context", None)
 
     result = run_configured_event(
         "PreToolUse",
@@ -760,7 +885,7 @@ def test_routing_guard_blocks_omitted_fork_metadata_for_managed_spawn(tmp_path: 
 
     block = next((blocking_payload(item.stdout) for item in result if blocking_payload(item.stdout)), None)
     assert block is not None
-    assert "fork_turns=none" in str(block["reason"])
+    assert "fork_context=false" in str(block["reason"])
 
 
 def test_sol_pretool_reservation_blocks_duplicate_and_releases_failed_spawn(tmp_path: Path) -> None:
@@ -967,7 +1092,7 @@ def test_configured_lifecycle_blocks_red_before_route_or_subagent_creation(tmp_p
             "tool_input": {
                 "agent_type": "ralph-reviewer",
                 "task_name": "reviewer",
-                "fork_turns": "all",
+                "fork_context": True,
                 "message": "The explicit brief is benign, but history must not be inherited.",
             },
         },
@@ -1040,8 +1165,8 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
             "tool_name": "spawn_agent",
             "tool_input": {
                 **spawn_arguments,
-                "message": "a" * 4_500,
-                "brief": "b" * 4_000,
+                "message": "a" * 9_000,
+                "brief": "b" * 8_000,
             },
         },
         env,
@@ -1106,7 +1231,7 @@ def test_routing_guard_blocks_a_red_brief_before_managed_spawn(tmp_path: Path) -
             "tool_input": {
                 "agent_type": "ralph-reviewer",
                 "task_name": "reviewer",
-                "fork_turns": "all",
+                    "fork_context": True,
                 "message": "Review the bounded local task.",
             },
         },

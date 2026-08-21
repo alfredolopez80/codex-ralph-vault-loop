@@ -78,6 +78,38 @@ ENV_READ_RE = re.compile(
 ENV_NAME_LITERAL_RE = re.compile(r"['\"`]([A-Za-z_][A-Za-z0-9_]*)['\"`]")
 SENSITIVE_SCAN_TOOLS = {"ag", "ack", "egrep", "fgrep", "grep", "rg"}
 REFERENCE_ONLY_TOOLS = {"echo", "printf"}
+SEARCH_OPTIONS_WITH_VALUE = {
+    "-A",
+    "-B",
+    "-C",
+    "-e",
+    "-f",
+    "-g",
+    "-m",
+    "-t",
+    "-T",
+    "--after-context",
+    "--before-context",
+    "--context",
+    "--engine",
+    "--file",
+    "--glob",
+    "--iglob",
+    "--ignore-file",
+    "--include",
+    "--max-count",
+    "--max-depth",
+    "--max-filesize",
+    "--path-separator",
+    "--regexp",
+    "--sort",
+    "--threads",
+    "--type",
+    "--type-add",
+    "--type-not",
+}
+SEARCH_PATTERN_OPTIONS = {"-e", "--regexp"}
+SEARCH_FILE_OPTIONS = {"-f", "--file", "--ignore-file"}
 
 AUTOMATION_MUTATION_MODES = {"create", "update"}
 AUTOMATION_REVIEW_MODES = {"suggested_create", "suggested_update"}
@@ -517,6 +549,55 @@ def search_option_targets_protected_path(tool: str, segment: list[str]) -> bool:
     return False
 
 
+def search_path_operands(tool: str, segment: list[str]) -> list[str]:
+    """Return files/directories read by a search command, excluding its pattern."""
+
+    positionals: list[str] = []
+    option_files: list[str] = []
+    pattern_supplied = False
+    files_mode = "--files" in segment
+    index = 0
+    while index < len(segment):
+        candidate = segment[index]
+        if candidate == "--":
+            positionals.extend(segment[index + 1 :])
+            break
+        if candidate in SEARCH_OPTIONS_WITH_VALUE:
+            value = segment[index + 1] if index + 1 < len(segment) else ""
+            if candidate in SEARCH_PATTERN_OPTIONS:
+                pattern_supplied = True
+            if candidate in SEARCH_FILE_OPTIONS and value:
+                option_files.append(value)
+            index += 2
+            continue
+        if candidate.startswith("--") and "=" in candidate:
+            option, value = candidate.split("=", 1)
+            if option in SEARCH_PATTERN_OPTIONS:
+                pattern_supplied = True
+            if option in SEARCH_FILE_OPTIONS and value:
+                option_files.append(value)
+            index += 1
+            continue
+        if candidate.startswith(("-e", "-f")) and candidate not in {"-e", "-f"}:
+            pattern_supplied = pattern_supplied or candidate.startswith("-e")
+            if candidate.startswith("-f"):
+                option_files.append(candidate[2:])
+            index += 1
+            continue
+        if re.fullmatch(r"-[ABCm]\d+", candidate):
+            index += 1
+            continue
+        if candidate.startswith("-"):
+            index += 1
+            continue
+        positionals.append(candidate)
+        index += 1
+
+    if files_mode or pattern_supplied:
+        return [*option_files, *positionals]
+    return [*option_files, *positionals[1:]] if positionals else option_files
+
+
 def command_has_protected_scan_path(command: str) -> bool:
     parts = command_parts(command)
     for idx, part in enumerate(parts):
@@ -533,16 +614,8 @@ def command_has_protected_scan_path(command: str) -> bool:
         if search_option_targets_protected_path(tool, segment):
             return True
 
-        positionals = [candidate for candidate in segment if not candidate.startswith("-")]
-        if not positionals:
-            continue
-        if tool in {"grep", "egrep", "fgrep"} and any(SENSITIVE_PATH_RE.search(candidate) for candidate in positionals[1:]):
+        if any(SENSITIVE_PATH_RE.search(candidate) for candidate in search_path_operands(tool, segment)):
             return True
-        if tool in {"rg", "ag", "ack"}:
-            if "--files" in segment and any(SENSITIVE_PATH_RE.search(candidate) for candidate in positionals):
-                return True
-            if any(SENSITIVE_PATH_RE.search(candidate) for candidate in positionals[1:]):
-                return True
     return False
 
 
@@ -817,6 +890,24 @@ def blocked_automation_reason(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def transcript_output_is_bounded(payload: dict[str, Any]) -> bool:
+    """Recognize the current unified-exec transcript ceiling."""
+
+    field = "max_output_" + "tokens"
+    values: list[object] = []
+    for source in (payload, tool_input_from_payload(payload)):
+        if not isinstance(source, dict):
+            continue
+        if field in source:
+            values.append(source[field])
+    if not values:
+        return False
+    value = values[0]
+    if any(type(item) is not type(value) or item != value for item in values[1:]):
+        return False
+    return isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 10_000
+
+
 def _guard_main(payload: dict[str, Any] | None = None) -> int:
     payload = payload if payload is not None else read_hook_input()
     nested_patch = nested_patch_envelope(payload)
@@ -944,7 +1035,11 @@ def _guard_main(payload: dict[str, Any] | None = None) -> int:
     if wakeup_payload:
         write_json({"decision": "block", **wakeup_payload})
         return 0
-    context_finding = classify_command(command, cwd_from_payload(payload))
+    context_finding = classify_command(
+        command,
+        cwd_from_payload(payload),
+        transcript_bounded=transcript_output_is_bounded(payload),
+    )
     if context_finding:
         write_json(context_finding.hook_payload())
         return 0

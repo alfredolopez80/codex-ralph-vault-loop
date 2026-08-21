@@ -162,6 +162,27 @@ def test_matcher_counts_are_derived_from_configuration(tmp_path: Path) -> None:
     assert module.matched_handlers(loaded, "PreToolUse", {"tool_name": "Read"}) == 0
 
 
+def test_file_outputs_keep_benchmark_stdout_compact(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    module = load_benchmark()
+    report = {
+        "hook_cost_score": 12.5,
+        "total_p50_ms": 10.0,
+        "estimated_context_units": 2,
+    }
+    monkeypatch.setattr(module, "measure", lambda *_args, **_kwargs: report)
+    output = tmp_path / "benchmark.json"
+
+    assert module.main(["--iterations", "1", "--json-out", str(output)]) == 0
+
+    stdout = capsys.readouterr().out
+    assert output.read_text(encoding="utf-8").startswith("{")
+    assert "HOOK_BENCHMARK_REPORT json=" in stdout
+    assert '"hook_cost_score"' not in stdout
+    assert "METRIC hook_cost_score=12.5" in stdout
+
+
 def test_malformed_matcher_fails_loudly() -> None:
     module = load_benchmark()
     config = {"hooks": {"PreToolUse": [{"matcher": "[", "hooks": [{"command": "one"}]}]}}

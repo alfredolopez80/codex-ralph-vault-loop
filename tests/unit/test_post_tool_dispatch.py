@@ -111,13 +111,11 @@ def test_red_tool_name_is_not_persisted_in_cost_ledger(tmp_path: Path) -> None:
     assert marker not in runtime_text
 
 
-def test_read_only_call_records_compact_telemetry_without_checkpoint(tmp_path: Path) -> None:
+def test_read_only_call_is_a_physical_noop_by_default(tmp_path: Path) -> None:
     result = run_dispatch(tmp_path, payload(tmp_path, tool="exec_command", tool_input={"cmd": "git status --short"}))
     assert result.returncode == 0
     assert result.stdout == ""
-    assert len(read_jsonl(tmp_path / "ralph" / "cost" / "tool-ledger.jsonl")) == 1
-    project_dirs = list((tmp_path / "ralph" / "projects").glob("*/checkpoints")) if (tmp_path / "ralph" / "projects").exists() else []
-    assert not project_dirs
+    assert runtime_files(tmp_path) == []
 
 
 def test_enforced_successful_read_is_a_physical_noop(tmp_path: Path) -> None:
@@ -386,7 +384,7 @@ def test_dedupe_entry_count_is_bounded(tmp_path: Path) -> None:
         data = payload(
             tmp_path,
             tool="exec_command",
-            tool_input={"cmd": "git status"},
+            tool_input={"cmd": "printf changed"},
             tool_use_id=f"bounded-{index}",
         )
         assert run_dispatch(tmp_path, data, {"RALPH_POST_TOOL_DEDUPE_MAX_ENTRIES": "16"}).returncode == 0

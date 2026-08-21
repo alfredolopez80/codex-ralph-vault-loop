@@ -101,9 +101,14 @@ def test_enforce_requires_v4_snapshot_instead_of_falling_through_to_legacy(tmp_p
     assert decision["reason"] == "convergent-state-required"
 
 
-def test_invalid_payload_is_blocked_by_enforce_activation(tmp_path: Path) -> None:
+def test_invalid_payload_cannot_promote_an_off_activation(tmp_path: Path) -> None:
     env = os.environ.copy()
-    env.update({"RALPH_HOME": str(tmp_path / "ralph")})
+    env.update(
+        {
+            "RALPH_HOME": str(tmp_path / "ralph"),
+            "RALPH_CONVERGENT_EXECUTION_MODE": "enforce",
+        }
+    )
     result = subprocess.run(
         [sys.executable, str(HOOK)],
         cwd=ROOT,
@@ -114,7 +119,7 @@ def test_invalid_payload_is_blocked_by_enforce_activation(tmp_path: Path) -> Non
         check=False,
     )
     assert result.returncode == 0
-    assert json.loads(result.stdout)["reason"] == "convergent-input-invalid"
+    assert json.loads(result.stdout)["reason"] == "convergent-activation-invalid"
     assert result.stderr == ""
 
 

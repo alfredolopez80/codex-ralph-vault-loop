@@ -1,0 +1,69 @@
+{
+  "template_type": "architecture",
+  "style": 7,
+  "width": 1500,
+  "height": 1020,
+  "title": "ChatGPT Desktop Hooks — Arquitectura objetivo",
+  "subtitle": "Un dispatcher por evento activo · seguridad determinista · estado operativo sin deadlocks",
+  "containers": [
+    { "x": 40, "y": 118, "width": 1420, "height": 118, "label": "01 · FUENTES", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 40, "y": 266, "width": 1420, "height": 278, "label": "02 · RUNTIME DE EVENTOS", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 40, "y": 574, "width": 1420, "height": 164, "label": "03 · RESULTADOS", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 40, "y": 768, "width": 1420, "height": 112, "label": "04 · ESTADO ACOTADO", "stroke": "#e2e8f0", "fill": "none" }
+  ],
+  "nodes": [
+    { "id": "global", "kind": "rect", "x": 92, "y": 150, "width": 210, "height": 58, "label": "Hooks globales", "type_label": "GLOBAL", "flat": true },
+    { "id": "project", "kind": "rect", "x": 356, "y": 150, "width": 210, "height": 58, "label": "Hooks del proyecto", "type_label": "PROJECT", "flat": true },
+    { "id": "plugins", "kind": "rect", "x": 620, "y": 150, "width": 210, "height": 58, "label": "Hooks de plugins", "type_label": "PLUGINS", "flat": true },
+    { "id": "effective", "kind": "double_rect", "x": 1012, "y": 142, "width": 330, "height": 72, "label": "Grafo efectivo + deduplicación", "type_label": "ONE OWNER / EVENT", "stroke": "#10a37f" },
+
+    { "id": "session_prompt", "kind": "rect", "x": 82, "y": 316, "width": 230, "height": 68, "label": "SessionStart + Prompt", "type_label": "CONTEXT DELTA", "flat": true },
+    { "id": "pretool", "kind": "double_rect", "x": 362, "y": 306, "width": 250, "height": 82, "label": "PreToolUse dispatcher", "type_label": "SECURITY BOUNDARY", "stroke": "#10a37f" },
+    { "id": "posttool", "kind": "rect", "x": 662, "y": 316, "width": 230, "height": 68, "label": "PostToolUse dispatcher", "type_label": "SELECTIVE OBSERVER", "flat": true },
+    { "id": "subagents", "kind": "rect", "x": 942, "y": 316, "width": 230, "height": 68, "label": "Subagent Start / Stop", "type_label": "BOUNDED LIFECYCLE", "flat": true },
+    { "id": "stop", "kind": "rect", "x": 1222, "y": 316, "width": 190, "height": 68, "label": "Stop reducer", "type_label": "ONE DECISION", "flat": true },
+
+    { "id": "native_permission", "kind": "rect", "x": 365, "y": 442, "width": 244, "height": 62, "label": "PermissionRequest nativo", "type_label": "PLATFORM OWNED", "fill": "#f8fafc", "stroke": "#94a3b8", "flat": true },
+    { "id": "optional_events", "kind": "rect", "x": 946, "y": 442, "width": 330, "height": 62, "label": "Pre/PostCompact + SessionEnd", "type_label": "OMITIDOS POR DISEÑO", "fill": "#f8fafc", "stroke": "#cbd5e1", "flat": true },
+
+    { "id": "deny", "kind": "rect", "x": 86, "y": 622, "width": 225, "height": 68, "label": "Bloqueo sanitizado", "type_label": "RED · DESTRUCTIVO · EGRESS", "fill": "#fff7f7", "stroke": "#ef4444", "flat": true },
+    { "id": "approval", "kind": "rect", "x": 366, "y": 622, "width": 225, "height": 68, "label": "Aprobación nativa", "type_label": "SANDBOX", "flat": true },
+    { "id": "fast", "kind": "double_rect", "x": 646, "y": 614, "width": 240, "height": 76, "label": "Allow silencioso / no-op", "type_label": "0 OUTPUT · 0 WRITES", "stroke": "#10a37f" },
+    { "id": "material", "kind": "rect", "x": 946, "y": 622, "width": 225, "height": 68, "label": "Persistencia material", "type_label": "ONLY WHEN RELEVANT", "flat": true },
+    { "id": "continue", "kind": "rect", "x": 1226, "y": 622, "width": 190, "height": 68, "label": "Continuación acotada", "type_label": "STOP ONLY", "flat": true },
+
+    { "id": "route_state", "kind": "cylinder", "x": 250, "y": 792, "width": 230, "height": 64, "label": "Routing metadata", "type_label": "ADVISORY" },
+    { "id": "ralph_state", "kind": "cylinder", "x": 635, "y": 792, "width": 230, "height": 64, "label": "Ralph runtime", "type_label": "BOUNDED LOCAL" },
+    { "id": "evidence", "kind": "cylinder", "x": 1020, "y": 792, "width": 230, "height": 64, "label": "Plans + evidence", "type_label": "VERIFIABLE" }
+  ],
+  "arrows": [
+    { "source": "global", "target": "effective", "flow": "read", "corridor_y": [250] },
+    { "source": "project", "target": "effective", "flow": "read", "corridor_y": [244] },
+    { "source": "plugins", "target": "effective", "flow": "read" },
+    { "source": "effective", "target": "session_prompt", "flow": "control", "corridor_y": [252] },
+    { "source": "effective", "target": "pretool", "flow": "control", "corridor_y": [246] },
+    { "source": "effective", "target": "posttool", "flow": "control", "corridor_y": [240] },
+    { "source": "effective", "target": "subagents", "flow": "control" },
+    { "source": "effective", "target": "stop", "flow": "control" },
+    { "source": "pretool", "target": "deny", "flow": "write", "label": "unsafe" },
+    { "source": "pretool", "target": "native_permission", "flow": "control", "label": "approval" },
+    { "source": "native_permission", "target": "approval", "flow": "control" },
+    { "source": "pretool", "target": "fast", "flow": "control", "label": "safe" },
+    { "source": "posttool", "target": "fast", "flow": "control", "label": "read" },
+    { "source": "posttool", "target": "material", "flow": "write", "label": "material" },
+    { "source": "stop", "target": "continue", "flow": "feedback" },
+    { "source": "session_prompt", "target": "route_state", "flow": "write" },
+    { "source": "subagents", "target": "route_state", "flow": "write", "dashed": true },
+    { "source": "material", "target": "ralph_state", "flow": "write" },
+    { "source": "continue", "target": "evidence", "flow": "read" }
+  ],
+  "legend": [
+    { "flow": "control", "label": "flujo principal" },
+    { "flow": "write", "label": "bloqueo / escritura material" },
+    { "flow": "read", "label": "contexto o evidencia" },
+    { "flow": "feedback", "label": "continuación acotada" }
+  ],
+  "legend_position": "bottom-left",
+  "legend_y": 900,
+  "footer": "ChatGPT Desktop 26.818.31338 · OpenAI style 7"
+}

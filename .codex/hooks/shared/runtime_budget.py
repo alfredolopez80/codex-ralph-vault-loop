@@ -26,7 +26,10 @@ _CHILD_TIMEOUTS: Final[dict[tuple[str, str], int]] = {
 _CONTEXT_LIMITS: Final[dict[tuple[str, str], int]] = {
     ("SessionStart", "default"): 800,
     ("UserPromptSubmit", "default"): 500,
-    ("SubagentStart", "default"): 400,
+    # Capacity ceiling, not an eager allocation. The ordinary advisor packet
+    # remains compact, while complex subagents can receive an explicit brief
+    # without Codex collapsing it to a short preview.
+    ("SubagentStart", "default"): 16_384,
 }
 
 
@@ -51,7 +54,7 @@ def child_timeout_for(event: str, role: str) -> int:
 
 
 def context_limit_for(event: str, profile: str = "default") -> int:
-    """Return a positive approximate-token cap for context-capable events."""
+    """Return a positive Codex additional-context preview cap."""
     try:
         limit = _CONTEXT_LIMITS[(event, profile)]
     except KeyError as exc:

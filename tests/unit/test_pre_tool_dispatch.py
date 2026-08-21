@@ -87,6 +87,43 @@ def test_write_aliases_reject_outside_and_symlink_paths(tmp_path: Path) -> None:
     assert blocked and "symbolic" in blocked["reason"].lower()
 
 
+def test_native_apply_patch_command_field_is_workspace_scoped(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    inside = "*** Begin Patch\n*** Update File: notes.md\n@@\n-old\n+new\n*** End Patch"
+    assert decision(run_dispatch(tmp_path, payload(workspace, "apply_patch", {"command": inside}))) is None
+
+    outside_path = tmp_path / "outside.md"
+    outside = f"*** Begin Patch\n*** Update File: {outside_path}\n@@\n-old\n+new\n*** End Patch"
+    blocked = decision(run_dispatch(tmp_path, payload(workspace, "apply_patch", {"command": outside})))
+    assert blocked and "workspace" in blocked["reason"].lower()
+
+
+def test_native_exec_output_ceiling_satisfies_context_budget(tmp_path: Path) -> None:
+    command = "python3 scripts/context/repo_map.py --root ."
+    unbounded = decision(run_dispatch(tmp_path, payload(tmp_path, "exec_command", {"cmd": command})))
+    assert unbounded and "context budget" in unbounded["reason"].lower()
+    bounded = payload(
+        tmp_path,
+        "exec_command",
+        {"cmd": command, "max_output_tokens": 2_000},
+    )
+    assert decision(run_dispatch(tmp_path, bounded)) is None
+
+
+def test_conflicting_native_output_ceilings_do_not_bypass_context_budget(tmp_path: Path) -> None:
+    command = "python3 scripts/context/repo_map.py --root ."
+    ceiling_field = "max_output_" + "tokens"
+    conflicting = payload(tmp_path, "exec_command", {"cmd": command, ceiling_field: 2_000})
+    conflicting[ceiling_field] = 3_000
+    blocked = decision(run_dispatch(tmp_path, conflicting))
+    assert blocked and "context budget" in blocked["reason"].lower()
+
+    matching = payload(tmp_path, "exec_command", {"cmd": command, ceiling_field: 2_000})
+    matching[ceiling_field] = 2_000
+    assert decision(run_dispatch(tmp_path, matching)) is None
+
+
 def test_external_payload_is_locally_classified_before_egress(tmp_path: Path) -> None:
     protected_name = "api_" + "key"
     protected_value = protected_name + "=fixture-value"
@@ -98,14 +135,19 @@ def test_external_payload_is_locally_classified_before_egress(tmp_path: Path) ->
     assert decision(run_dispatch(tmp_path, payload(tmp_path, "mcp__remote__read", {"query": "public docs"}))) is None
 
 
-def test_spawn_route_is_checked_and_safety_deny_wins(tmp_path: Path) -> None:
+def test_current_spawn_passes_without_state_and_safety_deny_still_wins(tmp_path: Path) -> None:
     managed = payload(
         tmp_path,
         "spawn_agent",
-        {"agent_type": "sol-advisor", "task_name": "sol_advisor", "model": "gpt-5.6-sol", "fork_turns": "none", "message": "bounded work"},
+        {
+            "agent_type": "default",
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "max",
+            "fork_context": False,
+            "message": "bounded work",
+        },
     )
-    blocked = decision(run_dispatch(tmp_path, managed))
-    assert blocked and "routing" in blocked["reason"].lower()
+    assert decision(run_dispatch(tmp_path, managed)) is None
 
     destructive = dict(managed)
     destructive["tool_input"] = {**managed["tool_input"], "cmd": "git reset " + "--hard"}

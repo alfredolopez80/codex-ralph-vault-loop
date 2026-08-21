@@ -19,7 +19,8 @@ from shared.runtime_profile import PROGRESS_REASON_CODE, is_progress_maintenance
 
 def _native_spawn(payload: dict) -> bool:
     value = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
-    return value.strip().lower().replace("-", "_").rsplit(".", 1)[-1] in {"spawn_agent", "spawnagent"}
+    normalized = value.strip().lower().replace("-", "_").rsplit(".", 1)[-1]
+    return normalized.rsplit("__", 1)[-1] in {"spawn_agent", "spawnagent"}
 
 
 def _field(payload: dict, *keys: str) -> object:

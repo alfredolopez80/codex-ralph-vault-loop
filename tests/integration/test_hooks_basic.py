@@ -395,6 +395,7 @@ def test_pre_tool_guard_blocks_protected_search_paths(tmp_path: Path) -> None:
         f"rg -g {env_name} FOO",
         f"rg --glob={env_name} FOO",
         f"rg --iglob {env_name} FOO",
+        f"rg -n -C 12 FOO {env_name}",
         f"grep -R -m1 --include={env_name} FOO src",
     ]
 
@@ -419,6 +420,23 @@ def test_pre_tool_guard_allows_protected_search_references_without_file_target(t
 
     assert literal_result.returncode == 0, literal_result.stderr
     assert literal_result.stdout == ""
+
+    technical_field = "max_output_" + "tokens"
+    source_query = run_hook(
+        "pre_tool_guard.py",
+        tmp_path,
+        {
+            "tool_input": {
+                "command": (
+                    f'rg -n -C 12 "{technical_field}|transcript_bounded" '
+                    ".codex/hooks/pre_tool_guard.py .codex/hooks/shared/context_budget.py"
+                )
+            }
+        },
+    )
+
+    assert source_query.returncode == 0, source_query.stderr
+    assert source_query.stdout == ""
 
 
 def test_pre_tool_guard_allows_option_reference_literals(tmp_path: Path) -> None:

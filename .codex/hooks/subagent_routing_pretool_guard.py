@@ -13,24 +13,41 @@ from shared.redaction import is_red
 from shared.sol_advisor import (
     RESERVATION_LEASE_SECONDS,
     normalize_phase,
-    read_state,
+    read_state_status,
     reserve_sol_consultation,
     reserve_worker_spawn,
 )
-from shared.agent_budget import MAX_PACKET_BYTES, budget_decision, normalize_ledger
+from shared.agent_budget import MAX_SUBAGENT_BRIEF_BYTES, budget_decision, normalize_ledger
 from shared.runtime_profile import PROGRESS_REASON_CODE, classify_model, is_progress_maintenance
 from shared.active_context import active_context_from_payload
 from shared.runtime_observability import record_event
 
 
 SUPPORTED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
+SUPPORTED_EFFORTS = {
+    "gpt-5.6-terra": {"low", "medium", "high", "xhigh", "max", "ultra"},
+    "gpt-5.6-sol": {"low", "medium", "high", "xhigh", "max", "ultra"},
+}
 MANAGED_ROUTES = {"terra-implementation", "sol-advisor", "sol-active-analysis"}
 MANAGED_TASK_NAMES = {"terra_implementation", "sol_advisor", "sol_active_analysis"}
 MANAGED_AGENT_TYPES = {"sol-advisor"}
-NO_HISTORY_VALUES = {"none", "fresh", "no-history", "no_history"}
 BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
 NATIVE_BRIEF_KEYS = ("message", "prompt", "brief", "decision_brief", "decisionBrief")
-MAX_BRIEF_BYTES = MAX_PACKET_BYTES
+MAX_BRIEF_BYTES = MAX_SUBAGENT_BRIEF_BYTES
+
+
+def _fresh_context(payload: dict[str, Any]) -> tuple[bool, bool]:
+    """Return ``(is_fresh, explicit)`` for the current native schema."""
+
+    for source in _sources(payload):
+        if any(key in source for key in ("fork_turns", "forkTurns", "history_mode", "historyMode")):
+            raise ValueError("legacy history fields are not accepted by the current runtime")
+    current = _value(payload, "fork_context", "forkContext")
+    if current is None:
+        return False, False
+    if not isinstance(current, bool):
+        raise ValueError("fork_context must be a boolean")
+    return current is False, True
 
 
 def _brief_bytes(briefs: list[str]) -> int:
@@ -158,7 +175,7 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
         # Codex may report a namespaced tool identifier such as
         # ``collaboration.spawn_agent``. The final component is the native
         # tool identity; ignoring the namespace would bypass this guard.
-        native_tool = normalized_tool.rsplit(".", 1)[-1]
+        native_tool = normalized_tool.rsplit(".", 1)[-1].rsplit("__", 1)[-1]
         if native_tool not in {"spawn_agent", "spawnagent"}:
             return 0
         model = str(_value(payload, "model", "model_name", "modelName") or "").strip().lower()
@@ -169,6 +186,16 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
             .strip()
             .lower()
             .replace("_", "-")
+        )
+        requested_effort = str(
+            _value(payload, "reasoning_effort", "reasoningEffort", "effort") or ""
+        ).strip().lower()
+        fresh_context, explicit_context = _fresh_context(payload)
+        current_direct_spawn = bool(
+            model in SUPPORTED_MODELS
+            and requested_agent_type == "default"
+            and not task_name
+            and not route_requested
         )
         managed_spawn = _is_managed_spawn(
             model=model,
@@ -185,14 +212,22 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
             _block("RED-sensitive subagent brief remains local and cannot be delegated.")
             return 0
 
-        requested_fork = str(_value(payload, "fork_turns", "forkTurns", "history_mode", "historyMode") or "").strip().lower()
-        state = read_state(payload)
+        native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
+        explicit_origin = _value(payload, "origin", "task_origin", "taskOrigin")
+        explicit_intent = _value(payload, "intent", "task_type", "taskType")
+        if is_progress_maintenance(explicit_origin, explicit_intent):
+            _block(PROGRESS_REASON_CODE)
+            return 0
+        state_status, state = read_state_status(payload)
+        if state_status == "corrupt":
+            _block("Subagent routing state is corrupt or unreadable; repair it before delegation.")
+            return 0
         routing = state.get("routing")
         routed_origin = routing.get("origin") if isinstance(routing, dict) else None
         routed_intent = routing.get("intent") if isinstance(routing, dict) else None
-        progress_origin = _value(payload, "origin", "task_origin", "taskOrigin") or state.get("origin") or routed_origin
-        progress_intent = _value(payload, "intent", "task_type", "taskType") or state.get("intent") or routed_intent
-        if is_progress_maintenance(progress_origin, progress_intent):
+        progress_origin = explicit_origin or state.get("origin") or routed_origin
+        progress_intent = explicit_intent or state.get("intent") or routed_intent
+        if not current_direct_spawn and is_progress_maintenance(progress_origin, progress_intent):
             _block(PROGRESS_REASON_CODE)
             return 0
         persisted_sensitivity = str(state.get("sensitivity", "GREEN")).strip().upper()
@@ -204,38 +239,28 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
         if persisted_sensitivity == "RED":
             _block("RED-sensitive task state remains local and cannot be delegated to a native subagent.")
             return 0
+        if _brief_bytes(native_briefs) > MAX_BRIEF_BYTES:
+            _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
+            return 0
+        if not native_briefs:
+            _block("Native subagent spawn requires a non-empty bounded decision brief.")
+            return 0
+        if not explicit_context or not fresh_context:
+            _block("Native subagent spawn requires explicit fork_context=false and a bounded brief.")
+            return 0
+        if current_direct_spawn and requested_effort not in SUPPORTED_EFFORTS[model]:
+            _block(f"Unsupported reasoning effort for {model}.")
+            return 0
         if not managed_spawn:
-            # A prompt-level classification cannot prove that later assistant
-            # or tool output is safe to inherit. Generic/native profiles must
-            # therefore use an explicit fresh fork with a bounded brief;
-            # managed profiles receive the same check below after route
-            # validation. This keeps full conversation history local even when
-            # the current task state is GREEN or YELLOW.
-            native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
-            if _brief_bytes(native_briefs) > MAX_BRIEF_BYTES:
-                _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
-                return 0
-            if not native_briefs:
-                _block("Native subagent spawn requires a non-empty bounded decision brief.")
-                return 0
-            if requested_fork not in NO_HISTORY_VALUES:
-                _block("Native spawns that inherit history require fork_turns=none and a bounded brief.")
-                return 0
             return 0
         if not isinstance(routing, dict):
+            if current_direct_spawn and state_status == "missing":
+                return 0
             _block("Subagent routing state is missing; the spawn must be classified before it is created.")
             return 0
         if str(routing.get("sensitivity", "GREEN")).upper() == "RED":
             _block("RED-sensitive work remains local and cannot be delegated to a model subagent.")
             return 0
-        native_briefs = list(dict.fromkeys(_native_brief_values(payload)))
-        if _brief_bytes(native_briefs) > MAX_BRIEF_BYTES:
-            _block("Subagent brief exceeds the bounded context limit; do not forward full history.")
-            return 0
-        if not native_briefs:
-            _block("Managed subagent spawn requires a non-empty bounded decision brief.")
-            return 0
-
         expected_route = str(routing.get("subagent_route", "none"))
         expected_model = str(routing.get("subagent_model") or "")
         expected_effort = str(routing.get("subagent_effort") or "")
@@ -270,6 +295,13 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
             return 0
 
         requested_route = route_requested
+        if (
+            not requested_route
+            and current_direct_spawn
+            and model == expected_model
+            and requested_effort == expected_effort
+        ):
+            requested_route = expected_route
         if not requested_route:
             if task_name == "sol_advisor":
                 # The native spawn schema has one Sol task name for both
@@ -294,7 +326,6 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
             return 0
 
         requested_model = model
-        requested_effort = str(_value(payload, "reasoning_effort", "reasoningEffort", "effort") or "").strip().lower()
         requested_task = task_name
         if requested_model != expected_model:
             _block(f"Unsupported subagent model for this route: expected {expected_model or 'none'}.")
@@ -309,12 +340,6 @@ def _routing_main(payload: dict[str, Any] | None = None) -> int:
         expected_task = str(expected_args.get("task_name") or "")
         if expected_task and requested_task != expected_task:
             _block(f"Subagent task_name must be {expected_task}; do not substitute another lane.")
-            return 0
-        # Managed spawns must explicitly prove that no conversation history is
-        # inherited. The native default is full history when this field is
-        # omitted, so absence is not a safe compatibility fallback.
-        if requested_fork not in NO_HISTORY_VALUES:
-            _block("Subagent spawn must use fork_turns=none so the full conversation history is not inherited.")
             return 0
         # This is deliberately the last mutation in the contract validator.
         # PreToolUse hooks continue after a block, so reserving in a later Sol
