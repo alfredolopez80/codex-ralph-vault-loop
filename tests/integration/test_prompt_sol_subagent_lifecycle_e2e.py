@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from prompt_sol_lifecycle_support import (
     ROOT,
     assert_decision_fields,
@@ -21,6 +23,17 @@ from prompt_sol_lifecycle_support import (
     routing_state,
     seven_complexity_prompt,
     state_path,
+)
+
+
+def _security_only_profile_is_active() -> bool:
+    config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    return set(config.get("hooks", {})) == {"PreToolUse"}
+
+
+pytestmark = pytest.mark.skipif(
+    _security_only_profile_is_active(),
+    reason="legacy lifecycle/advisor registration is intentionally disabled during #84",
 )
 
 

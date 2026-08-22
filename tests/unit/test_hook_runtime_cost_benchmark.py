@@ -59,15 +59,7 @@ def test_hook_runtime_cost_benchmark_emits_real_scenario_profile_matrix(tmp_path
     assert report["iterations"] == 1
     assert report["warmup_iterations"] == 0
     assert report["subscription_usage_measured"] is False
-    assert report["configured_handlers_by_event"] == {
-        "PostToolUse": 1,
-        "PreToolUse": 1,
-        "SessionStart": 1,
-        "Stop": 1,
-        "SubagentStart": 1,
-        "SubagentStop": 1,
-        "UserPromptSubmit": 1,
-    }
+    assert report["configured_handlers_by_event"] == {"PreToolUse": 1}
 
     matrix = report["scenario_matrix"]
     assert len(matrix) == len(SCENARIOS) * len(PROFILES)
@@ -110,7 +102,7 @@ def test_hook_runtime_cost_benchmark_emits_real_scenario_profile_matrix(tmp_path
     assert all(case["executed_handler_count"] <= case["matched_handler_count"] for case in matrix)
     assert all(case["process_count"] == case["executed_handler_count"] for case in matrix)
     assert report["source_scopes_measured"] == ["project", "global", "suppressed-global"]
-    assert len(report["scope_cases"]) == 14
+    assert len(report["scope_cases"]) == 2
     assert {case["source_scope"] for case in report["scope_cases"]} == {"global", "suppressed-global"}
     assert all(
         case["matched_handler_count"] == 0 and case["executed_handler_count"] == 0 and case["output_bytes"] == 0
@@ -119,16 +111,15 @@ def test_hook_runtime_cost_benchmark_emits_real_scenario_profile_matrix(tmp_path
     )
 
     prompt_cases = [case for case in matrix if case["scenario"] == "repeated_prompt"]
-    assert all(case["configured_handler_count"] == 1 for case in prompt_cases)
-    assert all(case["executed_handler_count"] == 2 for case in prompt_cases)
-    assert all(case["cache_hits"] == 1 for case in prompt_cases)
-    assert next(case for case in prompt_cases if case["profile"] == "luna")["output_bytes_max"] <= 1_800
-    assert next(case for case in prompt_cases if case["profile"] == "sol")["output_bytes_max"] <= 800
+    assert all(case["configured_handler_count"] == 0 for case in prompt_cases)
+    assert all(case["executed_handler_count"] == 0 for case in prompt_cases)
+    assert all(case["cache_hits"] == 0 for case in prompt_cases)
 
     red_cases = [case for case in matrix if case["scenario"] == "red_safety"]
     assert all(case["block_count"] == 1 for case in red_cases)
     assert all(case["continuation_count"] == 0 for case in red_cases)
-    assert all(case["child_process_count"] == 0 for case in red_cases)
+    assert all(case["child_process_count"] is None for case in red_cases)
+    assert all(case["child_process_count_measured"] is False for case in red_cases)
     assert report["successful_post_tool_stdout_chars"] == 0
     assert report["successful_stop_stdout_chars"] == 0
     assert "METRIC hook_cost_score=" in result.stdout

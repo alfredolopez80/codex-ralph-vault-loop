@@ -1322,7 +1322,7 @@ def test_file_line_guard_stop_ignores_unowned_dirty_files_by_default(tmp_path: P
     assert result.stdout == ""
 
 
-def test_global_hook_install_config_includes_file_line_guard(tmp_path: Path) -> None:
+def test_global_hook_install_config_is_security_only(tmp_path: Path) -> None:
     # Dry-run against an isolated home so a stale user-level migration marker
     # cannot make this repository-level config assertion nondeterministic.
     env = os.environ.copy()
@@ -1358,13 +1358,11 @@ def test_global_hook_install_config_includes_file_line_guard(tmp_path: Path) -> 
     json_start = result.stdout.find("{")
     assert json_start >= 0, result.stdout
     config = json.loads(result.stdout[json_start:])
-    post_commands = [hook["command"] for hook in config["hooks"]["PostToolUse"][0]["hooks"]]
-    stop_commands = [hook["command"] for hook in config["hooks"]["Stop"][0]["hooks"]]
-    assert all("global_hook_dispatch.py" in command for command in post_commands + stop_commands)
-    assert any("--role post_tool_dispatch" in command for command in post_commands)
-    assert any("--role stop_dispatch" in command for command in stop_commands)
-    assert not any("codex_stop_slop_guard.py" in command for command in stop_commands)
-    assert len(stop_commands) == 1
+    assert set(config["hooks"]) == {"PreToolUse"}
+    pre_commands = [hook["command"] for hook in config["hooks"]["PreToolUse"][0]["hooks"]]
+    assert len(pre_commands) == 1
+    assert "global_hook_dispatch.py" in pre_commands[0]
+    assert "--role security_pre_tool_dispatch" in pre_commands[0]
 
 
 def test_post_tool_memory_skips_red_output(tmp_path: Path) -> None:

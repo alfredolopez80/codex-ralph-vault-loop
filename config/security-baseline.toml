@@ -1,0 +1,31 @@
+version = 1
+name = "SECURITY_BASELINE"
+event = "PreToolUse"
+dispatcher = ".codex/hooks/security_pre_tool_dispatch.py"
+fixture_runner = "scripts/gates/security-baseline.py"
+synthetic_fixtures_only = true
+
+[controls]
+destructive_commands = "pre_tool_guard"
+sensitive_material = "pre_tool_guard_and_redaction"
+external_egress = "security_boundary"
+workspace_boundary = "security_boundary"
+symlink_escape = "security_boundary"
+package_manager_network = "pre_tool_guard_sfw"
+cloud_and_destructive_approval = "pre_tool_guard"
+native_sandbox = "platform_owned"
+
+[disabled_planes]
+session_start = true
+user_prompt_submit = true
+post_tool_use = true
+subagent_start = true
+subagent_stop = true
+stop = true
+convergent = true
+continuity = true
+memory_recall = true
+model_routing = true
+context_budget = true
+stale_wakeup_policy = true
+automation_policy = true

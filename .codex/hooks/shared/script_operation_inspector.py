@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 from pathlib import Path
@@ -11,6 +12,19 @@ LITERAL_SEARCH_TOOLS = {"grep", "rg"}
 PYTHON_VALUE_OPTIONS = {"-W", "-X", "--check-hash-based-pycs"}
 MAX_SCRIPT_BYTES = 256_000
 TOOL_RE = re.compile(r"(?<![A-Za-z0-9_.-])(aws|gcloud|helm|kubectl|minikube|terraform)(?![A-Za-z0-9_.-])")
+PYTHON_PROCESS_CALLS = {
+    "asyncio.create_subprocess_exec",
+    "asyncio.create_subprocess_shell",
+    "os.popen",
+    "os.system",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+    "subprocess.getoutput",
+    "subprocess.getstatusoutput",
+    "subprocess.Popen",
+    "subprocess.run",
+}
 
 
 def _quoted_shell_span(line: str, offset: int) -> tuple[str, str] | None:
@@ -153,6 +167,106 @@ def wrapper_script_path(parts: list[str], cwd: Path) -> Path | None:
     return None
 
 
+def _python_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _python_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return ""
+
+
+def _python_aliases(tree: ast.AST) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                aliases[item.asname or item.name.split(".", 1)[0]] = item.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for item in node.names:
+                aliases[item.asname or item.name] = f"{node.module}.{item.name}"
+    return aliases
+
+
+def _resolved_python_name(node: ast.AST, aliases: dict[str, str]) -> str:
+    value = _python_name(node)
+    head, separator, tail = value.partition(".")
+    replacement = aliases.get(head, head)
+    return replacement + (separator + tail if separator else "")
+
+
+def _python_bindings(tree: ast.AST) -> dict[str, ast.AST]:
+    bindings: dict[str, ast.AST] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    bindings[target.id] = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
+            bindings[node.target.id] = node.value
+    return bindings
+
+
+def _python_command_fragments(
+    node: ast.AST,
+    bindings: dict[str, ast.AST],
+    aliases: dict[str, str],
+    seen: frozenset[str] = frozenset(),
+) -> list[str]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.Name) and node.id in bindings and node.id not in seen:
+        return _python_command_fragments(bindings[node.id], bindings, aliases, seen | {node.id})
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return [
+            fragment
+            for item in node.elts
+            for fragment in _python_command_fragments(item, bindings, aliases, seen)
+        ]
+    if isinstance(node, ast.JoinedStr):
+        return [
+            fragment
+            for item in node.values
+            for fragment in _python_command_fragments(item, bindings, aliases, seen)
+        ]
+    if isinstance(node, ast.FormattedValue):
+        return _python_command_fragments(node.value, bindings, aliases, seen)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _python_command_fragments(node.left, bindings, aliases, seen) + _python_command_fragments(
+            node.right, bindings, aliases, seen
+        )
+    if isinstance(node, ast.Call) and _resolved_python_name(node.func, aliases) in {"shlex.split", "str"} and node.args:
+        return _python_command_fragments(node.args[0], bindings, aliases, seen)
+    return []
+
+
+def _python_cloud_commands(content: str) -> list[str] | None:
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return None
+    aliases = _python_aliases(tree)
+    bindings = _python_bindings(tree)
+    commands: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call_name = _resolved_python_name(node.func, aliases)
+        is_process_call = (
+            call_name in PYTHON_PROCESS_CALLS
+            or call_name.startswith("os.exec")
+            or call_name.startswith("os.spawn")
+        )
+        if not is_process_call or not node.args:
+            continue
+        fragments = _python_command_fragments(node.args[0], bindings, aliases)
+        rendered = " ".join(fragments)
+        match = TOOL_RE.search(rendered)
+        if match:
+            commands.append(rendered[match.start() :])
+    return commands
+
+
 def script_cloud_commands(path: Path) -> tuple[list[str], str, str]:
     try:
         if path.stat().st_size > MAX_SCRIPT_BYTES:
@@ -160,13 +274,15 @@ def script_cloud_commands(path: Path) -> tuple[list[str], str, str]:
         content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ([], "script cannot be inspected as text", "")
-    commands: list[str] = []
-    for line in content.replace("\\\n", " ").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = TOOL_RE.search(stripped)
-        if match and not _literal_shell_search_reference(path, stripped, match.start()):
-            commands.append(stripped[match.start() :])
+    commands = _python_cloud_commands(content) if path.suffix.lower() == ".py" else None
+    if commands is None:
+        commands = []
+        for line in content.replace("\\\n", " ").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            match = TOOL_RE.search(stripped)
+            if match and not _literal_shell_search_reference(path, stripped, match.start()):
+                commands.append(stripped[match.start() :])
     fingerprint = hashlib.sha256(content.encode("utf-8")).hexdigest()
     return (commands, "", fingerprint)

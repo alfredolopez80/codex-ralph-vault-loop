@@ -908,6 +908,95 @@ def transcript_output_is_bounded(payload: dict[str, Any]) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 10_000
 
 
+def security_only_denial(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Return only independently justified security denials for #84.
+
+    This path deliberately excludes context-budget, wakeup, automation,
+    lifecycle, routing, and productivity policy. Native Codex owns those
+    concerns while the security-only profile is active.
+    """
+
+    nested_patch = nested_patch_envelope(payload)
+    if nested_patch and not nested_patch.safe:
+        return {
+            "decision": "block",
+            "reason": "Nested apply_patch envelope contains unsupported or additional executable code.",
+        }
+
+    patch_text = payload_patch_text(payload)
+    if patch_text:
+        if is_red(patch_text):
+            return {
+                "decision": "block",
+                "reason": "Blocked patch containing RED-sensitive material.",
+            }
+        return None
+
+    nested_exec_safe = nested_exec_envelope_safe(payload)
+    if nested_exec_safe is False:
+        return {
+            "decision": "block",
+            "reason": "Nested command envelope contains unsupported or additional executable code.",
+        }
+
+    command = command_from_payload(payload)
+    if not command:
+        return None
+
+    cloud_assessment = assess_command(command, cwd_from_payload(payload))
+    if cloud_assessment.action == "block":
+        return {
+            "decision": "block",
+            "reason": cloud_assessment.reason,
+        }
+    if cloud_assessment.action == "approval":
+        approval_subject = cloud_assessment.approval_subject or command
+        if not allows_command(approval_subject):
+            return {
+                "decision": "block",
+                "reason": (
+                    f"Human approval required: {cloud_assessment.tool} command may "
+                    f"{cloud_assessment.consequence}. Review and approve the exact command, then retry it unchanged."
+                ),
+            }
+
+    if any(pattern.search(command) for pattern in DESTRUCTIVE_PATTERNS):
+        return {
+            "decision": "block",
+            "reason": "Blocked an obvious destructive command.",
+        }
+    if command_has_sensitive_tool_path(command):
+        return {
+            "decision": "block",
+            "reason": "Blocked command that could expose RED-sensitive material.",
+        }
+    if SCRIPT_EXEC_RE.search(command) and SENSITIVE_PATH_RE.search(command) and SCRIPT_READ_RE.search(command):
+        return {
+            "decision": "block",
+            "reason": "Blocked command that could expose RED-sensitive material.",
+        }
+    if (
+        command_has_protected_option_value(command)
+        or command_has_protected_env_exposure(command)
+        or command_has_protected_scan_path(command)
+    ):
+        return {
+            "decision": "block",
+            "reason": "Blocked command that could expose RED-sensitive material.",
+        }
+
+    sfw_payload = sfw_protection_payload(command)
+    if sfw_payload:
+        return {"decision": "block", **sfw_payload}
+
+    if is_red(command):
+        return {
+            "decision": "block",
+            "reason": "Blocked command containing RED-sensitive material.",
+        }
+    return None
+
+
 def _guard_main(payload: dict[str, Any] | None = None) -> int:
     payload = payload if payload is not None else read_hook_input()
     nested_patch = nested_patch_envelope(payload)

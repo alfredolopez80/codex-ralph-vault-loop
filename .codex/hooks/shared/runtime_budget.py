@@ -11,6 +11,7 @@ _EXTERNAL_TIMEOUTS: Final[dict[tuple[str, str], int]] = {
     ("UserPromptSubmit", "user_prompt_dispatch"): 10,
     ("UserPromptSubmit", "user_prompt_capture"): 10,
     ("PreToolUse", "pre_tool_dispatch"): 10,
+    ("PreToolUse", "security_pre_tool_dispatch"): 10,
     ("PostToolUse", "post_tool_dispatch"): 10,
     ("SubagentStart", "sol_advisor_subagent_context"): 10,
     ("SubagentStop", "sol_advisor_subagent_stop"): 10,

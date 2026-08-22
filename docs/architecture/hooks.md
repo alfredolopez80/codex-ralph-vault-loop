@@ -1,5 +1,23 @@
 # Hooks
 
+## Current #84 profile: security-only
+
+During #84, project and global registration contain only
+`security_pre_tool_dispatch.py` on `PreToolUse`. It preserves destructive,
+RED/egress, package-manager, cloud-approval, workspace-boundary, and
+symlink-escape controls. Session/prompt/post-tool/subagent/stop continuity and
+Convergent authority are disabled. Native Codex conversation, compaction, and
+subagent behavior remain platform-owned and are not vetoed by Ralph.
+Context-budget, stale-wakeup, and automation-productivity restrictions are not
+part of this security plane.
+
+The versioned contract is [`config/security-baseline.toml`](../../config/security-baseline.toml),
+and its synthetic gate is `scripts/gates/security-baseline.py`. The lifecycle
+components described below remain in the repository as legacy references for
+later issues; they are not active in the #84 configuration.
+
+## Legacy lifecycle reference
+
 Hooks provide lifecycle checks for Codex App and Codex CLI. Project hook scripts live in `.codex/hooks`, while `~/.codex/hooks.json` activates them globally.
 
 Events:

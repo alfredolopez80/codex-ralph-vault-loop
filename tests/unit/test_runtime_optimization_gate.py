@@ -20,11 +20,12 @@ def test_current_candidate_passes_structural_gate() -> None:
     gate = load_gate()
     report = gate.inspect(ROOT)
     assert report["status"] == "passed", report
-    assert report["handler_counts"]["SessionStart"] == 1
-    assert report["handler_counts"]["UserPromptSubmit"] == 1
+    assert report["profile"] == "security-only"
+    assert report["handler_counts"]["SessionStart"] == 0
+    assert report["handler_counts"]["UserPromptSubmit"] == 0
     assert report["handler_counts"]["PreToolUse"] == 1
-    assert report["handler_counts"]["PostToolUse"] == 1
-    assert report["handler_counts"]["Stop"] == 1
+    assert report["handler_counts"]["PostToolUse"] == 0
+    assert report["handler_counts"]["Stop"] == 0
     assert report["context_hard_caps"] == {
         "conservative_unknown_prompt": 2200,
         "conservative_unknown_session": 2200,

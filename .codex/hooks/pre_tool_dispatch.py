@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import re
 import shlex
 import sys
 import time
 from contextlib import redirect_stdout
-from pathlib import Path
 from typing import Any, Callable
 
 from pre_tool_guard import _guard_main
@@ -20,8 +18,14 @@ from shared.active_context import active_context_from_payload
 from shared.convergence_authority import AuthorityError, load_authoritative_state
 from shared.convergent_hooks import is_read_only_command
 from shared.execution_policy import configured_activation_mode
-from shared.redaction import is_red, safe_preview
 from shared.runtime_observability import record_event
+from shared.security_boundary import (
+    deny as _deny,
+    external_denial as _external_denial,
+    tool_input as _tool_input,
+    tool_name as _tool_name,
+    workspace_denial as _workspace_denial,
+)
 
 MATCHER = r"Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*"
 SPAWN_TOOLS = {"agent", "spawn_agent", "spawnagent"}
@@ -34,8 +38,6 @@ VALIDATION_SCRIPTS = {
 }
 PYTHON_VALIDATION_SCRIPTS = {"scripts/gates/run-gates.py"}
 ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=[^\x00\r\n]*$")
-PATH_KEYS = ("path", "file_path", "filePath", "target_path", "targetPath", "filename")
-PATCH_PATH_RE = re.compile(r"(?m)^\*\*\* (?:Add|Update|Delete) File: (?P<path>[^\r\n]+)$")
 MAX_COMPONENT_OUTPUT_BYTES = 64 * 1024
 
 
@@ -65,20 +67,6 @@ def _parse_input() -> dict[str, Any] | None:
         sys.stderr.write("pre_tool_dispatch payload is not an object; action unknown and allowed.\n")
         return None
     return value
-
-
-def _tool_name(payload: dict[str, Any]) -> str:
-    value = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
-    normalized = value.strip().lower().replace("-", "_").rsplit(".", 1)[-1]
-    return normalized.rsplit("__", 1)[-1]
-
-
-def _tool_input(payload: dict[str, Any]) -> dict[str, Any]:
-    for key in ("tool_input", "toolInput", "input"):
-        value = payload.get(key)
-        if isinstance(value, dict):
-            return value
-    return {}
 
 
 def _command(payload: dict[str, Any]) -> str:
@@ -130,56 +118,6 @@ def _is_validation_command(command: str) -> bool:
     return executable == "bash" and len(arguments) == 1 and arguments[0] in VALIDATION_SCRIPTS
 
 
-def _external_denial(payload: dict[str, Any]) -> dict[str, str] | None:
-    value = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "").lower()
-    if not (value.startswith("mcp__") or value.startswith("mcp.")):
-        return None
-    encoded = json.dumps(_tool_input(payload), ensure_ascii=True, sort_keys=True, default=str)
-    if is_red(encoded):
-        return _deny("Sensitive material must remain local and cannot be sent through an external tool.")
-    return None
-
-
-def _raw_paths(payload: dict[str, Any], tool: str) -> list[str]:
-    data = _tool_input(payload)
-    values = [str(data[key]).strip() for key in PATH_KEYS if isinstance(data.get(key), str) and str(data[key]).strip()]
-    if tool == "apply_patch":
-        patch = data.get("patch") or data.get("input") or data.get("command") or payload.get("patch")
-        if isinstance(patch, str):
-            values.extend(match.group("path").strip() for match in PATCH_PATH_RE.finditer(patch))
-    return list(dict.fromkeys(values))
-
-
-def _has_symlink_component(path: Path) -> bool:
-    candidate = Path(os.path.abspath(os.fspath(path)))
-    for item in (candidate, *candidate.parents):
-        if item.exists() and item.is_symlink():
-            return True
-        if item == item.parent:
-            break
-    return False
-
-
-def _workspace_denial(payload: dict[str, Any], tool: str) -> dict[str, str] | None:
-    if tool not in WRITE_TOOLS:
-        return None
-    context = active_context_from_payload(payload, resolve_git=False)
-    workspace = (context.git_root or context.workspace_root).resolve()
-    paths = _raw_paths(payload, tool)
-    if not paths:
-        return _deny("Write action has no bounded workspace path.")
-    for raw in paths:
-        candidate = Path(raw).expanduser()
-        candidate = candidate if candidate.is_absolute() else workspace / candidate
-        if _has_symlink_component(candidate):
-            return _deny("Write path crosses a symbolic link outside the trusted workspace boundary.")
-        try:
-            candidate.resolve(strict=False).relative_to(workspace)
-        except (OSError, ValueError):
-            return _deny("Write path is outside the active workspace.")
-    return None
-
-
 def _component(
     component: Callable[[dict[str, Any]], int], payload: dict[str, Any]
 ) -> tuple[dict[str, Any] | None, bool]:
@@ -194,13 +132,6 @@ def _component(
         return (value, False) if isinstance(value, dict) else (None, True)
     except Exception:
         return None, True
-
-
-def _deny(reason: object) -> dict[str, str]:
-    text = safe_preview(reason, 240).strip()
-    if not text or is_red(text):
-        text = "Pre-tool policy denied this action; inspect local sanitized diagnostics."
-    return {"decision": "block", "reason": text}
 
 
 def _convergent_phase_gate(payload: dict[str, Any], tool: str) -> dict[str, str] | None:

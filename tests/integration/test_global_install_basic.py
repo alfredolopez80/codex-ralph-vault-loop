@@ -89,6 +89,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     hooks_json = tmp_path / ".codex" / "hooks.json"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
     pre_tool_dispatch = tmp_path / ".codex" / "hooks" / "pre_tool_dispatch.py"
+    security_pre_tool_dispatch = tmp_path / ".codex" / "hooks" / "security_pre_tool_dispatch.py"
     assert skill.is_symlink()
     assert codex_skill.is_symlink()
     assert plugin_skill.is_symlink()
@@ -115,6 +116,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
     assert pre_tool_dispatch.is_file()
+    assert security_pre_tool_dispatch.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
@@ -178,11 +180,12 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Do not use `--yolo`" in agents_text
     hooks_text = hooks_json.read_text(encoding="utf-8")
     assert "global_hook_dispatch.py" in hooks_text
-    assert "--role session_start_dispatch" in hooks_text
-    assert "--role user_prompt_dispatch" in hooks_text
-    assert "--role pre_tool_dispatch" in hooks_text
-    assert "--role post_tool_dispatch" in hooks_text
-    assert "--role stop_dispatch" in hooks_text
+    assert "--role security_pre_tool_dispatch" in hooks_text
+    assert "--role session_start_dispatch" not in hooks_text
+    assert "--role user_prompt_dispatch" not in hooks_text
+    assert "--role pre_tool_dispatch" not in hooks_text
+    assert "--role post_tool_dispatch" not in hooks_text
+    assert "--role stop_dispatch" not in hooks_text
     assert "--role pre_tool_guard" not in hooks_text
     assert "codex_stop_slop_guard.py" not in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
@@ -375,7 +378,7 @@ def test_pre_global_audit_reports_global_doctor_failure_without_passing(tmp_path
     assert "PRE_GLOBAL_WORKTREE_AWARE_AUDIT_FAIL" in audit.stdout
     latest = json.loads((report_dir / "latest.json").read_text(encoding="utf-8"))
     assert latest["pass"] is False
-    assert latest["blockers"] == ["installer-source-guard", "doctor-global"]
+    assert latest["blockers"] == ["doctor-global"]
     doctor = json.loads((report_dir / "doctor-global.json").read_text(encoding="utf-8"))
     assert doctor["pass"] is False
 
@@ -439,7 +442,7 @@ def test_router_global_installer_dry_run_includes_agents_and_hooks(tmp_path: Pat
     assert ".codex/agents/ralph-coder.toml" in result.stdout
     assert ".codex/hooks.json" in result.stdout
     assert "global_hook_dispatch.py" in result.stdout
-    assert "--role stop_dispatch" in result.stdout
+    assert "--role security_pre_tool_dispatch" in result.stdout
     assert not (tmp_path / ".codex").exists()
 
 

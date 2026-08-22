@@ -39,6 +39,7 @@ def test_runtime_budgets_are_codex_integer_values() -> None:
         ("UserPromptSubmit", "user_prompt_dispatch"),
         ("UserPromptSubmit", "user_prompt_capture"),
         ("PreToolUse", "pre_tool_dispatch"),
+        ("PreToolUse", "security_pre_tool_dispatch"),
         ("PostToolUse", "post_tool_dispatch"),
         ("SubagentStart", "sol_advisor_subagent_context"),
         ("SubagentStop", "sol_advisor_subagent_stop"),

@@ -362,9 +362,6 @@ def test_handoff_marker_is_bounded_and_does_not_store_message_body(tmp_path: Pat
     assert marker not in handoff.read_text(encoding="utf-8")
 
 
-def test_dispatcher_is_the_only_configured_stop_command() -> None:
+def test_security_only_profile_does_not_register_stop_command() -> None:
     config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
-    stop_hooks = config["hooks"]["Stop"][0]["hooks"]
-    commands = [str(item["command"]) for item in stop_hooks]
-    assert len(commands) == 1
-    assert ".codex/hooks/stop_dispatch.py" in commands[0]
+    assert "Stop" not in config["hooks"]

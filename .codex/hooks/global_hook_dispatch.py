@@ -26,6 +26,7 @@ ROLE_COMMANDS: dict[tuple[str, str], tuple[str, ...]] = {
     ("UserPromptSubmit", "user_prompt_improve"): ("user_prompt_improve.py",),
     ("UserPromptSubmit", "continuity_prompt_context"): ("continuity_prompt_context.py",),
     ("PreToolUse", "pre_tool_dispatch"): ("pre_tool_dispatch.py",),
+    ("PreToolUse", "security_pre_tool_dispatch"): ("security_pre_tool_dispatch.py",),
     ("PreToolUse", "pre_tool_guard"): ("pre_tool_guard.py",),
     ("PreToolUse", "subagent_routing_pretool_guard"): ("subagent_routing_pretool_guard.py",),
     ("PreToolUse", "sol_advisor_pretool_guard"): ("sol_advisor_pretool_guard.py",),
@@ -73,6 +74,7 @@ ROLE_BY_FILENAME = {
     "user_prompt_improve.py": "user_prompt_improve",
     "continuity_prompt_context.py": "continuity_prompt_context",
     "pre_tool_dispatch.py": "pre_tool_dispatch",
+    "security_pre_tool_dispatch.py": "security_pre_tool_dispatch",
     "pre_tool_guard.py": "pre_tool_guard",
     "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
     "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
@@ -97,6 +99,7 @@ DISPATCH_ROLE_RE = re.compile(r"global_hook_dispatch\.py\s+--event\s+(\S+)\s+--r
 ROLE_MATCHERS: dict[tuple[str, str], str] = {
     ("SessionStart", "session_start_dispatch"): "startup|resume|clear|compact",
     ("PreToolUse", "pre_tool_dispatch"): "Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*",
+    ("PreToolUse", "security_pre_tool_dispatch"): "Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*",
     ("PostToolUse", "post_tool_dispatch"): ".*",
 }
 EVENT_NAMES = {

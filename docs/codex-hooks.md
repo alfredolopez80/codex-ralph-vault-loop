@@ -10,27 +10,29 @@ The global installer preserves Codex's numeric schema: every hook `timeout` and
 number or boolean). The installer and global smoke check reject invalid numeric
 types before a global configuration is published.
 
-## Effective event set in ChatGPT Desktop for macOS
+## Effective event set during #84
 
-ChatGPT Desktop runs every matching global, project, and plugin hook, and
-same-event command hooks may run concurrently. This repository therefore
-registers one composing dispatcher per active event instead of the older
-fan-out of many scripts. Fewer registrations improve determinism and startup
-cost without removing policy coverage.
+The active #84 profile is intentionally security-only. Both project and
+generated global configuration register one `PreToolUse` dispatcher; all
+Ralph lifecycle, continuity, routing, advisor, lease, activation, and memory
+maintenance hooks remain disabled until a later issue proves a need for them.
+Context-budget/output-shaping, stale-wakeup, and automation-productivity rules
+are also excluded: they are not security controls and must not block harmless
+native Codex work.
 
-| Current event       | Repository owner                  | Registration decision                                                                             |
-| ------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `SessionStart`      | `session_start_dispatch.py`       | Active; one compact startup/resume/clear/compact capsule.                                         |
-| `UserPromptSubmit`  | `user_prompt_dispatch.py`         | Active; one safety-first, delta-cached context composer. Matchers are ignored.                    |
-| `PreToolUse`        | `pre_tool_dispatch.py`            | Active; RED, destructive, egress, workspace, context-budget, and fresh-subagent checks.           |
-| `PermissionRequest` | Native sandbox                    | No custom process; approval UX and escalation remain platform-owned.                              |
-| `PostToolUse`       | `post_tool_dispatch.py`           | Active; successful local reads are physical no-ops in every activation mode.                      |
-| `SubagentStart`     | `sol_advisor_subagent_context.py` | Active; compact by default, with 16,384 units of explicit context capacity for complex subagents. |
-| `SubagentStop`      | `sol_advisor_subagent_stop.py`    | Active for bounded completion/accounting state.                                                   |
-| `PreCompact`        | Platform lifecycle                | Not registered; no proven custom work is needed before compaction.                                |
-| `PostCompact`       | Platform lifecycle                | Not registered; `SessionStart(source=compact)` owns bounded recovery.                             |
-| `Stop`              | `stop_dispatch.py`                | Active; one reducer and one bounded continuation decision. Matchers are ignored.                  |
-| `SessionEnd`        | Platform lifecycle                | Not registered; cleanup must not add exit latency or become a completion gate.                    |
+| Current event       | Repository owner                 | Registration decision                                   |
+| ------------------- | -------------------------------- | ------------------------------------------------------- |
+| `SessionStart`      | legacy lifecycle dispatchers     | Disabled in #84.                                        |
+| `UserPromptSubmit`  | legacy prompt/recall dispatchers | Disabled in #84.                                        |
+| `PreToolUse`        | `security_pre_tool_dispatch.py`  | Active; deny-first security controls only.              |
+| `PermissionRequest` | Native sandbox                   | Platform-owned approval and escalation.                 |
+| `PostToolUse`       | legacy lifecycle dispatchers     | Disabled in #84.                                        |
+| `SubagentStart`     | legacy advisor context           | Disabled in #84; native subagents are not Ralph-vetoed. |
+| `SubagentStop`      | legacy advisor completion        | Disabled in #84.                                        |
+| `PreCompact`        | Platform lifecycle               | No custom hook.                                         |
+| `PostCompact`       | Platform lifecycle               | No custom hook.                                         |
+| `Stop`              | legacy stop dispatch             | Disabled in #84.                                        |
+| `SessionEnd`        | Platform lifecycle               | No custom hook.                                         |
 
 Unified exec is matched as a command/Bash tool and native subagent creation is
 matched through `spawn_agent`/Agent aliases. Generated subagents use the
@@ -43,7 +45,13 @@ provided native brief may use up to 16,384 aggregate UTF-8 bytes when the task
 needs more evidence; larger material should be supplied through scoped file
 references instead of copied history.
 
-## Hooks
+## Legacy component reference (not registered during #84)
+
+The components below remain in the repository for later migration analysis and
+direct tests. Their presence is not evidence that they are active. The active
+security hook is `.codex/hooks/security_pre_tool_dispatch.py`, backed by the
+versioned `config/security-baseline.toml` and the synthetic runner at
+`scripts/gates/security-baseline.py`.
 
 - `.codex/hooks/universal-prompt-classifier.sh`
   - Runs on `UserPromptSubmit`.

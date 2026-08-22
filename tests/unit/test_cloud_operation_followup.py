@@ -58,6 +58,33 @@ def test_python_option_values_do_not_hide_script_path(tmp_path: Path) -> None:
     assert assessment.action == "approval"
 
 
+def test_python_fixture_text_is_not_treated_as_process_execution(tmp_path: Path) -> None:
+    script = tmp_path / "fixture_check.py"
+    script.write_text(
+        'fixture = "aws ec2 terminate-instances --instance-ids i-example"\nprint(fixture)\n',
+        encoding="utf-8",
+    )
+
+    assessment = assess_command(f"python3 {script}", tmp_path)
+
+    assert assessment.action == "allow"
+
+
+def test_python_subprocess_cloud_mutation_still_requires_approval(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.py"
+    script.write_text(
+        "import subprocess\n"
+        'command = ["aws", "ec2", "terminate-instances", "--instance-ids", "i-example"]\n'
+        "subprocess.run(command, check=True)\n",
+        encoding="utf-8",
+    )
+
+    assessment = assess_command(f"python3 {script}", tmp_path)
+
+    assert assessment.action == "approval"
+    assert assessment.tool == "aws"
+
+
 def test_type_name_namespace_delete_is_complete(tmp_path: Path) -> None:
     assessment = assess_command(
         "kubectl --context feature-test delete namespace/feature-test",

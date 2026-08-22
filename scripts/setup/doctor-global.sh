@@ -455,57 +455,23 @@ check_global_hooks() {
     return
   fi
   if grep -q "global_hook_dispatch.py" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role session_start_dispatch" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role user_prompt_dispatch" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role pre_tool_dispatch" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role post_tool_dispatch" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role sol_advisor_subagent_context" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role sol_advisor_subagent_stop" "$GLOBAL_HOOKS_JSON" &&
-    grep -q -- "--role stop_dispatch" "$GLOBAL_HOOKS_JSON"; then
-    ok "global hooks.json includes dispatcher lifecycle roles"
+    grep -q -- "--role security_pre_tool_dispatch" "$GLOBAL_HOOKS_JSON" &&
+    ! grep -Eq -- "--role (session_start_dispatch|user_prompt_dispatch|pre_tool_dispatch|post_tool_dispatch|sol_advisor_subagent_context|sol_advisor_subagent_stop|stop_dispatch)" "$GLOBAL_HOOKS_JSON"; then
+    ok "global hooks.json contains security-only PreToolUse role"
   else
-    fail "global hooks.json missing Ralph lifecycle hooks"
+    fail "global hooks.json is not security-only"
   fi
 
   check_hook_file_matches_source "global_hook_dispatch.py"
-  check_hook_file_matches_source "session_start_dispatch.py"
-  check_hook_file_matches_source "user_prompt_dispatch.py"
-  check_hook_file_matches_source "pre_tool_dispatch.py"
-  check_hook_file_matches_source "session_start_wakeup.py"
-  check_hook_file_matches_source "user_prompt_capture.py"
-  check_hook_file_matches_source "user_prompt_improve.py"
+  check_hook_file_matches_source "security_pre_tool_dispatch.py"
   check_hook_file_matches_source "pre_tool_guard.py"
-  check_hook_file_matches_source "post_tool_dispatch.py"
-  check_hook_file_matches_source "stop_dispatch.py"
-  check_hook_file_matches_source "memory_maintenance_enqueue.py"
-  check_hook_file_matches_source "stop_memory_promotion_review.py"
 
-  local improve_payload
-  local improve_output
-  improve_payload='{"hook_event_name":"UserPromptSubmit","prompt":"GLOBAL_DOCTOR_PROMPT_SENTINEL_61927"}'
-  improve_output="$(printf '%s' "$improve_payload" | python3 "${GLOBAL_HOOK_ROOT}/user_prompt_dispatch.py" 2> /dev/null || true)"
-  if [[ "$improve_output" == *"Prompt classification:"* &&
-    "$improve_output" != *"GLOBAL_DOCTOR_PROMPT_SENTINEL_61927"* ]]; then
-    ok "global user-prompt dispatcher emits compact context without echoing the prompt"
+  local baseline_output
+  baseline_output="$(python3 "${REPO_ROOT}/scripts/gates/security-baseline.py" 2> /dev/null || true)"
+  if [[ "$baseline_output" == *'"passed": true'* ]]; then
+    ok "SECURITY_BASELINE synthetic suite passes"
   else
-    fail "global user-prompt dispatcher missing, invalid, or echoed the raw prompt"
-  fi
-
-  if grep -q "STALE_WAKEUP_REASON" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null &&
-    grep -q "stale_repo_local_wakeup_payload" "${GLOBAL_HOOK_ROOT}/pre_tool_guard.py" 2> /dev/null; then
-    ok "global pre_tool_guard includes stale wakeup protection"
-  else
-    fail "global pre_tool_guard missing stale wakeup protection"
-  fi
-
-  local payload
-  local output
-  payload='{"hook_event_name":"PreToolUse","tool_name":"exec_command","tool_input":{"cmd":"python3 scripts/memory/wakeup.py","workdir":"/tmp/ralph-doctor-clerum"}}'
-  output="$(printf '%s' "$payload" | python3 "${GLOBAL_HOOK_ROOT}/pre_tool_dispatch.py" 2> /dev/null || true)"
-  if [[ "$output" == *'"decision":"block"'* && "$output" == *"repo-local Ralph wakeup"* ]]; then
-    ok "global pre-tool dispatcher blocks repo-local wakeup command"
-  else
-    fail "global pre-tool dispatcher did not block repo-local wakeup command"
+    fail "SECURITY_BASELINE synthetic suite failed"
   fi
 }
 

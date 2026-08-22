@@ -149,7 +149,7 @@ def one_match(paths: list[Path], label: str) -> Path:
     return paths[0]
 
 
-def main() -> int:
+def _legacy_lifecycle_main() -> int:
     try:
         check_project_mcp_config()
     except RuntimeError as exc:
@@ -357,6 +357,87 @@ def main() -> int:
             assert_hook_output_contract("PostToolUse", f"PostToolUse large hook {index} {command}", result)
 
     print(f"GLOBAL_HOOKS_SMOKE_PASS repo={repo_root}")
+    return 0
+
+
+def main() -> int:
+    """Smoke only the active security-only global registration."""
+    try:
+        check_project_mcp_config()
+    except RuntimeError as exc:
+        print(f"GLOBAL_HOOKS_SMOKE_FAIL {exc}", file=sys.stderr)
+        return 1
+    if not GLOBAL_HOOKS_JSON.is_file():
+        print(f"GLOBAL_HOOKS_SMOKE_FAIL missing {GLOBAL_HOOKS_JSON}", file=sys.stderr)
+        return 1
+
+    config = json.loads(GLOBAL_HOOKS_JSON.read_text(encoding="utf-8"))
+    validate_codex_hook_schema(config)
+    if set(config.get("hooks", {})) != {"PreToolUse"}:
+        raise RuntimeError("global hooks are not security-only")
+    if hook_roles(config, "PreToolUse") != ["security_pre_tool_dispatch"]:
+        raise RuntimeError("global PreToolUse role is not security_pre_tool_dispatch")
+
+    repo_root_file = GLOBAL_HOOK_DIR / ".ralph-repo-root"
+    if not repo_root_file.is_file():
+        raise RuntimeError(f"missing {repo_root_file}")
+    repo_root = Path(repo_root_file.read_text(encoding="utf-8").strip())
+    for required_source in (
+        repo_root / ".codex" / "hooks" / "global_hook_dispatch.py",
+        repo_root / ".codex" / "hooks" / "security_pre_tool_dispatch.py",
+        repo_root / ".codex" / "hooks" / "pre_tool_guard.py",
+        repo_root / "config" / "security-baseline.toml",
+    ):
+        if not required_source.is_file():
+            raise RuntimeError(f"missing security-only source {required_source}")
+
+    command = hook_commands(config, "PreToolUse")[0]
+    with tempfile.TemporaryDirectory() as temp:
+        workspace = Path(temp).resolve()
+        env = {
+            "RALPH_HOME": str(workspace / "ralph"),
+            "CODEX_MEMORY_HOME": str(workspace / "empty-memory"),
+            "RALPH_LOCAL_NOTES_ROOTS": "",
+        }
+        blocked = run_hook_command(
+            command,
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": str(workspace),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": "git reset --hard HEAD"},
+            },
+            env,
+        )
+        assert_hook_output_contract("PreToolUse security negative", command, blocked)
+        if json.loads(blocked.stdout).get("decision") != "block":
+            raise RuntimeError("global security hook did not block the synthetic destructive command")
+
+        allowed = run_hook_command(
+            command,
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": str(workspace),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": "git status --short"},
+            },
+            env,
+        )
+        assert_hook_output_contract("PreToolUse security harmless", command, allowed)
+        if allowed.stdout.strip():
+            raise RuntimeError("global security hook blocked the synthetic harmless command")
+
+    baseline = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "gates" / "security-baseline.py")],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if baseline.returncode != 0 or '"passed": true' not in baseline.stdout:
+        raise RuntimeError("SECURITY_BASELINE synthetic suite failed")
+
+    print(f"GLOBAL_HOOKS_SMOKE_PASS security-only repo={repo_root}")
     return 0
 
 

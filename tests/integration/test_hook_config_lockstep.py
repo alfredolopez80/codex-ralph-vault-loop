@@ -33,6 +33,7 @@ def hook_role(event: str, command: str) -> str:
         "user_prompt_improve.py": "user_prompt_improve",
         "continuity_prompt_context.py": "continuity_prompt_context",
         "pre_tool_dispatch.py": "pre_tool_dispatch",
+        "security_pre_tool_dispatch.py": "security_pre_tool_dispatch",
         "pre_tool_guard.py": "pre_tool_guard",
         "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
         "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
@@ -176,22 +177,23 @@ def test_local_and_global_hook_configs_stay_in_lockstep(tmp_path: Path) -> None:
 
     assert set(local) == {"hooks"}
     assert set(global_config) == {"hooks"}
+    assert set(local["hooks"]) == {"PreToolUse"}
+    assert set(global_config["hooks"]) == {"PreToolUse"}
 
     for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "Stop"):
         assert hook_pairs(global_config, event) == hook_pairs(local, event)
 
     user_prompt = [name for name, _timeout in hook_pairs(local, "UserPromptSubmit")]
-    assert user_prompt == ["user_prompt_dispatch"]
-    assert dict(hook_pairs(local, "UserPromptSubmit"))["user_prompt_dispatch"] == 10
+    assert user_prompt == []
 
     pre_tool = [name for name, _timeout in hook_pairs(local, "PreToolUse")]
-    assert pre_tool == ["pre_tool_dispatch"]
+    assert pre_tool == ["security_pre_tool_dispatch"]
 
     post_tool = [name for name, _timeout in hook_pairs(local, "PostToolUse")]
-    assert post_tool == ["post_tool_dispatch"]
+    assert post_tool == []
 
     stop = [name for name, _timeout in hook_pairs(local, "Stop")]
-    assert stop == ["stop_dispatch"]
+    assert stop == []
 
 
 def test_hook_configs_use_codex_integer_budget_fields(tmp_path: Path) -> None:
@@ -214,7 +216,7 @@ def test_hook_configs_use_codex_integer_budget_fields(tmp_path: Path) -> None:
 def test_installer_rejects_non_integer_budget_fields() -> None:
     installer = load_installer_module()
     config = installer.hook_config()
-    session_hook = config["hooks"]["SessionStart"][0]["hooks"][0]
+    session_hook = config["hooks"]["PreToolUse"][0]["hooks"][0]
 
     session_hook["timeout"] = 45.0
     with pytest.raises(SystemExit, match="field=timeout"):

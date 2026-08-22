@@ -62,6 +62,7 @@ def hook_role(event: str, command: str) -> str:
         "user_prompt_improve.py": "user_prompt_improve",
         "continuity_prompt_context.py": "continuity_prompt_context",
         "pre_tool_dispatch.py": "pre_tool_dispatch",
+        "security_pre_tool_dispatch.py": "security_pre_tool_dispatch",
         "pre_tool_guard.py": "pre_tool_guard",
         "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
         "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
@@ -146,15 +147,7 @@ def global_hook_diff() -> dict[str, Any]:
         comparisons[event] = {"local": local_pairs, "global": global_pairs, "same": same}
         if not same:
             mismatches.append(event)
-    preserved = {
-        "SessionStart": ["session_start_dispatch"],
-        "UserPromptSubmit": ["user_prompt_dispatch"],
-        "PreToolUse": ["pre_tool_dispatch"],
-        "PostToolUse": ["post_tool_dispatch"],
-        "SubagentStart": ["sol_advisor_subagent_context"],
-        "SubagentStop": ["sol_advisor_subagent_stop"],
-        "Stop": ["stop_dispatch"],
-    }
+    preserved = {"PreToolUse": ["security_pre_tool_dispatch"]}
     order_failures: list[str] = []
     for event, names in preserved.items():
         sequence = [pair["basename"] for pair in comparisons.get(event, {}).get("local", [])]
@@ -171,13 +164,7 @@ def global_hook_diff() -> dict[str, Any]:
 
 def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
     hook_budgets = {
-        "user_prompt_dispatch": 10,
-        "pre_tool_dispatch": 10,
-        "stop_dispatch": 10,
-        "session_start_dispatch": 45,
-        "post_tool_dispatch": 10,
-        "sol_advisor_subagent_context": 10,
-        "sol_advisor_subagent_stop": 10,
+        "security_pre_tool_dispatch": 10,
     }
     entries: list[dict[str, Any]] = []
     failures: list[str] = []
@@ -196,13 +183,9 @@ def timeout_budget(global_diff: dict[str, Any]) -> dict[str, Any]:
 def hook_chain_fixture() -> dict[str, Any]:
     command = [
         sys.executable,
-        "-m",
-        "pytest",
-        "tests/integration/test_hook_lifecycle_e2e.py",
-        "tests/integration/test_hook_config_lockstep.py",
-        "tests/integration/test_worktree_project_isolation.py",
+        "scripts/gates/security-baseline.py",
     ]
-    return run_command(command, {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
+    return run_command(command)
 
 
 def run_hook(name: str, payload: dict[str, Any], ralph_home: Path, vault_dir: Path) -> dict[str, Any]:

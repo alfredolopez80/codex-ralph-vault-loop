@@ -59,13 +59,7 @@ def q(path: Path) -> str:
 
 
 HOOK_ROLES: dict[str, tuple[str, ...]] = {
-    "SessionStart": ("session_start_dispatch",),
-    "UserPromptSubmit": ("user_prompt_dispatch",),
-    "PreToolUse": ("pre_tool_dispatch",),
-    "PostToolUse": ("post_tool_dispatch",),
-    "SubagentStart": ("sol_advisor_subagent_context",),
-    "SubagentStop": ("sol_advisor_subagent_stop",),
-    "Stop": ("stop_dispatch",),
+    "PreToolUse": ("security_pre_tool_dispatch",),
 }
 
 MATCHERS = {

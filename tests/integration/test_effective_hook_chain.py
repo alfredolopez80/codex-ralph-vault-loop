@@ -8,6 +8,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / ".codex" / "hooks"
 DISPATCHER = HOOKS / "global_hook_dispatch.py"
@@ -22,6 +24,7 @@ ROLE_COMMANDS: dict[tuple[str, str], list[str]] = {
     ("UserPromptSubmit", "user_prompt_capture"): [sys.executable, str(HOOKS / "user_prompt_capture.py")],
     ("UserPromptSubmit", "user_prompt_improve"): [sys.executable, str(HOOKS / "user_prompt_improve.py")],
     ("UserPromptSubmit", "continuity_prompt_context"): [sys.executable, str(HOOKS / "continuity_prompt_context.py")],
+    ("PreToolUse", "security_pre_tool_dispatch"): [sys.executable, str(HOOKS / "security_pre_tool_dispatch.py")],
     ("PreToolUse", "pre_tool_dispatch"): [sys.executable, str(HOOKS / "pre_tool_dispatch.py")],
     ("PreToolUse", "pre_tool_guard"): [sys.executable, str(HOOKS / "pre_tool_guard.py")],
     ("PreToolUse", "subagent_routing_pretool_guard"): [sys.executable, str(HOOKS / "subagent_routing_pretool_guard.py")],
@@ -105,7 +108,7 @@ def configured_commands(config: dict[str, object], event: str) -> list[str]:
     hooks = config["hooks"]
     assert isinstance(hooks, dict)
     commands: list[str] = []
-    for group in hooks[event]:
+    for group in hooks.get(event, []):
         for hook in group["hooks"]:
             commands.append(hook["command"])
     return commands
@@ -256,6 +259,9 @@ def test_effective_user_prompt_context_is_compact_and_nonduplicated(tmp_path: Pa
     payload["prompt"] = f"{sentinel} review the hooks"
     outputs: list[str] = []
     config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+
+    if "UserPromptSubmit" not in config.get("hooks", {}):
+        pytest.skip("UserPromptSubmit lifecycle is intentionally disabled in #84 security-only profile")
 
     roles = roles_for_config(config, "UserPromptSubmit")
     assert roles == ["user_prompt_dispatch"]
