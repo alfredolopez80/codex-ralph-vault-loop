@@ -40,6 +40,8 @@ PROFILE_CAPS = {
     "sol": {"prompt": 800, "session": 800},
     "conservative_unknown": {"prompt": 2200, "session": 2200},
 }
+MIN_AGENT_MAX_DEPTH = 1
+MAX_AGENT_MAX_DEPTH = 2
 
 
 def hooks(root: Path) -> dict[str, list[dict[str, Any]]]:
@@ -189,10 +191,16 @@ def inspect(root: Path) -> dict[str, Any]:
     try:
         data = tomllib.loads((root / ".codex" / "config.toml").read_text(encoding="utf-8"))
         agents_config = data.get("agents", {})
-        if agents_config.get("max_threads") != 2:
-            errors.append("max_threads_changed")
-        if agents_config.get("max_depth") != 1:
-            errors.append("max_depth_changed")
+        max_threads = agents_config.get("max_threads")
+        if isinstance(max_threads, bool) or not isinstance(max_threads, int):
+            errors.append("max_threads_type")
+        elif max_threads <= 0:
+            errors.append("max_threads_range")
+        max_depth = agents_config.get("max_depth")
+        if isinstance(max_depth, bool) or not isinstance(max_depth, int):
+            errors.append("max_depth_type")
+        elif not MIN_AGENT_MAX_DEPTH <= max_depth <= MAX_AGENT_MAX_DEPTH:
+            errors.append("max_depth_range")
     except (OSError, tomllib.TOMLDecodeError, TypeError):
         errors.append("config_unreadable")
     context_caps, profile_errors = _profile_caps(root)

@@ -4,6 +4,8 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+EXPECTED_AGENT_MAX_THREADS = 8
+EXPECTED_AGENT_MAX_DEPTH = 1
 
 
 def test_project_runtime_profile_uses_luna_max_with_bounded_multi_agent() -> None:
@@ -14,5 +16,5 @@ def test_project_runtime_profile_uses_luna_max_with_bounded_multi_agent() -> Non
     assert config["features"]["multi_agent"] is True
     assert config["features"]["hooks"] is True
     assert "codex_hooks" not in config["features"]
-    assert config["agents"]["max_threads"] == 2
-    assert config["agents"]["max_depth"] == 1
+    assert config["agents"]["max_threads"] == EXPECTED_AGENT_MAX_THREADS
+    assert config["agents"]["max_depth"] == EXPECTED_AGENT_MAX_DEPTH

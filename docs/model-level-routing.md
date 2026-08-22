@@ -137,15 +137,15 @@ reduce to local work. An override never changes the configured executor.
 
 ## Budget and context limits
 
-The project ceiling is `max_threads=2` with `max_depth=1`. A task ledger uses a
-content-free task signature and allows at most two independent child jobs and
-one advisor by default. Complexity 7-8 therefore cannot combine a worker and
-advisor, while 9-10 may use a second independent job only when the user or
-main session supplies a separately measurable block; there is no automatic
-fan-out. The first objective failure stays with main; a second distinct,
-objective failure can qualify an advisor, while repeating the same failure
-does not escalate. Equivalent task/phase/evidence fingerprints reuse the
-existing verdict. Exhaustion does not cause retries or autonomous spawning.
+The active native default and ceiling are `max_threads=8` with `max_depth=1`.
+`.codex/config.toml` is the only supported adjustment surface for these native
+limits; legacy execution-policy files are intentionally inactive. A task ledger
+uses a content-free task signature and permits work only within the configured
+thread ceiling. Allocation still requires its normal eligibility checks: there
+is no automatic fan-out. The first objective failure stays with main; a second
+distinct, objective failure can qualify an advisor, while repeating the same
+failure does not escalate. Equivalent task/phase/evidence fingerprints reuse
+the existing verdict. Exhaustion does not cause retries or autonomous spawning.
 
 Send only the goal, decision fork, compact local evidence, constraints, and an
 exact question. Do not send raw history, secrets, RED material, or unbounded

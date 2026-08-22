@@ -64,6 +64,47 @@ def test_run_gates_minimal_generates_reports(tmp_path: Path) -> None:
     assert stdout["markdown"] == str(latest_md)
 
 
+def test_run_gates_minimal_is_an_explicit_security_only_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run_gates = load_gate_script(monkeypatch, "run-gates.py")
+    calls: list[dict] = []
+
+    def fake_run_command(
+        name: str,
+        command: list[str],
+        timeout: int = 120,
+        env: dict[str, str] | None = None,
+    ) -> dict:
+        calls.append({"name": name, "command": command, "timeout": timeout, "env": env})
+        return {
+            "name": name,
+            "status": "passed",
+            "command": command,
+            "reason": "",
+            "stdout": "",
+            "stderr": "",
+            "exit_code": 0,
+        }
+
+    monkeypatch.setattr(run_gates, "run_command", fake_run_command)
+    monkeypatch.setattr(run_gates, "detect_project", lambda: {"fixture": True})
+    monkeypatch.setattr(run_gates, "now_iso", lambda: "2026-08-22T00:00:00Z")
+    monkeypatch.setattr(run_gates, "write_reports", lambda report, report_dir: (tmp_path / "latest.json", tmp_path / "latest.md"))
+    monkeypatch.setattr(sys, "argv", ["run-gates.py", "--minimal"])
+
+    assert run_gates.main() == 0
+    assert [call["name"] for call in calls] == [
+        "security.baseline",
+        "hooks.effective-graph",
+        "hooks.config-lockstep",
+        "issue-81.secure-native-baseline-harness",
+    ]
+    assert all("scripts/gates/run-tests.py" not in call["command"] for call in calls)
+    assert calls[2]["command"][-1] == "tests/integration/test_hook_config_lockstep.py::test_local_and_global_hook_configs_stay_in_lockstep"
+    assert calls[3]["command"][-1] == "tests/evals/test_secure_native_baseline.py"
+
+
 def test_python_gate_disables_pytest_plugin_autoload(monkeypatch: pytest.MonkeyPatch) -> None:
     run_tests = load_gate_script(monkeypatch, "run-tests.py")
     calls: list[dict] = []
