@@ -359,6 +359,49 @@ def test_script_location_does_not_change_cloud_evaluation(tmp_path: Path) -> Non
         assert payload["risk_level"] == "mutating"
 
 
+def test_shell_noexec_syntax_validation_allows_cloud_script_without_approval(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+    commands = (
+        f"bash -n {script}",
+        f"bash -nu {script}",
+        f"bash -o noexec {script}",
+        f"sh -n {script}",
+        f"zsh -n {script}",
+    )
+
+    for command in commands:
+        assert assess_command(command, tmp_path).action == "allow", command
+        assert run_guard(tmp_path, command, tmp_path / "approvals").stdout == "", command
+
+
+def test_shell_noexec_reenabled_before_script_preserves_cloud_gate(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+
+    payload = json.loads(run_guard(tmp_path, f"bash -n +n {script}", tmp_path / "approvals").stdout)
+
+    assert payload["reason_code"] == "cloud_command_approval_required"
+    assert payload["tool"] == "aws"
+
+
+def test_real_shell_script_execution_uses_exact_one_use_approval(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+    command = f"bash {script}"
+    grant_root = tmp_path / "approvals"
+    blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    grant_root.mkdir(mode=0o700)
+    marker = grant_root / f"command-{blocked['command_sha256']}.approved"
+    marker.write_text("", encoding="utf-8")
+    marker.chmod(0o600)
+
+    assert run_guard(tmp_path, command, grant_root).stdout == ""
+    assert not marker.exists()
+    retried = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    assert retried["reason_code"] == "cloud_command_approval_required"
+
+
 def test_verified_minikube_allows_mutation_and_ordinary_delete(tmp_path: Path) -> None:
     def verify(context, kubeconfig=""):
         return ContextVerification(True, True, "feature-test")

@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 
 SCRIPT_INTERPRETERS = {"bash", "node", "perl", "python", "python3", "ruby", "sh", "zsh"}
+SHELL_INTERPRETERS = {"bash", "sh", "zsh"}
+SHELL_VALUE_OPTIONS = {"-O", "+O", "-o", "+o", "--init-file", "--rcfile"}
 SCRIPT_SUFFIXES = {".bash", ".js", ".mjs", ".pl", ".py", ".rb", ".sh", ".zsh"}
 SHELL_SCRIPT_SUFFIXES = {".bash", ".sh", ".zsh"}
 LITERAL_SEARCH_TOOLS = {"grep", "rg"}
@@ -100,6 +102,46 @@ def _is_script_interpreter(tool: str) -> bool:
     return tool in SCRIPT_INTERPRETERS or bool(re.fullmatch(r"python(?:3(?:\.\d+)*)?", tool))
 
 
+def shell_noexec(parts: list[str]) -> bool:
+    """Return whether a shell invocation keeps execution disabled.
+
+    Shells process ``-n``/``+n`` left to right. Value-bearing options must be
+    skipped so their operands are never mistaken for a script or another flag.
+    """
+
+    if not parts or Path(parts[0]).name.lower() not in SHELL_INTERPRETERS:
+        return False
+    noexec = False
+    index = 1
+    while index < len(parts):
+        part = parts[index]
+        if part == "--":
+            break
+        option = part.split("=", 1)[0]
+        if option in {"-o", "+o"}:
+            value = part.split("=", 1)[1] if "=" in part else (parts[index + 1] if index + 1 < len(parts) else "")
+            if value == "noexec":
+                noexec = option == "-o"
+            index += 1 if "=" in part else 2
+            continue
+        if option in SHELL_VALUE_OPTIONS:
+            index += 1 if "=" in part else 2
+            continue
+        if part.startswith("--"):
+            index += 1
+            continue
+        if len(part) > 1 and part[0] in {"-", "+"} and part[1:].isalpha():
+            flags = part[1:]
+            if "n" in flags:
+                noexec = part[0] == "-"
+            if "c" in flags:
+                break
+            index += 1
+            continue
+        break
+    return noexec
+
+
 def _regular_script(candidate: Path) -> Path | None:
     absolute = candidate.expanduser()
     if absolute.is_symlink():
@@ -116,6 +158,7 @@ def script_path(parts: list[str], cwd: Path) -> Path | None:
         return None
     tool = Path(parts[0]).name.lower()
     is_interpreter = _is_script_interpreter(tool)
+    is_shell = tool in SHELL_INTERPRETERS
     if is_interpreter:
         index = 1
         while index < len(parts):
@@ -128,6 +171,12 @@ def script_path(parts: list[str], cwd: Path) -> Path | None:
             option = part.split("=", 1)[0]
             if option in PYTHON_VALUE_OPTIONS:
                 index += 1 if "=" in part or (len(part) > 2 and part[:2] in PYTHON_VALUE_OPTIONS) else 2
+                continue
+            if is_shell and option in SHELL_VALUE_OPTIONS:
+                index += 1 if "=" in part else 2
+                continue
+            if is_shell and len(part) > 1 and part[0] == "+" and part[1:].isalpha():
+                index += 1
                 continue
             if part.startswith("-"):
                 index += 1

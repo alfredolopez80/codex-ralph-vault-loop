@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_security_baseline_contract_and_synthetic_suite_pass() -> None:
     contract = tomllib.loads((ROOT / "config" / "security-baseline.toml").read_text(encoding="utf-8"))
-    assert contract["version"] == 1
+    assert contract["version"] == 2
     assert contract["name"] == "SECURITY_BASELINE"
     assert contract["synthetic_fixtures_only"] is True
     assert contract["dispatcher"] == ".codex/hooks/security_pre_tool_dispatch.py"
@@ -27,7 +27,7 @@ def test_security_baseline_contract_and_synthetic_suite_pass() -> None:
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
     assert report["name"] == "SECURITY_BASELINE"
-    assert report["version"] == 1
+    assert report["version"] == 2
     assert report["passed"] is True
     assert all(item["passed"] for item in report["results"])
     assert "synthetic-baseline-value" not in result.stdout

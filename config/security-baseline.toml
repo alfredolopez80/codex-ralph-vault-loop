@@ -1,4 +1,4 @@
-version = 1
+version = 2
 name = "SECURITY_BASELINE"
 event = "PreToolUse"
 dispatcher = ".codex/hooks/security_pre_tool_dispatch.py"

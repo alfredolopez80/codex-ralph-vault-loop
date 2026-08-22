@@ -51,6 +51,38 @@ def test_script_rewrite_before_execution_requires_approval(tmp_path: Path) -> No
     assert "rewrite" in assessment.consequence
 
 
+def test_shell_noexec_skips_command_text_cloud_execution(tmp_path: Path) -> None:
+    commands = (
+        "bash -n -c 'aws s3 cp artifact s3://bucket/artifact'",
+        "bash -nc 'aws s3 cp artifact s3://bucket/artifact'",
+        "bash -o noexec -c 'aws s3 cp artifact s3://bucket/artifact'",
+    )
+
+    for command in commands:
+        assert assess_command(command, tmp_path).action == "allow", command
+
+
+def test_shell_noexec_can_be_reenabled_before_command_text(tmp_path: Path) -> None:
+    assessment = assess_command(
+        "bash -n +n -c 'aws s3 cp artifact s3://bucket/artifact'",
+        tmp_path,
+    )
+
+    assert assessment.action == "approval"
+    assert assessment.tool == "aws"
+
+
+def test_shell_value_option_does_not_hide_executed_script(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("aws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+
+    executed = assess_command(f"bash -O extglob {script}", tmp_path)
+    syntax_only = assess_command(f"bash -O extglob -n {script}", tmp_path)
+
+    assert executed.action == "approval"
+    assert syntax_only.action == "allow"
+
+
 def test_python_option_values_do_not_hide_script_path(tmp_path: Path) -> None:
     script = tmp_path / "deploy.py"
     script.write_text("aws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")

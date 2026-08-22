@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from shared.minikube_context import ContextVerification, verify_minikube_context
-from shared.script_operation_inspector import script_cloud_commands, script_path, wrapper_script_path
+from shared.script_operation_inspector import shell_noexec, script_cloud_commands, script_path, wrapper_script_path
 
 CLOUD_TOOLS = {"aws", "gcloud", "helm", "kubectl", "minikube", "terraform"}
 READ_ACTIONS = {
@@ -294,6 +294,9 @@ def assess_command(
             return
         tool = _tool(parts[0])
         if tool in {"bash", "sh", "zsh"}:
+            if shell_noexec(parts):
+                assessments.append(CommandAssessment(action="allow", tool="local-script"))
+                return
             shell_command = _shell_command(parts)
             if shell_command:
                 try:

@@ -19,7 +19,7 @@ DISPATCHER = ROOT / ".codex" / "hooks" / "security_pre_tool_dispatch.py"
 def load_contract() -> dict[str, Any]:
     with CONFIG.open("rb") as stream:
         contract = tomllib.load(stream)
-    if contract.get("version") != 1 or contract.get("name") != "SECURITY_BASELINE":
+    if contract.get("version") != 2 or contract.get("name") != "SECURITY_BASELINE":
         raise RuntimeError("SECURITY_BASELINE contract version or name is invalid")
     if contract.get("dispatcher") != ".codex/hooks/security_pre_tool_dispatch.py":
         raise RuntimeError("SECURITY_BASELINE dispatcher does not identify the security-only hook")
@@ -77,6 +77,11 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
     harmless_script = workspace / "fixture_check.py"
     harmless_script.write_text(
         'fixture = "aws ec2 terminate-instances --instance-ids i-synthetic"\nprint("fixture only")\n',
+        encoding="utf-8",
+    )
+    harmless_shell_syntax = workspace / "cloud_syntax_fixture.sh"
+    harmless_shell_syntax.write_text(
+        "#!/bin/sh\nif false; then\n  aws s3 cp fixture s3://synthetic-bucket/fixture\nfi\n",
         encoding="utf-8",
     )
 
@@ -157,6 +162,15 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "tool_name": "exec_command",
                 "cwd": str(workspace),
                 "tool_input": {"cmd": f"{sys.executable} {harmless_script}"},
+            },
+            False,
+        ),
+        case(
+            "harmless-shell-noexec-validation",
+            {
+                "tool_name": "exec_command",
+                "cwd": str(workspace),
+                "tool_input": {"cmd": f"bash -n {harmless_shell_syntax}"},
             },
             False,
         ),
