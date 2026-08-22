@@ -310,9 +310,10 @@ def test_report_keeps_native_metrics_and_security_overhead_separate() -> None:
 
 def test_artifact_collection_rejects_project_global_dispatcher_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     contract = load_contract()
+    global_dispatcher = Path(contract["security"]["global_dispatcher_path"]).expanduser().resolve()
 
     def fake_hash(path: Path) -> str:
-        return "sha256:global" if path.is_relative_to(Path.home() / ".codex") else "sha256:project"
+        return "sha256:global" if path.resolve() == global_dispatcher else "sha256:project"
 
     monkeypatch.setattr(baseline, "_sha256_file", fake_hash)
     with pytest.raises(BaselineError, match="project and global security dispatcher hashes differ"):
