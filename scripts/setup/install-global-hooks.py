@@ -21,6 +21,7 @@ MANAGED_SKILL_SOURCE_ROOTS = (REPO / ".agents" / "skills", REPO / "plugins")
 GLOBAL_AGENT_ROOT = Path.home() / ".codex" / "agents"
 MANAGED_AGENT_SOURCE_ROOT = REPO / ".codex" / "agents"
 GLOBAL_HELPER_ROOT = Path.home() / ".ralph-codex" / "bin"
+PYTHON_CACHE_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
 MANAGED_HELPER_SOURCES = {
     "autoresearch": REPO / "scripts" / "autoresearch",
     "reviewed-cloud-operation": REPO / "scripts" / "operations" / "reviewed-cloud-operation.py",
@@ -279,11 +280,16 @@ def main() -> int:
         backup_dir = GLOBAL_HOOK_DIR.with_name("hooks.bak-global-hooks")
         if backup_dir.exists():
             shutil.rmtree(backup_dir)
-        shutil.copytree(GLOBAL_HOOK_DIR, backup_dir, symlinks=True)
+        shutil.copytree(GLOBAL_HOOK_DIR, backup_dir, symlinks=True, ignore=PYTHON_CACHE_IGNORE)
 
     if GLOBAL_HOOK_DIR.exists():
         shutil.rmtree(GLOBAL_HOOK_DIR)
-    shutil.copytree(REPO / ".codex" / "hooks", GLOBAL_HOOK_DIR, symlinks=True)
+    shutil.copytree(
+        REPO / ".codex" / "hooks",
+        GLOBAL_HOOK_DIR,
+        symlinks=True,
+        ignore=PYTHON_CACHE_IGNORE,
+    )
     (GLOBAL_HOOK_DIR / ".ralph-repo-root").write_text(str(REPO) + "\n", encoding="utf-8")
 
     if GLOBAL_HOOKS.exists():
