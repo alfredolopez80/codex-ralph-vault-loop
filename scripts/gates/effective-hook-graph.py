@@ -292,6 +292,30 @@ def trusted_report_only_declarations(path: Path | None = None) -> dict[str, dict
     return result
 
 
+def security_only_profile(configs: list[tuple[str, dict[str, Any]]]) -> bool:
+    registrations: list[tuple[str, str]] = []
+    for source, config in configs:
+        if source.startswith("plugin:"):
+            continue
+        hooks = config.get("hooks")
+        if not isinstance(hooks, dict):
+            return False
+        for event, groups in hooks.items():
+            if not isinstance(event, str) or not isinstance(groups, list):
+                return False
+            for group in groups:
+                if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                    return False
+                for child in group["hooks"]:
+                    if not isinstance(child, dict):
+                        return False
+                    registrations.append((event, str(child.get("command") or "")))
+    return bool(registrations) and all(
+        event == "PreToolUse" and "security_pre_tool_dispatch" in command
+        for event, command in registrations
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, default=ROOT / ".codex" / "hooks.json")
@@ -313,8 +337,20 @@ def main() -> int:
         if generated is not None:
             configs.append(("global-dry-run", generated))
     configs.extend(plugin_snapshots())
-    report = analyze_hook_graph(configs, trusted_report_only=trusted_report_only_declarations())
+    security_only = security_only_profile(configs)
+    required_domains = ("pre_tool_safety",) if security_only else (
+        "prompt_boundary",
+        "pre_tool_safety",
+        "post_tool_persistence",
+        "stop_completion",
+    )
+    report = analyze_hook_graph(
+        configs,
+        trusted_report_only=trusted_report_only_declarations(),
+        required_domains=required_domains,
+    )
     payload = report.as_dict()
+    payload["profile"] = "security-only" if security_only else "legacy-lifecycle"
     payload["project_config"] = str(args.project)
     payload["global_config"] = str(global_path)
     payload["sources"] = [source for source, _ in configs]

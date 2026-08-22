@@ -66,30 +66,14 @@ def state_for(env: dict[str, str], session_id: str) -> tuple[dict[str, Any], dic
     return state, decision
 
 
-def test_global_dispatcher_routes_the_same_policy_in_a_neutral_workspace(tmp_path: Path) -> None:
-    neutral = tmp_path / "neutral-workspace"
-    neutral.mkdir()
+def test_global_security_only_profile_omits_prompt_routing(tmp_path: Path) -> None:
     env = isolated_env(tmp_path)
     session_id = "global-sol-neutral-8"
-    prompt = high_complexity_prompt()
-    payload = {
-        "hook_event_name": "UserPromptSubmit",
-        "session_id": session_id,
-        "cwd": str(neutral),
-        "prompt": prompt,
-    }
+    prompt_commands = commands_for("UserPromptSubmit")
+    pretool_commands = commands_for("PreToolUse")
 
-    outputs: list[str] = []
-    for command in commands_for("UserPromptSubmit"):
-        result = run(command, payload, env)
-        assert result.returncode == 0, result.stderr or result.stdout
-        outputs.append(result.stdout)
-
-    state, decision = state_for(env, session_id)
-    assert decision["policy_version"] == "subagent-routing-v2"
-    assert decision["configured_executor_model"] == "gpt-5.6-luna"
-    assert decision["configured_executor_effort"] == "max"
-    assert decision["subagent_route"] == "sol-advisor"
-    assert decision["subagent_effort"] == "high"
-    assert prompt not in json.dumps(state)
-    assert any("ROUTE_DECISION" in output and "subagent_route=sol-advisor" in output for output in outputs)
+    assert prompt_commands == []
+    assert len(pretool_commands) == 1
+    assert "security_pre_tool_dispatch" in pretool_commands[0]
+    state_path = Path(env["CODEX_HOOK_STATE_ROOT"]) / session_id / "sol-advisor.json"
+    assert not state_path.exists()
