@@ -240,8 +240,8 @@ def test_real_cloud_command_inside_generated_shell_body_remains_gated(tmp_path: 
 
     assessment = assess_command(f"bash {script}", tmp_path)
 
-    assert assessment.action == "block"
-    assert assessment.reason_code == "kubectl_context_required"
+    assert assessment.action == "block", assessment
+    assert assessment.reason_code == "kubectl_context_required", assessment
 
 
 def test_real_shell_cloud_commands_still_require_their_normal_gate(tmp_path: Path) -> None:
@@ -307,8 +307,8 @@ def test_shell_lexical_and_known_wrapper_forms_preserve_the_kubectl_gate(tmp_pat
 
         assessment = assess_command(f"bash {script}", tmp_path)
 
-        assert assessment.action == "block", body
-        assert assessment.reason_code == "kubectl_context_required", body
+        assert assessment.action == "block", (body, assessment)
+        assert assessment.reason_code == "kubectl_context_required", (body, assessment)
 
 
 def test_dynamic_shell_cloud_data_requests_approval_instead_of_passing(tmp_path: Path) -> None:
@@ -341,8 +341,8 @@ def test_inline_shell_wrappers_follow_the_same_block_or_approval_contract(tmp_pa
 
     for command in blocked:
         assessment = assess_command(command, tmp_path)
-        assert assessment.action == "block", command
-        assert assessment.reason_code == "kubectl_context_required", command
+        assert assessment.action == "block", (command, assessment)
+        assert assessment.reason_code == "kubectl_context_required", (command, assessment)
     for command in ambiguous:
         assessment = assess_command(command, tmp_path)
         assert assessment.action == "approval", command
