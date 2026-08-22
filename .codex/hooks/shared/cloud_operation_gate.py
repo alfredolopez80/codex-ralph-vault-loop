@@ -362,6 +362,9 @@ def assess_command(
             assessments.append(_approval("local-script", "mutating", "execute nested script logic beyond inspection depth"))
             return
         tool = _tool(parts[0])
+        if tool in CLOUD_TOOLS:
+            assessments.append(_assess_cloud_parts(parts, verifier, kubeconfig, active_cwd))
+            return
         if tool in {"bash", "sh", "zsh"}:
             if shell_noexec(parts):
                 assessments.append(CommandAssessment(action="allow", tool="local-script"))
@@ -461,9 +464,6 @@ def assess_command(
                         _approval("local-script", "mutating", "execute a cloud command that cannot be parsed statically")
                     )
             return
-
-        if tool in CLOUD_TOOLS:
-            assessments.append(_assess_cloud_parts(parts, verifier, kubeconfig, active_cwd))
 
     def assess_sequence(command_segments: list[list[str]], depth: int, start_cwd: Path) -> None:
         active_cwd = start_cwd

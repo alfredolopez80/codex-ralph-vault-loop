@@ -6,21 +6,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex" / "hooks"))
 
-from shared.cloud_operation_gate import CommandAssessment, ContextVerification, assess_command
+from shared.cloud_operation_gate import ContextVerification, assess_command
 
 
 def verified_minikube(context: str, kubeconfig: str = "") -> ContextVerification:
     return ContextVerification(True, True, "feature-test")
-
-
-def decision_summary(assessment: CommandAssessment) -> tuple[str, ...]:
-    return (
-        assessment.action,
-        assessment.reason_code,
-        assessment.risk_level,
-        assessment.tool,
-        assessment.consequence,
-    )
 
 
 def test_alternate_kubeconfig_is_bound_to_context_verification(tmp_path: Path) -> None:
@@ -184,6 +174,18 @@ def test_slashless_cloud_tool_uses_path_not_cwd_file(tmp_path: Path) -> None:
     assert assessment.tool == "aws"
 
 
+def test_explicit_cloud_tool_path_uses_cloud_gate_before_script_inspection(tmp_path: Path) -> None:
+    executable = tmp_path / "kubectl"
+    executable.write_text("#!/bin/sh\necho fixture\n", encoding="utf-8")
+    executable.chmod(0o700)
+
+    assessment = assess_command(f"{executable} get pods", tmp_path)
+
+    assert assessment.action == "block"
+    assert assessment.reason_code == "kubectl_context_required"
+    assert assessment.tool == "kubectl"
+
+
 def test_literal_cloud_tool_search_in_diagnostic_script_is_not_execution(tmp_path: Path) -> None:
     script = tmp_path / "doctor.sh"
     script.write_text(
@@ -250,8 +252,8 @@ def test_real_cloud_command_inside_generated_shell_body_remains_gated(tmp_path: 
 
     assessment = assess_command(f"bash {script}", tmp_path)
 
-    assert assessment.action == "block", decision_summary(assessment)
-    assert assessment.reason_code == "kubectl_context_required", decision_summary(assessment)
+    assert assessment.action == "block", assessment.consequence
+    assert assessment.reason_code == "kubectl_context_required", assessment.consequence
 
 
 def test_real_shell_cloud_commands_still_require_their_normal_gate(tmp_path: Path) -> None:
@@ -317,8 +319,8 @@ def test_shell_lexical_and_known_wrapper_forms_preserve_the_kubectl_gate(tmp_pat
 
         assessment = assess_command(f"bash {script}", tmp_path)
 
-        assert assessment.action == "block", (body, decision_summary(assessment))
-        assert assessment.reason_code == "kubectl_context_required", (body, decision_summary(assessment))
+        assert assessment.action == "block", (body, assessment.consequence)
+        assert assessment.reason_code == "kubectl_context_required", (body, assessment.consequence)
 
 
 def test_dynamic_shell_cloud_data_requests_approval_instead_of_passing(tmp_path: Path) -> None:
@@ -351,8 +353,8 @@ def test_inline_shell_wrappers_follow_the_same_block_or_approval_contract(tmp_pa
 
     for command in blocked:
         assessment = assess_command(command, tmp_path)
-        assert assessment.action == "block", (command, decision_summary(assessment))
-        assert assessment.reason_code == "kubectl_context_required", (command, decision_summary(assessment))
+        assert assessment.action == "block", (command, assessment.consequence)
+        assert assessment.reason_code == "kubectl_context_required", (command, assessment.consequence)
     for command in ambiguous:
         assessment = assess_command(command, tmp_path)
         assert assessment.action == "approval", command
