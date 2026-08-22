@@ -32,6 +32,9 @@ advice or bounded work only; Codex verifies and integrates it. Never use
 `--yolo` for production, shared, or sensitive work. Package acquisition or
 remote execution uses `sfw` (for example, `sfw npm ci` or `sfw uvx ...`).
 
+Routing, advisors, phases, and plans are advice, not execution permission.
+Only `SECURITY_BASELINE` may block PreToolUse; uncertainty uses native approval.
+
 ## Safety and sensitivity
 
 - RED means credentials, restricted data, or unsanitized sensitive logs. RED

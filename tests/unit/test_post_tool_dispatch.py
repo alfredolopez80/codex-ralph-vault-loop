@@ -6,9 +6,6 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from types import SimpleNamespace
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / ".codex" / "hooks" / "post_tool_dispatch.py"
@@ -49,22 +46,14 @@ def payload(tmp_path: Path, *, tool: str, tool_input: dict | None = None, **extr
     return result
 
 
-def run_dispatch(tmp_path: Path, data: dict, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def run_dispatch(
+    tmp_path: Path,
+    data: dict,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = env_for(tmp_path)
     if extra_env:
         env.update(extra_env)
-    if env.get("RALPH_CONVERGENT_EXECUTION_MODE") == "enforce":
-        activation = tmp_path / "config" / "convergent-execution-mode.toml"
-        activation.parent.mkdir(parents=True, exist_ok=True)
-        activation.write_text(
-            "version = 3\n"
-            "mode = \"enforce\"\n"
-            "plan_id = \"ralph-convergent-execution-v4-20260811\"\n"
-            "plan_digest = \"sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1\"\n"
-            "policy_hash = \"sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef\"\n"
-            "activation_approval = \".local-notes/ralph/convergent-manual-activation.toml\"\n",
-            encoding="utf-8",
-        )
     return subprocess.run(
         [sys.executable, str(HOOK)],
         cwd=ROOT,
@@ -109,98 +98,6 @@ def test_red_tool_name_is_not_persisted_in_cost_ledger(tmp_path: Path) -> None:
     assert result.returncode == 0
     runtime_text = "".join(path.read_text(encoding="utf-8") for path in runtime_files(tmp_path))
     assert marker not in runtime_text
-
-
-def test_read_only_call_records_compact_telemetry_without_checkpoint(tmp_path: Path) -> None:
-    result = run_dispatch(tmp_path, payload(tmp_path, tool="exec_command", tool_input={"cmd": "git status --short"}))
-    assert result.returncode == 0
-    assert result.stdout == ""
-    assert len(read_jsonl(tmp_path / "ralph" / "cost" / "tool-ledger.jsonl")) == 1
-    project_dirs = list((tmp_path / "ralph" / "projects").glob("*/checkpoints")) if (tmp_path / "ralph" / "projects").exists() else []
-    assert not project_dirs
-
-
-def test_enforced_successful_read_is_a_physical_noop(tmp_path: Path) -> None:
-    result = run_dispatch(
-        tmp_path,
-        payload(tmp_path, tool="exec_command", tool_input={"cmd": "git status --short"}),
-        {"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"},
-    )
-    assert result.returncode == 0
-    assert result.stdout == ""
-    assert runtime_files(tmp_path) == []
-
-
-def test_attached_transition_on_read_fast_path_is_rejected_before_noop() -> None:
-    data = {
-        "hook_event_name": "PostToolUse",
-        "tool_name": "exec_command",
-        "tool_input": {"cmd": "git status --short"},
-        "tool_response": {"exit_code": 0, "stdout": "clean"},
-        "success": True,
-        "convergent_transition": {"schema_version": 1},
-    }
-    handled, response = post_tool_dispatch._commit_convergent_transition(
-        data,
-        activation_mode="enforce",
-        tool=post_tool_dispatch.classify_tool(data),
-    )
-    assert handled is True
-    assert response == {"decision": "block", "reason": "convergent-post-tool-transition-invalid"}
-
-
-def test_event_identity_is_exact_and_cannot_be_supplied_by_tool_input() -> None:
-    data = {
-        "tool_use_id": "tool/runtime-1",
-        "tool_input": {"tool_use_id": "tool-spoofed"},
-        "tool_response": {"exit_code": 0},
-    }
-    assert post_tool_dispatch._event_identifier(data, "tool_use_id") == "tool/runtime-1"
-    assert post_tool_dispatch._event_identifier(
-        {"tool_input": {"tool_use_id": "tool-spoofed"}}, "tool_use_id"
-    ) == ""
-    with pytest.raises(Exception, match="identifier is invalid"):
-        post_tool_dispatch._event_identifier({"tool_use_id": " tool-1 "}, "tool_use_id")
-
-
-def test_enforced_mixed_read_and_mutation_does_not_take_fast_path(tmp_path: Path) -> None:
-    target = tmp_path / "mixed.txt"
-    result = run_dispatch(
-        tmp_path,
-        payload(tmp_path, tool="exec_command", tool_input={"cmd": f"git status --short && touch {target}"}),
-        {"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"},
-    )
-    assert result.returncode == 0
-    assert list((tmp_path / "ralph").rglob("*"))
-
-
-def test_valid_v1_attestation_uses_runtime_digest_for_dispatcher_binding(monkeypatch) -> None:
-    calls: list[str] = []
-    request = SimpleNamespace(runtime_attestation_digest="sha256:" + "a" * 64)
-    authority = SimpleNamespace(
-        active=SimpleNamespace(workspace_root=Path("/tmp/fixture-workspace"), branch="main"),
-        checkout_head_sha="a" * 40,
-        policy=object(),
-        plan_id="fixture-plan",
-        store=SimpleNamespace(transition=lambda plan_id, value: calls.append(plan_id)),
-    )
-    monkeypatch.setattr(post_tool_dispatch, "request_from_attestation", lambda value, **kwargs: (request, "sha256:" + "b" * 64))
-    monkeypatch.setattr(post_tool_dispatch, "load_authoritative_state", lambda payload: (authority, {}))
-    monkeypatch.setattr(
-        post_tool_dispatch,
-        "load_runtime_attestation",
-        lambda *args, **kwargs: SimpleNamespace(attestation_digest="sha256:" + "a" * 64),
-    )
-
-    handled, response = post_tool_dispatch._commit_convergent_transition(
-        {"convergent_transition": {"schema_version": 1}},
-        activation_mode="enforce",
-        tool=post_tool_dispatch.classify_tool({"tool_name": "apply_patch", "success": True}),
-    )
-
-    assert handled is True
-    assert response is None
-    assert calls == ["fixture-plan"]
 
 
 def test_command_classifier_does_not_truncate_mutating_suffix() -> None:
@@ -386,7 +283,7 @@ def test_dedupe_entry_count_is_bounded(tmp_path: Path) -> None:
         data = payload(
             tmp_path,
             tool="exec_command",
-            tool_input={"cmd": "git status"},
+            tool_input={"cmd": "printf changed"},
             tool_use_id=f"bounded-{index}",
         )
         assert run_dispatch(tmp_path, data, {"RALPH_POST_TOOL_DEDUPE_MAX_ENTRIES": "16"}).returncode == 0

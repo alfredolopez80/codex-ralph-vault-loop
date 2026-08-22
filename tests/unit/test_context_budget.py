@@ -67,11 +67,29 @@ def test_blocks_high_risk_broad_rg_but_allows_targeted_repo_search(tmp_path: Pat
     assert targeted is None
 
 
+def test_allows_targeted_jq_projections_but_blocks_full_dumps(tmp_path: Path) -> None:
+    assert classify_command("jq '.summary.status' report.json", tmp_path) is None
+    assert classify_command("jq '{status,count}' report.json", tmp_path) is None
+
+    full_dump = classify_command("jq . report.json", tmp_path)
+    keys_dump = classify_command("jq keys report.json", tmp_path)
+    assert full_dump and full_dump.reason_code == "unbounded_json_dump"
+    assert keys_dump and keys_dump.reason_code == "unbounded_json_dump"
+
+
 def test_blocks_full_file_python_print_and_toxic_patch(tmp_path: Path) -> None:
     command = "python3 -c 'print(open(\"huge.json\")." + "read())'"
     assert classify_command(command, tmp_path)
     patch = "*** Begin Patch\n+" + long_alpha_payload() + "\n*** End Patch"
     assert classify_patch_payload(patch)
+
+
+def test_script_output_guard_targets_known_firehose_families_only(tmp_path: Path) -> None:
+    high_output = classify_command("python3 scripts/context/repo_map.py --root .", tmp_path)
+
+    assert high_output and high_output.reason_code == "python_script_unbounded"
+    assert classify_command("python3 /opt/local-tool/scripts/render.py input.json", tmp_path) is None
+    assert classify_command("bash /opt/local-tool/scripts/render.sh input.json", tmp_path) is None
 
 
 def test_patch_grant_requires_red_to_be_the_only_toxic_reason() -> None:

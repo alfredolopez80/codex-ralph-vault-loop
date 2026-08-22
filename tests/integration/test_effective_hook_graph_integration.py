@@ -21,5 +21,11 @@ def test_effective_hook_graph_doctor_passes_project_and_global_snapshot() -> Non
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["status"] in {"PASS", "WARN"}
-    assert all(domain["status"] == "PASS" for domain in payload["domains"])
+    assert payload["profile"] == "security-only"
+    assert {domain["domain"]: domain["status"] for domain in payload["domains"]} == {
+        "prompt_boundary": "DISABLED",
+        "pre_tool_safety": "PASS",
+        "post_tool_persistence": "DISABLED",
+        "stop_completion": "DISABLED",
+    }
     assert payload["legacy_wrapper_registered"] is False

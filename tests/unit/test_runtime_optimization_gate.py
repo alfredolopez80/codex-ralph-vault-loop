@@ -20,11 +20,12 @@ def test_current_candidate_passes_structural_gate() -> None:
     gate = load_gate()
     report = gate.inspect(ROOT)
     assert report["status"] == "passed", report
-    assert report["handler_counts"]["SessionStart"] == 1
-    assert report["handler_counts"]["UserPromptSubmit"] == 1
+    assert report["profile"] == "security-only"
+    assert report["handler_counts"]["SessionStart"] == 0
+    assert report["handler_counts"]["UserPromptSubmit"] == 0
     assert report["handler_counts"]["PreToolUse"] == 1
-    assert report["handler_counts"]["PostToolUse"] == 1
-    assert report["handler_counts"]["Stop"] == 1
+    assert report["handler_counts"]["PostToolUse"] == 0
+    assert report["handler_counts"]["Stop"] == 0
     assert report["context_hard_caps"] == {
         "conservative_unknown_prompt": 2200,
         "conservative_unknown_session": 2200,
@@ -66,6 +67,42 @@ def test_instruction_size_limit_is_enforced(tmp_path: Path) -> None:
     (codex / "config.toml").write_text("[agents]\nmax_threads=2\nmax_depth=1\n", encoding="utf-8")
     result = gate.inspect(tmp_path)
     assert "agents_instruction_hard_cap" in result["errors"]
+
+
+def test_agent_limits_accept_configurable_positive_thread_ceiling(tmp_path: Path) -> None:
+    gate = load_gate()
+    (tmp_path / "AGENTS.md").write_text("Codex main. External models advise. RED. evidence. Implementation notes.\n", encoding="utf-8")
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    (codex / "hooks.json").write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+    (codex / "config.toml").write_text("[agents]\nmax_threads=8\nmax_depth=2\n", encoding="utf-8")
+    result = gate.inspect(tmp_path)
+    assert "max_threads_type" not in result["errors"]
+    assert "max_threads_range" not in result["errors"]
+    assert "max_depth_type" not in result["errors"]
+    assert "max_depth_range" not in result["errors"]
+
+
+def test_agent_limits_reject_invalid_types(tmp_path: Path) -> None:
+    gate = load_gate()
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    (codex / "hooks.json").write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+    (codex / "config.toml").write_text('[agents]\nmax_threads="8"\nmax_depth=true\n', encoding="utf-8")
+    result = gate.inspect(tmp_path)
+    assert "max_threads_type" in result["errors"]
+    assert "max_depth_type" in result["errors"]
+
+
+def test_agent_limits_reject_invalid_ranges(tmp_path: Path) -> None:
+    gate = load_gate()
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    (codex / "hooks.json").write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+    (codex / "config.toml").write_text("[agents]\nmax_threads=0\nmax_depth=3\n", encoding="utf-8")
+    result = gate.inspect(tmp_path)
+    assert "max_threads_range" in result["errors"]
+    assert "max_depth_range" in result["errors"]
 
 
 def _benchmark_case(runtime_p95_ms: float) -> dict[str, object]:

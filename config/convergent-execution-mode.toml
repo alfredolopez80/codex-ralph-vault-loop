@@ -1,6 +1,0 @@
-version = 3
-mode = "enforce"
-plan_id = "ralph-convergent-execution-v4-20260811"
-plan_digest = "sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1"
-policy_hash = "sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef"
-activation_approval = ".local-notes/ralph/convergent-manual-activation.toml"

@@ -20,7 +20,6 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["RALPH_CONVERGENT_EXECUTION_MODE"] = "off"
     if extra_env:
         env.update(extra_env)
     script_path = Path(script)
@@ -39,7 +38,6 @@ def run_script(
 def run_python_script(home: Path, script: str, *args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["RALPH_CONVERGENT_EXECUTION_MODE"] = "off"
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "setup" / script), *args],
         cwd=ROOT,
@@ -88,7 +86,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     approve_patch = tmp_path / ".ralph-codex" / "bin" / "approve-local-patch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
-    pre_tool_dispatch = tmp_path / ".codex" / "hooks" / "pre_tool_dispatch.py"
+    security_pre_tool_dispatch = tmp_path / ".codex" / "hooks" / "security_pre_tool_dispatch.py"
     assert skill.is_symlink()
     assert codex_skill.is_symlink()
     assert plugin_skill.is_symlink()
@@ -114,7 +112,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert approve_patch.is_symlink()
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
-    assert pre_tool_dispatch.is_file()
+    assert security_pre_tool_dispatch.is_file()
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
@@ -178,11 +176,12 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert "Do not use `--yolo`" in agents_text
     hooks_text = hooks_json.read_text(encoding="utf-8")
     assert "global_hook_dispatch.py" in hooks_text
-    assert "--role session_start_dispatch" in hooks_text
-    assert "--role user_prompt_dispatch" in hooks_text
-    assert "--role pre_tool_dispatch" in hooks_text
-    assert "--role post_tool_dispatch" in hooks_text
-    assert "--role stop_dispatch" in hooks_text
+    assert "--role security_pre_tool_dispatch" in hooks_text
+    assert "--role session_start_dispatch" not in hooks_text
+    assert "--role user_prompt_dispatch" not in hooks_text
+    assert "--role pre_tool_dispatch" not in hooks_text
+    assert "--role post_tool_dispatch" not in hooks_text
+    assert "--role stop_dispatch" not in hooks_text
     assert "--role pre_tool_guard" not in hooks_text
     assert "codex_stop_slop_guard.py" not in hooks_json.read_text(encoding="utf-8")
     assert "stale_repo_local_wakeup_payload" in pre_tool_guard.read_text(encoding="utf-8")
@@ -439,7 +438,7 @@ def test_router_global_installer_dry_run_includes_agents_and_hooks(tmp_path: Pat
     assert ".codex/agents/ralph-coder.toml" in result.stdout
     assert ".codex/hooks.json" in result.stdout
     assert "global_hook_dispatch.py" in result.stdout
-    assert "--role stop_dispatch" in result.stdout
+    assert "--role security_pre_tool_dispatch" in result.stdout
     assert not (tmp_path / ".codex").exists()
 
 
@@ -654,7 +653,13 @@ def test_global_hooks_refuse_direct_source_migration(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    direct = run_python_script(tmp_path, "install-global-hooks.py", "--migration-manifest", str(manifest))
+    direct = run_python_script(
+        tmp_path,
+        "install-global-hooks.py",
+        "--migration-manifest",
+        str(manifest),
+        "--allow-worktree-source",
+    )
 
     assert direct.returncode != 0
     assert "GLOBAL_HOOKS_REFUSED_INCOMPLETE_MIGRATION" in direct.stderr

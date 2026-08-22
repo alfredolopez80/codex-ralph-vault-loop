@@ -332,20 +332,21 @@ def test_cloud_reads_pass_and_mutations_request_human_approval(tmp_path: Path) -
     assert missing_context["reason_code"] == "kubectl_context_required"
 
 
-def test_destructive_command_approval_is_exact_and_one_use(tmp_path: Path) -> None:
+def test_destructive_cloud_command_cannot_be_overridden_by_a_grant(tmp_path: Path) -> None:
     grant_root = tmp_path / "approvals"
     command = "aws ec2 terminate-instances --instance-ids i-example"
-    blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
-    assert blocked["risk_level"] == "destructive"
+    assessment = assess_command(command, tmp_path)
+    assert assessment.action == "block"
+    assert assessment.reason_code == "cloud_destructive_command_blocked"
+
     grant_root.mkdir(mode=0o700)
-    marker = grant_root / f"command-{blocked['command_sha256']}.approved"
+    marker = grant_root / f"command-{digest(assessment.approval_subject)}.approved"
     marker.write_text("", encoding="utf-8")
     marker.chmod(0o600)
 
-    assert run_guard(tmp_path, command, grant_root).stdout == ""
-    assert not marker.exists()
-    retried = json.loads(run_guard(tmp_path, command, grant_root).stdout)
-    assert retried["reason_code"] == "cloud_command_approval_required"
+    blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    assert blocked["reason_code"] == "cloud_destructive_command_blocked"
+    assert marker.exists()
 
 
 def test_script_location_does_not_change_cloud_evaluation(tmp_path: Path) -> None:
@@ -357,6 +358,49 @@ def test_script_location_does_not_change_cloud_evaluation(tmp_path: Path) -> Non
         payload = json.loads(run_guard(tmp_path, f"bash {script}", tmp_path / "approvals").stdout)
         assert payload["tool"] == "aws"
         assert payload["risk_level"] == "mutating"
+
+
+def test_shell_noexec_syntax_validation_allows_cloud_script_without_approval(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+    commands = (
+        f"bash -n {script}",
+        f"bash -nu {script}",
+        f"bash -o noexec {script}",
+        f"sh -n {script}",
+        f"zsh -n {script}",
+    )
+
+    for command in commands:
+        assert assess_command(command, tmp_path).action == "allow", command
+        assert run_guard(tmp_path, command, tmp_path / "approvals").stdout == "", command
+
+
+def test_shell_noexec_reenabled_before_script_preserves_cloud_gate(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+
+    payload = json.loads(run_guard(tmp_path, f"bash -n +n {script}", tmp_path / "approvals").stdout)
+
+    assert payload["reason_code"] == "cloud_command_approval_required"
+    assert payload["tool"] == "aws"
+
+
+def test_real_shell_script_execution_uses_exact_one_use_approval(tmp_path: Path) -> None:
+    script = tmp_path / "deploy.sh"
+    script.write_text("#!/bin/sh\naws s3 cp artifact s3://bucket/artifact\n", encoding="utf-8")
+    command = f"bash {script}"
+    grant_root = tmp_path / "approvals"
+    blocked = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    grant_root.mkdir(mode=0o700)
+    marker = grant_root / f"command-{blocked['command_sha256']}.approved"
+    marker.write_text("", encoding="utf-8")
+    marker.chmod(0o600)
+
+    assert run_guard(tmp_path, command, grant_root).stdout == ""
+    assert not marker.exists()
+    retried = json.loads(run_guard(tmp_path, command, grant_root).stdout)
+    assert retried["reason_code"] == "cloud_command_approval_required"
 
 
 def test_verified_minikube_allows_mutation_and_ordinary_delete(tmp_path: Path) -> None:
@@ -372,7 +416,7 @@ def test_verified_minikube_allows_mutation_and_ordinary_delete(tmp_path: Path) -
         assert assessment.warning
 
 
-def test_verified_minikube_complete_delete_still_requires_approval(tmp_path: Path) -> None:
+def test_verified_minikube_complete_delete_remains_blocked(tmp_path: Path) -> None:
     def verify(context, kubeconfig=""):
         return ContextVerification(True, True, "feature-test")
     for command in (
@@ -380,7 +424,8 @@ def test_verified_minikube_complete_delete_still_requires_approval(tmp_path: Pat
         "kubectl --context feature-test delete pods --all",
     ):
         assessment = assess_command(command, tmp_path, verify)
-        assert assessment.action == "approval"
+        assert assessment.action == "block"
+        assert assessment.reason_code == "cloud_destructive_command_blocked"
         assert assessment.risk_level == "destructive"
 
 
@@ -481,8 +526,10 @@ def test_combined_shell_flags_and_xargs_are_evaluated(tmp_path: Path) -> None:
         tmp_path,
         verify,
     )
-    assert shell.action == "approval"
-    assert xargs.action == "approval"
+    assert shell.action == "block"
+    assert xargs.action == "block"
+    assert shell.reason_code == "cloud_destructive_command_blocked"
+    assert xargs.reason_code == "cloud_destructive_command_blocked"
 
 
 def test_versioned_python_runner_inspects_script(tmp_path: Path) -> None:

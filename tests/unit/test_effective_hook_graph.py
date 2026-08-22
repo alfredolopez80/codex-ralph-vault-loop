@@ -20,7 +20,7 @@ def _complete_config(stop_commands: list[str]) -> dict[str, object]:
     return {
         "hooks": {
             "UserPromptSubmit": group("python3 /repo/.codex/hooks/user_prompt_dispatch.py"),
-            "PreToolUse": group("python3 /repo/.codex/hooks/pre_tool_dispatch.py"),
+            "PreToolUse": group("python3 /repo/.codex/hooks/security_pre_tool_dispatch.py"),
             "PostToolUse": group("python3 /repo/.codex/hooks/post_tool_dispatch.py"),
             "Stop": [{"hooks": [{"type": "command", "command": command} for command in stop_commands]}],
         }
@@ -36,7 +36,7 @@ def test_project_and_global_wrapper_share_one_effective_owner() -> None:
                 {
                     "hooks": {
                         "UserPromptSubmit": [{"hooks": [{"command": "python3 /home/.codex/hooks/global_hook_dispatch.py --event UserPromptSubmit --role user_prompt_dispatch"}]}],
-                        "PreToolUse": [{"hooks": [{"command": "python3 /home/.codex/hooks/global_hook_dispatch.py --event PreToolUse --role pre_tool_dispatch"}]}],
+                        "PreToolUse": [{"hooks": [{"command": "python3 /home/.codex/hooks/global_hook_dispatch.py --event PreToolUse --role security_pre_tool_dispatch"}]}],
                         "PostToolUse": [{"hooks": [{"command": "python3 /home/.codex/hooks/global_hook_dispatch.py --event PostToolUse --role post_tool_dispatch"}]}],
                         "Stop": [{"hooks": [{"command": "python3 /home/.codex/hooks/global_hook_dispatch.py --event Stop --role stop_dispatch"}]}],
                     }
@@ -58,7 +58,7 @@ def test_project_and_dry_run_global_wrapper_share_one_effective_owner() -> None:
             event: [{"hooks": [{"command": f"python3 /home/.codex/hooks/global_hook_dispatch.py --event {event} --role {role}"}]}]
             for event, role in (
                 ("UserPromptSubmit", "user_prompt_dispatch"),
-                ("PreToolUse", "pre_tool_dispatch"),
+                ("PreToolUse", "security_pre_tool_dispatch"),
                 ("PostToolUse", "post_tool_dispatch"),
                 ("Stop", "stop_dispatch"),
             )
@@ -69,6 +69,62 @@ def test_project_and_dry_run_global_wrapper_share_one_effective_owner() -> None:
     )
     assert report.status == "PASS"
     assert not any("duplicate blocking registrations" in error for error in report.errors)
+
+
+def test_security_only_profile_requires_pretool_and_disables_other_domains() -> None:
+    project = {
+        "hooks": {
+            "PreToolUse": [
+                {"hooks": [{"command": "python3 /repo/.codex/hooks/security_pre_tool_dispatch.py"}]}
+            ]
+        }
+    }
+    global_config = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "command": "python3 /home/.codex/hooks/global_hook_dispatch.py --event PreToolUse --role security_pre_tool_dispatch"
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+
+    report = analyze_hook_graph(
+        [("project", project), ("global", global_config)],
+        required_domains=("pre_tool_safety",),
+    )
+
+    assert report.status == "PASS"
+    statuses = {item.domain: item.status for item in report.domains}
+    assert statuses == {
+        "prompt_boundary": "DISABLED",
+        "pre_tool_safety": "PASS",
+        "post_tool_persistence": "DISABLED",
+        "stop_completion": "DISABLED",
+    }
+
+
+def test_security_only_profile_rejects_a_registration_in_a_disabled_domain() -> None:
+    config = {
+        "hooks": {
+            "PreToolUse": [
+                {"hooks": [{"command": "python3 /repo/.codex/hooks/security_pre_tool_dispatch.py"}]}
+            ],
+            "Stop": [{"hooks": [{"command": "python3 /repo/.codex/hooks/stop_dispatch.py"}]}],
+        }
+    }
+
+    report = analyze_hook_graph(
+        [("project", config)],
+        required_domains=("pre_tool_safety",),
+    )
+
+    assert report.status == "FAIL"
+    assert any("stop_completion: registrations present while domain is disabled" in error for error in report.errors)
 
 
 def test_different_blocking_roles_fail_and_legacy_wrapper_is_never_silent() -> None:

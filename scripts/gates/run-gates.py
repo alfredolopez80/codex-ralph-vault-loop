@@ -6,11 +6,64 @@ import json
 import subprocess
 import sys
 
-from _gate_common import REPORT_DIR, detect_project, now_iso, summarize, write_reports
+from _gate_common import REPORT_DIR, detect_project, now_iso, run_command, summarize, write_reports
+
+
+PYTEST_ENV = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+
+
+def minimal_results() -> list[dict]:
+    """Run the security-only checks that remain active in the native baseline.
+
+    The historical suite intentionally remains available through the standard,
+    full, and critical lanes.  It is not part of the fast security-only signal:
+    those lifecycle, convergence, and memory checks are presently disabled by
+    the effective hook graph and should not turn ``--minimal`` into a full
+    compatibility run.
+    """
+    return [
+        run_command(
+            "security.baseline",
+            [sys.executable, "scripts/gates/security-baseline.py"],
+            timeout=60,
+        ),
+        run_command(
+            "hooks.effective-graph",
+            [sys.executable, "scripts/gates/effective-hook-graph.py", "--json"],
+            timeout=60,
+        ),
+        run_command(
+            "hooks.config-lockstep",
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/integration/test_hook_config_lockstep.py::test_local_and_global_hook_configs_stay_in_lockstep",
+            ],
+            timeout=120,
+            env=PYTEST_ENV,
+        ),
+        run_command(
+            "issue-81.secure-native-baseline-harness",
+            [sys.executable, "-m", "pytest", "-q", "tests/evals/test_secure_native_baseline.py"],
+            timeout=120,
+            env=PYTEST_ENV,
+        ),
+    ]
 
 
 def run_json(command: list[str]) -> tuple[int, list[dict]]:
-    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    # Subcommands reserve stdout for their JSON protocol and relay long-running
+    # test progress through inherited stderr, so callers never wait blindly.
+    completed = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        check=False,
+    )
+    captured_stderr = completed.stderr or ""
     if not completed.stdout.strip():
         return completed.returncode, [
             {
@@ -19,7 +72,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand returned no JSON result",
                 "stdout": "",
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode,
             }
         ]
@@ -33,7 +86,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand returned malformed JSON",
                 "stdout": completed.stdout[-4_000:],
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode or 1,
             }
         ]
@@ -45,7 +98,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand JSON omitted a results list",
                 "stdout": completed.stdout[-4_000:],
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode or 1,
             }
         ]
@@ -58,7 +111,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
                 "command": command,
                 "reason": "gate subcommand JSON omitted a results list",
                 "stdout": completed.stdout[-4_000:],
-                "stderr": completed.stderr[-4_000:],
+                "stderr": captured_stderr[-4_000:],
                 "exit_code": completed.returncode or 1,
             }
         ]
@@ -69,7 +122,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
             "command": command,
             "reason": "gate subcommand returned an empty results list",
             "stdout": completed.stdout[-4_000:],
-            "stderr": completed.stderr[-4_000:],
+            "stderr": captured_stderr[-4_000:],
             "exit_code": completed.returncode or 1,
         }]
     allowed_statuses = {"passed", "failed", "skipped"}
@@ -86,7 +139,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
             "command": command,
             "reason": "gate subcommand returned an invalid result schema",
             "stdout": completed.stdout[-4_000:],
-            "stderr": completed.stderr[-4_000:],
+            "stderr": captured_stderr[-4_000:],
             "exit_code": completed.returncode or 1,
         }]
     if completed.returncode != 0:
@@ -96,7 +149,7 @@ def run_json(command: list[str]) -> tuple[int, list[dict]]:
             "command": command,
             "reason": "gate subcommand returned a non-zero exit code",
             "stdout": completed.stdout[-4_000:],
-            "stderr": completed.stderr[-4_000:],
+            "stderr": captured_stderr[-4_000:],
             "exit_code": completed.returncode,
         }]
     return completed.returncode, results
@@ -113,10 +166,15 @@ def main() -> int:
     project = detect_project()
     results: list[dict] = []
 
-    test_rc, test_results = run_json([sys.executable, "scripts/gates/run-tests.py", "--mode", mode])
-    results.extend(test_results)
-    security_rc, security_results = run_json([sys.executable, "scripts/gates/run-security.py", "--mode", mode, *(["--strict"] if args.strict else [])])
-    results.extend(security_results)
+    test_rc = 0
+    security_rc = 0
+    if mode == "minimal":
+        results.extend(minimal_results())
+    else:
+        test_rc, test_results = run_json([sys.executable, "scripts/gates/run-tests.py", "--mode", mode])
+        results.extend(test_results)
+        security_rc, security_results = run_json([sys.executable, "scripts/gates/run-security.py", "--mode", mode, *(["--strict"] if args.strict else [])])
+        results.extend(security_results)
 
     report = {
         "created_at": now_iso(),

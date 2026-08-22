@@ -1,7 +1,7 @@
 """Deterministic policy for newly spawned Codex subagents.
 
 This module deliberately has no hook, filesystem, clock, or configuration I/O.
-Callers provide the already-resolved executor defaults and the bounded Aristotle
+Callers provide the already-resolved executor defaults and the bounded complexity
 classification.  Its result is a recommendation for a *new* subagent only;
 it never changes the configured executor.
 """
@@ -580,13 +580,14 @@ def _sol_effort(requested: str | None, effective: int, hard_gates_pass: bool) ->
 def _spawn_arguments(route: str, model: str | None, effort: str | None) -> dict[str, object]:
     if route == "none" or model is None or effort is None:
         return {}
-    is_terra = route == "terra-implementation"
     return {
-        "agent_type": "ralph-coder" if is_terra else "sol-advisor",
-        "fork_turns": "none",
+        # Named roles pin their own model/effort in the current desktop app.
+        # Use the native default role when this policy supplies explicit
+        # model settings, and start with only the bounded initial brief.
+        "agent_type": "default",
+        "fork_context": False,
         "model": model,
         "reasoning_effort": effort,
-        "task_name": "terra_implementation" if is_terra else "sol_advisor",
     }
 
 

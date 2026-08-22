@@ -1,0 +1,67 @@
+{
+  "template_type": "flowchart",
+  "style": 7,
+  "width": 1500,
+  "height": 1050,
+  "title": "Hooks — Ciclo completo por evento",
+  "subtitle": "11 eventos actuales · 7 activos · 1 nativo · 3 omitidos por diseño medido",
+  "containers": [
+    { "x": 42, "y": 118, "width": 1416, "height": 142, "label": "01 · SESIÓN Y PROMPT", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 42, "y": 290, "width": 1416, "height": 202, "label": "02 · TOOL LOOP", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 42, "y": 522, "width": 1416, "height": 150, "label": "03 · SUBAGENT BRANCH", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 42, "y": 702, "width": 1416, "height": 142, "label": "04 · COMPACTACIÓN", "stroke": "#e2e8f0", "fill": "none" },
+    { "x": 42, "y": 874, "width": 1416, "height": 104, "label": "05 · FINALIZACIÓN", "stroke": "#e2e8f0", "fill": "none" }
+  ],
+  "nodes": [
+    { "id": "session", "kind": "double_rect", "x": 112, "y": 158, "width": 230, "height": 70, "label": "SessionStart", "type_label": "ACTIVO · CAPSULE", "stroke": "#10a37f" },
+    { "id": "prompt", "kind": "double_rect", "x": 525, "y": 158, "width": 250, "height": 70, "label": "UserPromptSubmit", "type_label": "ACTIVO · DELTA CACHE", "stroke": "#10a37f" },
+    { "id": "ready", "kind": "rect", "x": 1010, "y": 158, "width": 270, "height": 70, "label": "Modelo listo", "type_label": "0 CONTEXTO SI HIT", "flat": true },
+
+    { "id": "pre", "kind": "double_rect", "x": 90, "y": 345, "width": 230, "height": 76, "label": "PreToolUse", "type_label": "ACTIVO · SECURITY", "stroke": "#10a37f" },
+    { "id": "permission", "kind": "rect", "x": 420, "y": 345, "width": 250, "height": 76, "label": "PermissionRequest", "type_label": "NATIVO · SANDBOX", "fill": "#f8fafc", "stroke": "#94a3b8", "flat": true },
+    { "id": "tool", "kind": "terminal", "x": 770, "y": 342, "width": 230, "height": 82, "label": "Tool execution", "type_label": "APP RUNTIME" },
+    { "id": "post", "kind": "double_rect", "x": 1100, "y": 345, "width": 250, "height": 76, "label": "PostToolUse", "type_label": "ACTIVO · SELECTIVO", "stroke": "#10a37f" },
+    { "id": "read_noop", "kind": "rect", "x": 1110, "y": 438, "width": 230, "height": 36, "label": "read success → no-op", "type_label": "0 WRITES", "fill": "#ecfdf5", "stroke": "#10a37f", "flat": true },
+
+    { "id": "substart", "kind": "double_rect", "x": 195, "y": 565, "width": 240, "height": 70, "label": "SubagentStart", "type_label": "ACTIVO · BOUNDED", "stroke": "#10a37f" },
+    { "id": "worker", "kind": "rect", "x": 625, "y": 565, "width": 250, "height": 70, "label": "Agente · contexto fresco", "type_label": "fork_context FALSE", "flat": true },
+    { "id": "substop", "kind": "double_rect", "x": 1065, "y": 565, "width": 240, "height": 70, "label": "SubagentStop", "type_label": "ACTIVO · ACCOUNTING", "stroke": "#10a37f" },
+
+    { "id": "precompact", "kind": "rect", "x": 110, "y": 744, "width": 230, "height": 66, "label": "PreCompact", "type_label": "OMITIDO", "fill": "#f8fafc", "stroke": "#cbd5e1", "flat": true },
+    { "id": "compact", "kind": "rect", "x": 520, "y": 744, "width": 250, "height": 66, "label": "Compacción nativa", "type_label": "PLATFORM", "fill": "#f8fafc", "stroke": "#94a3b8", "flat": true },
+    { "id": "postcompact", "kind": "rect", "x": 930, "y": 744, "width": 230, "height": 66, "label": "PostCompact", "type_label": "OMITIDO", "fill": "#f8fafc", "stroke": "#cbd5e1", "flat": true },
+    { "id": "compact_resume", "kind": "rect", "x": 1220, "y": 744, "width": 180, "height": 66, "label": "SessionStart", "type_label": "source COMPACT", "flat": true },
+
+    { "id": "stop", "kind": "double_rect", "x": 405, "y": 900, "width": 260, "height": 62, "label": "Stop", "type_label": "ACTIVO · ONE REDUCER", "stroke": "#10a37f" },
+    { "id": "sessionend", "kind": "rect", "x": 835, "y": 900, "width": 260, "height": 62, "label": "SessionEnd", "type_label": "OMITIDO · ADVISORY", "fill": "#f8fafc", "stroke": "#cbd5e1", "flat": true }
+  ],
+  "arrows": [
+    { "source": "session", "target": "prompt", "flow": "control" },
+    { "source": "prompt", "target": "ready", "flow": "control", "label": "allow / context delta" },
+    { "source": "ready", "target": "pre", "flow": "control", "corridor_x": [1380], "corridor_y": [272] },
+    { "source": "pre", "target": "permission", "flow": "control", "label": "si requiere aprobación" },
+    { "source": "pre", "target": "tool", "flow": "control", "label": "safe", "corridor_y": [326] },
+    { "source": "permission", "target": "tool", "flow": "control", "label": "approved" },
+    { "source": "tool", "target": "post", "flow": "control" },
+    { "source": "post", "target": "read_noop", "flow": "feedback", "label": "pure read" },
+    { "source": "pre", "target": "substart", "flow": "read", "label": "spawn_agent", "corridor_x": [75] },
+    { "source": "substart", "target": "worker", "flow": "control" },
+    { "source": "worker", "target": "substop", "flow": "control" },
+    { "source": "substop", "target": "post", "flow": "feedback", "label": "result", "corridor_x": [1390] },
+    { "source": "precompact", "target": "compact", "flow": "neutral", "dashed": true },
+    { "source": "compact", "target": "postcompact", "flow": "neutral", "dashed": true },
+    { "source": "postcompact", "target": "compact_resume", "flow": "neutral", "dashed": true },
+    { "source": "compact_resume", "target": "session", "flow": "read", "label": "bounded recovery", "corridor_x": [1430], "corridor_y": [690, 130] },
+    { "source": "post", "target": "stop", "flow": "control", "corridor_x": [1370], "corridor_y": [855] },
+    { "source": "stop", "target": "sessionend", "flow": "neutral", "dashed": true, "label": "allow" }
+  ],
+  "legend": [
+    { "flow": "control", "label": "evento activo / flujo principal" },
+    { "flow": "read", "label": "rama o recuperación" },
+    { "flow": "neutral", "label": "evento de plataforma sin hook custom" },
+    { "flow": "feedback", "label": "retorno / fast path" }
+  ],
+  "legend_position": "bottom-left",
+  "legend_y": 995,
+  "footer": "Allow/report-only = stdout vacío · Blocks = JSON soportado"
+}

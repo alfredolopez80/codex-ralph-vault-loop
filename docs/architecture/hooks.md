@@ -1,23 +1,52 @@
 # Hooks
 
+## Current #85 profile: security-only, native execution
+
+Project and global registration contain only
+`security_pre_tool_dispatch.py` on `PreToolUse`. It preserves destructive,
+RED/egress, package-manager, cloud decision, workspace-boundary, and
+symlink-escape controls. Session/prompt/post-tool/subagent/stop continuity and
+execution-authority hooks are disabled. Native Codex conversation, compaction,
+routing, advisor, and subagent behavior remain platform-owned and are not
+vetoed by Ralph.
+Context-budget, stale-wakeup, and automation-productivity restrictions are not
+part of this security plane. The cloud decision boundary silently allows
+proven-safe operations, hard-blocks proven-destructive operations, and emits an
+exact one-shot approval instruction for uncertain or non-destructive mutation.
+
+The versioned contract is [`config/security-baseline.toml`](../../config/security-baseline.toml),
+and its synthetic gate is `scripts/gates/security-baseline.py`. The lifecycle
+components described below remain in the repository as disabled legacy
+references for later issues; they are not active in the #85 configuration.
+
+## Legacy lifecycle reference
+
 Hooks provide lifecycle checks for Codex App and Codex CLI. Project hook scripts live in `.codex/hooks`, while `~/.codex/hooks.json` activates them globally.
 
 Events:
 
-- `SessionStart` loads compact memory.
-- `UserPromptSubmit` captures safe prompt metadata.
-- `PreToolUse` blocks destructive or unsafe operations.
-- `PostToolUse` runs through the consolidated `post_tool_dispatch.py`, which gates the existing line, shaping, memory, checkpoint, advisor, and ledger policies by tool/result class. A structured test/build/lint/typecheck result may produce one semantic validation transition in the canonical implementation-progress store; ordinary reads/writes and unchanged results are no-ops.
+- `SessionStart` loads one compact recovery capsule.
+- `UserPromptSubmit` composes one safety-first, delta-cached context response.
+- `PreToolUse` blocks only the independent security categories implemented by
+  `security_pre_tool_dispatch.py`. Routing state and advisor eligibility do not
+  participate in the decision.
+- `PermissionRequest` remains owned by the native ChatGPT/Codex sandbox; Ralph
+  does not add a competing approval process.
+- `PostToolUse` runs through the consolidated `post_tool_dispatch.py`. A
+  successful non-material local read is a physical no-op in every activation
+  mode; material writes, failures, validations, agents, and external calls run
+  only their relevant bounded components.
+- `SubagentStart` and `SubagentStop` maintain bounded lifecycle/accounting data.
+  `SubagentStart` has 16,384 units of context capacity, while the automatic
+  advisor packet stays at 4,096 bytes so unused capacity costs no tokens.
+- `PreCompact`, `PostCompact`, and `SessionEnd` are intentionally unregistered;
+  compact recovery is handled by `SessionStart(source=compact)` and cleanup is
+  never a completion gate.
 - `Stop` runs through the single `stop_dispatch.py` reducer. It evaluates scoped objective evidence, preserves the file-line and implementation-notes hard gates, and, for an explicit approved progress completion, verifies canonical ownership, provenance, material evidence, validation gates, and current commit/workspace before one terminal store transition. It records route and phrase observations as report-only telemetry, writes a lightweight handoff, and enforces one bounded continuation budget. Heavy memory promotion is marked for later processing and is not run on the critical path.
 
-Ralph Convergent Execution v4 adds a policy-hashed, task-local lifecycle above
-these dispatchers. `UserPromptSubmit` owns Prompt Boundary classification and
-goal/epoch selection; `PreToolUse` remains the non-bypassable safety owner;
-`PostToolUse` records only material transitions and uses a physical no-op for a
-successful read with no signal; `Stop` owns deterministic final audit and
-terminal budgets. The execution lease records the actual implementation model
-and effort. A configured repository default is not evidence that a current
-task is running under SOL.
+The single active registration is deliberate. ChatGPT Desktop executes all
+matching global, project, and plugin hooks, so keeping one security owner avoids
+duplicate blocks. Disabled lifecycle scripts cannot grant or deny execution.
 
 The file-line guard is intentionally blocking for source-like files and intentionally permissive for generated artifacts such as lockfiles, minified assets, maps, and media. When it blocks, Codex must split the file before continuing. The required split style is behavior-preserving and boundary-oriented: tests before and after, domain/use-case/component boundaries, no generic dumping-ground modules, validation/auth/secrets and trust boundaries preserved, sec-context anti-patterns avoided while moving code, and React/Next splits aligned with component-per-file, extracted hooks, direct imports, and lazy loading for heavy UI.
 

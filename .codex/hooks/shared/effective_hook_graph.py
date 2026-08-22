@@ -24,13 +24,13 @@ DOMAINS: tuple[str, ...] = (
 
 BLOCKING_ROLES: dict[str, frozenset[str]] = {
     "prompt_boundary": frozenset({"user_prompt_dispatch", "universal_prompt_classifier"}),
-    "pre_tool_safety": frozenset({"pre_tool_dispatch", "pre_tool_guard"}),
+    "pre_tool_safety": frozenset({"pre_tool_guard", "security_pre_tool_dispatch"}),
     "post_tool_persistence": frozenset({"post_tool_dispatch", "post_tool_checkpoint", "post_tool_extract_memory"}),
     "stop_completion": frozenset({"stop_dispatch", "ralph_stop_quality_gate", "anti_rationalization_stop"}),
 }
 REPORT_ONLY_ROLES: dict[str, frozenset[str]] = {
     "prompt_boundary": frozenset({"user_prompt_capture", "user_prompt_improve", "continuity_prompt_context"}),
-    "pre_tool_safety": frozenset({"subagent_routing_pretool_guard", "sol_advisor_pretool_guard"}),
+    "pre_tool_safety": frozenset(),
     "post_tool_persistence": frozenset({"post_tool_cost_ledger", "shaping_ripple", "sol_advisor_observer"}),
     "stop_completion": frozenset({"stop_route_decision_warn", "implementation_notes_guard", "sol_advisor_stop_guard", "stop_persist_memory", "stop_memory_promotion_review", "file_line_guard_stop"}),
 }
@@ -93,6 +93,7 @@ def analyze_hook_graph(
     configs: Iterable[tuple[str, Mapping[str, Any]]],
     *,
     trusted_report_only: Mapping[str, Mapping[str, str]] | None = None,
+    required_domains: Iterable[str] = DOMAINS,
 ) -> HookGraphReport:
     """Resolve ownership, failing closed on unknown guarded plugin hooks.
 
@@ -104,9 +105,13 @@ def analyze_hook_graph(
     """
 
     trusted_report_only = trusted_report_only or {}
+    required = tuple(dict.fromkeys(required_domains))
+    unknown_required = sorted(set(required) - set(DOMAINS))
     entries: list[HookEntry] = []
     warnings: list[str] = []
     errors: list[str] = []
+    if unknown_required:
+        errors.append(f"unknown required domains: {','.join(unknown_required)}")
     legacy_registered = False
     for source, config in configs:
         if not isinstance(config, Mapping):
@@ -219,6 +224,14 @@ def analyze_hook_graph(
         blocking = [entry.role for entry in blocking_entries]
         report_only = sorted({entry.role for entry in entries if entry.domain == domain and not entry.blocking})
         evidence = tuple(f"{entry.source}:{entry.event}:{entry.role}" for entry in entries if entry.domain == domain)
+        if domain not in required:
+            if evidence:
+                status = "FAIL"
+                errors.append(f"{domain}: registrations present while domain is disabled")
+            else:
+                status = "DISABLED"
+            domains.append(DomainResult(domain, tuple(blocking), tuple(report_only), status, evidence))
+            continue
         if len(blocking) == 1:
             status = "PASS"
         elif len(blocking) == 0:

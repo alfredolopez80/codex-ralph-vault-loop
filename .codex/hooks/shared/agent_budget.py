@@ -23,6 +23,7 @@ MAX_DEPTH = 1
 MAX_TASK_JOBS = 2
 MAX_TASK_ADVISORS = 1
 MAX_PACKET_BYTES = 4_096
+MAX_SUBAGENT_BRIEF_BYTES = 16_384
 MAX_RESULT_BYTES = 4_096
 MAX_REASON_CODES = 8
 MAX_FAILURE_FINGERPRINTS = 8
@@ -145,7 +146,7 @@ def normalize_ledger(
             for fingerprint in failure_fingerprints
             if _safe_code(fingerprint, prefix="failure")
         ][-MAX_FAILURE_FINGERPRINTS:],
-        "bytes_sent": _ints(source.get("bytes_sent"), maximum=MAX_PACKET_BYTES * MAX_TASK_JOBS),
+        "bytes_sent": _ints(source.get("bytes_sent"), maximum=MAX_SUBAGENT_BRIEF_BYTES * MAX_TASK_JOBS),
         "bytes_received": _ints(source.get("bytes_received"), maximum=MAX_RESULT_BYTES * MAX_TASK_JOBS),
         "timestamps": [
             _bounded_text(item, 48)
@@ -236,7 +237,10 @@ def record_spawn(
         safe_reason = _safe_code(reason, prefix="reason")
         if safe_reason:
             state["reasons"] = (state["reasons"] + [safe_reason])[-MAX_REASON_CODES:]
-    state["bytes_sent"] = min(MAX_PACKET_BYTES * MAX_TASK_JOBS, state["bytes_sent"] + _ints(bytes_sent))
+    state["bytes_sent"] = min(
+        MAX_SUBAGENT_BRIEF_BYTES * MAX_TASK_JOBS,
+        state["bytes_sent"] + _ints(bytes_sent),
+    )
     state["bytes_received"] = min(
         MAX_RESULT_BYTES * MAX_TASK_JOBS,
         state["bytes_received"] + _ints(bytes_received),
@@ -337,6 +341,7 @@ __all__ = [
     "MAX_DEPTH",
     "MAX_PACKET_BYTES",
     "MAX_RESULT_BYTES",
+    "MAX_SUBAGENT_BRIEF_BYTES",
     "MAX_TASK_ADVISORS",
     "MAX_TASK_JOBS",
     "MAX_THREADS",

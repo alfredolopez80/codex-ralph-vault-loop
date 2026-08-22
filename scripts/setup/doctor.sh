@@ -114,17 +114,25 @@ check_mcp_config() {
 }
 
 check_agent_limits() {
-  if "$PYTHON_BIN" - "$REPO_ROOT/.codex/config.toml" << 'PY'; then
+  local limits
+  if limits="$(
+    "$PYTHON_BIN" - "$REPO_ROOT/.codex/config.toml" << 'PY'
 from pathlib import Path
 import sys
 import tomllib
 
 config = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 agents = config.get("agents", {})
-if agents.get("max_threads") != 2 or agents.get("max_depth") != 1:
-    raise SystemExit("expected agents.max_threads=2 and agents.max_depth=1")
+max_threads = agents.get("max_threads")
+max_depth = agents.get("max_depth")
+if type(max_threads) is not int or max_threads < 1:
+    raise SystemExit("agents.max_threads must be a positive integer")
+if type(max_depth) is not int or not 1 <= max_depth <= 2:
+    raise SystemExit("agents.max_depth must be an integer between 1 and 2")
+print(f"threads={max_threads} depth={max_depth}")
 PY
-    ok "agent concurrency bounded (threads=2 depth=1)"
+  )"; then
+    ok "agent concurrency bounded (${limits})"
   else
     fail "agent concurrency bounds"
   fi

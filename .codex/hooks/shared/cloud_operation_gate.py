@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Literal
 
 from shared.minikube_context import ContextVerification, verify_minikube_context
-from shared.script_operation_inspector import script_cloud_commands, script_path, wrapper_script_path
+from shared.script_operation_inspector import (
+    inline_shell_cloud_commands,
+    shell_noexec,
+    script_cloud_commands,
+    script_path,
+    wrapper_script_path,
+)
 
 CLOUD_TOOLS = {"aws", "gcloud", "helm", "kubectl", "minikube", "terraform"}
 READ_ACTIONS = {
@@ -27,6 +33,8 @@ COMPLETE_KUBERNETES_RESOURCES = {
     "cluster", "clusters", "crd", "customresourcedefinition", "customresourcedefinitions", "namespace",
     "namespaces", "node", "nodes", "ns",
 }
+COMMAND_WRAPPERS = {"builtin", "command", "exec", "nohup", "sudo"}
+SUDO_VALUE_OPTIONS = {"-C", "-D", "-R", "-T", "-U", "-g", "-h", "-p", "-r", "-t", "-u"}
 
 
 @dataclass(frozen=True)
@@ -174,6 +182,44 @@ def _shell_command(parts: list[str]) -> str:
     return ""
 
 
+def _env_split_parts(parts: list[str]) -> tuple[list[str] | None, bool]:
+    for index, part in enumerate(parts[1:], start=1):
+        if part in {"-S", "--split-string"}:
+            if index + 1 >= len(parts):
+                return ([], False)
+            value = parts[index + 1]
+        elif part.startswith("--split-string="):
+            value = part.split("=", 1)[1]
+        elif part.startswith("-S") and part != "-S":
+            value = part[2:]
+        else:
+            continue
+        try:
+            return (shlex.split(value, posix=True), True)
+        except ValueError:
+            return ([], False)
+    return (None, True)
+
+
+def _wrapped_command_parts(parts: list[str]) -> list[str]:
+    tool = _tool(parts[0]) if parts else ""
+    index = 1
+    while index < len(parts):
+        part = parts[index]
+        option = part.split("=", 1)[0]
+        if tool == "sudo" and option in SUDO_VALUE_OPTIONS:
+            index += 1 if "=" in part else 2
+            continue
+        if part == "--":
+            index += 1
+            break
+        if part.startswith("-"):
+            index += 1
+            continue
+        break
+    return parts[index:]
+
+
 def _rewrites_inspected_script(command: str, scripts: list[Path], cwd: Path) -> bool:
     for match in re.finditer(r">{1,2}\s*([^\s;&|]+)", command):
         raw_target = match.group(1).strip("'\"")
@@ -194,6 +240,17 @@ def _approval(tool: str, risk: str, consequence: str) -> CommandAssessment:
     )
 
 
+def _destructive_block(tool: str, consequence: str) -> CommandAssessment:
+    return CommandAssessment(
+        action="block",
+        reason_code="cloud_destructive_command_blocked",
+        reason=f"Blocked a proven destructive {tool} operation: {consequence}.",
+        risk_level="destructive",
+        tool=tool,
+        consequence=consequence,
+    )
+
+
 def _assess_cloud_parts(
     parts: list[str],
     verifier: ContextVerifier,
@@ -205,6 +262,8 @@ def _assess_cloud_parts(
     if tool != "kubectl":
         if risk == "read":
             return CommandAssessment(action="allow", tool=tool)
+        if risk == "destructive":
+            return _destructive_block(tool, f"{operation} cluster or cloud state")
         return _approval(tool, risk, f"{operation} cluster or cloud state")
 
     context = _context(parts)
@@ -248,6 +307,8 @@ def _assess_cloud_parts(
     if risk == "read":
         return CommandAssessment(action="allow", tool=tool, context=context)
     consequence = "delete a complete Kubernetes scope" if complete else f"{operation} non-minikube cluster state"
+    if risk == "destructive" or complete:
+        return replace(_destructive_block(tool, consequence), context=context)
     approval = _approval(tool, "destructive" if complete else risk, consequence)
     return replace(approval, context=context)
 
@@ -285,6 +346,14 @@ def assess_command(
             if env_cwd:
                 candidate = Path(env_cwd).expanduser()
                 active_cwd = (candidate if candidate.is_absolute() else active_cwd / candidate).resolve(strict=False)
+            split_parts, split_valid = _env_split_parts(raw_parts)
+            if not split_valid:
+                assessments.append(_approval("local-script", "mutating", "execute an invalid env split-string command"))
+                return
+            if split_parts is not None:
+                if split_parts:
+                    assess_parts(split_parts, depth + 1, active_cwd)
+                return
         kubeconfig = _environment_value(raw_parts, "KUBECONFIG")
         parts = _without_environment(raw_parts)
         if not parts:
@@ -293,7 +362,13 @@ def assess_command(
             assessments.append(_approval("local-script", "mutating", "execute nested script logic beyond inspection depth"))
             return
         tool = _tool(parts[0])
+        if tool in CLOUD_TOOLS:
+            assessments.append(_assess_cloud_parts(parts, verifier, kubeconfig, active_cwd))
+            return
         if tool in {"bash", "sh", "zsh"}:
+            if shell_noexec(parts):
+                assessments.append(CommandAssessment(action="allow", tool="local-script"))
+                return
             shell_command = _shell_command(parts)
             if shell_command:
                 try:
@@ -301,6 +376,18 @@ def assess_command(
                 except ValueError:
                     assessments.append(_approval("local-script", "mutating", "execute dynamic shell content"))
                 return
+        if tool in COMMAND_WRAPPERS:
+            nested_parts = _wrapped_command_parts(parts)
+            if nested_parts:
+                assess_parts(nested_parts, depth + 1, active_cwd)
+            return
+        if tool == "eval":
+            rendered = " ".join(parts[1:])
+            try:
+                assess_sequence(_segments(rendered), depth + 1, active_cwd)
+            except ValueError:
+                assessments.append(_approval("local-script", "mutating", "execute dynamic eval content"))
+            return
         if tool == "xargs":
             for index, part in enumerate(parts[1:], start=1):
                 nested_tool = _tool(part)
@@ -359,7 +446,10 @@ def assess_command(
 
         if script:
             inspected_scripts.append(script)
-            commands, error, script_hash = script_cloud_commands(script)
+            commands, error, script_hash = script_cloud_commands(
+                script,
+                shell_hint=tool in {"bash", "sh", "zsh"},
+            )
             if script_hash:
                 script_hashes.append(f"{script}:{script_hash}")
             if error:
@@ -375,9 +465,6 @@ def assess_command(
                     )
             return
 
-        if tool in CLOUD_TOOLS:
-            assessments.append(_assess_cloud_parts(parts, verifier, kubeconfig, active_cwd))
-
     def assess_sequence(command_segments: list[list[str]], depth: int, start_cwd: Path) -> None:
         active_cwd = start_cwd
         for segment in command_segments:
@@ -392,6 +479,16 @@ def assess_command(
             assess_parts(segment, depth, active_cwd)
 
     assess_sequence(segments, 0, cwd)
+    inline_commands, inline_error = inline_shell_cloud_commands(command)
+    if inline_error:
+        assessments.append(_approval("local-script", "mutating", inline_error))
+    for inline_command in inline_commands:
+        try:
+            assess_sequence(_segments(inline_command), 1, cwd)
+        except ValueError:
+            assessments.append(
+                _approval("local-script", "mutating", "execute nested cloud content that cannot be parsed safely")
+            )
     chosen = _choose(assessments)
     if inspected_scripts and _rewrites_inspected_script(command, inspected_scripts, cwd) and chosen.action == "allow":
         chosen = _approval("local-script", "mutating", "rewrite an inspected script before execution")

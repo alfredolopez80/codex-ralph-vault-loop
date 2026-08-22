@@ -29,8 +29,8 @@ def test_intake_child_timeout_leaves_cleanup_margin(role: str) -> None:
 def test_context_limits_are_positive_and_bounded() -> None:
     assert context_limit_for("SessionStart") == 800
     assert context_limit_for("UserPromptSubmit") == 500
-    assert context_limit_for("SubagentStart") == 400
-    assert all(0 < context_limit_for(event) <= 800 for event in context_capable_events())
+    assert context_limit_for("SubagentStart") == 16_384
+    assert all(0 < context_limit_for(event) <= 16_384 for event in context_capable_events())
 
 
 def test_runtime_budgets_are_codex_integer_values() -> None:
@@ -38,7 +38,7 @@ def test_runtime_budgets_are_codex_integer_values() -> None:
         ("SessionStart", "session_start_dispatch"),
         ("UserPromptSubmit", "user_prompt_dispatch"),
         ("UserPromptSubmit", "user_prompt_capture"),
-        ("PreToolUse", "pre_tool_dispatch"),
+        ("PreToolUse", "security_pre_tool_dispatch"),
         ("PostToolUse", "post_tool_dispatch"),
         ("SubagentStart", "sol_advisor_subagent_context"),
         ("SubagentStop", "sol_advisor_subagent_stop"),

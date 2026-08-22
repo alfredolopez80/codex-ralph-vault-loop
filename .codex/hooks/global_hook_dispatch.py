@@ -25,10 +25,8 @@ ROLE_COMMANDS: dict[tuple[str, str], tuple[str, ...]] = {
     ("UserPromptSubmit", "user_prompt_capture"): ("user_prompt_capture.py",),
     ("UserPromptSubmit", "user_prompt_improve"): ("user_prompt_improve.py",),
     ("UserPromptSubmit", "continuity_prompt_context"): ("continuity_prompt_context.py",),
-    ("PreToolUse", "pre_tool_dispatch"): ("pre_tool_dispatch.py",),
+    ("PreToolUse", "security_pre_tool_dispatch"): ("security_pre_tool_dispatch.py",),
     ("PreToolUse", "pre_tool_guard"): ("pre_tool_guard.py",),
-    ("PreToolUse", "subagent_routing_pretool_guard"): ("subagent_routing_pretool_guard.py",),
-    ("PreToolUse", "sol_advisor_pretool_guard"): ("sol_advisor_pretool_guard.py",),
     ("PostToolUse", "post_tool_dispatch"): ("post_tool_dispatch.py",),
     # Compatibility aliases for callers that still invoke a historical role
     # directly.  The project/global hook configuration registers only the
@@ -72,10 +70,8 @@ ROLE_BY_FILENAME = {
     "user_prompt_capture.py": "user_prompt_capture",
     "user_prompt_improve.py": "user_prompt_improve",
     "continuity_prompt_context.py": "continuity_prompt_context",
-    "pre_tool_dispatch.py": "pre_tool_dispatch",
+    "security_pre_tool_dispatch.py": "security_pre_tool_dispatch",
     "pre_tool_guard.py": "pre_tool_guard",
-    "subagent_routing_pretool_guard.py": "subagent_routing_pretool_guard",
-    "sol_advisor_pretool_guard.py": "sol_advisor_pretool_guard",
     "post_tool_dispatch.py": "post_tool_dispatch",
     "shaping_ripple.py": "shaping_ripple",
     "post_tool_extract_memory.py": "post_tool_extract_memory",
@@ -96,7 +92,7 @@ ROLE_BY_FILENAME = {
 DISPATCH_ROLE_RE = re.compile(r"global_hook_dispatch\.py\s+--event\s+(\S+)\s+--role\s+([A-Za-z0-9_]+)")
 ROLE_MATCHERS: dict[tuple[str, str], str] = {
     ("SessionStart", "session_start_dispatch"): "startup|resume|clear|compact",
-    ("PreToolUse", "pre_tool_dispatch"): "Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*",
+    ("PreToolUse", "security_pre_tool_dispatch"): "Bash|exec_command|apply_patch|Edit|Write|Agent|spawn_agent|mcp__.*",
     ("PostToolUse", "post_tool_dispatch"): ".*",
 }
 EVENT_NAMES = {
@@ -175,7 +171,7 @@ def project_suppresses(workspace: Path, event: str, role: str, matcher: str) -> 
     consolidated = {
         "SessionStart": "session_start_dispatch",
         "UserPromptSubmit": "user_prompt_dispatch",
-        "PreToolUse": "pre_tool_dispatch",
+        "PreToolUse": "security_pre_tool_dispatch",
         "PostToolUse": "post_tool_dispatch",
         "Stop": "stop_dispatch",
     }.get(event)
@@ -185,7 +181,7 @@ def project_suppresses(workspace: Path, event: str, role: str, matcher: str) -> 
             "universal_prompt_classifier", "sol_advisor_prompt_state", "user_prompt_capture",
             "user_prompt_improve", "continuity_prompt_context",
         },
-        "PreToolUse": {"pre_tool_guard", "subagent_routing_pretool_guard", "sol_advisor_pretool_guard"},
+        "PreToolUse": {"pre_tool_guard"},
     }.get(event, set())
     if role in legacy and consolidated and (consolidated, matcher) in signatures:
         return True

@@ -14,10 +14,11 @@ from typing import Any
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "Stop")
 REQUIRED_INVARIANTS = ("Codex main", "External models advise", "RED", "evidence", "Implementation notes")
 EXPECTED_HANDLER_COUNTS = {event: 1 for event in EVENTS}
+SECURITY_ONLY_HANDLER_COUNTS = {"PreToolUse": 1}
 CONSOLIDATED_HANDLERS = {
     "SessionStart": "session_start_dispatch.py",
     "UserPromptSubmit": "user_prompt_dispatch.py",
-    "PreToolUse": "pre_tool_dispatch.py",
+    "PreToolUse": "security_pre_tool_dispatch.py",
     "PostToolUse": "post_tool_dispatch.py",
     "Stop": "stop_dispatch.py",
 }
@@ -39,6 +40,8 @@ PROFILE_CAPS = {
     "sol": {"prompt": 800, "session": 800},
     "conservative_unknown": {"prompt": 2200, "session": 2200},
 }
+MIN_AGENT_MAX_DEPTH = 1
+MAX_AGENT_MAX_DEPTH = 2
 
 
 def hooks(root: Path) -> dict[str, list[dict[str, Any]]]:
@@ -53,6 +56,38 @@ def handler_counts(root: Path) -> dict[str, int]:
         groups = config.get(event, [])
         result[event] = sum(len(group.get("hooks", [])) for group in groups if isinstance(group, dict) and isinstance(group.get("hooks", []), list))
     return result
+
+
+def is_security_only_config(config: dict[str, list[dict[str, Any]]]) -> bool:
+    """Recognize the explicitly versioned #84 registration profile."""
+    if set(config) != {"PreToolUse"}:
+        return False
+    groups = config.get("PreToolUse", [])
+    if len(groups) != 1 or not isinstance(groups[0], dict):
+        return False
+    handlers = groups[0].get("hooks", [])
+    if not isinstance(handlers, list) or len(handlers) != 1 or not isinstance(handlers[0], dict):
+        return False
+    return "security_pre_tool_dispatch.py" in str(handlers[0].get("command", ""))
+
+
+def _security_only_registration_errors(config: dict[str, list[dict[str, Any]]]) -> list[str]:
+    errors: list[str] = []
+    groups = config.get("PreToolUse", [])
+    if len(groups) != 1 or not isinstance(groups[0], dict):
+        return ["security_only_pre_tool_group"]
+    matcher = groups[0].get("matcher")
+    required_aliases = ("Bash", "exec_command", "apply_patch", "Edit", "Write", "Agent", "spawn_agent", "mcp__fixture")
+    try:
+        if not isinstance(matcher, str) or any(re.fullmatch(matcher, alias) is None for alias in required_aliases):
+            errors.append("security_only_pre_tool_matcher_coverage")
+    except re.error:
+        errors.append("security_only_pre_tool_matcher_coverage")
+    handlers = groups[0].get("hooks", [])
+    command = str(handlers[0].get("command", "")) if isinstance(handlers, list) and handlers else ""
+    if "security_pre_tool_dispatch.py" not in command:
+        errors.append("security_only_dispatcher_target")
+    return errors
 
 
 def _profile_caps(root: Path) -> tuple[dict[str, int], list[str]]:
@@ -137,10 +172,16 @@ def inspect(root: Path) -> dict[str, Any]:
         counts = handler_counts(root)
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
         return {"root": str(root), "errors": [f"hooks_config:{type(exc).__name__}"], "warnings": [], "handler_counts": {}}
-    for event, expected in EXPECTED_HANDLER_COUNTS.items():
-        if counts.get(event) != expected:
-            errors.append(f"handler_target:{event}")
-    errors.extend(_matcher_and_dispatch_errors(config))
+    security_only = is_security_only_config(config)
+    if security_only:
+        if counts.get("PreToolUse") != SECURITY_ONLY_HANDLER_COUNTS["PreToolUse"]:
+            errors.append("handler_target:PreToolUse")
+        errors.extend(_security_only_registration_errors(config))
+    else:
+        for event, expected in EXPECTED_HANDLER_COUNTS.items():
+            if counts.get(event) != expected:
+                errors.append(f"handler_target:{event}")
+        errors.extend(_matcher_and_dispatch_errors(config))
     agents = root / "AGENTS.md"
     if not agents.is_file() or len(agents.read_bytes()) > 14 * 1024:
         errors.append("agents_instruction_hard_cap")
@@ -150,10 +191,16 @@ def inspect(root: Path) -> dict[str, Any]:
     try:
         data = tomllib.loads((root / ".codex" / "config.toml").read_text(encoding="utf-8"))
         agents_config = data.get("agents", {})
-        if agents_config.get("max_threads") != 2:
-            errors.append("max_threads_changed")
-        if agents_config.get("max_depth") != 1:
-            errors.append("max_depth_changed")
+        max_threads = agents_config.get("max_threads")
+        if isinstance(max_threads, bool) or not isinstance(max_threads, int):
+            errors.append("max_threads_type")
+        elif max_threads <= 0:
+            errors.append("max_threads_range")
+        max_depth = agents_config.get("max_depth")
+        if isinstance(max_depth, bool) or not isinstance(max_depth, int):
+            errors.append("max_depth_type")
+        elif not MIN_AGENT_MAX_DEPTH <= max_depth <= MAX_AGENT_MAX_DEPTH:
+            errors.append("max_depth_range")
     except (OSError, tomllib.TOMLDecodeError, TypeError):
         errors.append("config_unreadable")
     context_caps, profile_errors = _profile_caps(root)
@@ -187,6 +234,7 @@ def inspect(root: Path) -> dict[str, Any]:
         errors.append("mcp_config_unreadable")
     return {
         "root": str(root),
+        "profile": "security-only" if security_only else "legacy-lifecycle",
         "handler_counts": counts,
         "context_hard_caps": context_caps,
         "errors": sorted(set(errors)),
@@ -239,9 +287,15 @@ def benchmark_hard_errors(report: dict[str, Any]) -> list[str]:
     if not isinstance(counts, dict):
         errors.append("benchmark_handler_counts_missing")
     else:
-        for event, expected in EXPECTED_HANDLER_COUNTS.items():
-            if counts.get(event) != expected:
-                errors.append(f"benchmark_handler_target:{event}")
+        if counts == SECURITY_ONLY_HANDLER_COUNTS:
+            benchmark_profile = "security-only"
+        else:
+            benchmark_profile = "legacy-lifecycle"
+            for event, expected in EXPECTED_HANDLER_COUNTS.items():
+                if counts.get(event) != expected:
+                    errors.append(f"benchmark_handler_target:{event}")
+        if benchmark_profile == "security-only" and set(counts) != set(SECURITY_ONLY_HANDLER_COUNTS):
+            errors.append("benchmark_security_only_handler_target")
     matrix = report.get("scenario_matrix")
     if not isinstance(matrix, list):
         return sorted(set([*errors, "benchmark_matrix_missing"]))
@@ -274,14 +328,14 @@ def benchmark_hard_errors(report: dict[str, Any]) -> list[str]:
                 errors.append(f"benchmark_context_cap:{profile}")
             if str(scenario).startswith("session_start_") and int(raw_case.get("output_bytes_max", 2**31)) > PROFILE_CAPS[profile]["session"]:
                 errors.append(f"benchmark_session_cap:{profile}")
-        if str(scenario).startswith("session_start_"):
+        if str(scenario).startswith("session_start_") and benchmark_profile != "security-only":
             if raw_case.get("child_process_count_measured") is not True or raw_case.get("child_process_count") != 0:
                 errors.append("benchmark_session_child_process")
         if scenario == "stop_allow" and int(raw_case.get("continuation_count", 0)) != 0:
             errors.append("benchmark_stop_allow_continuation")
         if scenario == "stop_objective_failure" and int(raw_case.get("continuation_count", 0)) > 1:
             errors.append("benchmark_stop_loop")
-        if scenario == "red_safety":
+        if scenario == "red_safety" and benchmark_profile != "security-only":
             if int(raw_case.get("block_count", 0)) < 1:
                 errors.append("benchmark_red_not_blocked")
             if raw_case.get("child_process_count_measured") is not True or raw_case.get("child_process_count") != 0:

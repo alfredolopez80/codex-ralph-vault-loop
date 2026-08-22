@@ -1,0 +1,140 @@
+schema_version = 2
+name = "SECURE_NATIVE_BASELINE"
+issue = 81
+report_schema = "ralph_secure_native_baseline_v2"
+subscription_usage_measured = false
+
+[scorecard]
+path = "config/scorecards/ralph_autoresearch_v1.yaml"
+id = "ralph_autoresearch_v1"
+version = 1
+
+[variants]
+A = ["native_execution", "security_baseline"]
+B = ["native_execution", "security_baseline", "canonical_state"]
+C = ["native_execution", "security_baseline", "canonical_state", "continuity_helper"]
+D = ["native_execution", "security_baseline", "canonical_state", "continuity_helper", "prompt_aware_recall"]
+
+[comparison]
+baseline_variant = "A"
+reference_required_for = ["B", "C", "D"]
+
+[runtime]
+config_path = ".codex/config.toml"
+
+[security]
+contract_path = "config/security-baseline.toml"
+runner_path = "scripts/gates/security-baseline.py"
+dispatcher_path = ".codex/hooks/security_pre_tool_dispatch.py"
+project_hook_config_path = ".codex/hooks.json"
+global_dispatcher_path = "~/.codex/hooks/security_pre_tool_dispatch.py"
+global_hook_config_path = "~/.codex/hooks.json"
+effective_graph_runner_path = "scripts/gates/effective-hook-graph.py"
+expected_name = "SECURITY_BASELINE"
+expected_version = 3
+expected_profile = "security-only"
+expected_graph_status = "PASS"
+expected_fixture_total = 18
+expected_blocked = 8
+expected_approval = 1
+expected_allowed = 9
+fixture_ids = [
+  "destructive-command",
+  "write-outside-workspace",
+  "symlink-path-escape",
+  "synthetic-sensitive-mcp-egress",
+  "package-manager-network",
+  "cloud-destructive-command",
+  "nested-cloud-destructive-command",
+  "kubectl-context-required",
+  "ambiguous-shell-cloud-data-approval",
+  "harmless-read",
+  "harmless-scoped-tool-read",
+  "harmless-scoped-search",
+  "harmless-local-script-with-cloud-fixture-text",
+  "harmless-shell-noexec-validation",
+  "harmless-shell-cloud-literals",
+  "harmless-workspace-write-target",
+  "harmless-external-input",
+  "native-generic-subagent",
+]
+blocked_fixture_ids = [
+  "destructive-command",
+  "write-outside-workspace",
+  "symlink-path-escape",
+  "synthetic-sensitive-mcp-egress",
+  "package-manager-network",
+  "cloud-destructive-command",
+  "nested-cloud-destructive-command",
+  "kubectl-context-required",
+]
+approval_fixture_ids = [
+  "ambiguous-shell-cloud-data-approval",
+]
+allowed_fixture_ids = [
+  "harmless-read",
+  "harmless-scoped-tool-read",
+  "harmless-scoped-search",
+  "harmless-local-script-with-cloud-fixture-text",
+  "harmless-shell-noexec-validation",
+  "harmless-shell-cloud-literals",
+  "harmless-workspace-write-target",
+  "harmless-external-input",
+  "native-generic-subagent",
+]
+
+[security.expected_domain_status]
+prompt_boundary = "DISABLED"
+pre_tool_safety = "PASS"
+post_tool_persistence = "DISABLED"
+stop_completion = "DISABLED"
+
+[benchmark]
+runner_path = "scripts/evals/hook_runtime_cost_benchmark.py"
+schema_version = 2
+primary_metric = "hook_cost_score"
+direction = "lower"
+profiles = ["luna", "sol", "conservative_unknown"]
+scenario_ids = [
+  "small_read_only",
+  "small_edit",
+  "medium_edit_test",
+  "repeated_prompt",
+  "session_start_startup",
+  "session_start_compact",
+  "stop_allow",
+  "stop_objective_failure",
+  "subagent_route",
+  "red_safety",
+]
+
+[observations]
+schema_version = 1
+statuses = ["measured", "not_measured", "not_applicable"]
+metric_ids = [
+  "wall_time_total_ms",
+  "time_to_first_useful_action_ms",
+  "model_visible_context_units",
+  "reread_count",
+  "subagent_attempt_count",
+  "subagent_success_count",
+  "backend_attempt_count",
+  "observed_parallelism",
+  "observed_nesting_depth",
+  "compaction_count",
+  "compaction_recovery_ms",
+  "stale_context_incident_count",
+  "user_correction_count",
+  "repeat_validation_count",
+]
+scenario_ids = [
+  "trivial_file_edit",
+  "medium_multi_file",
+  "terra_read_only",
+  "parallel_terra",
+  "sol_read_only",
+  "long_compaction",
+  "fresh_resume",
+  "similar_recall",
+  "security_suite",
+]

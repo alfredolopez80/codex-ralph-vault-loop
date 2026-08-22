@@ -10,7 +10,52 @@ The global installer preserves Codex's numeric schema: every hook `timeout` and
 number or boolean). The installer and global smoke check reject invalid numeric
 types before a global configuration is published.
 
-## Hooks
+## Effective event set during #84
+
+The active #84 profile is intentionally security-only. Both project and
+generated global configuration register one `PreToolUse` dispatcher; all
+Ralph lifecycle, continuity, routing, advisor, lease, activation, and memory
+maintenance hooks remain disabled until a later issue proves a need for them.
+Context-budget/output-shaping, stale-wakeup, and automation-productivity rules
+are also excluded: they are not security controls and must not block harmless
+native Codex work. Valid allows remain silent. Proven destructive operations
+emit one supported hard-block decision, and uncertain or non-destructive cloud
+mutation emits one exact one-shot approval instruction. Malformed, non-object,
+or oversized hook input blocks with a bounded retry reason because no operation
+can be validated from it.
+
+| Current event       | Repository owner                 | Registration decision                                   |
+| ------------------- | -------------------------------- | ------------------------------------------------------- |
+| `SessionStart`      | legacy lifecycle dispatchers     | Disabled in #84.                                        |
+| `UserPromptSubmit`  | legacy prompt/recall dispatchers | Disabled in #84.                                        |
+| `PreToolUse`        | `security_pre_tool_dispatch.py`  | Active; deny-first security controls only.              |
+| `PermissionRequest` | Native sandbox                   | Platform-owned approval and escalation.                 |
+| `PostToolUse`       | legacy lifecycle dispatchers     | Disabled in #84.                                        |
+| `SubagentStart`     | legacy advisor context           | Disabled in #84; native subagents are not Ralph-vetoed. |
+| `SubagentStop`      | legacy advisor completion        | Disabled in #84.                                        |
+| `PreCompact`        | Platform lifecycle               | No custom hook.                                         |
+| `PostCompact`       | Platform lifecycle               | No custom hook.                                         |
+| `Stop`              | legacy stop dispatch             | Disabled in #84.                                        |
+| `SessionEnd`        | Platform lifecycle               | No custom hook.                                         |
+
+Unified exec is matched as a command/Bash tool and native subagent creation is
+matched through `spawn_agent`/Agent aliases. Generated subagents use the
+current native shape: `agent_type=default`, explicit `fork_context=false`, a
+supported `model`/`reasoning_effort`, and a bounded initial brief. Legacy
+history fields such as `fork_turns` are rejected. `task_name` is not generated;
+older lifecycle callback envelopes may still be recognized during migration.
+The automatic advisor packet remains capped at 4,096 bytes. An explicitly
+provided native brief may use up to 16,384 aggregate UTF-8 bytes when the task
+needs more evidence; larger material should be supplied through scoped file
+references instead of copied history.
+
+## Legacy component reference (not registered during #84)
+
+The components below remain in the repository for later migration analysis and
+direct tests. Their presence is not evidence that they are active. The active
+security hook is `.codex/hooks/security_pre_tool_dispatch.py`, backed by the
+versioned `config/security-baseline.toml` and the synthetic runner at
+`scripts/gates/security-baseline.py`.
 
 - `.codex/hooks/universal-prompt-classifier.sh`
   - Runs on `UserPromptSubmit`.
@@ -114,6 +159,12 @@ existing hook chain rather than installed as a separate hook system.
     roots, and toxic patch payloads.
   - Uses `suggested_command` for bounded reads such as `sed -n '1,160p' <file>`
     instead of rewriting commands.
+  - Recognizes `max_output_tokens` up to 10,000 when a runtime includes it in
+    the hook payload. ChatGPT Desktop build 26.818.31338 keeps that orchestration
+    field outside the hook payload, so potentially verbose helpers still use an
+    explicit shell byte cap on that build.
+  - Recognizes current native `apply_patch` bodies in `tool_input.command` as
+    patches, never as shell commands, while retaining workspace-path checks.
   - Keeps normal targeted searches and small text reads allowed.
   - Allows static `apply_patch` envelopes that only create or update untracked
     `.local-notes` artifacts. Creation is not treated as execution.
@@ -121,13 +172,21 @@ existing hook chain rather than installed as a separate hook system.
     verifies whether that context belongs to a running minikube profile with a
     matching API endpoint.
   - Allows ordinary mutations and resource deletion in verified minikube;
-    complete namespace, cluster, manifest-set, or `--all` deletion still needs
-    one exact human approval.
+    complete namespace, cluster, manifest-set, or `--all` deletion is a hard
+    block. Proven destructive operations against other cloud or cluster targets
+    are also hard blocks. Non-destructive mutations and uncertain dynamic forms
+    require one exact human approval.
   - Inspects cloud commands in scripts identically regardless of script path.
     Approval hashes include the script content hash, so later edits invalidate
-    approval. The canonical minikube runner prints the verified profile and
-    context before execution.
+    approval. Shell inspection classifies tools only from executable positions;
+    cloud words used solely in paths, messages, redirect targets, or proven
+    literal searches are not commands. Dynamic or unrecognized shell data flow
+    requires a visible exact one-shot approval, while proven `kubectl` execution
+    still requires a static verified context. The canonical minikube runner
+    prints the verified profile and context before execution.
 - `PostToolUse` via `.codex/hooks/post_tool_dispatch.py` and shared observers
+  - Returns immediately for a proven successful, non-material local read in
+    every activation mode; no ledger, dedupe, checkpoint, or telemetry write.
   - Skips checkpoint and learning persistence when output metadata contains
     RED-sensitive or context-toxic material.
   - Reads and resolves the payload once, deduplicates by project/session/turn/tool-use identity, and invokes only the relevant policy components.

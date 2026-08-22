@@ -20,6 +20,7 @@ from shared.sol_advisor import (
     stop_review_recommendation_pending,
     observe_failure,
     read_state,
+    read_state_status,
     state_path,
     executor_context,
     has_completion_evidence,
@@ -37,6 +38,41 @@ def payload(tmp_path: Path, **extra: object) -> dict[str, object]:
         "complexity": 1,
         **extra,
     }
+
+
+def test_state_reader_distinguishes_missing_valid_and_corrupt(tmp_path: Path, monkeypatch) -> None:
+    state_root = tmp_path / "state"
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(state_root))
+    event = payload(tmp_path, session_id="state-reader-status")
+    path = state_path(event)
+
+    assert read_state_status(event) == ("missing", {})
+
+    path.parent.mkdir(parents=True)
+    path.write_text('{"routing": {}}', encoding="utf-8")
+    assert read_state_status(event) == ("valid", {"routing": {}})
+
+    path.write_text("not-json", encoding="utf-8")
+    assert read_state_status(event) == ("corrupt", {})
+
+    path.write_text("[]", encoding="utf-8")
+    assert read_state_status(event) == ("corrupt", {})
+
+    path.write_bytes(b"x" * (512 * 1024 + 1))
+    assert read_state_status(event) == ("corrupt", {})
+
+
+def test_state_reader_rejects_symlink_state_path(tmp_path: Path, monkeypatch) -> None:
+    state_root = tmp_path / "state"
+    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(state_root))
+    event = payload(tmp_path, session_id="symlink-state")
+    path = state_path(event)
+    path.parent.mkdir(parents=True)
+    target = tmp_path / "outside.json"
+    target.write_text("{}", encoding="utf-8")
+    path.symlink_to(target)
+
+    assert read_state_status(event) == ("corrupt", {})
 
 
 def test_material_low_complexity_task_stays_local_without_explicit_sol_request(tmp_path: Path, monkeypatch) -> None:
@@ -727,7 +763,10 @@ def test_name_or_model_identifies_the_native_sol_advisor() -> None:
 
 
 def test_typed_advisor_requires_an_explicit_no_history_fork() -> None:
-    assert has_no_history_fork({"tool_input": {"agent_type": "sol-advisor", "fork_turns": "none"}}) is True
+    assert has_no_history_fork({"tool_input": {"agent_type": "default", "fork_context": False}}) is True
+    assert has_no_history_fork({"tool_input": {"agent_type": "default", "fork_context": True}}) is False
+    assert has_no_history_fork({"tool_input": {"agent_type": "sol-advisor", "fork_turns": "none"}}) is False
+    assert has_no_history_fork({"tool_input": {"agent_type": "sol-advisor", "fork_turns": None}}) is False
     assert has_no_history_fork({"tool_input": {"agent_type": "sol-advisor", "fork_turns": "all"}}) is False
     assert has_fork_metadata({"tool_input": {"agent_type": "sol-advisor", "fork_turns": "all"}}) is True
     assert has_fork_metadata({"tool_input": {"agent_type": "sol-advisor"}}) is False
@@ -751,18 +790,17 @@ def test_executor_context_requires_a_minimized_no_history_advisor_fork() -> None
                 "configured_executor_model": "gpt-5.6-luna",
                 "configured_executor_effort": "max",
                 "spawn_arguments": {
-                    "agent_type": "sol-advisor",
-                    "task_name": "sol_advisor",
+                    "agent_type": "default",
                     "model": "gpt-5.6-sol",
                     "reasoning_effort": "high",
-                    "fork_turns": "none",
+                    "fork_context": False,
                 },
             },
         }
     )
 
     assert "spawn_agent" in context
-    assert "fork_turns=`none`" in context
+    assert "fork_context=`false`" in context
     assert "model=`gpt-5.6-sol`" in context
     assert "compact decision brief" in context
 
@@ -782,9 +820,8 @@ def test_executor_context_exposes_the_bounded_terra_implementation_contract() ->
         }
     )
 
-    assert "Terra implementation is eligible" in context
-    assert "agent_type=`ralph-coder`" in context
-    assert "task_name=`terra_implementation`" in context
+    assert "Terra implementation route is eligible" in context
+    assert "agent_type=`default`" in context
     assert "model=`gpt-5.6-terra`" in context
     assert "reasoning_effort=`high`" in context
 
@@ -797,57 +834,3 @@ def test_sol_advisor_skill_contract_is_bounded_and_model_agnostic() -> None:
     assert "`plan`, `stuck`, or `final`" in skill
     assert "fresh, no-history fork" in skill
     assert "300 words" in (ROOT / ".codex" / "agents" / "sol-advisor.toml").read_text(encoding="utf-8")
-
-
-def test_high_impact_lifecycle_enforces_fresh_fork_and_releases_completion(tmp_path: Path, monkeypatch) -> None:
-    state_root = tmp_path / "state"
-    monkeypatch.setenv("CODEX_HOOK_STATE_ROOT", str(state_root))
-    event = payload(tmp_path, complexity=8, prompt="Choose an authorization architecture for a public rollout.")
-    initialize(event)
-
-    def run_hook(name: str, hook_payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, str(HOOKS / name)],
-            cwd=ROOT,
-            input=json.dumps(hook_payload),
-            text=True,
-            capture_output=True,
-            check=False,
-            env={**os.environ, "CODEX_HOOK_STATE_ROOT": str(state_root)},
-        )
-
-    wrong_fork = run_hook(
-        "sol_advisor_pretool_guard.py",
-        {
-            **event,
-            "tool_name": "spawn_agent",
-            "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol", "fork_turns": "all"},
-        },
-    )
-    assert wrong_fork.returncode == 0
-    assert json.loads(wrong_fork.stdout)["decision"] == "block"
-
-    omitted_fork = run_hook(
-        "sol_advisor_pretool_guard.py",
-        {
-            **event,
-            "tool_name": "spawn_agent",
-            "tool_input": {"task_name": "sol_advisor", "model": "gpt-5.6-sol"},
-        },
-    )
-    assert omitted_fork.returncode == 0
-    assert json.loads(omitted_fork.stdout)["decision"] == "block"
-
-    waiting = run_hook("sol_advisor_stop_guard.py", event)
-    assert waiting.returncode == 0
-    assert waiting.stdout == ""
-    assert read_state(event)["stop_guard_issued"] is True
-
-    completed = run_hook(
-        "sol_advisor_subagent_stop.py",
-        {**event, "task_name": "sol_advisor", "model": "gpt-5.6-sol", "agent_id": "advisor-run-1", "success": True},
-    )
-    assert completed.returncode == 0
-    released = run_hook("sol_advisor_stop_guard.py", event)
-    assert released.returncode == 0
-    assert released.stdout == ""

@@ -26,18 +26,6 @@ def run_dispatch(tmp_path: Path, payload: dict, *, extra_env: dict[str, str] | N
     )
     if extra_env:
         env.update(extra_env)
-    if env.get("RALPH_CONVERGENT_EXECUTION_MODE") == "enforce":
-        activation = tmp_path / "config" / "convergent-execution-mode.toml"
-        activation.parent.mkdir(parents=True, exist_ok=True)
-        activation.write_text(
-            "version = 3\n"
-            "mode = \"enforce\"\n"
-            "plan_id = \"ralph-convergent-execution-v4-20260811\"\n"
-            "plan_digest = \"sha256:fead6e85227c68c863fa23ccccc30f559c3893ced514704f5643c61d1c41b5e1\"\n"
-            "policy_hash = \"sha256:aa7847050dad0821c83f456b31a42efa0d6eea8989b22b33ecc6edb2c26adbef\"\n"
-            "activation_approval = \".local-notes/ralph/convergent-manual-activation.toml\"\n",
-            encoding="utf-8",
-        )
     return subprocess.run(
         [sys.executable, str(HOOK)],
         cwd=ROOT,
@@ -88,34 +76,6 @@ def parse_output(result: subprocess.CompletedProcess[str]) -> dict[str, object] 
 def test_no_active_state_allows_with_empty_stdout(tmp_path: Path) -> None:
     result = run_dispatch(tmp_path, payload(tmp_path))
     assert parse_output(result) is None
-
-
-def test_enforce_requires_v4_snapshot_instead_of_falling_through_to_legacy(tmp_path: Path) -> None:
-    result = run_dispatch(
-        tmp_path,
-        payload(tmp_path),
-        extra_env={"RALPH_CONVERGENT_EXECUTION_MODE": "enforce"},
-    )
-    decision = parse_output(result)
-    assert decision is not None
-    assert decision["reason"] == "convergent-state-required"
-
-
-def test_invalid_payload_is_blocked_by_enforce_activation(tmp_path: Path) -> None:
-    env = os.environ.copy()
-    env.update({"RALPH_HOME": str(tmp_path / "ralph")})
-    result = subprocess.run(
-        [sys.executable, str(HOOK)],
-        cwd=ROOT,
-        input="[invalid",
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
-    )
-    assert result.returncode == 0
-    assert json.loads(result.stdout)["reason"] == "convergent-input-invalid"
-    assert result.stderr == ""
 
 
 def test_verified_done_true_allows(tmp_path: Path) -> None:
@@ -357,9 +317,6 @@ def test_handoff_marker_is_bounded_and_does_not_store_message_body(tmp_path: Pat
     assert marker not in handoff.read_text(encoding="utf-8")
 
 
-def test_dispatcher_is_the_only_configured_stop_command() -> None:
+def test_security_only_profile_does_not_register_stop_command() -> None:
     config = json.loads((ROOT / ".codex" / "hooks.json").read_text(encoding="utf-8"))
-    stop_hooks = config["hooks"]["Stop"][0]["hooks"]
-    commands = [str(item["command"]) for item in stop_hooks]
-    assert len(commands) == 1
-    assert ".codex/hooks/stop_dispatch.py" in commands[0]
+    assert "Stop" not in config["hooks"]

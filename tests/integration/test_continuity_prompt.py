@@ -15,6 +15,8 @@ def run_hook(ralph_home: Path, payload: dict) -> subprocess.CompletedProcess[str
     env["RALPH_HOME"] = str(ralph_home)
     env["CODEX_MEMORY_HOME"] = str(ralph_home / "codex-memories-empty")
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
+    env.pop("CODEX_SESSION_ID", None)
+    env.pop("RALPH_SESSION_ID", None)
     return subprocess.run(
         [sys.executable, str(HOOK)],
         cwd=ROOT,

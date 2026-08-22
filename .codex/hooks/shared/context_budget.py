@@ -100,6 +100,14 @@ VALIDATION_SCRIPT_PATHS = {
     "validate-ralph-memory-flow.sh": ("scripts", "validate-ralph-memory-flow.sh"),
 }
 VALIDATION_COMMAND_NAMES = {"mypy", "pytest", "ruff", "shellcheck"}
+HIGH_OUTPUT_SCRIPT_DIRS = {"context", "maintenance"}
+JQ_OPTIONS_WITH_VALUE = {"--arg", "--argjson", "--argfile", "--indent", "--rawfile", "--slurpfile"}
+JQ_SIMPLE_PATH_RE = re.compile(
+    r"^\.[A-Za-z_][A-Za-z0-9_-]*(?:(?:\.[A-Za-z_][A-Za-z0-9_-]*)|(?:\[\d+\]))*$"
+)
+JQ_OBJECT_PROJECTION_RE = re.compile(
+    r"^\{\s*[A-Za-z_][A-Za-z0-9_-]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_-]*)*\s*\}$"
+)
 
 
 @dataclass(frozen=True)
@@ -695,12 +703,29 @@ def _classify_structured_dump(argv: list[str], command: str) -> GuardFinding | N
         return None
     executable = _executable_name(argv[0])
     if executable == "jq" and len(argv) >= 3:
-        return GuardFinding(
-            risk="block",
-            reason_code="unbounded_json_dump",
-            reason="Context budget guard blocked a potentially large JSON dump. Use a targeted jq expression or byte cap.",
-            suggested_command=_safe_byte_cap_command(command),
-        )
+        index = 1
+        while index < len(argv):
+            argument = argv[index]
+            if argument == "--":
+                index += 1
+                break
+            option = argument.split("=", 1)[0]
+            if option in JQ_OPTIONS_WITH_VALUE:
+                index += 1 if "=" in argument else 2
+                continue
+            if argument.startswith("-"):
+                index += 1
+                continue
+            break
+        jq_filter = argv[index] if index < len(argv) else ""
+        targeted = bool(JQ_SIMPLE_PATH_RE.fullmatch(jq_filter) or JQ_OBJECT_PROJECTION_RE.fullmatch(jq_filter))
+        if not targeted:
+            return GuardFinding(
+                risk="block",
+                reason_code="unbounded_json_dump",
+                reason="Context budget guard blocked a potentially large JSON dump. Use a targeted jq expression or byte cap.",
+                suggested_command=_safe_byte_cap_command(command),
+            )
     if executable in {"python", "python3"} and "json.tool" in argv:
         return GuardFinding(
             risk="block",
@@ -735,7 +760,11 @@ def _classify_python_script_output(argv: list[str], cwd: Path, command: str) -> 
     if _is_repo_validation_script(script, cwd) or _is_trusted_wakeup_script(script, cwd):
         return None
     script_parts = Path(script.replace("\\", "/")).parts
-    if script_name in VALIDATION_SCRIPT_NAMES or script_name == "wakeup.py" or (script.endswith(".py") and "scripts" in script_parts):
+    high_output_helper = any(
+        script_parts[index] == "scripts" and script_parts[index + 1] in HIGH_OUTPUT_SCRIPT_DIRS
+        for index in range(len(script_parts) - 1)
+    )
+    if script_name in VALIDATION_SCRIPT_NAMES or script_name == "wakeup.py" or high_output_helper:
         return GuardFinding(
             risk="block",
             reason_code="python_script_unbounded",
@@ -767,7 +796,11 @@ def _classify_shell_script_output(argv: list[str], cwd: Path, command: str) -> G
         return None
     script_name = Path(script).name
     script_parts = Path(script.replace("\\", "/")).parts
-    if script_name in VALIDATION_SCRIPT_NAMES or (script.endswith(".sh") and "scripts" in script_parts):
+    high_output_helper = any(
+        script_parts[index] == "scripts" and script_parts[index + 1] in HIGH_OUTPUT_SCRIPT_DIRS
+        for index in range(len(script_parts) - 1)
+    )
+    if script_name in VALIDATION_SCRIPT_NAMES or high_output_helper:
         return GuardFinding(
             risk="block",
             reason_code="shell_script_unbounded",
@@ -788,7 +821,12 @@ def _classify_python_full_read(command: str) -> GuardFinding | None:
     return None
 
 
-def classify_command(command: str, cwd: Path) -> GuardFinding | None:
+def classify_command(
+    command: str,
+    cwd: Path,
+    *,
+    transcript_bounded: bool = False,
+) -> GuardFinding | None:
     if not command.strip():
         return None
     if toxic_text_reasons(command):
@@ -797,6 +835,11 @@ def classify_command(command: str, cwd: Path) -> GuardFinding | None:
             reason_code="toxic_command_payload",
             reason="Context budget guard blocked a command containing inline base64, RED-sensitive, or oversized payload.",
         )
+    # Unified exec can enforce an output ceiling outside the shell command.
+    # Once that current native contract is present, output-volume heuristics
+    # need not force a second shell pipeline; content safety was checked above.
+    if transcript_bounded:
+        return None
     for words in _shell_token_segments(command):
         tokens = _strip_environment_prefix(words)
         if not tokens:
@@ -983,9 +1026,12 @@ def nested_patch_envelope(payload: dict[str, Any]) -> NestedPatchEnvelope | None
 
 
 def payload_patch_text(payload: dict[str, Any]) -> str:
+    tool_name = str(payload.get("tool_name") or payload.get("toolName") or payload.get("tool") or "")
+    native_tool = tool_name.strip().lower().replace("-", "_").rsplit(".", 1)[-1].rsplit("__", 1)[-1]
+    direct_fields = ("patch", "diff", "content", "command") if native_tool == "apply_patch" else ("patch", "diff", "content")
     for _path, node in _patch_payload_nodes(payload):
         if isinstance(node, dict):
-            for key in ("patch", "diff", "content"):
+            for key in direct_fields:
                 value = node.get(key)
                 if isinstance(value, str):
                     return value

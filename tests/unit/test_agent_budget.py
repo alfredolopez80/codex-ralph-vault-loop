@@ -13,6 +13,7 @@ if str(HOOKS) not in sys.path:
 from shared.agent_budget import (
     MAX_DEPTH,
     MAX_PACKET_BYTES,
+    MAX_SUBAGENT_BRIEF_BYTES,
     MAX_TASK_ADVISORS,
     MAX_TASK_JOBS,
     MAX_THREADS,
@@ -180,6 +181,7 @@ def test_ledger_is_bounded_and_contains_no_content() -> None:
     encoded = json.dumps(ledger, sort_keys=True)
     assert ledger["agents_started"] <= MAX_TASK_JOBS
     assert ledger["advisors_started"] <= MAX_TASK_ADVISORS
+    assert ledger["bytes_sent"] <= MAX_SUBAGENT_BRIEF_BYTES * MAX_TASK_JOBS
     assert len(ledger["reasons"]) <= 8
     assert len(ledger["failure_fingerprints"]) <= 8
     assert raw_prompt not in encoded

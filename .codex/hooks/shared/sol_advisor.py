@@ -27,6 +27,7 @@ from .subagent_routing import (
 )
 from .agent_budget import (
     MAX_PACKET_BYTES,
+    MAX_SUBAGENT_BRIEF_BYTES,
     MAX_TASK_JOBS,
     bounded_packet,
     budget_decision,
@@ -108,17 +109,31 @@ def safe_session_id(value: object) -> str:
     return cleaned or "unknown"
 
 
-def read_state(payload: dict[str, Any]) -> dict[str, Any]:
+def read_state_status(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Read state as ``missing``, ``valid``, or ``corrupt``.
+
+    Security boundaries must distinguish a normal first-use miss from an
+    unreadable, unsafe, oversized, or malformed state artifact.
+    """
+
     path = _safe_state_path(payload)
     if path is None:
-        return {}
+        return "corrupt", {}
     try:
         if path.stat().st_size > 512 * 1024:
-            return {}
+            return "corrupt", {}
         data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "missing", {}
     except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+        return "corrupt", {}
+    return ("valid", data) if isinstance(data, dict) else ("corrupt", {})
+
+
+def read_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """Compatibility reader for non-security lifecycle consumers."""
+
+    return read_state_status(payload)[1]
 
 
 @contextmanager
@@ -446,7 +461,7 @@ def _spawn_brief_bytes(payload: dict[str, Any]) -> int:
                     continue
                 seen.add(marker)
                 total += len(value.encode("utf-8"))
-    return min(total, MAX_PACKET_BYTES)
+    return min(total, MAX_SUBAGENT_BRIEF_BYTES)
 
 
 def reserve_sol_consultation(payload: dict[str, Any], phase: str, fingerprint: str) -> tuple[bool, str]:
@@ -1564,15 +1579,22 @@ def is_sol_advisor(payload: dict[str, Any]) -> bool:
 
 def has_no_history_fork(payload: dict[str, Any]) -> bool:
     sources = advisor_sources(payload)
-    values = [source.get(key) for source in sources for key in ("fork_turns", "forkTurns", "history_mode", "historyMode")]
-    return any(str(value).strip().lower() in {"none", "fresh", "no-history", "no_history"} for value in values if value is not None)
+    if any(
+        key in source
+        for source in sources
+        for key in ("fork_turns", "forkTurns", "history_mode", "historyMode")
+    ):
+        return False
+    current = [source.get(key) for source in sources for key in ("fork_context", "forkContext")]
+    present_current = [value for value in current if value is not None]
+    return bool(present_current) and all(value is False for value in present_current)
 
 
 def has_fork_metadata(payload: dict[str, Any]) -> bool:
     return any(
         source.get(key) is not None
         for source in advisor_sources(payload)
-        for key in ("fork_turns", "forkTurns", "history_mode", "historyMode")
+        for key in ("fork_context", "forkContext", "fork_turns", "forkTurns", "history_mode", "historyMode")
     )
 
 
@@ -1733,27 +1755,23 @@ def executor_context(state: dict[str, Any]) -> str:
         arguments = {}
     if route == "terra-implementation":
         return (
-            "Subagent route: Terra implementation is eligible. Codex main may invoke native `spawn_agent` "
-            f"with agent_type=`{arguments.get('agent_type', 'ralph-coder')}`, "
-            f"task_name=`{arguments.get('task_name', 'terra_implementation')}`, "
+            "Terra implementation route is eligible: invoke native `spawn_agent` "
+            f"with agent_type=`{arguments.get('agent_type', 'default')}`, "
             f"model=`{arguments.get('model', 'gpt-5.6-terra')}`, "
             f"reasoning_effort=`{arguments.get('reasoning_effort', 'high')}`, "
-            f"and fork_turns=`{arguments.get('fork_turns', 'none')}`; keep the brief bounded and retain final ownership. "
+            "and fork_context=`false`; send only a bounded brief. "
             f"Basis: effective={routing.get('effective_complexity', state.get('complexity', 1))}/10; "
-            f"intent={routing.get('intent', 'implementation')}; executor={routing.get('configured_executor_model', LUNA_MODEL)} "
-            f"({routing.get('configured_executor_effort', LUNA_DEFAULT_EFFORT)})."
+            f"intent={routing.get('intent', 'implementation')}."
         )
     return (
-        "Sol advisor eligibility: yes. Before a material commitment, invoke native `spawn_agent` with "
-        f"agent_type=`{arguments.get('agent_type', 'sol-advisor')}`, "
-        f"task_name=`{arguments.get('task_name', 'sol_advisor')}`, model=`{arguments.get('model', SOL_MODEL)}`, "
-        f"reasoning_effort=`{arguments.get('reasoning_effort', 'high')}`, and fork_turns=`none`; "
-        "put the compact decision brief in the invocation rather than inheriting the conversation. "
+        "Sol advisor route is eligible: invoke native `spawn_agent` with "
+        f"agent_type=`{arguments.get('agent_type', 'default')}`, model=`{arguments.get('model', SOL_MODEL)}`, "
+        f"reasoning_effort=`{arguments.get('reasoning_effort', 'high')}`, and fork_context=`false`; "
+        "send only the compact decision brief. "
         f"Basis: phase={state.get('phase', 'plan')}; effective={routing.get('effective_complexity', state.get('complexity', 1))}/10; "
-        f"signals={reasons}; budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}; "
-        f"packet_budget_bytes={routing.get('packet_budget_bytes', MAX_PACKET_BYTES)}."
+        f"signals={reasons}; budget_remaining={state.get('budget_remaining', MAX_CONSULTATIONS)}."
         f"{reuse} "
-        "Give it a compact decision brief; retain final ownership and verify its advice locally."
+        "Codex retains ownership and verifies locally."
     )
 
 
