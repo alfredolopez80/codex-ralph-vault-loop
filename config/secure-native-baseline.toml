@@ -1,7 +1,7 @@
-schema_version = 1
+schema_version = 2
 name = "SECURE_NATIVE_BASELINE"
 issue = 81
-report_schema = "ralph_secure_native_baseline_v1"
+report_schema = "ralph_secure_native_baseline_v2"
 subscription_usage_measured = false
 
 [scorecard]
@@ -31,25 +31,29 @@ global_dispatcher_path = "~/.codex/hooks/security_pre_tool_dispatch.py"
 global_hook_config_path = "~/.codex/hooks.json"
 effective_graph_runner_path = "scripts/gates/effective-hook-graph.py"
 expected_name = "SECURITY_BASELINE"
-expected_version = 2
+expected_version = 3
 expected_profile = "security-only"
 expected_graph_status = "PASS"
-expected_fixture_total = 15
-expected_blocked = 7
-expected_allowed = 8
+expected_fixture_total = 18
+expected_blocked = 8
+expected_approval = 1
+expected_allowed = 9
 fixture_ids = [
   "destructive-command",
   "write-outside-workspace",
   "symlink-path-escape",
   "synthetic-sensitive-mcp-egress",
   "package-manager-network",
-  "cloud-destructive-approval",
-  "nested-cloud-destructive-approval",
+  "cloud-destructive-command",
+  "nested-cloud-destructive-command",
+  "kubectl-context-required",
+  "ambiguous-shell-cloud-data-approval",
   "harmless-read",
   "harmless-scoped-tool-read",
   "harmless-scoped-search",
   "harmless-local-script-with-cloud-fixture-text",
   "harmless-shell-noexec-validation",
+  "harmless-shell-cloud-literals",
   "harmless-workspace-write-target",
   "harmless-external-input",
   "native-generic-subagent",
@@ -60,8 +64,12 @@ blocked_fixture_ids = [
   "symlink-path-escape",
   "synthetic-sensitive-mcp-egress",
   "package-manager-network",
-  "cloud-destructive-approval",
-  "nested-cloud-destructive-approval",
+  "cloud-destructive-command",
+  "nested-cloud-destructive-command",
+  "kubectl-context-required",
+]
+approval_fixture_ids = [
+  "ambiguous-shell-cloud-data-approval",
 ]
 allowed_fixture_ids = [
   "harmless-read",
@@ -69,6 +77,7 @@ allowed_fixture_ids = [
   "harmless-scoped-search",
   "harmless-local-script-with-cloud-fixture-text",
   "harmless-shell-noexec-validation",
+  "harmless-shell-cloud-literals",
   "harmless-workspace-write-target",
   "harmless-external-input",
   "native-generic-subagent",

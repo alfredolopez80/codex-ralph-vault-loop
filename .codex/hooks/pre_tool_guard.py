@@ -952,11 +952,14 @@ def security_only_denial(payload: dict[str, Any]) -> dict[str, Any] | None:
     if cloud_assessment.action == "approval":
         approval_subject = cloud_assessment.approval_subject or command
         if not allows_command(approval_subject):
+            command_hash = approval_digest(approval_subject)
             return {
                 "decision": "block",
                 "reason": (
-                    f"Human approval required: {cloud_assessment.tool} command may "
-                    f"{cloud_assessment.consequence}. Review and approve the exact command, then retry it unchanged."
+                    "Human approval required. Run "
+                    f"~/.ralph-codex/bin/approve-risky-command --sha256 {command_hash}, then retry unchanged. "
+                    f"Risk: {cloud_assessment.tool}/{cloud_assessment.risk_level}; "
+                    f"consequence: {cloud_assessment.consequence}."
                 ),
             }
 

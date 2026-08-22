@@ -18,7 +18,11 @@ Ralph lifecycle, continuity, routing, advisor, lease, activation, and memory
 maintenance hooks remain disabled until a later issue proves a need for them.
 Context-budget/output-shaping, stale-wakeup, and automation-productivity rules
 are also excluded: they are not security controls and must not block harmless
-native Codex work.
+native Codex work. Valid allows remain silent. Proven destructive operations
+emit one supported hard-block decision, and uncertain or non-destructive cloud
+mutation emits one exact one-shot approval instruction. Malformed, non-object,
+or oversized hook input blocks with a bounded retry reason because no operation
+can be validated from it.
 
 | Current event       | Repository owner                 | Registration decision                                   |
 | ------------------- | -------------------------------- | ------------------------------------------------------- |
@@ -168,12 +172,18 @@ existing hook chain rather than installed as a separate hook system.
     verifies whether that context belongs to a running minikube profile with a
     matching API endpoint.
   - Allows ordinary mutations and resource deletion in verified minikube;
-    complete namespace, cluster, manifest-set, or `--all` deletion still needs
-    one exact human approval.
+    complete namespace, cluster, manifest-set, or `--all` deletion is a hard
+    block. Proven destructive operations against other cloud or cluster targets
+    are also hard blocks. Non-destructive mutations and uncertain dynamic forms
+    require one exact human approval.
   - Inspects cloud commands in scripts identically regardless of script path.
     Approval hashes include the script content hash, so later edits invalidate
-    approval. The canonical minikube runner prints the verified profile and
-    context before execution.
+    approval. Shell inspection classifies tools only from executable positions;
+    cloud words used solely in paths, messages, redirect targets, or proven
+    literal searches are not commands. Dynamic or unrecognized shell data flow
+    requires a visible exact one-shot approval, while proven `kubectl` execution
+    still requires a static verified context. The canonical minikube runner
+    prints the verified profile and context before execution.
 - `PostToolUse` via `.codex/hooks/post_tool_dispatch.py` and shared observers
   - Returns immediately for a proven successful, non-material local read in
     every activation mode; no ledger, dedupe, checkpoint, or telemetry write.

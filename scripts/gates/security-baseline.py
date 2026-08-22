@@ -19,7 +19,7 @@ DISPATCHER = ROOT / ".codex" / "hooks" / "security_pre_tool_dispatch.py"
 def load_contract() -> dict[str, Any]:
     with CONFIG.open("rb") as stream:
         contract = tomllib.load(stream)
-    if contract.get("version") != 2 or contract.get("name") != "SECURITY_BASELINE":
+    if contract.get("version") != 3 or contract.get("name") != "SECURITY_BASELINE":
         raise RuntimeError("SECURITY_BASELINE contract version or name is invalid")
     if contract.get("dispatcher") != ".codex/hooks/security_pre_tool_dispatch.py":
         raise RuntimeError("SECURITY_BASELINE dispatcher does not identify the security-only hook")
@@ -32,6 +32,7 @@ def run_hook(payload: dict[str, Any], runtime: Path) -> dict[str, Any]:
         {
             "RALPH_HOME": str(runtime / "ralph"),
             "CODEX_MEMORY_HOME": str(runtime / "empty-memory"),
+            "CODEX_LOCAL_GRANT_ROOT": str(runtime / "local-grants"),
             "RALPH_LOCAL_NOTES_ROOTS": "",
             "CODEX_HOOK_STATE_ROOT": str(runtime / "hook-state"),
         }
@@ -49,7 +50,7 @@ def run_hook(payload: dict[str, Any], runtime: Path) -> dict[str, Any]:
         return {"blocked": False, "error": "dispatcher returned non-zero"}
     output = result.stdout.strip()
     if not output:
-        return {"blocked": False, "reason_code": None}
+        return {"blocked": False, "reason": "", "reason_code": None}
     try:
         decoded = json.loads(output)
     except json.JSONDecodeError:
@@ -58,12 +59,28 @@ def run_hook(payload: dict[str, Any], runtime: Path) -> dict[str, Any]:
         return {"blocked": False, "error": "dispatcher emitted a non-object JSON value"}
     return {
         "blocked": decoded.get("decision") == "block",
+        "reason": str(decoded.get("reason") or ""),
         "reason_code": decoded.get("reason_code"),
     }
 
 
-def case(name: str, payload: dict[str, Any], expected_blocked: bool) -> dict[str, Any]:
-    return {"name": name, "payload": payload, "expected_blocked": expected_blocked}
+def case(
+    name: str,
+    payload: dict[str, Any],
+    expected: str,
+    *,
+    reason_contains: str = "",
+    reason_excludes: str = "",
+) -> dict[str, Any]:
+    if expected not in {"allowed", "approval", "blocked"}:
+        raise ValueError(f"invalid SECURITY_BASELINE outcome: {expected}")
+    return {
+        "name": name,
+        "payload": payload,
+        "expected": expected,
+        "reason_contains": reason_contains,
+        "reason_excludes": reason_excludes,
+    }
 
 
 def run_cases(runtime: Path) -> list[dict[str, Any]]:
@@ -84,22 +101,42 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
         "#!/bin/sh\nif false; then\n  aws s3 cp fixture s3://synthetic-bucket/fixture\nfi\n",
         encoding="utf-8",
     )
+    harmless_shell_cloud_literals = workspace / "cluster_free_cloud_fixture.sh"
+    harmless_shell_cloud_literals.write_text(
+        "#!/usr/bin/env bash\n"
+        'cat >"${TMP_DIR}/kubectl" <<\'SH\'\n'
+        "#!/usr/bin/env bash\n"
+        "echo fake client\n"
+        "SH\n"
+        'echo "unexpected kubectl invocation" >&2\n'
+        'chmod +x "${TMP_DIR}/kubectl"\n'
+        'if run_fixture bash "${ROOT}/scripts/minikube/sync.sh" --context fake; then echo pass; fi\n'
+        'if [[ "$(grep -c expected "${ROOT}/scripts/minikube/setup.sh")" -lt 2 ]]; then echo missing; fi\n',
+        encoding="utf-8",
+    )
+    ambiguous_shell_cloud_data = workspace / "ambiguous_cloud_data.sh"
+    ambiguous_shell_cloud_data.write_text(
+        'for client in "${ROOT}/scripts/minikube/shim/kubectl"; do\n'
+        '  test -f "${client}"\n'
+        "done\n",
+        encoding="utf-8",
+    )
 
     cases = [
         case(
             "destructive-command",
             {"tool_name": "exec_command", "cwd": str(workspace), "tool_input": {"cmd": "git reset --hard HEAD"}},
-            True,
+            "blocked",
         ),
         case(
             "write-outside-workspace",
             {"tool_name": "apply_patch", "cwd": str(workspace), "tool_input": {"path": str(outside / "file.txt")}},
-            True,
+            "blocked",
         ),
         case(
             "symlink-path-escape",
             {"tool_name": "apply_patch", "cwd": str(workspace), "tool_input": {"path": "escape/file.txt"}},
-            True,
+            "blocked",
         ),
         case(
             "synthetic-sensitive-mcp-egress",
@@ -108,35 +145,57 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "cwd": str(workspace),
                 "tool_input": {"body": f"{synthetic_key_name}=synthetic-baseline-value"},
             },
-            True,
+            "blocked",
         ),
         case(
             "package-manager-network",
             {"tool_name": "exec_command", "cwd": str(workspace), "tool_input": {"cmd": "npm install synthetic-package"}},
-            True,
+            "blocked",
         ),
         case(
-            "cloud-destructive-approval",
+            "cloud-destructive-command",
             {
                 "tool_name": "exec_command",
                 "cwd": str(workspace),
                 "tool_input": {"cmd": "aws ec2 terminate-instances --instance-ids i-synthetic"},
             },
-            True,
+            "blocked",
+            reason_excludes="approve-risky-command",
         ),
         case(
-            "nested-cloud-destructive-approval",
+            "nested-cloud-destructive-command",
             {
                 "tool_name": "exec_command",
                 "cwd": str(workspace),
                 "tool_input": {"cmd": "bash -c 'aws ec2 terminate-instances --instance-ids i-synthetic'"},
             },
-            True,
+            "blocked",
+            reason_excludes="approve-risky-command",
+        ),
+        case(
+            "kubectl-context-required",
+            {
+                "tool_name": "exec_command",
+                "cwd": str(workspace),
+                "tool_input": {"cmd": "kubectl get pods"},
+            },
+            "blocked",
+            reason_excludes="approve-risky-command",
+        ),
+        case(
+            "ambiguous-shell-cloud-data-approval",
+            {
+                "tool_name": "exec_command",
+                "cwd": str(workspace),
+                "tool_input": {"cmd": f"bash {ambiguous_shell_cloud_data}"},
+            },
+            "approval",
+            reason_contains="approve-risky-command --sha256",
         ),
         case(
             "harmless-read",
             {"tool_name": "exec_command", "cwd": str(workspace), "tool_input": {"cmd": "git status"}},
-            False,
+            "allowed",
         ),
         case(
             "harmless-scoped-tool-read",
@@ -145,7 +204,7 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "cwd": str(workspace),
                 "tool_input": {"cmd": "ls -l node_modules/.bin/prettier"},
             },
-            False,
+            "allowed",
         ),
         case(
             "harmless-scoped-search",
@@ -154,7 +213,7 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "cwd": str(workspace),
                 "tool_input": {"cmd": "rg -n prettier .pre-commit-config.yaml package.json"},
             },
-            False,
+            "allowed",
         ),
         case(
             "harmless-local-script-with-cloud-fixture-text",
@@ -163,7 +222,7 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "cwd": str(workspace),
                 "tool_input": {"cmd": f"{sys.executable} {harmless_script}"},
             },
-            False,
+            "allowed",
         ),
         case(
             "harmless-shell-noexec-validation",
@@ -172,17 +231,26 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "cwd": str(workspace),
                 "tool_input": {"cmd": f"bash -n {harmless_shell_syntax}"},
             },
-            False,
+            "allowed",
+        ),
+        case(
+            "harmless-shell-cloud-literals",
+            {
+                "tool_name": "exec_command",
+                "cwd": str(workspace),
+                "tool_input": {"cmd": f"bash {harmless_shell_cloud_literals}"},
+            },
+            "allowed",
         ),
         case(
             "harmless-workspace-write-target",
             {"tool_name": "apply_patch", "cwd": str(workspace), "tool_input": {"path": str(workspace / "safe.txt")}},
-            False,
+            "allowed",
         ),
         case(
             "harmless-external-input",
             {"tool_name": "mcp__synthetic__send", "cwd": str(workspace), "tool_input": {"body": "fixture hello"}},
-            False,
+            "allowed",
         ),
         case(
             "native-generic-subagent",
@@ -191,19 +259,28 @@ def run_cases(runtime: Path) -> list[dict[str, Any]]:
                 "cwd": str(workspace),
                 "tool_input": {"agent_type": "default", "message": "read-only synthetic fixture"},
             },
-            False,
+            "allowed",
         ),
     ]
 
     results: list[dict[str, Any]] = []
     for item in cases:
         observed = run_hook(item["payload"], runtime)
-        passed = "error" not in observed and observed["blocked"] == item["expected_blocked"]
+        reason = observed.get("reason", "")
+        observed_outcome = "allowed"
+        if observed["blocked"]:
+            observed_outcome = "approval" if "approve-risky-command --sha256" in reason else "blocked"
+        passed = (
+            "error" not in observed
+            and observed_outcome == item["expected"]
+            and (not item["reason_contains"] or item["reason_contains"] in reason)
+            and (not item["reason_excludes"] or item["reason_excludes"] not in reason)
+        )
         results.append(
             {
                 "name": item["name"],
-                "expected": "blocked" if item["expected_blocked"] else "allowed",
-                "observed": "blocked" if observed["blocked"] else "allowed",
+                "expected": item["expected"],
+                "observed": observed_outcome,
                 "reason_code": observed.get("reason_code"),
                 "passed": passed,
                 **({"error": observed["error"]} if "error" in observed else {}),

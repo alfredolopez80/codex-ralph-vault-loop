@@ -1,4 +1,4 @@
-version = 2
+version = 3
 name = "SECURITY_BASELINE"
 event = "PreToolUse"
 dispatcher = ".codex/hooks/security_pre_tool_dispatch.py"
@@ -12,7 +12,7 @@ external_egress = "security_boundary"
 workspace_boundary = "security_boundary"
 symlink_escape = "security_boundary"
 package_manager_network = "pre_tool_guard_sfw"
-cloud_and_destructive_approval = "pre_tool_guard"
+cloud_decision_boundary = "pre_tool_guard"
 native_sandbox = "platform_owned"
 
 [disabled_planes]

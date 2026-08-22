@@ -80,14 +80,26 @@ def _benchmark(contract: dict) -> dict:
 def _security_report(contract: dict) -> dict:
     outcomes = [
         (fixture_id, outcome)
-        for outcome, fixture_ids in (("blocked", contract["security"]["blocked_fixture_ids"]), ("allowed", contract["security"]["allowed_fixture_ids"]))
+        for outcome, fixture_ids in (
+            ("blocked", contract["security"]["blocked_fixture_ids"]),
+            ("approval", contract["security"]["approval_fixture_ids"]),
+            ("allowed", contract["security"]["allowed_fixture_ids"]),
+        )
         for fixture_id in fixture_ids
     ]
     return {
         "name": "SECURITY_BASELINE",
-        "version": 2,
+        "version": 3,
         "passed": True,
-        "results": [{"name": name, "expected": outcome, "observed": outcome, "passed": True} for name, outcome in outcomes],
+        "results": [
+            {
+                "name": name,
+                "expected": outcome,
+                "observed": outcome,
+                "passed": True,
+            }
+            for name, outcome in outcomes
+        ],
     }
 
 
@@ -136,10 +148,17 @@ def test_contract_keeps_the_exact_ladder_and_security_fixture_partition() -> Non
         "D": ["native_execution", "security_baseline", "canonical_state", "continuity_helper", "prompt_aware_recall"],
     }
     security = contract["security"]
-    assert security["expected_fixture_total"] == len(security["fixture_ids"]) == 15
-    assert security["expected_blocked"] == len(security["blocked_fixture_ids"]) == 7
-    assert security["expected_allowed"] == len(security["allowed_fixture_ids"]) == 8
-    assert security["blocked_fixture_ids"] + security["allowed_fixture_ids"] == security["fixture_ids"]
+    assert security["expected_fixture_total"] == len(security["fixture_ids"]) == 18
+    assert security["expected_blocked"] == len(security["blocked_fixture_ids"]) == 8
+    assert security["expected_approval"] == len(security["approval_fixture_ids"]) == 1
+    assert security["expected_allowed"] == len(security["allowed_fixture_ids"]) == 9
+    assert not set(security["blocked_fixture_ids"]) & set(security["approval_fixture_ids"])
+    assert (
+        security["blocked_fixture_ids"]
+        + security["approval_fixture_ids"]
+        + security["allowed_fixture_ids"]
+        == security["fixture_ids"]
+    )
 
 
 def test_contract_rejects_ladder_drift(tmp_path: Path) -> None:

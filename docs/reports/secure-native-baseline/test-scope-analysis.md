@@ -6,7 +6,7 @@ This report does not authorize removal of any test.
 
 ## Evidence and counting boundary
 
-The current full-gate result is **1,326 passed, 27 skipped, and 5 subtests**.
+The current full-gate result is **1,338 passed, 27 skipped, and 5 subtests**.
 The prior approximate keyword inventory found **169 test files**, **1,265 test
 functions**, and **556 lifecycle-related functions**, including **149 that
 overlap security**. Those are the planning baseline for this analysis.
@@ -38,12 +38,13 @@ project/global hook-config lockstep, and secure-native-baseline evaluator.
 The lifecycle suite must remain outside that lane. The current run passed all
 four checks in about two seconds.
 
-The 15 synthetic fixtures are the versioned representative minimum from
-`SECURITY_BASELINE` v2; they are not a claim that every branch of the active
-guard is covered. Standard/full/critical lanes retain the broader security
-tests, including local-Minikube, cloud-operation, RED-egress, and malformed
-payload cases. Any new guard branch needs focused coverage there before it can
-be considered protected.
+The 18 synthetic fixtures are the versioned representative minimum from
+`SECURITY_BASELINE` v3: eight hard blocks, one exact approval case, and nine
+allowed cases. They are not a claim that every branch of the active guard is
+covered. Standard/full/critical lanes retain the broader security tests,
+including local-Minikube, cloud-operation, RED-egress, and malformed-payload
+cases. Any new guard branch needs focused coverage there before it can be
+considered protected.
 
 ## Classification matrix
 

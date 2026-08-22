@@ -109,7 +109,7 @@ def load_contract(path: Path = DEFAULT_CONTRACT) -> dict[str, Any]:
             contract = tomllib.load(stream)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise BaselineError(f"cannot read baseline contract: {path}") from exc
-    if contract.get("schema_version") != 1 or contract.get("name") != "SECURE_NATIVE_BASELINE":
+    if contract.get("schema_version") != 2 or contract.get("name") != "SECURE_NATIVE_BASELINE":
         raise BaselineError("secure native baseline contract identity is invalid")
     if contract.get("issue") != 81 or contract.get("subscription_usage_measured") is not False:
         raise BaselineError("secure native baseline issue or usage-measurement contract is invalid")
@@ -155,13 +155,20 @@ def load_contract(path: Path = DEFAULT_CONTRACT) -> dict[str, Any]:
     if not isinstance(fixture_ids, list) or len(fixture_ids) != security.get("expected_fixture_total") or len(fixture_ids) != len(set(fixture_ids)):
         raise BaselineError("contract security fixture ids must be exact and unique")
     blocked_ids = security.get("blocked_fixture_ids")
+    approval_ids = security.get("approval_fixture_ids")
     allowed_ids = security.get("allowed_fixture_ids")
-    if not isinstance(blocked_ids, list) or not isinstance(allowed_ids, list):
+    if not isinstance(blocked_ids, list) or not isinstance(approval_ids, list) or not isinstance(allowed_ids, list):
         raise BaselineError("contract security fixture outcomes are missing")
-    if blocked_ids + allowed_ids != fixture_ids:
+    if blocked_ids + approval_ids + allowed_ids != fixture_ids:
         raise BaselineError("contract security fixture outcomes do not match the stable identity order")
-    if len(blocked_ids) != security.get("expected_blocked") or len(allowed_ids) != security.get("expected_allowed"):
+    if (
+        len(blocked_ids) != security.get("expected_blocked")
+        or len(approval_ids) != security.get("expected_approval")
+        or len(allowed_ids) != security.get("expected_allowed")
+    ):
         raise BaselineError("contract security fixture outcome counts drifted")
+    if set(blocked_ids) & set(approval_ids) or set(blocked_ids) & set(allowed_ids) or set(approval_ids) & set(allowed_ids):
+        raise BaselineError("contract security approval fixture ids drifted")
     if comparison.get("baseline_variant") != "A" or comparison.get("reference_required_for") != ["B", "C", "D"]:
         raise BaselineError("comparison reference policy is invalid")
     runtime_config_path = runtime_spec.get("config_path")
@@ -424,13 +431,23 @@ def attest_security(
         raise BaselineError("one or more SECURITY_BASELINE fixtures failed")
     expected_outcomes = {
         **{fixture_id: "blocked" for fixture_id in spec["blocked_fixture_ids"]},
+        **{fixture_id: "approval" for fixture_id in spec["approval_fixture_ids"]},
         **{fixture_id: "allowed" for fixture_id in spec["allowed_fixture_ids"]},
     }
-    if any(item.get("expected") != expected_outcomes[item["name"]] or item.get("observed") != expected_outcomes[item["name"]] for item in results):
+    if any(
+        item.get("expected") != expected_outcomes[item["name"]]
+        or item.get("observed") != expected_outcomes[item["name"]]
+        for item in results
+    ):
         raise BaselineError("SECURITY_BASELINE fixture outcomes drifted")
-    blocked = sum(item.get("expected") == "blocked" and item.get("observed") == "blocked" for item in results)
+    blocked = sum(item.get("observed") == "blocked" for item in results)
+    approvals = sum(item.get("observed") == "approval" for item in results)
     allowed = sum(item.get("expected") == "allowed" and item.get("observed") == "allowed" for item in results)
-    if blocked != spec["expected_blocked"] or allowed != spec["expected_allowed"]:
+    if (
+        blocked != spec["expected_blocked"]
+        or approvals != spec["expected_approval"]
+        or allowed != spec["expected_allowed"]
+    ):
         raise BaselineError("SECURITY_BASELINE blocked/allowed balance drifted")
 
     if graph_report.get("status") != spec["expected_graph_status"] or graph_report.get("profile") != spec["expected_profile"]:
@@ -461,7 +478,8 @@ def attest_security(
         "version": security_report["version"],
         "status": "PASS",
         "fixture_total": len(results),
-        "dangerous_blocked": blocked,
+        "hard_blocked": blocked,
+        "approval_required": approvals,
         "innocuous_allowed": allowed,
         "fixture_results": [
             {
@@ -600,7 +618,7 @@ def markdown_report(report: Mapping[str, Any]) -> str:
         f"- Capture: `{report['capture_id']}`",
         f"- Variant: `{report['variant']}` (`{' + '.join(report['variant_layers'])}`)",
         f"- Result: `{report['status']}`; coverage: `{report['coverage_status']}`",
-        f"- SECURITY_BASELINE: `{security['status']}` ({security['dangerous_blocked']} dangerous blocked, {security['innocuous_allowed']} innocuous allowed)",
+        f"- SECURITY_BASELINE: `{security['status']}` ({security['hard_blocked']} hard blocked, {security['approval_required']} approval-gated, {security['innocuous_allowed']} innocuous allowed)",
         f"- Security manifest: `{security['manifest_hash']}`",
         f"- Comparison identity: `{report['comparison_contract']['identity_hash']}`",
         "",
