@@ -24,13 +24,13 @@ DOMAINS: tuple[str, ...] = (
 
 BLOCKING_ROLES: dict[str, frozenset[str]] = {
     "prompt_boundary": frozenset({"user_prompt_dispatch", "universal_prompt_classifier"}),
-    "pre_tool_safety": frozenset({"pre_tool_dispatch", "pre_tool_guard", "security_pre_tool_dispatch"}),
+    "pre_tool_safety": frozenset({"pre_tool_guard", "security_pre_tool_dispatch"}),
     "post_tool_persistence": frozenset({"post_tool_dispatch", "post_tool_checkpoint", "post_tool_extract_memory"}),
     "stop_completion": frozenset({"stop_dispatch", "ralph_stop_quality_gate", "anti_rationalization_stop"}),
 }
 REPORT_ONLY_ROLES: dict[str, frozenset[str]] = {
     "prompt_boundary": frozenset({"user_prompt_capture", "user_prompt_improve", "continuity_prompt_context"}),
-    "pre_tool_safety": frozenset({"subagent_routing_pretool_guard", "sol_advisor_pretool_guard"}),
+    "pre_tool_safety": frozenset(),
     "post_tool_persistence": frozenset({"post_tool_cost_ledger", "shaping_ripple", "sol_advisor_observer"}),
     "stop_completion": frozenset({"stop_route_decision_warn", "implementation_notes_guard", "sol_advisor_stop_guard", "stop_persist_memory", "stop_memory_promotion_review", "file_line_guard_stop"}),
 }

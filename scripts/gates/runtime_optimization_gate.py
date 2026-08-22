@@ -18,7 +18,7 @@ SECURITY_ONLY_HANDLER_COUNTS = {"PreToolUse": 1}
 CONSOLIDATED_HANDLERS = {
     "SessionStart": "session_start_dispatch.py",
     "UserPromptSubmit": "user_prompt_dispatch.py",
-    "PreToolUse": "pre_tool_dispatch.py",
+    "PreToolUse": "security_pre_tool_dispatch.py",
     "PostToolUse": "post_tool_dispatch.py",
     "Stop": "stop_dispatch.py",
 }

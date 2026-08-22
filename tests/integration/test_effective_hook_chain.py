@@ -25,10 +25,7 @@ ROLE_COMMANDS: dict[tuple[str, str], list[str]] = {
     ("UserPromptSubmit", "user_prompt_improve"): [sys.executable, str(HOOKS / "user_prompt_improve.py")],
     ("UserPromptSubmit", "continuity_prompt_context"): [sys.executable, str(HOOKS / "continuity_prompt_context.py")],
     ("PreToolUse", "security_pre_tool_dispatch"): [sys.executable, str(HOOKS / "security_pre_tool_dispatch.py")],
-    ("PreToolUse", "pre_tool_dispatch"): [sys.executable, str(HOOKS / "pre_tool_dispatch.py")],
     ("PreToolUse", "pre_tool_guard"): [sys.executable, str(HOOKS / "pre_tool_guard.py")],
-    ("PreToolUse", "subagent_routing_pretool_guard"): [sys.executable, str(HOOKS / "subagent_routing_pretool_guard.py")],
-    ("PreToolUse", "sol_advisor_pretool_guard"): [sys.executable, str(HOOKS / "sol_advisor_pretool_guard.py")],
     ("PostToolUse", "post_tool_dispatch"): [sys.executable, str(HOOKS / "post_tool_dispatch.py")],
     ("Stop", "stop_dispatch"): [sys.executable, str(HOOKS / "stop_dispatch.py")],
     ("Stop", "anti_rationalization_stop"): ["bash", str(HOOKS / "anti-rationalization-stop.sh")],
@@ -50,8 +47,6 @@ def isolated_env(tmp_path: Path) -> dict[str, str]:
     env["RALPH_LOCAL_NOTES_ROOTS"] = ""
     env["CODEX_HOOK_STATE_ROOT"] = str(tmp_path / "hook-state")
     env["CODEX_SLOP_GUARD_ENABLED"] = "0"
-    # Dispatch-shape tests are intentionally on the supported rollback lane.
-    env["RALPH_CONVERGENT_EXECUTION_MODE"] = "off"
     return env
 
 
@@ -173,7 +168,7 @@ def test_global_dispatcher_finds_project_config_from_nested_workdir(tmp_path: Pa
     payload["cwd"] = str(nested)
     payload["tool_input"] = {"cmd": "git status --short", "workdir": str(nested)}
     result = run(
-        [sys.executable, str(DISPATCHER), "--event", "PreToolUse", "--role", "pre_tool_dispatch"],
+        [sys.executable, str(DISPATCHER), "--event", "PreToolUse", "--role", "security_pre_tool_dispatch"],
         payload,
         nested,
         env,

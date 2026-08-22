@@ -103,39 +103,6 @@ def scope_from_payload(payload: Mapping[str, object]) -> StopScope:
     )
 
 
-def scope_from_convergent_state(payload: Mapping[str, object], state: Mapping[str, object]) -> StopScope:
-    """Build a v4 terminal scope without binding it to a Codex session.
-
-    Session IDs remain provenance on the context, but the canonical task
-    identity is plan/task/worktree scoped. A resumed task must find the same
-    terminal marker in a new CLI or App session.
-    """
-
-    context = active_context_from_payload(dict(payload), resolve_git=False)
-    identity = state.get("task_identity") if isinstance(state.get("task_identity"), Mapping) else {}
-    task_id = str(state.get("task_id") or "")
-    task_epoch = str(state.get("task_epoch") or "")
-    persisted_branch = str(identity.get("branch") or context.branch)
-    persisted_worktree = str(identity.get("worktree_id") or context.workspace_instance_id)
-    material = "|".join(
-        (
-            str(SCHEMA_VERSION),
-            context.project_id,
-            persisted_worktree,
-            persisted_branch,
-            task_id,
-            task_epoch,
-        )
-    )
-    return StopScope(
-        context=context,
-        task_signature=task_id,
-        task_identity_present=bool(task_id),
-        turn_id=_safe_component(_first(payload, "turn_id", "turnId", "event_id", "eventId") or "turn-unknown"),
-        scope_key=_digest(material),
-    )
-
-
 def parse_timestamp(value: object) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)

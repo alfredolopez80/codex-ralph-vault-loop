@@ -27,8 +27,6 @@ from shared.runtime_profile import (
     PROGRESS_MAINTENANCE_INTENT,
     PROGRESS_REASON_CODE,
 )
-import subagent_routing_pretool_guard as routing_guard
-from shared.agent_budget import MAX_SUBAGENT_BRIEF_BYTES
 
 REPOSITORY_DEFAULT = ExecutorDefaults(LUNA_MODEL, LUNA_DEFAULT_EFFORT)
 
@@ -400,94 +398,3 @@ def test_executor_precedence_is_repository_then_global_and_never_mutates_inputs(
     assert (repository.configured_executor_model, repository.configured_executor_source) == (LUNA_MODEL, "repository")
     assert (global_only.configured_executor_model, global_only.configured_executor_source) == ("global-model", "global")
     assert original == {"model": repo_default.model, "reasoning_effort": repo_default.reasoning_effort}
-
-
-def test_native_spawn_guard_fails_closed_when_validation_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    output: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        routing_guard,
-        "read_hook_input",
-        lambda: {
-            "tool_name": "spawn_agent",
-            "tool_input": {
-                "agent_type": "default",
-                "model": SOL_MODEL,
-                "reasoning_effort": "high",
-                "fork_context": False,
-                "message": "Review one bounded decision.",
-            },
-        },
-    )
-    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: (_ for _ in ()).throw(RuntimeError("state read")))
-    monkeypatch.setattr(routing_guard, "write_json", output.append)
-
-    assert routing_guard.main() == 0
-    assert output == [{"decision": "block", "reason": "Subagent routing validation failed; the spawn was blocked for safety."}]
-
-
-def test_native_spawn_guard_allows_an_expanded_but_bounded_brief(monkeypatch: pytest.MonkeyPatch) -> None:
-    output: list[dict[str, object]] = []
-    payload = {
-        "tool_name": "spawn_agent",
-        "tool_input": {
-            "agent_type": "default",
-            "model": SOL_MODEL,
-            "reasoning_effort": "high",
-            "fork_context": False,
-            "message": "x" * 12_000,
-        },
-    }
-    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: ("missing", {}))
-    monkeypatch.setattr(routing_guard, "write_json", output.append)
-
-    assert routing_guard._routing_main(payload) == 0
-    assert output == []
-
-
-def test_native_spawn_guard_blocks_a_brief_above_the_expanded_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    output: list[dict[str, object]] = []
-    payload = {
-        "tool_name": "spawn_agent",
-        "tool_input": {
-            "agent_type": "default",
-            "model": SOL_MODEL,
-            "reasoning_effort": "high",
-            "fork_context": False,
-            "message": "x" * (MAX_SUBAGENT_BRIEF_BYTES + 1),
-        },
-    }
-    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: ("missing", {}))
-    monkeypatch.setattr(routing_guard, "write_json", output.append)
-
-    assert routing_guard._routing_main(payload) == 0
-    assert output == [
-        {
-            "decision": "block",
-            "reason": "Subagent brief exceeds the bounded context limit; do not forward full history.",
-        }
-    ]
-
-
-@pytest.mark.parametrize("model", [TERRA_MODEL, SOL_MODEL])
-def test_native_spawn_guard_blocks_progress_contract_for_every_model(
-    monkeypatch: pytest.MonkeyPatch, model: str
-) -> None:
-    output: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        routing_guard,
-        "read_hook_input",
-        lambda: {
-            "tool_name": "collaboration.spawn_agent",
-            "origin": "implementation-progress",
-            "intent": "progress-maintenance",
-            "model": model,
-            "agent_type": "default",
-            "reasoning_effort": "max" if model == SOL_MODEL else "high",
-            "fork_context": False,
-        },
-    )
-    monkeypatch.setattr(routing_guard, "read_state_status", lambda _payload: ("missing", {}))
-    monkeypatch.setattr(routing_guard, "write_json", output.append)
-
-    assert routing_guard.main() == 0
-    assert output == [{"decision": "block", "reason": "local-deterministic-progress-maintenance"}]

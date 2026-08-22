@@ -1,7 +1,7 @@
 """Deterministic policy for newly spawned Codex subagents.
 
 This module deliberately has no hook, filesystem, clock, or configuration I/O.
-Callers provide the already-resolved executor defaults and the bounded Aristotle
+Callers provide the already-resolved executor defaults and the bounded complexity
 classification.  Its result is a recommendation for a *new* subagent only;
 it never changes the configured executor.
 """

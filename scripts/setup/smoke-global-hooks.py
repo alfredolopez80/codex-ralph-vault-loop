@@ -163,7 +163,7 @@ def _legacy_lifecycle_main() -> int:
     required = {
         "SessionStart": ["session_start_dispatch"],
         "UserPromptSubmit": ["user_prompt_dispatch"],
-        "PreToolUse": ["pre_tool_dispatch"],
+        "PreToolUse": ["security_pre_tool_dispatch"],
         "PostToolUse": ["post_tool_dispatch"],
         "SubagentStart": ["sol_advisor_subagent_context"],
         "SubagentStop": ["sol_advisor_subagent_stop"],
@@ -283,14 +283,14 @@ def _legacy_lifecycle_main() -> int:
             raise RuntimeError("session start did not include rolling checkpoint")
 
         stale_wakeup = run_hook(
-            "pre_tool_dispatch.py",
+            "security_pre_tool_dispatch.py",
             {"hook_event_name": "PreToolUse", "cwd": str(project_a), "tool_name": "exec_command",
              "tool_input": {"cmd": "python3 scripts/memory/wakeup.py", "workdir": str(project_a)}},
             env,
         )
-        assert_ok("pre_tool_dispatch.py stale wakeup", stale_wakeup)
+        assert_ok("security_pre_tool_dispatch.py stale wakeup", stale_wakeup)
         if '"decision":"block"' not in stale_wakeup.stdout or "repo-local Ralph wakeup" not in stale_wakeup.stdout:
-            raise RuntimeError("pre_tool_dispatch did not block stale repo-local wakeup")
+            raise RuntimeError("security_pre_tool_dispatch did not block stale repo-local wakeup")
 
         stop = run_hook(
             "stop_dispatch.py",

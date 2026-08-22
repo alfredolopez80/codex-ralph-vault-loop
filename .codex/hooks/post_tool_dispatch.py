@@ -29,18 +29,6 @@ from shared.post_tool_ledger import append_cost_event
 from shared.persistence_metrics import WriteAccumulator, WriteResult
 from shared.progress_hook import cheap_lookup
 from shared.progress_runtime import structured_validation, validation_transition
-from shared.convergent_hooks import is_read_only_command, successful_read_fast_path
-from shared.execution_policy import configured_activation_mode
-from shared.convergence_authority import AuthorityError, load_authoritative_state
-from shared.convergent_store import ConvergentStoreError, ConvergentIntegrityError
-from shared.manual_activation import ManualActivationError, load_manual_activation
-
-# Kept as local names for the existing PostTool test seam.  The production
-# implementation now resolves the manual activation artifact; no runtime
-# payload can mint this evidence.
-RuntimeAttestationError = ManualActivationError
-load_runtime_attestation = load_manual_activation
-from shared.tool_result_attestation import ToolResultAttestationError, request_from_attestation, structural_digest
 # Kept as an explicit benchmark/diagnostic compatibility symbol.  The normal
 # dispatcher never calls it; production byte attribution comes from writers.
 from shared.post_tool_state import append_metric, dedupe_claim, directory_bytes, result_stage
@@ -110,7 +98,19 @@ def _tokens(command: str) -> list[str]:
 
 
 def _command_is_read(command: str) -> bool:
-    return is_read_only_command(command)
+    if any(marker in command for marker in ("\n", "\r", ";", "|", "&", ">", "<", "`", "$(")):
+        return False
+    tokens = _tokens(command)
+    if not tokens:
+        return False
+    if any(token in {"&&", "||", ";", "|", ">", ">>", "<", "2>", "2>>"} for token in tokens):
+        return False
+    executable = Path(tokens[0]).name.lower()
+    if executable in READ_WORDS:
+        return True
+    if executable == "git" and len(tokens) > 1:
+        return tokens[1].lower() in {"status", "diff", "log", "show", "branch", "rev-parse", "ls-files", "remote"}
+    return False
 
 
 def _command_is_test(command: str) -> bool:
@@ -205,123 +205,6 @@ def _response_bytes(response: dict[str, Any] | None) -> int:
     return len(json.dumps(response, ensure_ascii=True, sort_keys=True).encode("utf-8")) if response else 0
 
 
-def _event_identifier(payload: dict[str, Any], *keys: str) -> str:
-    # Tool input is caller-controlled material, not event-envelope authority.
-    # Identity may come only from the outer hook event or its runtime response.
-    sources = [payload]
-    for name in ("tool_response", "toolResponse"):
-        value = payload.get(name)
-        if isinstance(value, dict):
-            sources.append(value)
-    for source in sources:
-        for key in keys:
-            value = source.get(key)
-            if value is None:
-                continue
-            if (
-                not isinstance(value, str)
-                or not value
-                or value != value.strip()
-                or len(value) > 180
-                or any(character.isspace() or ord(character) < 32 for character in value)
-            ):
-                raise ToolResultAttestationError("PostTool event identifier is invalid")
-            return value
-    return ""
-
-
-def _result_structure(payload: dict[str, Any]) -> object:
-    for name in ("tool_response", "toolResponse"):
-        value = payload.get(name)
-        if isinstance(value, dict):
-            return value
-    fields = {
-        key: payload[key]
-        for key in (
-            "success",
-            "exit_code",
-            "returncode",
-            "return_code",
-            "status",
-            "output",
-            "stdout",
-            "stderr",
-            "result",
-            "message",
-        )
-        if key in payload
-    }
-    return fields
-
-
-def _actual_event_binding(payload: dict[str, Any], tool: ToolClass) -> dict[str, object]:
-    stage = result_stage(payload)
-    if tool.test_like:
-        kind = "validation_gate"
-        outcome = "pass" if tool.success is True else "fail" if tool.success is False else ""
-    elif tool.write:
-        kind = "implementation_write"
-        outcome = "success" if tool.success is True else "failure" if tool.success is False else ""
-    else:
-        kind = ""
-        outcome = ""
-    return {
-        "tool_use_id": _event_identifier(payload, "tool_use_id", "toolUseId", "tool_call_id", "toolCallId", "call_id", "callId"),
-        "parent_tool_use_id": _event_identifier(
-            payload,
-            "parent_tool_use_id",
-            "parentToolUseId",
-            "originating_tool_use_id",
-            "originatingToolUseId",
-        ),
-        "result_stage": stage,
-        "tool_kind": kind,
-        "tool_name": tool.name,
-        "outcome": outcome,
-        "input_structural_digest": structural_digest(_tool_input(payload)),
-        "result_structural_digest": structural_digest(_result_structure(payload)),
-    }
-
-
-def _commit_convergent_transition(
-    payload: dict[str, Any],
-    *,
-    activation_mode: str,
-    tool: ToolClass,
-) -> tuple[bool, dict[str, str] | None]:
-    """Commit one explicitly attested material PostTool transition.
-
-    The hook never derives a transition from free-form output. A transition
-    is handled only when the manual activation contract and the canonical
-    authority/store accept its CAS request. Off is the only non-mutating
-    rollback mode.
-    """
-
-    candidate = payload.get("convergent_transition")
-    if candidate is None:
-        return False, None
-    if activation_mode != "enforce":
-        return False, None
-    try:
-        request, _attestation_digest = request_from_attestation(
-            candidate,
-            event_binding=_actual_event_binding(payload, tool),
-        )
-        authority, _state = load_authoritative_state(payload)
-        runtime = load_runtime_attestation(
-            authority.active.workspace_root,
-            branch=authority.active.branch,
-            head_sha=authority.checkout_head_sha,
-            policy=authority.policy,
-        )
-        if request.runtime_attestation_digest != runtime.attestation_digest:
-            raise ManualActivationError("PostTool activation approval does not match the active checkout")
-        authority.store.transition(authority.plan_id, request)
-        return True, None
-    except (ToolResultAttestationError, AuthorityError, RuntimeAttestationError, ConvergentStoreError, ConvergentIntegrityError, ValueError, TypeError):
-        return True, {"decision": "block", "reason": "convergent-post-tool-transition-invalid"}
-
-
 def _runtime_safe() -> bool:
     configured = ralph_home()
     return not configured.is_symlink()
@@ -357,20 +240,6 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any] | None:
     started = time.perf_counter_ns()
     tool = classify_tool(payload)
     context = active_context_from_payload(payload, resolve_git=False)
-    # A proven successful, non-material local read is a physical no-op in
-    # every activation mode. This optimization is independent of convergent
-    # governance: PreToolUse already enforced safety before the tool ran.
-    try:
-        activation_mode = configured_activation_mode(workspace_root=context.workspace_root)
-        handled, transition_response = _commit_convergent_transition(payload, activation_mode=activation_mode, tool=tool)
-        if transition_response is not None:
-            return transition_response
-        if handled:
-            return None
-        if successful_read_fast_path(payload).eligible:
-            return None
-    except Exception:
-        return {"decision": "block", "reason": "convergent-activation-invalid"}
     stage = result_stage(payload)
     pending_stream = stage == "partial"
     persistence_allowed = _runtime_safe()

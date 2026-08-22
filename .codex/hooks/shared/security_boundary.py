@@ -1,8 +1,8 @@
 """Security-only PreToolUse boundaries.
 
 This module deliberately contains no lifecycle, continuity, routing, memory, or
-Convergent authority logic. It is shared by the security-only dispatcher and
-the legacy dispatcher so the preserved controls do not drift during migration.
+execution-authority logic. It is shared by the security-only dispatcher and
+direct security tests so the preserved controls do not drift during migration.
 """
 from __future__ import annotations
 

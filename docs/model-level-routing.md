@@ -7,18 +7,13 @@ executor. The policy routes only newly spawned subagents. Codex main remains
 the sole spawn initiator and the final owner of decisions, edits, safety, and
 verification.
 
-Ralph Convergent Execution v4 is a separate task-local execution contract. A
-user-approved v4 task may require a real writable `gpt-5.6-sol` implementation
-owner with `max` reasoning and a stable lease. This does not change the
-repository default above, does not mutate `.codex/config.toml`, and does not
-permit Luna/Terra fallback when the SOL lease cannot be proven. The read-only
-`sol-advisor` route remains advisory and is never an automatic implementation
-owner.
-
-Hooks may classify, persist bounded metadata, annotate, allow, or block spawn
-arguments. They never start a subagent, change the current executor, or edit
-`.codex/config.toml` during a turn. Z.ai and MiniMax retain their separate MCP
-routing policy; this document does not create a direct non-OpenAI provider.
+Routing is advisory. No hook may require a model, lease a task to an advisor,
+reserve a spawn slot, or reject native spawn arguments as an execution-policy
+decision. Codex and the user remain free to select the native executor and
+subagents. The independent security hook can still block RED egress or another
+declared security violation, regardless of model. Z.ai and MiniMax retain their
+separate MCP routing policy; this document does not create a direct non-OpenAI
+provider.
 
 The Multi-Agent V2 coordination diagram used during design is inspirational,
 not an acceptance target for this policy. This rollout intentionally remains a
@@ -29,7 +24,7 @@ separate future work and are not claimed by this implementation.
 
 ## Deterministic policy
 
-The pure `subagent-routing-v2` helper accepts an Aristotle classification,
+The pure `subagent-routing-v2` helper accepts a complexity classification,
 intent, impact class, sensitivity, bounded overrides, proven capabilities, and
 remaining budget. It returns an inspectable recommendation without filesystem,
 hook, clock, or configuration I/O.
@@ -62,7 +57,7 @@ automatic progress `192` bytes; Sol or unknown/unverified `96` bytes or a
 pointer; advisor allowance is always zero. No model selector is mutated by
 these fields or by this routing branch.
 
-| Aristotle result        | Current executor | New-subagent recommendation                                     |
+| Complexity              | Current executor | New-subagent recommendation                                     |
 | ----------------------- | ---------------- | --------------------------------------------------------------- |
 | 1-3 routine or low-risk | Luna / Max       | None by default                                                 |
 | 4-6                     | Luna / Max       | Direct; Terra only for an explicit independent measurable block |
@@ -91,11 +86,11 @@ while a previously explicit failure remains sticky through continuations.
 `SessionStart` emits a compact reminder generated from the same policy
 constants. It is non-authoritative context only: it keeps the configured
 Luna/Max executor unchanged, contains no task history, and does not trigger a
-spawn. Complexity-specific routing is still recalculated by the Aristotle
-intake hook for each prompt. The policy caps automatic complexity-10 routing
-at Sol/Max even when a newer native runtime also exposes `ultra`.
+spawn. Complexity-specific routing can be recalculated by an optional intake
+helper. The policy caps a complexity-10 recommendation at Sol/Max even when a
+newer native runtime also exposes `ultra`.
 
-Explicit continuations may raise the persisted Aristotle complexity
+Explicit continuations may raise the persisted complexity
 monotonically and refresh the route; an explicit task boundary is required to
 start lower. Executor metadata reads repository configuration first, then the
 global `CODEX_HOME/config.toml`, and uses Luna/Max only when neither exists.
@@ -120,15 +115,12 @@ All routed subagents use explicit `fork_context=false` and receive a minimized b
 persisted route/mode, rather than an invented spawn field, distinguishes active
 analysis from advisory Sol work.
 
-The pre-tool guard owns the security boundary for every native spawn: RED stays
-local, the brief is non-empty and bounded, and fresh context is explicit. A
-policy-generated Terra/Sol spawn additionally matches persisted route and budget
-state. A direct current-schema override using `agent_type=default`, a supported
-model/effort, and `fork_context=false` may proceed when valid routing state is
-absent; corrupt or unreadable state still fails closed.
+The security pre-tool hook evaluates a spawn only for independent security
+categories such as RED egress. It does not validate the recommended route,
+model, effort, context shape, persisted budget, or advisor eligibility.
 
 Precedence is: safety, sensitivity, and platform constraints; task override;
-session override; Aristotle result; repository default; global default. Task
+session override; complexity result; repository default; global default. Task
 overrides expire with the task and session overrides expire with the session.
 The policy records selected requested/effective values plus per-scope rejected
 and expired values with a reason. An expired task override no longer masks a
@@ -139,7 +131,7 @@ reduce to local work. An override never changes the configured executor.
 
 The active native default and ceiling are `max_threads=8` with `max_depth=1`.
 `.codex/config.toml` is the only supported adjustment surface for these native
-limits; legacy execution-policy files are intentionally inactive. A task ledger
+limits; the former execution-authority policy files have been removed. A task ledger
 uses a content-free task signature and permits work only within the configured
 thread ceiling. Allocation still requires its normal eligibility checks: there
 is no automatic fan-out. The first objective failure stays with main; a second
@@ -153,35 +145,10 @@ tool output. The advisor returns a compact verdict, risks, smallest next
 verification, and conditions that would change the verdict. Codex main accepts
 or rejects that advice only after local verification.
 
-The Stop hook is an idempotent, report-only recommendation recorder. It does
-not block completion or claim the mandatory fresh-review behavior shown in the
-inspirational V2 diagram. The decision fingerprint stays stable when only the
-live consultation allowance changes; the pre-tool guard rechecks the current
-`consultation_budget`, `consultation_count`, and `budget_remaining` before each
-managed Sol spawn.
-The guard also rejects a second Sol spawn in an already consulted lifecycle
-phase. The generated advisor packet remains capped at 4,096 bytes, while an
-explicit native brief can use up to 16,384 aggregate UTF-8 bytes across all
-aliases. This preserves the compact default but leaves room for complex,
-necessary evidence without forwarding full history. A pre-tool reservation is a 15-minute lease:
-matching start/failure callbacks release it earlier, while a missing callback
-eventually permits a bounded retry instead of permanently poisoning the phase.
-This is an availability recovery trade-off; a call that remains live beyond
-the lease must be revalidated locally before accepting its result.
-The phase check uses the persisted lifecycle phase rather than a caller-supplied
-spawn field, so a payload cannot evade the per-phase limit by renaming its phase.
-Sensitivity candidates are merged monotonically across intake envelopes, and a
-failure transition refreshes the persisted routing decision before a `stuck`
-consultation is considered eligible.
-
-Every native spawn must include a non-empty decision brief within the packet
-limit and must explicitly set `fork_context=false`; omission and inherited
-history are blocked. Persisted RED state and RED content in any brief source
-remain fail-closed. Legacy history fields such as `fork_turns` are rejected;
-generated and accepted direct arguments use the current desktop schema.
-Operational state may be absent after a worktree/cache transition, but
-only the closed current native shape described above receives the bounded
-pass-through. State corruption never receives that compatibility treatment.
+Lifecycle hook registration is disabled. Recommendation metadata may describe
+budgets, context minimization, or preferred fresh forks, but no reservation,
+phase, persisted counter, missing state, or advisor history can block a native
+spawn. RED content remains local through the independent security plane.
 
 The advisor packet contains only a concrete question, compact local evidence,
 relevant file identifiers, constraints, and the required output headings.
@@ -193,10 +160,10 @@ they never record prompt, memory, transcript, or advisor-result bodies.
 1. Prove the exact model IDs, effort names, typed-agent precedence, spawn
    argument visibility, expiry, budget accounting, and rollback in a fresh
    local Codex session.
-2. Keep active analysis disabled until that proof exists. Add the pure policy,
-   bounded hook metadata, spawn guards, and focused tests repository-locally.
+2. Keep active analysis optional until that proof exists. Add pure advisory
+   policy and focused tests repository-locally without a spawn veto.
 3. Exercise direct Luna routing, the explicit Terra independent-block lane,
-   one gated Sol advisor, override, RED, and active-analysis rejection cases in
+   one optional Sol advisor, override, RED, and active-analysis cases in
    repository-local fresh sessions.
 4. Only with separate explicit approval, install the source-parity-verified
    hooks and agents globally, then verify fresh App, CLI, and neutral-workspace
