@@ -85,6 +85,7 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     approve_risky = tmp_path / ".ralph-codex" / "bin" / "approve-risky-command"
     approve_patch = tmp_path / ".ralph-codex" / "bin" / "approve-local-patch"
     hooks_json = tmp_path / ".codex" / "hooks.json"
+    hook_root = tmp_path / ".codex" / "hooks"
     pre_tool_guard = tmp_path / ".codex" / "hooks" / "pre_tool_guard.py"
     security_pre_tool_dispatch = tmp_path / ".codex" / "hooks" / "security_pre_tool_dispatch.py"
     assert skill.is_symlink()
@@ -113,6 +114,10 @@ def test_global_install_doctor_and_uninstall_with_temp_home(tmp_path: Path) -> N
     assert hooks_json.is_file()
     assert pre_tool_guard.is_file()
     assert security_pre_tool_dispatch.is_file()
+    assert not any(
+        path.name == "__pycache__" or path.suffix in {".pyc", ".pyo"}
+        for path in hook_root.rglob("*")
+    )
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     assert os.readlink(skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
     assert os.readlink(codex_skill) == str(ROOT / ".agents" / "skills" / "orchestrator")
